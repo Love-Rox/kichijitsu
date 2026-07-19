@@ -1,3 +1,8 @@
+/*
+ * レイアウト定数 (apps/web/src/layout/gridMetrics.ts と一致させること):
+ *   HOUR_HEIGHT = 48px, DAY_HEIGHT = 24 * 48 = 1152px
+ */
+
 .week-grid {
   display: flex;
   flex-direction: column;
@@ -5,37 +10,46 @@
   height: 100%;
 }
 
-.week-grid-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
+/* ---- ヘッダー行 (曜日・日付): 縦スクロールの外、常に固定表示 ---- */
 
-.week-grid-inner {
-  display: grid;
-  grid-template-columns: 60px repeat(7, 1fr);
-  grid-template-rows: 44px auto;
-}
-
-.week-grid-corner {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: #fff;
+.week-grid-header {
+  display: flex;
+  flex: 0 0 auto;
+  height: 44px;
   border-bottom: 1px solid #e5e7eb;
+  /* 下の .week-grid-scroll と同じスクロールバー分の余白を確保し、列がズレないようにする */
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+.week-grid-header-gutter {
+  flex: 0 0 60px;
+}
+
+.week-grid-header-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.week-grid-header-strip {
+  display: flex;
+  width: 300%;
+  height: 100%;
+}
+
+.week-grid-header-panel {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
 }
 
 .week-grid-day-header {
-  position: sticky;
-  top: 0;
-  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
   border-left: 1px solid #e5e7eb;
   font-size: 12px;
   color: #374151;
@@ -66,14 +80,24 @@
   color: #fff;
 }
 
-/*
- * 1時間 = 48px のサイクルで補助罫線を重ねる。DOM は増やさず単一の
- * repeating-linear-gradient で描画する:
- *   12px = 15分（ごく薄い）, 24px = 30分（やや薄い）,
- *   36px = 45分（ごく薄い）, 48px = 60分（通常の時間罫線）
- */
-.week-grid-time-gutter,
-.week-grid-day-column {
+/* ---- 本体: 縦スクロールする領域 ---- */
+
+.week-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.week-grid-body {
+  display: flex;
+}
+
+.week-grid-gutter {
+  position: relative;
+  flex: 0 0 60px;
+  height: 1152px;
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
@@ -95,10 +119,6 @@
   );
 }
 
-.week-grid-time-gutter {
-  position: relative;
-}
-
 .hour-label {
   position: absolute;
   right: 8px;
@@ -108,14 +128,61 @@
   white-space: nowrap;
 }
 
+.week-grid-days-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.week-grid-days-strip {
+  display: flex;
+  width: 300%;
+  height: 1152px;
+}
+
+.week-grid-days-panel {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  height: 100%;
+}
+
+/*
+ * 1時間 = 48px のサイクルで補助罫線を重ねる。DOM は増やさず単一の
+ * repeating-linear-gradient で描画する:
+ *   12px = 15分（ごく薄い）, 24px = 30分（やや薄い）,
+ *   36px = 45分（ごく薄い）, 48px = 60分（通常の時間罫線）
+ */
 .week-grid-day-column {
   position: relative;
   border-left: 1px solid #e5e7eb;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 11px,
+    rgba(229, 231, 235, 0.4) 11px,
+    rgba(229, 231, 235, 0.4) 12px,
+    transparent 12px,
+    transparent 23px,
+    rgba(229, 231, 235, 0.7) 23px,
+    rgba(229, 231, 235, 0.7) 24px,
+    transparent 24px,
+    transparent 35px,
+    rgba(229, 231, 235, 0.4) 35px,
+    rgba(229, 231, 235, 0.4) 36px,
+    transparent 36px,
+    transparent 47px,
+    #e5e7eb 47px,
+    #e5e7eb 48px
+  );
 }
 
 .week-grid-day-column.is-today {
   background-color: rgba(37, 99, 235, 0.04);
 }
+
+/* ---- イベントブロック ---- */
 
 .event {
   position: absolute;
@@ -127,6 +194,9 @@
   font-size: 12px;
   line-height: 1.3;
   color: #1f2937;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
 .event-time {
@@ -170,6 +240,41 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event--dragging {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
+  cursor: grabbing;
+  z-index: 10;
+}
+
+.event-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* ---- ドラッグ中のフローティング時刻バッジ ---- */
+
+.drag-badge {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   white-space: nowrap;
 }
 

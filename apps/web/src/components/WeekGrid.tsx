@@ -1,33 +1,51 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Temporal } from '@js-temporal/polyfill'
 import type { Occurrence } from '../model/types'
+import type { OccurrenceStore } from '../store/occurrenceStore'
+import { useOccurrences } from '../store/occurrenceStore'
 import { packColumns } from '../layout/packColumns'
+import { minutesToPx } from '../layout/gridMetrics'
+import { EventBlock } from './EventBlock'
 import './WeekGrid.css'
 
-const HOUR_HEIGHT = 48
-const DAY_HEIGHT = HOUR_HEIGHT * 24
 const INITIAL_SCROLL_HOUR = 8
 const COMPACT_THRESHOLD_MIN = 40
+const SLIDE_MS = 200
 const WEEKDAY_LABELS = ['月', '火', '水', '木', '金', '土', '日']
 
 interface WeekGridProps {
-  occurrences: Occurrence[]
+  store: OccurrenceStore
   weekStart: Temporal.PlainDate
   timeZone: string
 }
 
-function minutesToPx(minutes: number): number {
-  return minutes * (HOUR_HEIGHT / 60)
+type SlidePhase = 'idle' | 'next' | 'prev'
+
+/** phase から strip の transform を求める。3週(prev/current/next)のうち中央(=index1)が既定表示 */
+function transformForPhase(phase: SlidePhase): string {
+  if (phase === 'next') return 'translateX(-66.6667%)'
+  if (phase === 'prev') return 'translateX(0%)'
+  return 'translateX(-33.3333%)'
 }
 
-function formatTime(ms: number, timeZone: string): string {
-  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone)
-  return `${zdt.hour}:${String(zdt.minute).padStart(2, '0')}`
+interface WeekPanelData {
+  weekPanelStart: Temporal.PlainDate
+  days: Temporal.PlainDate[]
+  dayStarts: number[]
+  dayEnds: number[]
+  dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<Occurrence>> }[]
 }
 
-export function WeekGrid({ occurrences, weekStart, timeZone }: WeekGridProps) {
+export function WeekGrid({ store, weekStart, timeZone }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds)
+
+  // 表示中(=アニメーション完了済み)の中央週。ストリップは常にこの ±1週の3週ぶんだけ DOM を持つ
+  const [center, setCenter] = useState(weekStart)
+  const [phase, setPhase] = useState<SlidePhase>('idle')
+  // true の間は transform の transition を切る(スワップ直後の瞬間ジャンプを無アニメで行うため)
+  const [instant, setInstant] = useState(true)
+  const slideTimeoutRef = useRef<number | undefined>(undefined)
 
   // 現在時刻線を1分ごとに更新
   useEffect(() => {
@@ -42,9 +60,47 @@ export function WeekGrid({ occurrences, weekStart, timeZone }: WeekGridProps) {
     scrollRef.current?.scrollTo({ top: minutesToPx(INITIAL_SCROLL_HOUR * 60) })
   }, [])
 
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => weekStart.add({ days: i })),
-    [weekStart],
+  // weekStart (App が持つ状態) が変わったら center に反映する。
+  // ちょうど隣の週への移動ならスライドアニメーションし、それ以外(today ジャンプ等)は瞬時に切り替える。
+  useEffect(() => {
+    if (weekStart.equals(center)) return
+    if (slideTimeoutRef.current !== undefined) {
+      window.clearTimeout(slideTimeoutRef.current)
+      slideTimeoutRef.current = undefined
+    }
+    const deltaDays = weekStart.since(center, { largestUnit: 'day' }).days
+
+    if (deltaDays === 7 || deltaDays === -7) {
+      setInstant(false)
+      setPhase(deltaDays === 7 ? 'next' : 'prev')
+      slideTimeoutRef.current = window.setTimeout(() => {
+        setInstant(true)
+        setPhase('idle')
+        setCenter(weekStart)
+        // instant での瞬間ジャンプが確実に1フレーム描画されてから transition を戻す
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => setInstant(false))
+        })
+      }, SLIDE_MS)
+    } else {
+      setInstant(true)
+      setPhase('idle')
+      setCenter(weekStart)
+    }
+    // center は effect 内でのみ更新するので依存に含めない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart])
+
+  useEffect(
+    () => () => {
+      if (slideTimeoutRef.current !== undefined) window.clearTimeout(slideTimeoutRef.current)
+    },
+    [],
+  )
+
+  const weeks = useMemo(
+    () => [center.subtract({ weeks: 1 }), center, center.add({ weeks: 1 })],
+    [center],
   )
 
   const todayPlainDate = useMemo(
@@ -52,41 +108,80 @@ export function WeekGrid({ occurrences, weekStart, timeZone }: WeekGridProps) {
     [nowMs, timeZone],
   )
 
-  const dayData = useMemo(
-    () =>
-      days.map((day) => {
-        const dayStartMs = day.toZonedDateTime({ timeZone }).epochMilliseconds
-        const dayEndMs = day.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds
-        const items = occurrences.filter((o) => o.startMs >= dayStartMs && o.startMs < dayEndMs)
-        const positioned = packColumns(
-          items,
-          (o) => o.startMs,
-          (o) => o.endMs,
-        )
-        return { day, dayStartMs, dayEndMs, positioned }
-      }),
-    [days, occurrences, timeZone],
+  const rangeStartMs = useMemo(
+    () => weeks[0].toZonedDateTime({ timeZone }).epochMilliseconds,
+    [weeks, timeZone],
   )
+  const rangeEndMs = useMemo(
+    () => weeks[2].add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds,
+    [weeks, timeZone],
+  )
+  const occurrences = useOccurrences(store, rangeStartMs, rangeEndMs)
+
+  const weekPanels = useMemo<WeekPanelData[]>(
+    () =>
+      weeks.map((weekPanelStart) => {
+        const days = Array.from({ length: 7 }, (_, i) => weekPanelStart.add({ days: i }))
+        const dayStarts = days.map((d) => d.toZonedDateTime({ timeZone }).epochMilliseconds)
+        const dayEnds = [...dayStarts.slice(1), weekPanelStart.add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds]
+        const dayData = days.map((day, i) => {
+          const items = occurrences.filter(
+            (o) => o.startMs >= dayStarts[i] && o.startMs < dayEnds[i],
+          )
+          const positioned = packColumns(
+            items,
+            (o) => o.startMs,
+            (o) => o.endMs,
+          )
+          return { day, positioned }
+        })
+        return { weekPanelStart, days, dayStarts, dayEnds, dayData }
+      }),
+    [weeks, occurrences, timeZone],
+  )
+
+  const handleCommit = useCallback(
+    (updated: Occurrence) => {
+      store.update(updated)
+    },
+    [store],
+  )
+
+  const transform = transformForPhase(phase)
+  const stripStyle = {
+    transform,
+    transition: instant ? 'none' : `transform ${SLIDE_MS}ms ease`,
+  }
 
   return (
     <div className="week-grid">
-      <div className="week-grid-scroll" ref={scrollRef}>
-        <div className="week-grid-inner">
-          <div className="week-grid-corner" />
-          {days.map((day) => {
-            const isToday = day.equals(todayPlainDate)
-            return (
-              <div
-                key={day.toString()}
-                className={isToday ? 'week-grid-day-header is-today' : 'week-grid-day-header'}
-              >
-                <span className="weekday">{WEEKDAY_LABELS[day.dayOfWeek - 1]}</span>
-                <span className="date">{day.day}</span>
+      <div className="week-grid-header">
+        <div className="week-grid-header-gutter" />
+        <div className="week-grid-header-viewport">
+          <div className="week-grid-header-strip" style={stripStyle}>
+            {weekPanels.map(({ weekPanelStart, days }) => (
+              <div className="week-grid-header-panel" key={weekPanelStart.toString()}>
+                {days.map((day) => {
+                  const isToday = day.equals(todayPlainDate)
+                  return (
+                    <div
+                      key={day.toString()}
+                      className={isToday ? 'week-grid-day-header is-today' : 'week-grid-day-header'}
+                    >
+                      <span className="weekday">{WEEKDAY_LABELS[day.dayOfWeek - 1]}</span>
+                      <span className="date">{day.day}</span>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            ))}
+          </div>
+        </div>
+      </div>
 
-          <div className="week-grid-time-gutter" style={{ height: DAY_HEIGHT }}>
+      <div className="week-grid-scroll" ref={scrollRef}>
+        <div className="week-grid-body">
+          <div className="week-grid-gutter">
             {Array.from({ length: 24 }, (_, hour) => (
               <div key={hour} className="hour-label" style={{ top: minutesToPx(hour * 60) }}>
                 {hour}:00
@@ -94,60 +189,58 @@ export function WeekGrid({ occurrences, weekStart, timeZone }: WeekGridProps) {
             ))}
           </div>
 
-          {dayData.map(({ day, dayStartMs, dayEndMs, positioned }) => {
-            const isToday = day.equals(todayPlainDate)
-            const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs
-            const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000)
+          <div className="week-grid-days-viewport">
+            <div className="week-grid-days-strip" style={stripStyle}>
+              {weekPanels.map(({ weekPanelStart, dayStarts, dayEnds, dayData }) => (
+                <div className="week-grid-days-panel" key={weekPanelStart.toString()}>
+                  {dayData.map(({ day, positioned }, dayIndex) => {
+                    const dayStartMs = dayStarts[dayIndex]
+                    const dayEndMs = dayEnds[dayIndex]
+                    const isToday = day.equals(todayPlainDate)
+                    const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs
+                    const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000)
 
-            return (
-              <div
-                key={day.toString()}
-                className={isToday ? 'week-grid-day-column is-today' : 'week-grid-day-column'}
-                style={{ height: DAY_HEIGHT }}
-              >
-                {positioned.map(({ item, column, columnCount }) => {
-                  const durationMin = (item.endMs - item.startMs) / 60_000
-                  const isCompact = durationMin < COMPACT_THRESHOLD_MIN
-                  const top = minutesToPx((item.startMs - dayStartMs) / 60_000)
-                  const height = Math.max(minutesToPx(durationMin), 4)
-                  const widthPct = 100 / columnCount
+                    return (
+                      <div
+                        key={day.toString()}
+                        className={isToday ? 'week-grid-day-column is-today' : 'week-grid-day-column'}
+                      >
+                        {positioned.map(({ item, column, columnCount }) => {
+                          const durationMin = (item.endMs - item.startMs) / 60_000
+                          const isCompact = durationMin < COMPACT_THRESHOLD_MIN
+                          const topPx = minutesToPx((item.startMs - dayStartMs) / 60_000)
+                          const heightPx = Math.max(minutesToPx(durationMin), 4)
+                          const widthPct = 100 / columnCount
 
-                  return (
-                    <div
-                      key={item.id}
-                      className={isCompact ? 'event event--compact' : 'event'}
-                      style={{
-                        top,
-                        height,
-                        left: `${column * widthPct}%`,
-                        width: `calc(${widthPct}% - 2px)`,
-                        backgroundColor: `${item.color}26`,
-                        borderLeftColor: item.color,
-                      }}
-                      title={item.title}
-                    >
-                      {isCompact ? (
-                        <span className="event-line">
-                          <span className="event-time">{formatTime(item.startMs, timeZone)}</span>
-                          <span className="event-title">{item.title}</span>
-                        </span>
-                      ) : (
-                        <>
-                          <span className="event-time">{formatTime(item.startMs, timeZone)}</span>
-                          <span className="event-title">{item.title}</span>
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-                {showNowLine && (
-                  <div className="now-line" style={{ top: nowTop }}>
-                    <span className="now-line-dot" />
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                          return (
+                            <EventBlock
+                              key={item.id}
+                              occurrence={item}
+                              top={topPx}
+                              height={heightPx}
+                              leftPct={column * widthPct}
+                              widthPct={widthPct}
+                              isCompact={isCompact}
+                              timeZone={timeZone}
+                              dayIndex={dayIndex}
+                              dayStartMs={dayStartMs}
+                              weekDayStarts={dayStarts}
+                              onCommit={handleCommit}
+                            />
+                          )
+                        })}
+                        {showNowLine && (
+                          <div className="now-line" style={{ top: nowTop }}>
+                            <span className="now-line-dot" />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

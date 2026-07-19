@@ -26,6 +26,27 @@
   color: #6b7280;
 }
 
+.toolbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-nav button {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-nav button:hover {
+  background: #f3f4f6;
+}
+
 .app-main {
   flex: 1;
   min-height: 0;
