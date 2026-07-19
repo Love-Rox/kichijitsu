@@ -356,3 +356,27 @@ describe('mapGoogleEvents: location / description の取り込み', () => {
     expect(result.overrides[1].patch).not.toHaveProperty('description')
   })
 })
+
+describe('mapGoogleEvents: iCalUID の取り込み (フェーズ5 重複集約キー)', () => {
+  it('単発イベント・シリーズの iCalUID を occurrence/series に写す', () => {
+    const single = baseEvent({ id: 'single-with-uid', iCalUID: 'uid-single@google.com' })
+    const series = baseEvent({
+      id: 'series-with-uid',
+      recurrence: ['RRULE:FREQ=WEEKLY'],
+      iCalUID: 'uid-series@google.com',
+    })
+
+    const result = mapGoogleEvents([single, series], ctx)
+
+    expect(result.singles[0].iCalUID).toBe('uid-single@google.com')
+    expect(result.series[0].iCalUID).toBe('uid-series@google.com')
+  })
+
+  it('iCalUID が無いイベントは undefined のまま', () => {
+    const single = baseEvent({ id: 'single-without-uid' })
+
+    const result = mapGoogleEvents([single], ctx)
+
+    expect(result.singles[0].iCalUID).toBeUndefined()
+  })
+})

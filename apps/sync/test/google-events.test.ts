@@ -26,4 +26,13 @@ describe('toGoogleEventDTO', () => {
     expect(serialized).not.toContain('location')
     expect(serialized).not.toContain('description')
   })
+
+  it('copies iCalUID through when present, and drops it from the wire format when absent', () => {
+    const withUid = toGoogleEventDTO({ id: 'evt-3', status: 'confirmed', iCalUID: 'uid-123@google.com' })
+    expect(withUid.iCalUID).toBe('uid-123@google.com')
+
+    const withoutUid = toGoogleEventDTO({ id: 'evt-4', status: 'confirmed' })
+    expect(withoutUid.iCalUID).toBeUndefined()
+    expect(JSON.stringify(withoutUid)).not.toContain('iCalUID')
+  })
 })

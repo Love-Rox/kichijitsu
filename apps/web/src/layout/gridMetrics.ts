@@ -10,6 +10,14 @@ export const HOUR_HEIGHT = 48
 export const DAY_HEIGHT = HOUR_HEIGHT * 24
 export const PX_PER_MINUTE = HOUR_HEIGHT / 60
 
+/**
+ * 日列内のイベント配置(カスケード表示、フェーズ5)の左右ガター。
+ * 予定が日の仕切り線に密着しないよう、列の内側にこの px 分だけ余白を持たせる
+ * (WeekGrid のカスケード列計算は 0-100% の「使用可能幅」基準で行い、
+ * EventBlock 側でこの px インセットと組み合わせて calc() する)
+ */
+export const DAY_COLUMN_INSET_PX = 3
+
 export function minutesToPx(minutes: number): number {
   return minutes * PX_PER_MINUTE
 }

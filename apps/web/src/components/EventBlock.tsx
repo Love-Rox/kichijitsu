@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react'
 import type { Occurrence } from '../model/types'
 import { snapEndMs, snapStartMs } from '../layout/snap'
-import { formatDetailDateTime, formatRange, formatTime, minutesToPx, pxToMinutes } from '../layout/gridMetrics'
+import {
+  DAY_COLUMN_INSET_PX,
+  formatDetailDateTime,
+  formatRange,
+  formatTime,
+  minutesToPx,
+  pxToMinutes,
+} from '../layout/gridMetrics'
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
@@ -12,12 +19,22 @@ export interface CalendarInfo {
 }
 
 interface EventBlockProps {
+  /** カード上で実際に操作対象になる代表 occurrence(集約グループの主コピー) */
   occurrence: Occurrence
+  /**
+   * この occurrence が属す集約グループの全メンバー(フェーズ5の同一予定集約)。
+   * 1件なら occurrence 自身のみを含む配列。2件以上でカード上に色ドットを表示し、
+   * 詳細ポップオーバーで全所属を列挙する
+   */
+  groupMembers: Occurrence[]
   /** その日の 0:00 からの px オフセット（親が packColumns の結果から計算済み） */
   top: number
   height: number
+  /** 使用可能幅(日列の左右インセットを除いた内側)に対する % (0-100)。カスケード表示の座標 */
   leftPct: number
   widthPct: number
+  /** カスケード表示の重なり順(0-based 列番号)。z-index の基準にする */
+  stackIndex: number
   isCompact: boolean
   timeZone: string
   /** このブロックが今属している日の週内インデックス (0=月 .. 6=日) */
@@ -118,10 +135,12 @@ function clampPopoverPosition(x: number, y: number): { left: number; top: number
  */
 export function EventBlock({
   occurrence,
+  groupMembers,
   top,
   height,
   leftPct,
   widthPct,
+  stackIndex,
   isCompact,
   timeZone,
   dayIndex,
@@ -408,21 +427,34 @@ export function EventBlock({
   // 巻き戻されないようにするためのガード。top/left/width は自前で
   // 直接書き換えることがないので毎回 props の値をそのまま使ってよい。
   const isResizing = dragRef.current?.kind === 'resize'
+  // カスケード表示(フェーズ5): leftPct/widthPct は「日列の左右インセットを除いた
+  // 使用可能幅」に対する % (WeekGrid 側で計算済み)。px のインセットと % を
+  // calc() で組み合わせ、予定が日の仕切り線に密着しないようにする
+  const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`
   const style: CSSProperties = {
     top,
-    left: `${leftPct}%`,
-    width: `calc(${widthPct}% - 2px)`,
-    backgroundColor: `${occurrence.color}26`,
+    left: `calc(${DAY_COLUMN_INSET_PX}px + ${usableWidthExpr} * ${leftPct / 100})`,
+    width: `calc(${usableWidthExpr} * ${widthPct / 100})`,
+    zIndex: stackIndex + 1,
+    // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと
+    // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
+    backgroundColor: `color-mix(in srgb, ${occurrence.color} 15%, white)`,
     borderLeftColor: occurrence.color,
   }
   if (!isResizing) {
     style.height = height
   }
 
-  const calendarInfo =
-    occurrence.accountId && occurrence.calendarId
-      ? calendarLookup.get(`${occurrence.accountId}:${occurrence.calendarId}`)
-      : undefined
+  // 同一予定の集約(フェーズ5): 2件以上の複製がある場合だけ所属カレンダーの
+  // 色ドットをカード上に並べる。詳細ポップオーバー側では常に groupMembers を渡し、
+  // 1件のときは従来通り calendarInfo 単体表示のままにする(EventDetailCard 側で分岐)
+  const showGroupDots = groupMembers.length > 1
+  const dotColors = showGroupDots
+    ? groupMembers.map((m) => {
+        const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
+        return info?.backgroundColor ?? m.color
+      })
+    : []
 
   return (
     <>
@@ -441,10 +473,26 @@ export function EventBlock({
           <span className="event-line">
             <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
             <span className="event-title">{occurrence.title}</span>
+            {showGroupDots && (
+              <span className="event-group-dots" aria-hidden="true">
+                {dotColors.map((c, i) => (
+                  <span key={i} className="event-group-dot" style={{ background: c }} />
+                ))}
+              </span>
+            )}
           </span>
         ) : (
           <>
-            <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+            <span className="event-header-row">
+              <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+              {showGroupDots && (
+                <span className="event-group-dots" aria-hidden="true">
+                  {dotColors.map((c, i) => (
+                    <span key={i} className="event-group-dot" style={{ background: c }} />
+                  ))}
+                </span>
+              )}
+            </span>
             <span className="event-title">{occurrence.title}</span>
           </>
         )}
@@ -457,7 +505,8 @@ export function EventBlock({
             occurrence={occurrence}
             timeZone={timeZone}
             position={detailPos}
-            calendarInfo={calendarInfo}
+            groupMembers={groupMembers}
+            calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
           />,
           document.body,
@@ -470,7 +519,10 @@ interface EventDetailCardProps {
   occurrence: Occurrence
   timeZone: string
   position: { x: number; y: number }
-  calendarInfo?: CalendarInfo
+  /** 集約グループの全メンバー(フェーズ5)。1件なら occurrence 自身のみ */
+  groupMembers: Occurrence[]
+  /** `${accountId}:${calendarId}` → カレンダー名/色。全所属の列挙に使う */
+  calendarLookup: Map<string, CalendarInfo>
   onClose: () => void
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>
@@ -479,6 +531,8 @@ interface EventDetailCardProps {
 /**
  * クリック詳細ポップオーバー。日時・場所・説明(プレーン化+最大10行程度でクランプ)・
  * Google で開くリンク・どのカレンダーか、を表示のみで持つ(編集機能は無し)。
+ * 同一予定の集約(フェーズ5)で複数アカウント/カレンダーに重複がある場合は、
+ * 全所属をカレンダー名の列で列挙する(groupMembers が2件以上のとき)。
  * .week-grid-days-viewport (overflow:hidden) の中に transform を持つ祖先
  * (.week-grid-days-strip) がいるため、position:fixed の containing block が
  * ビューポートではなくその祖先になってしまう問題を避けるべく document.body へ
@@ -488,12 +542,19 @@ function EventDetailCard({
   occurrence,
   timeZone,
   position,
-  calendarInfo,
+  groupMembers,
+  calendarLookup,
   onClose,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y)
   const plainDescription = occurrence.description ? stripHtmlToPlainText(occurrence.description) : ''
+  const memberCalendars = groupMembers
+    .map((m) => {
+      const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
+      return info ? { key: m.id, color: info.backgroundColor ?? '#9ca3af', summary: info.summary } : null
+    })
+    .filter((info) => info !== null)
 
   return (
     <div
@@ -517,14 +578,18 @@ function EventDetailCard({
           Google で開く
         </a>
       )}
-      {calendarInfo && (
-        <div className="event-detail-calendar">
-          <span
-            className="event-detail-calendar-dot"
-            style={{ background: calendarInfo.backgroundColor ?? '#9ca3af' }}
-            aria-hidden="true"
-          />
-          {calendarInfo.summary}
+      {memberCalendars.length > 0 && (
+        <div className="event-detail-calendar-list">
+          {memberCalendars.map((info) => (
+            <div className="event-detail-calendar" key={info.key}>
+              <span
+                className="event-detail-calendar-dot"
+                style={{ background: info.color }}
+                aria-hidden="true"
+              />
+              {info.summary}
+            </div>
+          ))}
         </div>
       )}
     </div>

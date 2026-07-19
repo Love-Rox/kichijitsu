@@ -57,7 +57,15 @@
   color: #24211e;
 }
 
-/* 枡チェックボックス: 見た目は masu.css の .masu / .masu--kichi / .masu--empty をそのまま使う */
+/*
+ * 枡チェックボックス: 見た目は masu.css の .masu / .masu--kichi / .masu--empty をそのまま使う。
+ * appearance: none が無いと、border/background を none にしていても Safari 等が
+ * ボタンのネイティブな縁取りを描き続け、中の .masu--empty の inset 枠と
+ * 二重に見えてしまう(実機で確認済みのバグ)。全ブラウザで確実に無地の
+ * ヒット領域にするため明示的に appearance をリセットする。
+ * フォーカスは既定のアウトラインを消し、キーボード操作時だけ :focus-visible で
+ * ヒット領域全体を囲む単一のリングを付ける(枡自体の枠と重ならない位置に offset)。
+ */
 .calendar-panel-checkbox {
   display: inline-flex;
   align-items: center;
@@ -66,9 +74,18 @@
   height: 20px;
   padding: 0;
   border: none;
+  border-radius: 4px;
   background: none;
+  appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
   flex: none;
+  outline: none;
+}
+
+.calendar-panel-checkbox:focus-visible {
+  outline: 1.5px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
 }
 
 .calendar-panel-checkbox .masu {

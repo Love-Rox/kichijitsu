@@ -195,6 +195,14 @@
 
 /* ---- イベントブロック ---- */
 
+/*
+ * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
+ * ずらして重ねる(座標計算は WeekGrid、z-index は React 側で stackIndex+1 を
+ * インライン style に設定)。段差感を出すための既定の box-shadow を持たせ、
+ * hover 時は最前面(下に隠れているカードも中身が見えるように)+ シャドウを強調する。
+ * hover/dragging の z-index はインライン指定を上書きする必要があるため
+ * !important を使う(通常の CSS だけでは inline style に勝てない)。
+ */
 .event {
   position: absolute;
   box-sizing: border-box;
@@ -208,6 +216,19 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  box-shadow: 0 1px 3px rgba(36, 33, 30, 0.16);
+  transition: box-shadow 120ms ease;
+}
+
+.event:hover {
+  z-index: 500 !important;
+  box-shadow: 0 6px 18px rgba(36, 33, 30, 0.3);
+}
+
+.event-header-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .event-time {
@@ -220,6 +241,26 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * 同一予定の集約(フェーズ5): 2件以上のコピーがあるときだけ、所属カレンダーの
+ * 色ドットをカード上に並べる(ホバー不要で「複数アカウントに存在する」と分かるように)
+ */
+.event-group-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.event-group-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
 
 /* 40分未満の短時間イベント: タイトル+時刻を1行にまとめ、12px 高さでも収まるようにする */
@@ -254,11 +295,15 @@
   white-space: nowrap;
 }
 
-.event--dragging {
+.event--compact .event-group-dots {
+  flex: 0 0 auto;
+}
+
+.event.event--dragging {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
   opacity: 0.9;
   cursor: grabbing;
-  z-index: 10;
+  z-index: 1000 !important;
 }
 
 .event-resize-handle {
@@ -427,14 +472,25 @@
   text-decoration: underline;
 }
 
+/*
+ * 同一予定の集約(フェーズ5): 通常(集約なし)は1行、複数アカウント/カレンダーに
+ * 同じ予定がある場合は所属ぶんだけ行を積む。境界線・上余白はリスト全体側に持たせ、
+ * 各行は色ドット+カレンダー名のみのシンプルな見た目に揃える
+ */
+.event-detail-calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
 .event-detail-calendar {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
   color: #8a8478;
-  padding-top: 8px;
-  border-top: 1px solid #f0ece3;
 }
 
 .event-detail-calendar-dot {

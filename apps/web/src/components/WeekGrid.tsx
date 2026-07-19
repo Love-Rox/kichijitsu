@@ -4,6 +4,7 @@ import type { Occurrence } from '../model/types'
 import type { OccurrenceStore } from '../store/occurrenceStore'
 import { useOccurrences } from '../store/occurrenceStore'
 import { packColumns } from '../layout/packColumns'
+import { groupDuplicateOccurrences, type OccurrenceGroup } from '../layout/groupDuplicates'
 import { minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
 import { EventBlock, type CalendarInfo } from './EventBlock'
 import './WeekGrid.css'
@@ -11,6 +12,21 @@ import './WeekGrid.css'
 const INITIAL_SCROLL_HOUR = 8
 const COMPACT_THRESHOLD_MIN = 40
 const SLIDE_MS = 200
+
+/**
+ * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
+ * ずらして重ねる(left = column * step, width = 残り全部)。CASCADE_STEP_FRAC は
+ * 通常時のずれ幅(使用可能幅に対する割合)、CASCADE_MIN_CARD_FRAC は最前面
+ * カード(最後列、常に全幅まで見える)の最低幅 — タイトルが読める下限。
+ * 列数が多いときは step を縮めて全カードの左端がグリッド内に収まるようにする。
+ */
+const CASCADE_STEP_FRAC = 0.14
+const CASCADE_MIN_CARD_FRAC = 0.32
+
+function cascadeStepFrac(columnCount: number): number {
+  if (columnCount <= 1) return 0
+  return Math.min(CASCADE_STEP_FRAC, (1 - CASCADE_MIN_CARD_FRAC) / (columnCount - 1))
+}
 
 interface WeekGridProps {
   store: OccurrenceStore
@@ -46,7 +62,7 @@ interface WeekPanelData {
   days: Temporal.PlainDate[]
   dayStarts: number[]
   dayEnds: number[]
-  dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<Occurrence>> }[]
+  dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<OccurrenceGroup>> }[]
 }
 
 export function WeekGrid({
@@ -148,6 +164,14 @@ export function WeekGrid({
     [occurrences, visibleCalendarKeys],
   )
 
+  // 同一予定の集約(フェーズ5): iCalUID + startMs + endMs が一致する複数アカウント/
+  // カレンダーのコピーを1グループ(1カード)にまとめる。iCalUID が無い occurrence は
+  // 単独グループのまま。レンダーごとの再計算を避けるためメモ化する
+  const groupedOccurrences = useMemo(
+    () => groupDuplicateOccurrences(visibleOccurrences),
+    [visibleOccurrences],
+  )
+
   const weekPanels = useMemo<WeekPanelData[]>(
     () =>
       weeks.map((weekPanelStart) => {
@@ -155,19 +179,19 @@ export function WeekGrid({
         const dayStarts = days.map((d) => d.toZonedDateTime({ timeZone }).epochMilliseconds)
         const dayEnds = [...dayStarts.slice(1), weekPanelStart.add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds]
         const dayData = days.map((day, i) => {
-          const items = visibleOccurrences.filter(
-            (o) => o.startMs >= dayStarts[i] && o.startMs < dayEnds[i],
+          const items = groupedOccurrences.filter(
+            (g) => g.primary.startMs >= dayStarts[i] && g.primary.startMs < dayEnds[i],
           )
           const positioned = packColumns(
             items,
-            (o) => o.startMs,
-            (o) => o.endMs,
+            (g) => g.primary.startMs,
+            (g) => g.primary.endMs,
           )
           return { day, positioned }
         })
         return { weekPanelStart, days, dayStarts, dayEnds, dayData }
       }),
-    [weeks, visibleOccurrences, timeZone],
+    [weeks, groupedOccurrences, timeZone],
   )
 
   const handleCommit = useCallback(
@@ -242,20 +266,27 @@ export function WeekGrid({
                         key={day.toString()}
                         className={isToday ? 'week-grid-day-column is-today' : 'week-grid-day-column'}
                       >
-                        {positioned.map(({ item, column, columnCount }) => {
-                          const durationMin = (item.endMs - item.startMs) / 60_000
+                        {positioned.map(({ item: group, column, columnCount }) => {
+                          const occurrence = group.primary
+                          const durationMin = (occurrence.endMs - occurrence.startMs) / 60_000
                           const isCompact = durationMin < COMPACT_THRESHOLD_MIN
-                          const topPx = minutesToPx((item.startMs - dayStartMs) / 60_000)
+                          const topPx = minutesToPx((occurrence.startMs - dayStartMs) / 60_000)
                           const heightPx = Math.max(minutesToPx(durationMin), 4)
-                          const widthPct = 100 / columnCount
+                          // カスケード表示(フェーズ5): 列ごとに等分せず、少しずつ右へ
+                          // ずらして重ねる(left=column*step, width=残り全部)
+                          const step = cascadeStepFrac(columnCount)
+                          const leftPct = column * step * 100
+                          const widthPct = 100 - leftPct
 
                           return (
                             <EventBlock
-                              key={item.id}
-                              occurrence={item}
+                              key={occurrence.id}
+                              occurrence={occurrence}
+                              groupMembers={group.members}
+                              stackIndex={column}
                               top={topPx}
                               height={heightPx}
-                              leftPct={column * widthPct}
+                              leftPct={leftPct}
                               widthPct={widthPct}
                               isCompact={isCompact}
                               timeZone={timeZone}
