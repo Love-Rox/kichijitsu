@@ -1,4 +1,3 @@
-<!-- 正は /brand/favicon.svg (変更禁止)。ビルドに brand/ を巻き込まないためのコピー。 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
   <!-- kichijitsu favicon: 16px でも読める 2x2 の簡約版。朱の枡は少し大きく、傾く -->
   <rect x="4" y="4" width="88" height="88" rx="22" fill="#ffffff" stroke="#D8D2C6" stroke-width="3"/>

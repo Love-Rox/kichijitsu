@@ -1,3 +1,5 @@
+<img src="brand/mark-week.svg" width="140" alt="kichijitsu">
+
 # kichijitsu
 
 Notion Calendar 相当の、ローカルファーストなカレンダークライアント。

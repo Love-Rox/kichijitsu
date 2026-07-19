@@ -3,6 +3,7 @@ import { Temporal } from '@js-temporal/polyfill'
 import type { IDBPDatabase } from 'idb'
 import type { CalendarListEntryDTO, MeResponse, SyncRequest, SyncResponse } from '@kichijitsu/shared'
 import { WeekGrid } from './components/WeekGrid'
+import { LogoMark, LogoWordmark } from './components/Logo'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
 import type { Occurrence } from './model/types'
@@ -231,7 +232,10 @@ function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <span className="logo">kichijitsu</span>
+        <div className="logo-lockup">
+          <LogoMark />
+          <LogoWordmark accent={false} />
+        </div>
         <div className="toolbar-nav">
           <button type="button" onClick={goToPrevWeek} aria-label="前週">
             ←

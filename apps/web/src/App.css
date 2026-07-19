@@ -15,12 +15,6 @@
   box-sizing: border-box;
 }
 
-.toolbar .logo {
-  font-size: 16px;
-  font-weight: 700;
-  color: #111827;
-}
-
 .toolbar .month-label {
   font-size: 13px;
   color: #6b7280;

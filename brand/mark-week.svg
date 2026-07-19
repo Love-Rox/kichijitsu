@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 56">
+  <!-- kichijitsu 横長マーク「枡の週」: 7つの枡 = 1週間、5番目 (金) だけ朱の枡が押印のように傾く -->
+  <g fill="#DCD6C9">
+    <rect x="14" y="22.5" width="11" height="11" rx="3"/>
+    <rect x="40" y="22.5" width="11" height="11" rx="3"/>
+    <rect x="66" y="22.5" width="11" height="11" rx="3"/>
+    <rect x="92" y="22.5" width="11" height="11" rx="3"/>
+    <rect x="144" y="22.5" width="11" height="11" rx="3"/>
+    <rect x="170" y="22.5" width="11" height="11" rx="3"/>
+  </g>
+  <rect x="116.5" y="21" width="14" height="14" rx="3.5" fill="#D7402E" transform="rotate(-8 123.5 28)"/>
+</svg>

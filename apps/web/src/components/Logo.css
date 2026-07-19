@@ -1,0 +1,77 @@
+/*
+ * トークンの正は /brand/README.md。
+ *
+ * ライト値のみを CSS カスタムプロパティとして定義する。アプリ本体がまだ
+ * ライト背景固定 (ダークテーマ未実装) のため、ここで prefers-color-scheme
+ * によるダーク値への自動切り替えは行わない — OS 側がダークモードでも
+ * トークンだけ暗色に切り替えると、まだ明色のツールバー背景の上で
+ * 墨(文字)が生成り寄りの薄い色になり視認できなくなってしまうため。
+ * ダークテーマ本体を実装する際、このファイルに以下の値を追加すればよい:
+ *   --logo-aka: #E8543F / --logo-sumi: #F5F1E9 / --logo-usuzumi: #3E3B44
+ */
+:root {
+  --logo-aka: #d7402e;
+  --logo-sumi: #24211e;
+  --logo-usuzumi: #dcd6c9;
+}
+
+.logo-lockup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-mark {
+  height: 18px;
+  width: auto;
+  display: block;
+}
+
+.logo-cell {
+  fill: var(--logo-usuzumi);
+}
+
+.logo-cell--kichi {
+  fill: var(--logo-aka);
+}
+
+.logo-wordmark {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  /*
+   * line-height を 1 に固定する。祖先 (:root) の line-height: 145% は
+   * 計算済みの px 値として継承されるため、指定しないと .logo-wordmark-j の
+   * inline-block ボックスがフォントサイズよりずっと高くなり、tittle 用の
+   * position:absolute の基準が大きくずれてしまう。
+   */
+  line-height: 1;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--logo-sumi);
+  letter-spacing: 0.01em;
+}
+
+.logo-wordmark-j {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+}
+
+.logo-wordmark-masu {
+  position: absolute;
+  left: 50%;
+  top: 0.13em;
+  width: 0.14em;
+  height: 0.14em;
+  border-radius: 20%;
+  transform: translate(-50%, 0) rotate(-8deg);
+}
+
+.logo-wordmark--accent .logo-wordmark-masu {
+  background: var(--logo-aka);
+}
+
+.logo-wordmark--ink .logo-wordmark-masu {
+  background: var(--logo-sumi);
+}

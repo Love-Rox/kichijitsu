@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- kichijitsu アプリアイコン「枡の週」月グリッド版: 白タイルに 3x2 の枡、下段中央だけ朱で押印 -->
+  <rect x="6" y="6" width="84" height="84" rx="19" fill="#ffffff" stroke="#E4DED2" stroke-width="1.5"/>
+  <g fill="#DCD6C9">
+    <rect x="20" y="26" width="15" height="15" rx="4"/>
+    <rect x="41" y="26" width="15" height="15" rx="4"/>
+    <rect x="62" y="26" width="15" height="15" rx="4"/>
+    <rect x="20" y="55" width="15" height="15" rx="4"/>
+    <rect x="62" y="55" width="15" height="15" rx="4"/>
+  </g>
+  <rect x="39" y="53" width="19" height="19" rx="5" fill="#D7402E" transform="rotate(-8 48.5 62.5)"/>
+</svg>
