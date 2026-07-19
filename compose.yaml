@@ -1,0 +1,33 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      # macOS の bind mount 越しに node_modules を読み書きすると激遅になるため、
+      # named volume でホストの node_modules から分離する。pnpm workspace は
+      # 各パッケージ配下にも node_modules を作るので apps/web 側も分離が必要。
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+    # HMR (ファイル変更の検知) が効かない場合はこれを有効化する
+    # environment:
+    #   CHOKIDAR_USEPOLLING: "true"
+
+  # docker compose up では起動しない。必要なときだけ:
+  #   docker compose --profile preview up preview
+  preview:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: preview
+    ports:
+      - "4173:4173"
+    profiles: ["preview"]
+
+volumes:
+  node_modules:
+  web_node_modules:
