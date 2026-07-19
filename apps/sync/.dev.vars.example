@@ -27,3 +27,6 @@ APP_URL=http://localhost:5173
 # ローカルで「未招待メールは弾かれる」挙動を確認したい時だけ、自分以外のダミーアドレス等を
 # 入れて試す。通常のローカル開発では空のままで良い (wrangler.jsonc の既定値と同じ)。
 ALLOWED_EMAILS=
+
+# wrangler dev の routes ホストシミュレーション対策 (詳細は wrangler.jsonc のコメント)
+OAUTH_REDIRECT_URL=http://localhost:8787/auth/callback

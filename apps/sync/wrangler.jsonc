@@ -17,9 +17,14 @@
   // ここを自分のメールだけに絞った値にしてコミットしないこと — 誰を招待するかは
   // 運用側の判断であり、リポジトリのデフォルトは「制限なし」に保つ。実際に絞る場合は
   // デプロイ環境の vars (wrangler.jsonc 編集 or `wrangler deploy` 時の環境) で設定する。
+  // OAUTH_REDIRECT_URL: 空 (デフォルト) ならリクエスト URL から /auth/callback を導出する。
+  // wrangler dev は routes があるとリクエスト URL を本番ホスト (http スキーム) で
+  // シミュレートし redirect_uri_mismatch になるため、ローカルでは .dev.vars で
+  // http://localhost:8787/auth/callback に上書きする。本番は空のままでよい。
   "vars": {
     "APP_URL": "https://kichijitsu.love-rox.cc",
-    "ALLOWED_EMAILS": ""
+    "ALLOWED_EMAILS": "",
+    "OAUTH_REDIRECT_URL": ""
   },
   // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。
   // 同一ホストの他のパスは apps/web (kichijitsu-web) の Custom Domain が受ける。

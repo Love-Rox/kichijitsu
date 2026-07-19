@@ -15,7 +15,13 @@ import { encryptToken } from '../crypto'
 
 export const authRoutes = new Hono<AppEnv>()
 
-function redirectUriFor(requestUrl: string): string {
+function redirectUriFor(env: { OAUTH_REDIRECT_URL?: string }, requestUrl: string): string {
+  // 通常はリクエスト URL から導出する (本番では https://kichijitsu.love-rox.cc/auth/callback)。
+  // ただし wrangler dev は wrangler.jsonc に routes があるとリクエスト URL を本番ルートの
+  // ホスト (http://kichijitsu.love-rox.cc/...) でシミュレートするため、そのまま使うと
+  // redirect_uri_mismatch になる。ローカルでは .dev.vars の OAUTH_REDIRECT_URL
+  // (http://localhost:8787/auth/callback) で明示上書きする。空文字は未設定扱い。
+  if (env.OAUTH_REDIRECT_URL) return env.OAUTH_REDIRECT_URL
   return new URL('/auth/callback', requestUrl).toString()
 }
 
@@ -37,7 +43,7 @@ authRoutes.get('/auth/login', (c) => {
     {
       clientId: c.env.GOOGLE_CLIENT_ID,
       clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: redirectUriFor(c.req.url),
+      redirectUri: redirectUriFor(c.env, c.req.url),
     },
     state,
   )
@@ -64,7 +70,7 @@ authRoutes.get('/auth/callback', async (c) => {
     {
       clientId: c.env.GOOGLE_CLIENT_ID,
       clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: redirectUriFor(c.req.url),
+      redirectUri: redirectUriFor(c.env, c.req.url),
     },
     code,
   )
