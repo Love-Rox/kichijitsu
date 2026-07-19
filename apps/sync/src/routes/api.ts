@@ -1,7 +1,16 @@
 import { Hono, type Context } from 'hono'
 import { deleteCookie } from 'hono/cookie'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { AccountDTO, ApiError, DisconnectRequest, MeResponse, SyncRequest, WatchRequest } from '@kichijitsu/shared'
+import type {
+  AccountDTO,
+  ApiError,
+  DisconnectRequest,
+  EventPatchRequest,
+  EventPatchResponse,
+  MeResponse,
+  SyncRequest,
+  WatchRequest,
+} from '@kichijitsu/shared'
 import type { AppEnv } from '../types'
 import { populateProfileId, requireAuth } from '../middleware'
 import { SESSION_COOKIE_NAME } from '../session'
@@ -77,6 +86,50 @@ apiRoutes.post('/api/sync', requireAuth, async (c) => {
   const stub = c.env.USER_SYNC.getByName(body.accountId)
   const result = await stub.sync(body.accountId, body.calendarId)
   return respondFromRpcResult(c, result)
+})
+
+// 予定の時刻変更を Google へ書き戻す (フェーズ5)。書き込み結果はレスポンスで返さない
+// (ok のみ) — 正本は次の同期 (webhook/ポーリング → SSE 'changed' → クライアントの
+// /api/sync) で還流する設計であり、ここで Google の応答をクライアントへ整形して
+// 返すことはしない。失敗理由 (404/403/412/401 リトライ失敗など) は問わず一律 409 に
+// マップする: クライアントはこれを「反映できなかった」信号としてローカルの
+// 楽観更新をロールバックすればよく、理由ごとの分岐を必要としない。
+apiRoutes.post('/api/event/patch', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: EventPatchRequest
+  try {
+    body = await c.req.json<EventPatchRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (
+    !body?.accountId ||
+    !body?.calendarId ||
+    !body?.eventId ||
+    typeof body.startMs !== 'number' ||
+    typeof body.endMs !== 'number' ||
+    !body?.timeZone
+  ) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const account = await c.env.DB.prepare('SELECT profile_id FROM accounts WHERE id = ?')
+    .bind(body.accountId)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId)
+  const result = await stub.patchEvent(body.accountId, body.calendarId, body.eventId, body.startMs, body.endMs, body.timeZone)
+  if (!result.ok) {
+    console.warn(
+      `event patch failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    )
+    return c.json<ApiError>({ error: 'patch_failed' }, 409)
+  }
+
+  return c.json<EventPatchResponse>({ ok: true })
 })
 
 // リアルタイム反映用の SSE ストリーム。通知はトリガーに過ぎず、データそのものは運ばない

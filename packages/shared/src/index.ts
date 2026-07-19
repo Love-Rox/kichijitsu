@@ -7,6 +7,8 @@ export type {
   MeResponse,
   SyncRequest,
   ServerEvent,
+  EventPatchRequest,
+  EventPatchResponse,
   WatchRequest,
   SyncResponse,
 } from './protocol'

@@ -44,8 +44,8 @@
       "binding": "DB",
       "database_name": "kichijitsu-sync",
       // placeholder: ローカル開発 (wrangler dev) では未使用。
-      // デプロイ前に `wrangler d1 create kichijitsu-sync` で作成した実際の database_id へ差し替えること。
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // 本番 D1 (BKTSK アカウント、2026-07-20 作成)
+      "database_id": "11adc667-f11a-47ac-8379-f22759d38005",
       "migrations_dir": "migrations"
     }
   ],

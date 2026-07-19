@@ -89,6 +89,14 @@ export async function getAllOverrides(db: IDBPDatabase<KichijitsuDB>): Promise<I
   return db.getAll('overrides')
 }
 
+/** 単一 override の取得(フェーズ5: Google 書き戻し失敗時のロールバックで「変更前の override」を覚えておくのに使う) */
+export async function getOverride(
+  db: IDBPDatabase<KichijitsuDB>,
+  id: string,
+): Promise<InstanceOverride | undefined> {
+  return db.get('overrides', id)
+}
+
 export async function putOverride(
   db: IDBPDatabase<KichijitsuDB>,
   override: InstanceOverride,

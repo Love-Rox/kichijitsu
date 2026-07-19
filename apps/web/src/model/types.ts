@@ -30,6 +30,8 @@ export interface Occurrence {
   /** Google 由来のみ: どのアカウントのどのカレンダーか。表示トグルと削除の単位 */
   accountId?: string
   calendarId?: string
+  /** 同一予定の集約キー (Google iCalUID)。共有・招待の重複表示をまとめる */
+  iCalUID?: string
   /** ホバー/詳細表示用。location は会議室・住所・URL 等 */
   location?: string
   description?: string

@@ -21,6 +21,8 @@ export interface GoogleEventDTO {
   updated?: string
   colorId?: string
   htmlLink?: string
+  /** 招待・共有をまたいで同一予定を示す不変 ID (重複表示の集約キー) */
+  iCalUID?: string
   /** 場所 (会議室、住所、URL など Google の location フィールドそのまま) */
   location?: string
   /** 説明 (HTML を含み得る。表示側でプレーンテキスト化する) */
@@ -95,3 +97,25 @@ export interface WatchRequest {
 export type ServerEvent =
   | { type: 'hello' }
   | { type: 'changed'; accountId: string; calendarId: string }
+
+/**
+ * POST /api/event/patch — 予定の時刻変更を Google へ書き戻す (フェーズ5)。
+ * eventId は Google の生 event id。繰り返しシリーズの1回分 (この予定のみ) は
+ * インスタンス ID (`<parentId>_<originalStart の UTC basic 形式 YYYYMMDDTHHMMSSZ>`)
+ * をクライアント側で組み立てて渡す。
+ * サーバーは events.patch に start/end (dateTime + timeZone) を渡すだけで、
+ * 結果の正本は次の同期 (SSE changed → /api/sync) で還流する。
+ */
+export interface EventPatchRequest {
+  accountId: string
+  calendarId: string
+  eventId: string
+  startMs: number
+  endMs: number
+  /** クライアントの IANA タイムゾーン (Google へ dateTime と共に渡す) */
+  timeZone: string
+}
+
+export interface EventPatchResponse {
+  ok: boolean
+}

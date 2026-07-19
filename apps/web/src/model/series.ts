@@ -18,6 +18,8 @@ export interface EventSeries {
   /** Google 由来のみ: どのアカウントのどのカレンダーか (展開時に occurrence へ引き継ぐ) */
   accountId?: string
   calendarId?: string
+  /** 同一予定の集約キー (Google iCalUID、展開時に occurrence へ引き継ぐ) */
+  iCalUID?: string
   /** ホバー/詳細表示用 (展開時に occurrence へ引き継ぐ) */
   location?: string
   description?: string

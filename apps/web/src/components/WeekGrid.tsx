@@ -16,8 +16,12 @@ interface WeekGridProps {
   store: OccurrenceStore
   weekStart: Temporal.PlainDate
   timeZone: string
-  /** ドラッグ確定時、store.update に加えて呼ばれる永続化フック(IndexedDB書き込みは App 側が担う) */
-  onPersist: (updated: Occurrence) => void
+  /**
+   * ドラッグ確定時、store.update に加えて呼ばれる永続化フック
+   * (IndexedDB 書き込み・Google 由来なら書き戻しは App 側が担う)。
+   * previous は store.update 直前の occurrence (ロールバック用のスナップショット)
+   */
+  onPersist: (updated: Occurrence, previous: Occurrence | undefined) => void
   /**
    * 選択中カレンダーの `${accountId}:${calendarId}` キー集合(マルチアカウント対応 2026-07-19)。
    * source==='google' な occurrence だけをこれでフィルタする。ローカル/未設定 source
@@ -168,10 +172,12 @@ export function WeekGrid({
 
   const handleCommit = useCallback(
     (updated: Occurrence) => {
-      // 楽観的・同期: まず store を即座に更新して見た目に反映する
+      // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
+      // store を即座に更新して見た目に反映する
+      const previous = store.get(updated.id)
       store.update(updated)
-      // 永続化は非同期・fire-and-forget(App 側が db 書き込みを担当)
-      onPersist(updated)
+      // 永続化は非同期・fire-and-forget(App 側が db 書き込み・Google 書き戻しを担当)
+      onPersist(updated, previous)
     },
     [store, onPersist],
   )

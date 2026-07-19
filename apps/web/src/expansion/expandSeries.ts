@@ -314,6 +314,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       link: series.link,
       accountId: series.accountId,
       calendarId: series.calendarId,
+      iCalUID: series.iCalUID,
       location,
       description,
       originalStartMs,

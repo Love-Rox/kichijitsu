@@ -4,6 +4,7 @@ import { fetchCalendarList } from '../google/calendar-list'
 import { refreshAccessToken } from '../google/oauth'
 import { hasUpdatesSince } from '../google/poll-check'
 import { syncCalendar, type SyncCoreDeps } from '../core/sync'
+import { patchEventTimeWithRetry, type PatchEventCoreDeps } from '../core/patch-event'
 import { NotConnectedError } from '../core/errors'
 import { runRpc, type RpcResult } from '../rpc-result'
 import { decryptToken, InvalidCiphertextError } from '../crypto'
@@ -97,6 +98,27 @@ export class UserSyncDO extends DurableObject<Env> {
   /** POST /api/watch (watch 登録) と Cron 更新が、Google 呼び出し用に有効な access_token を取るための RPC。 */
   async getValidAccessToken(accountId: string): Promise<RpcResult<string>> {
     return runRpc(() => this.getOrRefreshAccessToken(accountId, false))
+  }
+
+  /**
+   * POST /api/event/patch (フェーズ5): 予定の時刻変更を Google へ書き戻す。
+   * 成功しても戻り値は無い (void) — 正本は次の同期 (webhook/ポーリング → SSE
+   * 'changed' → クライアントの /api/sync) で還流する設計であり、ここで Google の
+   * 応答をクライアントへそのまま返すことはしない (patch-event.ts のコメント参照)。
+   * 404/403/412 等は runRpc が GoogleApiError として拾い、実 status のまま
+   * RpcResult に載せる。route 側でこれを見て 409 等にマップする。
+   */
+  async patchEvent(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    startMs: number,
+    endMs: number,
+    timeZone: string,
+  ): Promise<RpcResult<void>> {
+    return runRpc(() =>
+      patchEventTimeWithRetry(this.buildPatchDeps(accountId), { calendarId, eventId, startMs, endMs, timeZone }),
+    )
   }
 
   /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ・ポーリング状態) を全消去する。 */
@@ -231,6 +253,14 @@ export class UserSyncDO extends DurableObject<Env> {
       forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
       getSyncToken: (calendarId) => Promise.resolve(this.readSyncToken(calendarId)),
       saveSyncToken: (calendarId, syncToken) => Promise.resolve(this.writeSyncToken(calendarId, syncToken)),
+    }
+  }
+
+  private buildPatchDeps(accountId: string): PatchEventCoreDeps {
+    return {
+      fetch,
+      getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
+      forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
     }
   }
 

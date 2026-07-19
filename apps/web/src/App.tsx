@@ -10,6 +10,7 @@ import type {
   SyncResponse,
   WatchRequest,
 } from '@kichijitsu/shared'
+import { buildEventPatchRequest } from './sync/eventPatch'
 import { WeekGrid } from './components/WeekGrid'
 import { LogoMark, LogoWordmark } from './components/Logo'
 import { MasuIndicator } from './components/MasuIndicator'
@@ -25,8 +26,10 @@ import { OccurrenceStore } from './store/occurrenceStore'
 import {
   cleanupLegacyGoogleData,
   countSeries,
+  deleteOverridesByIds,
   getExpansionState,
   getOccurrencesBetween,
+  getOverride,
   getVisibleCalendars,
   openKichijitsuDB,
   putOccurrence,
@@ -71,6 +74,10 @@ function App() {
   const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({})
   const [panelOpen, setPanelOpen] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
+  // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
+  // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
+  const [saveError, setSaveError] = useState(false)
+  const saveErrorTimeoutRef = useRef<number | undefined>(undefined)
   const autoSyncedRef = useRef(false)
   // 「このアカウントのカレンダー一覧は初回フェッチ済み/フェッチ中」フラグ。
   // me.accounts effect が同じアカウントに何度も初回フェッチを走らせないためのもの。
@@ -510,28 +517,101 @@ function App() {
     [db, store, checkedFetch],
   )
 
-  // ドラッグ確定時の永続化。store.update は WeekGrid 側で同期的に呼ばれる
-  // (楽観的更新)。ここでは IndexedDB への書き込みだけを非同期・fire-and-forget で行う
+  // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
+  const flashSaveError = useCallback(() => {
+    if (saveErrorTimeoutRef.current !== undefined) {
+      window.clearTimeout(saveErrorTimeoutRef.current)
+    }
+    setSaveError(true)
+    saveErrorTimeoutRef.current = window.setTimeout(() => {
+      setSaveError(false)
+      saveErrorTimeoutRef.current = undefined
+    }, 4000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (saveErrorTimeoutRef.current !== undefined) window.clearTimeout(saveErrorTimeoutRef.current)
+    }
+  }, [])
+
+  // ドラッグ確定時の永続化(フェーズ5)。store.update は WeekGrid 側で既に同期的に
+  // 呼ばれている(楽観的更新)。ここでは IndexedDB への書き込みに加えて、
+  // source==='google' な occurrence は POST /api/event/patch で Google へも書き戻す。
+  // 書き戻しが失敗した場合(非2xx・ネットワークエラー)は store と IndexedDB を
+  // 変更前の状態にロールバックし、ユーザーに数秒間通知する。
+  //
+  // 書き戻し成功時、正本は次の同期 (SSE changed → /api/sync) で還流してくる想定
+  // (protocol.ts の EventPatchRequest コメント参照)。自分自身が書いた変更が
+  // 同じ id へそのまま上書きされるだけなので、冪等であり特別な処理は不要。
   const handlePersist = useCallback(
-    (updated: Occurrence) => {
+    (updated: Occurrence, previous: Occurrence | undefined) => {
       if (!db) return
       async function run() {
         if (!db) return
-        if (updated.seriesId && updated.originalStartMs !== undefined) {
+
+        // シリーズ由来なら override を書く前に、ロールバック用に「変更前の override」を
+        // 覚えておく(元々 override が無かった/別内容だったケースの両方に対応する)
+        const seriesId = updated.seriesId
+        const originalStartMs = updated.originalStartMs
+        const overrideId =
+          seriesId && originalStartMs !== undefined ? instanceId(seriesId, originalStartMs) : undefined
+        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null
+
+        if (overrideId && seriesId && originalStartMs !== undefined) {
           await putOverride(db, {
-            id: instanceId(updated.seriesId, updated.originalStartMs),
-            seriesId: updated.seriesId,
-            originalStartMs: updated.originalStartMs,
+            id: overrideId,
+            seriesId,
+            originalStartMs,
             patch: { startMs: updated.startMs, endMs: updated.endMs },
           })
         }
         await putOccurrence(db, updated)
+
+        // ローカルのみの occurrence はここまで(Google への書き戻し対象外)
+        if (updated.source !== 'google') return
+
+        const patchReq = buildEventPatchRequest(updated, timeZone)
+        let ok = false
+        if (patchReq) {
+          try {
+            const res = await checkedFetch('/api/event/patch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patchReq),
+            })
+            ok = res.ok
+            if (!ok) {
+              console.error(`kichijitsu: POST /api/event/patch failed (${updated.id}): ${res.status}`)
+            }
+          } catch (err) {
+            console.error('kichijitsu: POST /api/event/patch failed', err)
+          }
+        } else {
+          console.error('kichijitsu: could not build EventPatchRequest, skipping write-back', updated.id)
+        }
+
+        if (ok) return
+
+        // ロールバック: store・IndexedDB を変更前の状態に戻す
+        if (previous) {
+          store.update(previous)
+          await putOccurrence(db, previous)
+        }
+        if (overrideId) {
+          if (previousOverride) {
+            await putOverride(db, previousOverride)
+          } else {
+            await deleteOverridesByIds(db, [overrideId])
+          }
+        }
+        flashSaveError()
       }
       run().catch((err) => {
         console.error('kichijitsu: failed to persist occurrence update', err)
       })
     },
-    [db],
+    [db, store, checkedFetch, timeZone, flashSaveError],
   )
 
   const withNavLock = useCallback((run: () => void) => {
@@ -671,6 +751,7 @@ function App() {
                   )}
                 </button>
                 {syncStatus === 'error' && <span className="sync-error">同期失敗</span>}
+                {saveError && <span className="sync-error">保存失敗（元に戻しました）</span>}
                 {panelOpen && (
                   <CalendarSettingsPanel
                     accounts={me.accounts}
