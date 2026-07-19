@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { CalendarListEntryDTO, SyncResponse } from '@kichijitsu/shared'
 import { fetchCalendarList } from '../google/calendar-list'
 import { refreshAccessToken } from '../google/oauth'
+import { hasUpdatesSince } from '../google/poll-check'
 import { syncCalendar, type SyncCoreDeps } from '../core/sync'
 import { NotConnectedError } from '../core/errors'
 import { runRpc, type RpcResult } from '../rpc-result'
@@ -10,6 +11,10 @@ import { decryptToken, InvalidCiphertextError } from '../crypto'
 // アクセストークンをこの秒数前倒しで期限切れ扱いにし、ギリギリで失効したリクエストを防ぐ。
 const TOKEN_EXPIRY_SKEW_SECONDS = 60
 
+// ポーリングフォールバックの間隔 (design: 10分)。SSE 接続が1つでもある profile の
+// アカウントに対してのみ動く (ProfileHubDO.enablePolling/disablePolling で開閉する)。
+const POLL_INTERVAL_MS = 10 * 60 * 1000
+
 interface TokenCacheRow extends Record<string, SqlStorageValue> {
   access_token: string
   expires_at: number
@@ -17,6 +22,16 @@ interface TokenCacheRow extends Record<string, SqlStorageValue> {
 
 interface SyncTokenRow extends Record<string, SqlStorageValue> {
   sync_token: string | null
+}
+
+interface PollingStateRow extends Record<string, SqlStorageValue> {
+  account_id: string | null
+  profile_id: string | null
+  enabled: number
+}
+
+interface PollWatermarkRow extends Record<string, SqlStorageValue> {
+  since: string
 }
 
 /**
@@ -47,6 +62,23 @@ export class UserSyncDO extends DurableObject<Env> {
           sync_token TEXT
         )
       `)
+      // ポーリングフォールバック (ProfileHubDO 経由で SSE 接続数が 0→1/1→0 になった時に
+      // enablePolling/disablePolling される) の状態。1 DO = 1 account なので単一行。
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS polling_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          account_id TEXT,
+          profile_id TEXT,
+          enabled INTEGER NOT NULL DEFAULT 0
+        )
+      `)
+      // calendar_id ごとの軽量チェック (hasUpdatesSince) の基準時刻。
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS poll_watermarks (
+          calendar_id TEXT PRIMARY KEY,
+          since TEXT NOT NULL
+        )
+      `)
     })
   }
 
@@ -62,12 +94,134 @@ export class UserSyncDO extends DurableObject<Env> {
     })
   }
 
-  /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ) を全消去する。 */
+  /** POST /api/watch (watch 登録) と Cron 更新が、Google 呼び出し用に有効な access_token を取るための RPC。 */
+  async getValidAccessToken(accountId: string): Promise<RpcResult<string>> {
+    return runRpc(() => this.getOrRefreshAccessToken(accountId, false))
+  }
+
+  /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ・ポーリング状態) を全消去する。 */
   async clearSyncState(): Promise<RpcResult<void>> {
     return runRpc(async () => {
       this.ctx.storage.sql.exec('DELETE FROM token_cache')
       this.ctx.storage.sql.exec('DELETE FROM sync_tokens')
+      this.ctx.storage.sql.exec('DELETE FROM polling_state')
+      this.ctx.storage.sql.exec('DELETE FROM poll_watermarks')
+      await this.ctx.storage.deleteAlarm()
     })
+  }
+
+  /**
+   * ProfileHubDO から呼ばれる RPC: この account を持つ profile の SSE 接続が 0→1 になった。
+   * まだ alarm が無ければ設定する (既にポーリング中なら何もしない — 間隔がリセットされて
+   * 通知が遅れるのを防ぐ)。
+   */
+  async enablePolling(accountId: string, profileId: string): Promise<RpcResult<void>> {
+    return runRpc(async () => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO polling_state (id, account_id, profile_id, enabled) VALUES (1, ?, ?, 1)
+         ON CONFLICT(id) DO UPDATE SET account_id = excluded.account_id, profile_id = excluded.profile_id, enabled = 1`,
+        accountId,
+        profileId,
+      )
+      const existingAlarm = await this.ctx.storage.getAlarm()
+      if (existingAlarm === null) {
+        await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS)
+      }
+    })
+  }
+
+  /** ProfileHubDO から呼ばれる RPC: この account を持つ profile の SSE 接続が 1→0 になった。 */
+  async disablePolling(): Promise<RpcResult<void>> {
+    return runRpc(async () => {
+      this.ctx.storage.sql.exec('UPDATE polling_state SET enabled = 0 WHERE id = 1')
+      await this.ctx.storage.deleteAlarm()
+    })
+  }
+
+  /**
+   * ポーリングフォールバック本体。直近 sync 済み (= sync_tokens に行がある) カレンダー
+   * ごとに軽量チェック (hasUpdatesSince, syncToken を消費しない) を行い、変化があれば
+   * ProfileHubDO.notifyChanged を呼ぶ。disablePolling で無効化された後にたまたま発火した
+   * 場合は何もせず再スケジュールもしない (deleteAlarm 済みのはずだが、実行と解除が
+   * 競合した場合の保険)。
+   */
+  async alarm(): Promise<void> {
+    const state = this.readPollingState()
+    if (!state || state.enabled === 0 || !state.account_id || !state.profile_id) {
+      return
+    }
+    const accountId = state.account_id
+    const profileId = state.profile_id
+
+    const calendarIds = this.ctx.storage.sql
+      .exec<{ calendar_id: string }>('SELECT calendar_id FROM sync_tokens')
+      .toArray()
+      .map((row) => row.calendar_id)
+
+    let accessToken: string
+    try {
+      accessToken = await this.getOrRefreshAccessToken(accountId, false)
+    } catch (err) {
+      console.error(`UserSyncDO alarm: failed to get access token for account ${accountId}`, err)
+      await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS)
+      return
+    }
+
+    for (const calendarId of calendarIds) {
+      try {
+        const changed = await this.checkCalendarForChanges(accessToken, calendarId)
+        if (changed) {
+          const hub = this.env.PROFILE_HUB.getByName(profileId)
+          await hub.notifyChanged(accountId, calendarId)
+        }
+      } catch (err) {
+        // 1つのカレンダーのチェックに失敗しても他のカレンダーは続行する。
+        console.error(`UserSyncDO alarm: poll check failed for account=${accountId} calendar=${calendarId}`, err)
+      }
+    }
+
+    await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS)
+  }
+
+  /**
+   * 軽量チェック本体。watermark が無い (= このカレンダーを初めてチェックする) 場合は
+   * 「今の時刻」を基準として記録するだけで、この回は変化ありと判定しない
+   * (基準が無い状態で hasUpdatesSince を呼ぶと、過去のすべての更新を「変化」として
+   * 誤検知してしまうため)。
+   */
+  private async checkCalendarForChanges(accessToken: string, calendarId: string): Promise<boolean> {
+    const since = this.readPollWatermark(calendarId)
+    const now = new Date().toISOString()
+    if (since === null) {
+      this.writePollWatermark(calendarId, now)
+      return false
+    }
+    const changed = await hasUpdatesSince(fetch, accessToken, calendarId, since)
+    this.writePollWatermark(calendarId, now)
+    return changed
+  }
+
+  private readPollingState(): PollingStateRow | null {
+    const rows = this.ctx.storage.sql
+      .exec<PollingStateRow>('SELECT account_id, profile_id, enabled FROM polling_state WHERE id = 1')
+      .toArray()
+    return rows[0] ?? null
+  }
+
+  private readPollWatermark(calendarId: string): string | null {
+    const rows = this.ctx.storage.sql
+      .exec<PollWatermarkRow>('SELECT since FROM poll_watermarks WHERE calendar_id = ?', calendarId)
+      .toArray()
+    return rows[0]?.since ?? null
+  }
+
+  private writePollWatermark(calendarId: string, since: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO poll_watermarks (calendar_id, since) VALUES (?, ?)
+       ON CONFLICT(calendar_id) DO UPDATE SET since = excluded.since`,
+      calendarId,
+      since,
+    )
   }
 
   private buildDeps(accountId: string): SyncCoreDeps {

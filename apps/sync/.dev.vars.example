@@ -30,3 +30,8 @@ ALLOWED_EMAILS=
 
 # wrangler dev の routes ホストシミュレーション対策 (詳細は wrangler.jsonc のコメント)
 OAUTH_REDIRECT_URL=http://localhost:8787/auth/callback
+
+# WEBHOOK_BASE_URL (Google Calendar watch channel の push 通知先) は意図的にここへ書かない。
+# wrangler.jsonc の vars.WEBHOOK_BASE_URL (本番値 https://kichijitsu.love-rox.cc) が
+# ローカルでもそのまま使われる。ローカルの Google 側 watch 登録は best-effort で
+# 失敗して構わない (ポーリングフォールバックが補う)。詳細は wrangler.jsonc のコメント参照。

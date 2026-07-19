@@ -6,5 +6,7 @@ export type {
   GoogleEventDTO,
   MeResponse,
   SyncRequest,
+  ServerEvent,
+  WatchRequest,
   SyncResponse,
 } from './protocol'

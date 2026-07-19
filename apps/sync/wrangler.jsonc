@@ -21,10 +21,15 @@
   // wrangler dev は routes があるとリクエスト URL を本番ホスト (http スキーム) で
   // シミュレートし redirect_uri_mismatch になるため、ローカルでは .dev.vars で
   // http://localhost:8787/auth/callback に上書きする。本番は空のままでよい。
+  // WEBHOOK_BASE_URL: Google Calendar push 通知 (watch channel) の address として渡す
+  // ベース URL。意図的に .dev.vars では上書きしない — ローカル開発機は Google から到達
+  // できないアドレス (localhost 等) しか持てないため、ローカルでの watch 登録は
+  // best-effort で失敗して構わない (ポーリングフォールバックが補う)。
   "vars": {
     "APP_URL": "https://kichijitsu.love-rox.cc",
     "ALLOWED_EMAILS": "",
-    "OAUTH_REDIRECT_URL": ""
+    "OAUTH_REDIRECT_URL": "",
+    "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc"
   },
   // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。
   // 同一ホストの他のパスは apps/web (kichijitsu-web) の Custom Domain が受ける。
@@ -49,6 +54,10 @@
       {
         "name": "USER_SYNC",
         "class_name": "UserSyncDO"
+      },
+      {
+        "name": "PROFILE_HUB",
+        "class_name": "ProfileHubDO"
       }
     ]
   },
@@ -56,6 +65,16 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["UserSyncDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ProfileHubDO"]
     }
-  ]
+  ],
+  // watch channel の期限 (Google Calendar は最大 1 週間) が切れる前に再登録する。
+  // 6時間おきなら「期限が24時間以内に迫った watch を更新する」ロジックと組み合わせて
+  // 取りこぼしなく更新できる (詳細は scheduled ハンドラ / core/watch-service.ts 参照)。
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  }
 }

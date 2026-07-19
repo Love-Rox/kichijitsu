@@ -55,6 +55,11 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
   ローカルで `wrangler d1 migrations apply kichijitsu-sync --local` を先に試して、
   `wrangler d1 execute kichijitsu-sync --local --command "SELECT * FROM accounts"`
   で移行結果を確認しておくと安心。
+- `0003_watches.sql` — リアルタイム反映 (フェーズ4) 用。Google Calendar の push 通知
+  (watch channel) の登録状態を持つ `watches(channel_id PK, resource_id, account_id,
+  calendar_id, profile_id, expiration_ms, created_at)` を作る。`(account_id,
+  calendar_id)` にユニークインデックスがあり、1 アカウント×1 カレンダーにつき watch は
+  常に高々1つ。データを持たない新規テーブルの追加のみで、既存データの移行は無い。
 
 ## 3. Secrets を登録
 
@@ -124,6 +129,33 @@ curl -sI https://kichijitsu.love-rox.cc/
 `{"connected":true,"accounts":[{"id":"...","email":"..."}]}` を返すことも確認する。
 複数アカウントを持たせたい場合は `/auth/login?add=1` (有効なセッションが必要) で
 現在のプロファイルにもう1つ Google アカウントを追加できる。
+
+## 8. リアルタイム反映 (watch channel / webhook / Cron) の注意点
+
+フェーズ4で追加した、Google Calendar の変更をほぼリアルタイムでクライアントへ伝える仕組み。
+「通知はトリガー、差分はクライアントが `/api/sync` で取る」設計 (SSE はイベント本体を運ばない)
+なので、以下は本番でこの仕組みが機能するための前提条件であり、追加の secrets 登録は不要
+(既存の `SESSION_SECRET` を webhook トークンの HMAC 鍵として流用している)。
+
+- `POST /api/watch` は Google の `events.watch` を呼んで push 通知チャネルを登録する。
+  address には `vars.WEBHOOK_BASE_URL` (デフォルト `https://kichijitsu.love-rox.cc`、
+  `.dev.vars` では意図的に上書きしない) + `/api/webhook/google` を渡す。**Google は
+  webhook の送信先ドメインが [Google Search Console](https://search.google.com/search-console)
+  で所有権検証済みであることを要求する**ため、`love-rox.cc` (または利用する Custom Domain)
+  がまだ検証されていない場合は事前に検証しておくこと。未検証の場合、登録は失敗するが
+  best-effort 設計により `POST /api/watch` 自体は 200 (`{ watching: false }`) を返し、
+  UserSyncDO のポーリングフォールバック (10分間隔) が代わりに機能する。
+- `POST /api/webhook/google` はセッション不要 (Google からの通知を受ける公開エンドポイント)。
+  `kichijitsu.love-rox.cc/api/*` の zone route に含まれるのでデプロイと同時に有効になる。
+  X-Goog-Channel-Token を `SESSION_SECRET` から HMAC で再計算して検証しているため、
+  `SESSION_SECRET` を変更すると既存の watch はすべて無効化される (次の Cron 実行、または
+  クライアントの再 `POST /api/watch` で再登録されるまでの間はポーリングフォールバックのみで動く)。
+- Cron トリガー (`wrangler.jsonc` の `triggers.crons`, 6時間おき) は `wrangler deploy` 時に
+  自動で登録される。追加の手動設定は不要。期限が24時間以内に迫った watch を
+  stop → 再登録する (`selectWatchesNeedingRenewal` / `scheduled` ハンドラ、
+  `apps/sync/src/index.ts`)。ローカルではスケジュールが自動発火しないため、動作確認したい
+  場合は `wrangler dev` 起動後に `curl http://localhost:8787/cdn-cgi/handler/scheduled` で
+  手動発火できる。
 
 ## 参考: 設定変更後の型再生成
 

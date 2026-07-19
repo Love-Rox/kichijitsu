@@ -8,6 +8,7 @@ import type {
   MeResponse,
   SyncRequest,
   SyncResponse,
+  WatchRequest,
 } from '@kichijitsu/shared'
 import { WeekGrid } from './components/WeekGrid'
 import { LogoMark, LogoWordmark } from './components/Logo'
@@ -16,6 +17,7 @@ import { CalendarSettingsPanel } from './components/CalendarSettingsPanel'
 import type { CalendarInfo } from './components/EventBlock'
 import { useMasuVisible } from './hooks/useMasuVisible'
 import { useOffline } from './hooks/useOffline'
+import { useServerEvents } from './hooks/useServerEvents'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
 import type { Occurrence } from './model/types'
@@ -82,6 +84,11 @@ function App() {
   // 発火させない({} で上書きしてしまわないためのガード)
   const visibleCalendarsLoadedRef = useRef(false)
   const accountAreaRef = useRef<HTMLDivElement>(null)
+  // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
+  // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
+  // レンダーごとに更新するだけで、これ自体は再レンダーを起こさない)
+  const visibleCalendarsRef = useRef<VisibleCalendarsMap>({})
+  visibleCalendarsRef.current = visibleCalendars
 
   // オフライン表示(brand/README.md「枡オーナメント」節: 空枡+「オフライン」)。
   // fetch 経路は checkedFetch を薄く差し込んで判定する(useOffline.ts 参照)
@@ -105,6 +112,27 @@ function App() {
       return res
     },
     [markOffline, markOnline],
+  )
+
+  // POST /api/watch — 選択中カレンダーの push 通知登録/解除。fire-and-forget
+  // (登録は best-effort。失敗してもアラームポーリングが補うので UI はブロックしない)
+  const postWatch = useCallback(
+    (accountId: string, calendarId: string, enabled: boolean) => {
+      checkedFetch('/api/watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId, calendarId, enabled } satisfies WatchRequest),
+      })
+        .then((res) => {
+          if (!res.ok) {
+            console.warn(`kichijitsu: POST /api/watch failed (${accountId}/${calendarId}): ${res.status}`)
+          }
+        })
+        .catch((err) => {
+          console.warn('kichijitsu: POST /api/watch failed', err)
+        })
+    },
+    [checkedFetch],
   )
 
   // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
@@ -250,12 +278,18 @@ function App() {
           const calendars = (await res.json()) as CalendarListEntryDTO[]
           if (isCancelled()) return
           setCalendarsByAccount((prev) => ({ ...prev, [account.id]: calendars }))
+          // このアカウントにまだ選択状態が無ければ primary をデフォルト選択し、
+          // その場で watch も登録する(初回連携時)
+          const alreadySelected = visibleCalendarsRef.current[account.id] !== undefined
+          const primary = calendars.find((c) => c.primary) ?? calendars[0]
           setVisibleCalendarsState((prev) => {
             if (prev[account.id] !== undefined) return prev // 既に選択状態があるなら上書きしない
-            const primary = calendars.find((c) => c.primary) ?? calendars[0]
             if (!primary) return prev
             return { ...prev, [account.id]: [primary.id] }
           })
+          if (!alreadySelected && primary) {
+            postWatch(account.id, primary.id, true)
+          }
         } catch (err) {
           console.error('kichijitsu: failed to load calendars', err)
         } finally {
@@ -263,7 +297,7 @@ function App() {
         }
       }
     },
-    [checkedFetch],
+    [checkedFetch, postWatch],
   )
 
   // me.accounts が増えるたびに、まだ取得していないアカウントのカレンダー一覧を取りに行く(初回のみ)
@@ -314,9 +348,9 @@ function App() {
     [db, store, checkedFetch],
   )
 
-  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペアを同期する
-  const runSync = useCallback(async () => {
-    if (!db) return
+  // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色)。
+  // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする
+  const selectedTargets = useCallback((): { accountId: string; calendarId: string; defaultColor?: string }[] => {
     const targets: { accountId: string; calendarId: string; defaultColor?: string }[] = []
     for (const account of me.accounts) {
       const calendars = calendarsByAccount[account.id] ?? []
@@ -325,6 +359,13 @@ function App() {
         targets.push({ accountId: account.id, calendarId, defaultColor: cal?.backgroundColor })
       }
     }
+    return targets
+  }, [me.accounts, calendarsByAccount, visibleCalendars])
+
+  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペアを並行に同期する
+  const runSync = useCallback(async () => {
+    if (!db) return
+    const targets = selectedTargets()
     if (targets.length === 0) return
 
     setSyncStatus('syncing')
@@ -339,7 +380,57 @@ function App() {
       }
     }
     setSyncStatus(hadError ? 'error' : 'idle')
-  }, [db, me.accounts, calendarsByAccount, visibleCalendars, syncCalendar])
+  }, [db, selectedTargets, syncCalendar])
+
+  // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
+  // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
+  const handleServerHello = useCallback(async () => {
+    if (!db) return
+    const targets = selectedTargets()
+    if (targets.length === 0) return
+
+    setSyncStatus('syncing')
+    let hadError = false
+    for (const t of targets) {
+      try {
+        await syncCalendar(t.accountId, t.calendarId, t.defaultColor)
+      } catch (err) {
+        hadError = true
+        console.error('kichijitsu: SSE hello sync failed', err)
+      }
+    }
+    setSyncStatus(hadError ? 'error' : 'idle')
+  }, [db, selectedTargets, syncCalendar])
+
+  // SSE changed 受信時: 該当 (accountId, calendarId) が選択中の場合のみ sync する
+  // (通知のペイロード自体は信用せず、選択状態は常にクライアント側の visibleCalendars で判定する)
+  const handleServerChanged = useCallback(
+    (accountId: string, calendarId: string) => {
+      if (!db) return
+      if (!(visibleCalendars[accountId] ?? []).includes(calendarId)) return
+      const defaultColor = calendarsByAccount[accountId]?.find((c) => c.id === calendarId)?.backgroundColor
+
+      setSyncStatus('syncing')
+      syncCalendar(accountId, calendarId, defaultColor)
+        .then(() => setSyncStatus('idle'))
+        .catch((err) => {
+          console.error('kichijitsu: SSE changed sync failed', err)
+          setSyncStatus('error')
+        })
+    },
+    [db, visibleCalendars, calendarsByAccount, syncCalendar],
+  )
+
+  // アカウントが1つ以上連携済みの間だけ SSE (GET /api/events) に接続する。
+  // hello/changed のハンドラは上の handleServerHello/handleServerChanged に委譲し、
+  // 接続状態は useOffline (markOnline/markOffline) と連動させる
+  useServerEvents({
+    enabled: me.accounts.length > 0,
+    onHello: handleServerHello,
+    onChanged: handleServerChanged,
+    onOpen: markOnline,
+    onError: markOffline,
+  })
 
   // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する
   useEffect(() => {
@@ -360,6 +451,7 @@ function App() {
           : [...current, calendarId]
         : current.filter((id) => id !== calendarId)
       setVisibleCalendarsState((prev) => ({ ...prev, [accountId]: nextForAccount }))
+      postWatch(accountId, calendarId, nextChecked)
 
       if (!db) return
 
@@ -378,7 +470,7 @@ function App() {
           })
       }
     },
-    [db, visibleCalendars, calendarsByAccount, store, syncCalendar],
+    [db, visibleCalendars, calendarsByAccount, store, syncCalendar, postWatch],
   )
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を

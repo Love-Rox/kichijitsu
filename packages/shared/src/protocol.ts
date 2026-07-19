@@ -74,3 +74,24 @@ export interface SyncResponse {
 export interface ApiError {
   error: string
 }
+
+/**
+ * POST /api/watch — 選択中カレンダーの push 通知 (watch channel) 登録/解除。
+ * クライアントのカレンダー選択に追従して呼ぶ。登録は best-effort
+ * (ローカル開発など webhook 不達環境では失敗してもアラームポーリングが補う)
+ */
+export interface WatchRequest {
+  accountId: string
+  calendarId: string
+  enabled: boolean
+}
+
+/**
+ * GET /api/events (SSE) が流すイベント。data は JSON。
+ * 'changed' はトリガーに過ぎない — クライアントは該当 (accountId, calendarId) を
+ * /api/sync で取りに行く (通知のペイロードを信用しない原則)。
+ * SSE の id フィールドは単調増加し、再接続時は Last-Event-ID から欠落分を再送する。
+ */
+export type ServerEvent =
+  | { type: 'hello' }
+  | { type: 'changed'; accountId: string; calendarId: string }

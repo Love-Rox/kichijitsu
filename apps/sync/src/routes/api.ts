@@ -1,16 +1,24 @@
 import { Hono, type Context } from 'hono'
 import { deleteCookie } from 'hono/cookie'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { AccountDTO, ApiError, DisconnectRequest, MeResponse, SyncRequest } from '@kichijitsu/shared'
+import type { AccountDTO, ApiError, DisconnectRequest, MeResponse, SyncRequest, WatchRequest } from '@kichijitsu/shared'
 import type { AppEnv } from '../types'
 import { populateProfileId, requireAuth } from '../middleware'
 import { SESSION_COOKIE_NAME } from '../session'
 import { decryptToken, InvalidCiphertextError } from '../crypto'
 import { revokeToken } from '../google/oauth'
+import { registerWatch, stopWatch, buildWebhookAddress } from '../google/watch'
 import { isAccountInProfile, resolveDisconnectTargets, shouldClearSessionAfterDisconnect } from '../accounts'
+import { buildWatchRow } from '../core/watch-service'
+import { computeChannelToken } from '../watch-token'
+import { PROFILE_ID_HEADER } from '../durable-object/profile-hub-do'
 import type { RpcResult } from '../rpc-result'
 
 export const apiRoutes = new Hono<AppEnv>()
+
+interface WatchApiResponse {
+  watching: boolean
+}
 
 apiRoutes.use('*', populateProfileId)
 
@@ -69,6 +77,49 @@ apiRoutes.post('/api/sync', requireAuth, async (c) => {
   const stub = c.env.USER_SYNC.getByName(body.accountId)
   const result = await stub.sync(body.accountId, body.calendarId)
   return respondFromRpcResult(c, result)
+})
+
+// リアルタイム反映用の SSE ストリーム。通知はトリガーに過ぎず、データそのものは運ばない
+// (クライアントは 'changed' を受けたら該当 accountId/calendarId を /api/sync で取りに行く)。
+// ProfileHubDO 自身は自分の名前 (profileId) を知らないので、転送時にヘッダで明示的に渡す。
+apiRoutes.get('/api/events', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  const stub = c.env.PROFILE_HUB.getByName(profileId)
+  const headers = new Headers(c.req.raw.headers)
+  headers.set(PROFILE_ID_HEADER, profileId)
+  const forwarded = new Request(c.req.raw, { headers })
+  return stub.fetch(forwarded)
+})
+
+// 選択中カレンダーの push 通知 (watch channel) 登録/解除。best-effort: 登録に失敗しても
+// (ローカル開発の localhost address 拒否など) 200 で `{ watching: false }` を返す
+// (ポーリングフォールバックが補うので、クライアントにエラー扱いさせる必要が無い)。
+apiRoutes.post('/api/watch', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: WatchRequest
+  try {
+    body = await c.req.json<WatchRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (!body?.accountId || !body?.calendarId || typeof body.enabled !== 'boolean') {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const account = await c.env.DB.prepare('SELECT profile_id FROM accounts WHERE id = ?')
+    .bind(body.accountId)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  if (!body.enabled) {
+    await disableWatch(c.env, body.accountId, body.calendarId)
+    return c.json<WatchApiResponse>({ watching: false })
+  }
+
+  const watching = await enableWatch(c.env, body.accountId, body.calendarId, profileId)
+  return c.json<WatchApiResponse>({ watching })
 })
 
 // 連携解除 (アカウント削除)。accountId 指定ならそのアカウントだけ、省略ならプロファイル内
@@ -143,6 +194,74 @@ async function disconnectAccount(env: Env, accountId: string): Promise<void> {
   }
 
   await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId).run()
+}
+
+/**
+ * watch 登録の本体。既存 watch があれば Google を呼ばずに何もしない (true を返す)。
+ * それ以外の失敗 (アクセストークン取得不可・Google API エラー・localhost 拒否など) は
+ * すべて best-effort として飲み込み false を返す — 呼び出し元はこれを 200 として返す。
+ */
+async function enableWatch(env: Env, accountId: string, calendarId: string, profileId: string): Promise<boolean> {
+  const existing = await env.DB.prepare('SELECT 1 FROM watches WHERE account_id = ? AND calendar_id = ?')
+    .bind(accountId, calendarId)
+    .first()
+  if (existing) {
+    return true
+  }
+
+  try {
+    const stub = env.USER_SYNC.getByName(accountId)
+    const tokenResult = await stub.getValidAccessToken(accountId)
+    if (!tokenResult.ok) {
+      console.warn(`watch registration: could not get access token for account ${accountId}: ${tokenResult.error}`)
+      return false
+    }
+
+    const channelId = crypto.randomUUID()
+    const channelToken = await computeChannelToken(env.SESSION_SECRET, channelId)
+    const registered = await registerWatch(fetch, tokenResult.data, {
+      calendarId,
+      channelId,
+      address: buildWebhookAddress(env.WEBHOOK_BASE_URL),
+      token: channelToken,
+    })
+
+    const row = buildWatchRow({ accountId, calendarId }, profileId, channelId, registered, Date.now())
+    await env.DB.prepare(
+      `INSERT INTO watches (channel_id, resource_id, account_id, calendar_id, profile_id, expiration_ms, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(row.channel_id, row.resource_id, row.account_id, row.calendar_id, row.profile_id, row.expiration_ms, row.created_at)
+      .run()
+
+    return true
+  } catch (err) {
+    console.warn(`watch registration failed (best-effort) for account=${accountId} calendar=${calendarId}`, err)
+    return false
+  }
+}
+
+/** watch 解除。既に watch が無ければ何もしない。Google 側の停止に失敗してもローカルの行は削除する
+ * (「監視を止めたい」というクライアントの意図を妨げる理由にはならない — revokeToken と同じ考え方)。 */
+async function disableWatch(env: Env, accountId: string, calendarId: string): Promise<void> {
+  const row = await env.DB.prepare('SELECT channel_id, resource_id FROM watches WHERE account_id = ? AND calendar_id = ?')
+    .bind(accountId, calendarId)
+    .first<{ channel_id: string; resource_id: string | null }>()
+  if (!row) return
+
+  if (row.resource_id) {
+    try {
+      const stub = env.USER_SYNC.getByName(accountId)
+      const tokenResult = await stub.getValidAccessToken(accountId)
+      if (tokenResult.ok) {
+        await stopWatch(fetch, tokenResult.data, { channelId: row.channel_id, resourceId: row.resource_id })
+      }
+    } catch (err) {
+      console.warn(`watch stop failed (continuing to delete local row) for account=${accountId} calendar=${calendarId}`, err)
+    }
+  }
+
+  await env.DB.prepare('DELETE FROM watches WHERE channel_id = ?').bind(row.channel_id).run()
 }
 
 function respondFromRpcResult<T>(c: Context<AppEnv>, result: RpcResult<T>) {
