@@ -11,7 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@hiyori/shared": "workspace:*",
+    "@kichijitsu/shared": "workspace:*",
     "@js-temporal/polyfill": "^0.5.1",
     "idb": "^8.0.3",
     "react": "^19.2.7",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Temporal } from '@js-temporal/polyfill'
-import type { GoogleEventDTO } from '@hiyori/shared'
+import type { GoogleEventDTO } from '@kichijitsu/shared'
 import { mapGoogleEvents } from './mapGoogle'
 import { instanceId } from '../model/series'
 

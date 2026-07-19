@@ -1,4 +1,4 @@
-import type { GoogleEventDTO } from '@hiyori/shared'
+import type { GoogleEventDTO } from '@kichijitsu/shared'
 
 /** Google Calendar API `events.list` の応答から必要なフィールドだけを写した型。 */
 interface RawGoogleEvent {

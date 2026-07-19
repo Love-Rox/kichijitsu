@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Temporal } from '@js-temporal/polyfill'
 import type { IDBPDatabase } from 'idb'
-import type { CalendarListEntryDTO, MeResponse, SyncRequest, SyncResponse } from '@hiyori/shared'
+import type { CalendarListEntryDTO, MeResponse, SyncRequest, SyncResponse } from '@kichijitsu/shared'
 import { WeekGrid } from './components/WeekGrid'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
@@ -11,12 +11,12 @@ import {
   countSeries,
   getExpansionState,
   getOccurrencesBetween,
-  openHiyoriDB,
+  openKichijitsuDB,
   putOccurrence,
   putOccurrences,
   putOverride,
   putSeries,
-  type HiyoriDB,
+  type KichijitsuDB,
 } from './db/database'
 import { ensureExpanded } from './expansion/ensureExpanded'
 import { applySyncResponse } from './sync/applySync'
@@ -43,7 +43,7 @@ function App() {
   const navLockRef = useRef(false)
 
   const store = useMemo(() => new OccurrenceStore(), [])
-  const [db, setDb] = useState<IDBPDatabase<HiyoriDB> | null>(null)
+  const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null)
 
   const [me, setMe] = useState<MeResponse>({ connected: false })
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
@@ -55,7 +55,7 @@ function App() {
     let cancelled = false
 
     async function init() {
-      const database = await openHiyoriDB()
+      const database = await openKichijitsuDB()
       if (cancelled) return
 
       const existingSeriesCount = await countSeries(database)
@@ -83,7 +83,7 @@ function App() {
     }
 
     init().catch((err) => {
-      console.error('hiyori: initialization failed', err)
+      console.error('kichijitsu: initialization failed', err)
     })
 
     return () => {
@@ -98,7 +98,7 @@ function App() {
     if (!db) return
     const { fromMs, toMs } = weekRangeMs(weekStart, timeZone)
     ensureExpanded(db, store, fromMs, toMs).catch((err) => {
-      console.error('hiyori: ensureExpanded failed', err)
+      console.error('kichijitsu: ensureExpanded failed', err)
     })
   }, [db, weekStart, timeZone, store])
 
@@ -153,7 +153,7 @@ function App() {
       await applySyncResponse(db, store, syncData)
       setSyncStatus('idle')
     } catch (err) {
-      console.error('hiyori: sync failed', err)
+      console.error('kichijitsu: sync failed', err)
       setSyncStatus('error')
     }
   }, [db, store])
@@ -183,7 +183,7 @@ function App() {
         await putOccurrence(db, updated)
       }
       run().catch((err) => {
-        console.error('hiyori: failed to persist occurrence update', err)
+        console.error('kichijitsu: failed to persist occurrence update', err)
       })
     },
     [db],
@@ -231,7 +231,7 @@ function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <span className="logo">hiyori</span>
+        <span className="logo">kichijitsu</span>
         <div className="toolbar-nav">
           <button type="button" onClick={goToPrevWeek} aria-label="前週">
             ←

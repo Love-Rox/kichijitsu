@@ -1,4 +1,4 @@
-# hiyori
+# kichijitsu
 
 Notion Calendar 相当の、ローカルファーストなカレンダークライアント。
 

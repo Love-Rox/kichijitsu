@@ -1,4 +1,4 @@
-import type { CalendarListEntryDTO } from '@hiyori/shared'
+import type { CalendarListEntryDTO } from '@kichijitsu/shared'
 import { GoogleApiError } from '../core/errors'
 
 interface RawCalendarListEntry {

@@ -1,11 +1,11 @@
 import { Temporal } from '@js-temporal/polyfill'
-import type { GoogleEventDTO } from '@hiyori/shared'
+import type { GoogleEventDTO } from '@kichijitsu/shared'
 import type { EventSeries, InstanceOverride } from '../model/series'
 import { instanceId } from '../model/series'
 import type { Occurrence } from '../model/types'
 
 /**
- * Google Calendar の event DTO を hiyori のローカルモデルへ変換する純関数層。
+ * Google Calendar の event DTO を kichijitsu のローカルモデルへ変換する純関数層。
  * サーバー (apps/sync) はイベント本体を保存しない設計のため、正規化・展開の
  * 責務は全てこことその先 (expandSeries) がクライアント側で負う。
  *
@@ -29,7 +29,7 @@ export interface MappedSync {
 }
 
 /**
- * Google Calendar のイベント色 (colorId "1".."11") から hiyori の hex へのマップ。
+ * Google Calendar のイベント色 (colorId "1".."11") から kichijitsu の hex へのマップ。
  * 値は Google Calendar の公式パレットに準拠 (アプリの既存 COLORS 系統に近い色相)。
  */
 const GOOGLE_COLOR_MAP: Record<string, string> = {

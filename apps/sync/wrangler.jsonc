@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hiyori-sync",
+  "name": "kichijitsu-sync",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-19",
   "observability": {
@@ -13,9 +13,9 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "hiyori-sync",
+      "database_name": "kichijitsu-sync",
       // placeholder: ローカル開発 (wrangler dev) では未使用。
-      // デプロイ前に `wrangler d1 create hiyori-sync` で作成した実際の database_id へ差し替えること。
+      // デプロイ前に `wrangler d1 create kichijitsu-sync` で作成した実際の database_id へ差し替えること。
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }

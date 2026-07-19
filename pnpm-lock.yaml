@@ -10,7 +10,7 @@ importers:
 
   apps/sync:
     dependencies:
-      '@hiyori/shared':
+      '@kichijitsu/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
@@ -32,12 +32,12 @@ importers:
 
   apps/web:
     dependencies:
-      '@hiyori/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@js-temporal/polyfill':
         specifier: ^0.5.1
         version: 0.5.1
+      '@kichijitsu/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       idb:
         specifier: ^8.0.3
         version: 8.0.3

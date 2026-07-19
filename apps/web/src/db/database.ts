@@ -10,7 +10,7 @@ import { DAY_MS } from '../expansion/windowPolicy'
  * 永続化に触れる。スキーマ変更は必ずここの version を上げて upgrade で行う。
  */
 
-export interface HiyoriDB extends DBSchema {
+export interface KichijitsuDB extends DBSchema {
   occurrences: {
     key: string
     value: Occurrence
@@ -30,16 +30,16 @@ export interface HiyoriDB extends DBSchema {
   }
 }
 
-const DB_NAME = 'hiyori'
+const DB_NAME = 'kichijitsu'
 const DB_VERSION = 1
 const META_EXPANSION_KEY = 'expansion'
 
-let dbPromise: Promise<IDBPDatabase<HiyoriDB>> | undefined
+let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined
 
 /** DB 接続を開く(メモ化: 同一プロセス内では1接続を使い回す) */
-export async function openHiyoriDB(): Promise<IDBPDatabase<HiyoriDB>> {
+export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<HiyoriDB>(DB_NAME, DB_VERSION, {
+    dbPromise = openDB<KichijitsuDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains('occurrences')) {
           const store = db.createObjectStore('occurrences', { keyPath: 'id' })
@@ -61,12 +61,12 @@ export async function openHiyoriDB(): Promise<IDBPDatabase<HiyoriDB>> {
   return dbPromise
 }
 
-export async function getAllSeries(db: IDBPDatabase<HiyoriDB>): Promise<EventSeries[]> {
+export async function getAllSeries(db: IDBPDatabase<KichijitsuDB>): Promise<EventSeries[]> {
   return db.getAll('series')
 }
 
 export async function putSeries(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   series: EventSeries | EventSeries[],
 ): Promise<void> {
   const list = Array.isArray(series) ? series : [series]
@@ -74,24 +74,24 @@ export async function putSeries(
   await Promise.all([...list.map((s) => tx.store.put(s)), tx.done])
 }
 
-export async function getAllOverrides(db: IDBPDatabase<HiyoriDB>): Promise<InstanceOverride[]> {
+export async function getAllOverrides(db: IDBPDatabase<KichijitsuDB>): Promise<InstanceOverride[]> {
   return db.getAll('overrides')
 }
 
 export async function putOverride(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   override: InstanceOverride,
 ): Promise<void> {
   await db.put('overrides', override)
 }
 
-export async function deleteSeriesByIds(db: IDBPDatabase<HiyoriDB>, ids: string[]): Promise<void> {
+export async function deleteSeriesByIds(db: IDBPDatabase<KichijitsuDB>, ids: string[]): Promise<void> {
   if (ids.length === 0) return
   const tx = db.transaction('series', 'readwrite')
   await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
 }
 
-export async function deleteOverridesByIds(db: IDBPDatabase<HiyoriDB>, ids: string[]): Promise<void> {
+export async function deleteOverridesByIds(db: IDBPDatabase<KichijitsuDB>, ids: string[]): Promise<void> {
   if (ids.length === 0) return
   const tx = db.transaction('overrides', 'readwrite')
   await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
@@ -99,7 +99,7 @@ export async function deleteOverridesByIds(db: IDBPDatabase<HiyoriDB>, ids: stri
 
 /** 単一トランザクションでの bulk 書き込み */
 export async function putOccurrences(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   occurrences: Occurrence[],
 ): Promise<void> {
   const tx = db.transaction('occurrences', 'readwrite')
@@ -107,18 +107,18 @@ export async function putOccurrences(
 }
 
 export async function putOccurrence(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   occurrence: Occurrence,
 ): Promise<void> {
   await db.put('occurrences', occurrence)
 }
 
-export async function getAllOccurrences(db: IDBPDatabase<HiyoriDB>): Promise<Occurrence[]> {
+export async function getAllOccurrences(db: IDBPDatabase<KichijitsuDB>): Promise<Occurrence[]> {
   return db.getAll('occurrences')
 }
 
 export async function deleteOccurrencesByIds(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   ids: string[],
 ): Promise<void> {
   if (ids.length === 0) return
@@ -133,7 +133,7 @@ export async function deleteOccurrencesByIds(
  * 最後に実際の重なり判定で絞り込む。
  */
 export async function getOccurrencesBetween(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   fromMs: number,
   toMs: number,
 ): Promise<Occurrence[]> {
@@ -144,19 +144,19 @@ export async function getOccurrencesBetween(
 }
 
 export async function getExpansionState(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
 ): Promise<ExpansionState | null> {
   const state = await db.get('meta', META_EXPANSION_KEY)
   return state ?? null
 }
 
 export async function setExpansionState(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   state: ExpansionState,
 ): Promise<void> {
   await db.put('meta', state, META_EXPANSION_KEY)
 }
 
-export async function countSeries(db: IDBPDatabase<HiyoriDB>): Promise<number> {
+export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {
   return db.count('series')
 }

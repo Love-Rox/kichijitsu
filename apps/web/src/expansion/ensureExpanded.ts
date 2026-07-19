@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from 'idb'
-import type { HiyoriDB } from '../db/database'
+import type { KichijitsuDB } from '../db/database'
 import {
   deleteOccurrencesByIds,
   getAllOccurrences,
@@ -74,7 +74,7 @@ let chain: Promise<void> = Promise.resolve()
  * needsExpand 判定を行う)ため、呼び出し側は await せず連打してよい。
  */
 export function ensureExpanded(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   store: OccurrenceStore,
   visibleStartMs: number,
   visibleEndMs: number,
@@ -87,7 +87,7 @@ export function ensureExpanded(
 }
 
 async function doEnsureExpanded(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   store: OccurrenceStore,
   visibleStartMs: number,
   visibleEndMs: number,
@@ -117,7 +117,7 @@ async function doEnsureExpanded(
  * 同じ直列化キュー (chain) を使うため、呼び出しがインターリーブしても安全。
  */
 export function reexpandCurrentWindow(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   store: OccurrenceStore,
 ): Promise<void> {
   const run = chain.then(() => doReexpand(db, store))
@@ -127,7 +127,7 @@ export function reexpandCurrentWindow(
   return run
 }
 
-async function doReexpand(db: IDBPDatabase<HiyoriDB>, store: OccurrenceStore): Promise<void> {
+async function doReexpand(db: IDBPDatabase<KichijitsuDB>, store: OccurrenceStore): Promise<void> {
   const state = await getExpansionState(db)
   // まだ一度も展開していないなら再展開の必要はない (ensureExpanded に任せる)
   if (!state) return

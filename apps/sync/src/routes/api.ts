@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { ApiError, MeResponse, SyncRequest } from '@hiyori/shared'
+import type { ApiError, MeResponse, SyncRequest } from '@kichijitsu/shared'
 import type { AppEnv } from '../types'
 import { populateUserId, requireAuth } from '../middleware'
 import type { RpcResult } from '../rpc-result'

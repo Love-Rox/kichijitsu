@@ -10,7 +10,7 @@
     "typecheck": "wrangler types && tsc --noEmit"
   },
   "dependencies": {
-    "@hiyori/shared": "workspace:*",
+    "@kichijitsu/shared": "workspace:*",
     "hono": "^4.12.31"
   },
   "devDependencies": {

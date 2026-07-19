@@ -1,4 +1,4 @@
-import type { SyncResponse } from '@hiyori/shared'
+import type { SyncResponse } from '@kichijitsu/shared'
 import { GoogleApiError, SyncTokenExpiredError } from './errors'
 import { fetchEventsPage, parseEventsListResponse, toGoogleEventDTO } from './google-events'
 

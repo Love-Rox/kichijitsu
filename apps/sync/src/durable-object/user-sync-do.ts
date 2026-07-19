@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { CalendarListEntryDTO, SyncResponse } from '@hiyori/shared'
+import type { CalendarListEntryDTO, SyncResponse } from '@kichijitsu/shared'
 import { fetchCalendarList } from '../google/calendar-list'
 import { refreshAccessToken } from '../google/oauth'
 import { syncCalendar, type SyncCoreDeps } from '../core/sync'

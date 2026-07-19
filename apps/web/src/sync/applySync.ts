@@ -1,6 +1,6 @@
 import type { IDBPDatabase } from 'idb'
-import type { SyncResponse } from '@hiyori/shared'
-import type { HiyoriDB } from '../db/database'
+import type { SyncResponse } from '@kichijitsu/shared'
+import type { KichijitsuDB } from '../db/database'
 import {
   deleteOccurrencesByIds,
   deleteOverridesByIds,
@@ -26,7 +26,7 @@ import { mapGoogleEvents } from './mapGoogle'
  * ローカルレプリカを作り直すのが安全)。
  */
 export async function applySyncResponse(
-  db: IDBPDatabase<HiyoriDB>,
+  db: IDBPDatabase<KichijitsuDB>,
   store: OccurrenceStore,
   res: SyncResponse,
 ): Promise<void> {
