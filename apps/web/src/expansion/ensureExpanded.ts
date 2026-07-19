@@ -1,6 +1,8 @@
 import type { IDBPDatabase } from 'idb'
 import type { HiyoriDB } from '../db/database'
 import {
+  deleteOccurrencesByIds,
+  getAllOccurrences,
   getAllOverrides,
   getAllSeries,
   getExpansionState,
@@ -99,5 +101,50 @@ async function doEnsureExpanded(
 
   await putOccurrences(db, occurrences)
   await setExpansionState(db, { expandedFromMs: decision.fromMs, expandedToMs: decision.toMs })
+  store.load(occurrences)
+}
+
+/**
+ * 保存済み ExpansionState の範囲で、全 series を無条件に展開し直す。
+ *
+ * ensureExpanded は「表示範囲が展開済み範囲の境界に近づいたときだけ」広げる
+ * 増分ポリシーなので、sync で series の定義そのものが変わった場合
+ * (RRULE 変更・EXDATE 追加・削除等) には対応できない。このため sync 適用後は
+ * こちらを呼んで、既存範囲全体を強制的に再展開する。
+ *
+ * RRULE 変更等で消えた回が残骸として残らないよう、書き直す対象の series 由来
+ * occurrence を先に削除してから新しい展開結果を put する。ensureExpanded と
+ * 同じ直列化キュー (chain) を使うため、呼び出しがインターリーブしても安全。
+ */
+export function reexpandCurrentWindow(
+  db: IDBPDatabase<HiyoriDB>,
+  store: OccurrenceStore,
+): Promise<void> {
+  const run = chain.then(() => doReexpand(db, store))
+  chain = run.catch((err) => {
+    console.error('reexpandCurrentWindow: failed', err)
+  })
+  return run
+}
+
+async function doReexpand(db: IDBPDatabase<HiyoriDB>, store: OccurrenceStore): Promise<void> {
+  const state = await getExpansionState(db)
+  // まだ一度も展開していないなら再展開の必要はない (ensureExpanded に任せる)
+  if (!state) return
+
+  const [series, overrides, existingOccurrences] = await Promise.all([
+    getAllSeries(db),
+    getAllOverrides(db),
+    getAllOccurrences(db),
+  ])
+
+  const seriesIds = new Set(series.map((s) => s.id))
+  const staleIds = existingOccurrences
+    .filter((o) => o.seriesId !== null && seriesIds.has(o.seriesId))
+    .map((o) => o.id)
+  await deleteOccurrencesByIds(db, staleIds)
+
+  const occurrences = await runExpansion(series, overrides, state.expandedFromMs, state.expandedToMs)
+  await putOccurrences(db, occurrences)
   store.load(occurrences)
 }

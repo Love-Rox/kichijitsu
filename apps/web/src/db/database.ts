@@ -85,6 +85,18 @@ export async function putOverride(
   await db.put('overrides', override)
 }
 
+export async function deleteSeriesByIds(db: IDBPDatabase<HiyoriDB>, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const tx = db.transaction('series', 'readwrite')
+  await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
+}
+
+export async function deleteOverridesByIds(db: IDBPDatabase<HiyoriDB>, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const tx = db.transaction('overrides', 'readwrite')
+  await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
+}
+
 /** 単一トランザクションでの bulk 書き込み */
 export async function putOccurrences(
   db: IDBPDatabase<HiyoriDB>,
@@ -99,6 +111,19 @@ export async function putOccurrence(
   occurrence: Occurrence,
 ): Promise<void> {
   await db.put('occurrences', occurrence)
+}
+
+export async function getAllOccurrences(db: IDBPDatabase<HiyoriDB>): Promise<Occurrence[]> {
+  return db.getAll('occurrences')
+}
+
+export async function deleteOccurrencesByIds(
+  db: IDBPDatabase<HiyoriDB>,
+  ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return
+  const tx = db.transaction('occurrences', 'readwrite')
+  await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
 }
 
 /**

@@ -1,0 +1,14 @@
+# apps/sync のローカル開発用シークレット。
+# `cp .dev.vars.example .dev.vars` してから値を埋めること。
+# .dev.vars は .gitignore 済みなのでコミットされない。
+
+# Google Cloud Console (https://console.cloud.google.com/apis/credentials) で
+# OAuth クライアント ID (種類: ウェブ アプリケーション) を作成し、
+# 「承認済みのリダイレクト URI」に以下を追加する:
+#   http://localhost:8787/auth/callback
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# セッション Cookie の署名 (HMAC-SHA256) に使うランダムな秘密文字列。
+# 生成例: openssl rand -base64 32
+SESSION_SECRET=replace-with-a-random-secret

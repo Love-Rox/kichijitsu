@@ -47,6 +47,48 @@
   background: #f3f4f6;
 }
 
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-account button {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-account button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.toolbar-account button:disabled {
+  color: #9ca3af;
+  cursor: default;
+}
+
+.account-email {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.sync-error {
+  font-size: 12px;
+  color: #ef4444;
+}
+
 .app-main {
   flex: 1;
   min-height: 0;

@@ -1,4 +1,4 @@
-import type { OccurrenceSource } from './types'
+import type { OccurrenceLink, OccurrenceSource } from './types'
 
 /**
  * 繰り返し予定のシリーズ定義。occurrence への展開は expandSeries が行い、
@@ -13,6 +13,8 @@ export interface EventSeries {
   title: string
   color: string
   source: OccurrenceSource
+  /** 展開された全 occurrence に引き継がれる元リソースへの参照 (Google の htmlLink 等) */
+  link?: OccurrenceLink
   /** 初回開始のローカル日時 (タイムゾーンオフセットなしの ISO)。例 "2026-07-20T10:00" */
   dtstartIso: string
   /** IANA タイムゾーン。例 "Asia/Tokyo" */

@@ -309,6 +309,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       endMs,
       color,
       source: series.source,
+      link: series.link,
       originalStartMs,
     })
   }

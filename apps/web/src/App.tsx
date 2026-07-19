@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Temporal } from '@js-temporal/polyfill'
 import type { IDBPDatabase } from 'idb'
+import type { CalendarListEntryDTO, MeResponse, SyncRequest, SyncResponse } from '@hiyori/shared'
 import { WeekGrid } from './components/WeekGrid'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
@@ -18,6 +19,7 @@ import {
   type HiyoriDB,
 } from './db/database'
 import { ensureExpanded } from './expansion/ensureExpanded'
+import { applySyncResponse } from './sync/applySync'
 import './App.css'
 
 /** 指定日を含む週の月曜日 */
@@ -42,6 +44,10 @@ function App() {
 
   const store = useMemo(() => new OccurrenceStore(), [])
   const [db, setDb] = useState<IDBPDatabase<HiyoriDB> | null>(null)
+
+  const [me, setMe] = useState<MeResponse>({ connected: false })
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
+  const autoSyncedRef = useRef(false)
 
   // 起動時: DB を開く → 初回のみ dummy データをシード → 表示週ぶんを展開 →
   // 展開済み範囲全体(単発イベント込み)を store に反映する
@@ -95,6 +101,69 @@ function App() {
       console.error('hiyori: ensureExpanded failed', err)
     })
   }, [db, weekStart, timeZone, store])
+
+  // 起動時: Google 連携状態を確認する。バックエンド (apps/sync) が起動していない
+  // 場合の fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)
+  useEffect(() => {
+    let cancelled = false
+    async function checkMe() {
+      try {
+        const res = await fetch('/api/me')
+        if (!res.ok) {
+          if (!cancelled) setMe({ connected: false })
+          return
+        }
+        const data = (await res.json()) as MeResponse
+        if (!cancelled) setMe(data)
+      } catch {
+        if (!cancelled) setMe({ connected: false })
+      }
+    }
+    checkMe()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 「同期」ボタン・自動同期の共通処理: プライマリカレンダーを取得して /api/sync → 適用
+  const runSync = useCallback(async () => {
+    if (!db) return
+    setSyncStatus('syncing')
+    try {
+      const calendarsRes = await fetch('/api/calendars')
+      if (!calendarsRes.ok) {
+        throw new Error(`GET /api/calendars failed: ${calendarsRes.status}`)
+      }
+      const calendars = (await calendarsRes.json()) as CalendarListEntryDTO[]
+      const target = calendars.find((c) => c.primary) ?? calendars[0]
+      if (!target) {
+        throw new Error('no calendars returned from /api/calendars')
+      }
+
+      const syncRes = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendarId: target.id } satisfies SyncRequest),
+      })
+      if (!syncRes.ok) {
+        throw new Error(`POST /api/sync failed: ${syncRes.status}`)
+      }
+      const syncData = (await syncRes.json()) as SyncResponse
+
+      await applySyncResponse(db, store, syncData)
+      setSyncStatus('idle')
+    } catch (err) {
+      console.error('hiyori: sync failed', err)
+      setSyncStatus('error')
+    }
+  }, [db, store])
+
+  // 接続済み & DB 準備完了なら起動時に1回だけ自動同期する
+  useEffect(() => {
+    if (!db || !me.connected || autoSyncedRef.current) return
+    autoSyncedRef.current = true
+    runSync()
+  }, [db, me.connected, runSync])
 
   // ドラッグ確定時の永続化。store.update は WeekGrid 側で同期的に呼ばれる
   // (楽観的更新)。ここでは IndexedDB への書き込みだけを非同期・fire-and-forget で行う
@@ -174,9 +243,31 @@ function App() {
             →
           </button>
         </div>
-        <span className="month-label">
-          {weekStart.year}年{weekStart.month}月
-        </span>
+        <div className="toolbar-right">
+          <span className="month-label">
+            {weekStart.year}年{weekStart.month}月
+          </span>
+          <div className="toolbar-account">
+            {me.connected ? (
+              <>
+                {me.email && <span className="account-email">{me.email}</span>}
+                <button type="button" onClick={runSync} disabled={syncStatus === 'syncing'}>
+                  {syncStatus === 'syncing' ? '同期中…' : '同期'}
+                </button>
+                {syncStatus === 'error' && <span className="sync-error">同期失敗</span>}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/auth/login'
+                }}
+              >
+                Google 連携
+              </button>
+            )}
+          </div>
+        </div>
       </header>
       <main className="app-main">
         <WeekGrid store={store} weekStart={weekStart} timeZone={timeZone} onPersist={handlePersist} />
