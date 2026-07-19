@@ -25,9 +25,12 @@
   // ベース URL。意図的に .dev.vars では上書きしない — ローカル開発機は Google から到達
   // できないアドレス (localhost 等) しか持てないため、ローカルでの watch 登録は
   // best-effort で失敗して構わない (ポーリングフォールバックが補う)。
+  // ALLOWED_EMAILS は vars に置かない: 同名の var はデプロイのたびに secret を
+  // 消して上書きするため (2026-07-20 に実際に発生)、運用値は `wrangler secret put
+  // ALLOWED_EMAILS` で設定する。未設定 (undefined) は「全許可」(isEmailAllowed 参照)。
+  // ローカルは .dev.vars の ALLOWED_EMAILS= が使われる。
   "vars": {
     "APP_URL": "https://kichijitsu.love-rox.cc",
-    "ALLOWED_EMAILS": "",
     "OAUTH_REDIRECT_URL": "",
     "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc"
   },
