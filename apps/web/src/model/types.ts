@@ -1,3 +1,12 @@
+/** occurrence の出自。UI はソースをほぼ意識せず、source と link だけで扱う */
+export type OccurrenceSource = 'local' | 'google' | 'github'
+
+/** クリックで元リソース（GitHub の PR 等）へ飛ぶための参照 */
+export interface OccurrenceLink {
+  url: string
+  label?: string
+}
+
 /**
  * 展開済み occurrence。IndexedDB に入る最小単位で、UI はこれだけを読む。
  * 時刻は epoch ms (UTC instant) — IndexedDB の範囲インデックスは数値が最速。
@@ -11,6 +20,8 @@ export interface Occurrence {
   startMs: number
   endMs: number
   color: string
+  source: OccurrenceSource
+  link?: OccurrenceLink
 }
 
 /** 終日予定は時刻を持たない日付として別レイヤーで扱う（UTC変換に巻き込まない） */
@@ -22,4 +33,6 @@ export interface AllDayOccurrence {
   startDate: string
   endDate: string
   color: string
+  source: OccurrenceSource
+  link?: OccurrenceLink
 }

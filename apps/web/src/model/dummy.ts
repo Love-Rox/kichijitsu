@@ -62,6 +62,7 @@ export function generateDummyOccurrences(
         startMs,
         endMs: startMs + durationMin * 60_000,
         color: COLORS[Math.floor(rand() * COLORS.length)],
+        source: 'local',
       })
     }
   }
