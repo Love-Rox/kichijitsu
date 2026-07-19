@@ -1,0 +1,32 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar {
+  flex: 0 0 auto;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  box-sizing: border-box;
+}
+
+.toolbar .logo {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.toolbar .month-label {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+}
