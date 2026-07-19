@@ -1,0 +1,49 @@
+# kichijitsu MCP サーバー 設計メモ
+
+2026-07-19 ユーザー発案。「公式 API」の提供形態として MCP サーバーを用意する。
+Claude 等のエージェントがユーザーの代わりに予定を読み書きできるようになる。
+Notion Calendar には無い差別化要素。
+
+## 方針
+
+- Cloudflare の McpAgent（Durable Object ベース、Streamable HTTP）で実装。
+  既存の Workers + D1 + DO インフラに同居させる（apps/mcp or apps/sync に追加）
+- エンドポイント: `https://kichijitsu.love-rox.cc/mcp`（同一オリジン維持）または
+  `mcp.kichijitsu.love-rox.cc`
+- **read-through 原則**: ツールは DO 経由で Google から取得して返すだけ。
+  サーバーに予定を永続化しない（既存の設計原則を維持）
+- 認証: MCP 標準の OAuth（`workers-oauth-provider`）。
+  MCP クライアント → kichijitsu アカウント → 保存済み Google トークンの委譲。
+  ALLOWED_EMAILS の招待制がそのまま適用される
+- Google スコープの追加は不要（本人の既存トークンで代行）
+
+## 初期ツールセット
+
+| ツール | 内容 |
+|--------|------|
+| `list_events` | 期間指定で予定一覧（tz 明示、繰り返しは展開済みで返す） |
+| `search_events` | キーワード検索 |
+| `create_event` / `update_event` / `delete_event` | 予定の書き込み（確認プロンプト前提の設計に） |
+| `suggest_free_slots` | 指定期間・所要時間から空き時間候補を返す（エージェント利用の主役） |
+| `complete_task` ほか | Google タスク連携後に追加 |
+
+## エージェントの作業時間記録（ユーザー発案 2026-07-19）
+
+Claude Code 等の **hooks から作業セッションを記録する**ことで、GitHub 連携の
+時間計測（予定 vs 実績）の「実績」を全自動で取る。手動タイマーより楽で、
+アクティビティ推定より正確な第3の経路。
+
+- ツール: `log_work_interval { start, end, repo, branch, issueRef?, agent }`
+  （SessionStart/Stop hook から呼ぶ。issueRef はブランチ名/commit から推定）
+- **保存先は Google カレンダー自体**: 専用の「kichijitsu 実績」カレンダーに
+  イベントとして書き戻す。サーバーは予定を保存しない原則を維持し、
+  データはユーザーの Google に置かれ、表示は通常の同期パイプラインが拾う
+- hooks は非対話のため、MCP OAuth とは別に自動化用トークン（PAT）を用意する
+- 予定（作業キューからのタイムブロック）と実績（hook 記録）を issueRef で
+  突き合わせて item 単位のレポートにする
+
+## 実装タイミング
+
+Google 同期の実 E2E → 書き戻し（フェーズ5）が動いてから。
+書き込み系ツールは楽観的更新のロールバック機構を流用する。
+実装時は cloudflare:build-mcp スキルを参照。

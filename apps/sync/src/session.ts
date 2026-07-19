@@ -1,4 +1,11 @@
-/** セッション cookie (`sid`) の発行・検証。sid の形式は `userId.signature`。 */
+/**
+ * セッション cookie (`sid`) の発行・検証。
+ * 形式: `userId.expiresAtEpochSeconds.signature` (署名対象は `userId.expiresAt`)。
+ *
+ * 旧形式 (`userId.signature` の 2 パート、期限なし) の cookie は、パース段階で
+ * 3 パートに分解できず自然に検証失敗 (null) になる。これは意図的な挙動であり、
+ * 移行処理は不要 — 単に未認証として扱われ、ユーザーは再ログインに誘導される。
+ */
 
 const SID_COOKIE = 'sid'
 const STATE_COOKIE = 'oauth_state'
@@ -25,9 +32,9 @@ function base64UrlEncode(bytes: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-async function signUserId(secret: string, userId: string): Promise<string> {
+async function sign(secret: string, data: string): Promise<string> {
   const key = await hmacKey(secret)
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(userId))
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
   return base64UrlEncode(signature)
 }
 
@@ -41,18 +48,54 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
-export async function createSessionCookieValue(secret: string, userId: string): Promise<string> {
-  const signature = await signUserId(secret, userId)
-  return `${userId}.${signature}`
+/**
+ * `userId.expiresAt.signature` の右側 2 セグメントを取り出す。
+ * userId 自体にドットが含まれていても壊れないよう、右から分解する。
+ * 旧形式 (2 パートしかない) はここで null になる。
+ */
+function splitSessionValue(value: string): { userId: string; expiresAtStr: string; signature: string } | null {
+  const lastDot = value.lastIndexOf('.')
+  if (lastDot === -1) return null
+  const signature = value.slice(lastDot + 1)
+  const rest = value.slice(0, lastDot)
+
+  const secondDot = rest.lastIndexOf('.')
+  if (secondDot === -1) return null
+  const expiresAtStr = rest.slice(secondDot + 1)
+  const userId = rest.slice(0, secondDot)
+
+  if (!userId || !expiresAtStr || !signature) return null
+  return { userId, expiresAtStr, signature }
 }
 
-/** 署名が正しければ userId を返す。不正・未署名なら null。 */
-export async function verifySessionCookieValue(secret: string, value: string): Promise<string | null> {
-  const separatorIndex = value.lastIndexOf('.')
-  if (separatorIndex === -1) return null
-  const userId = value.slice(0, separatorIndex)
-  const signature = value.slice(separatorIndex + 1)
-  if (!userId || !signature) return null
-  const expected = await signUserId(secret, userId)
-  return timingSafeEqual(expected, signature) ? userId : null
+export async function createSessionCookieValue(
+  secret: string,
+  userId: string,
+  now: number = Date.now(),
+): Promise<string> {
+  const expiresAt = Math.floor(now / 1000) + SESSION_MAX_AGE_SECONDS
+  const signature = await sign(secret, `${userId}.${expiresAt}`)
+  return `${userId}.${expiresAt}.${signature}`
+}
+
+/** 署名が正しくかつ期限内なら userId を返す。不正・改ざん・期限切れ・旧形式は null。 */
+export async function verifySessionCookieValue(
+  secret: string,
+  value: string,
+  now: number = Date.now(),
+): Promise<string | null> {
+  const parsed = splitSessionValue(value)
+  if (!parsed) return null
+  const { userId, expiresAtStr, signature } = parsed
+
+  const expiresAt = Number(expiresAtStr)
+  if (!Number.isInteger(expiresAt)) return null
+
+  const expected = await sign(secret, `${userId}.${expiresAtStr}`)
+  if (!timingSafeEqual(expected, signature)) return null
+
+  const nowSeconds = Math.floor(now / 1000)
+  if (expiresAt <= nowSeconds) return null
+
+  return userId
 }

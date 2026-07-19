@@ -174,7 +174,9 @@ export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProp
                       className={isToday ? 'week-grid-day-header is-today' : 'week-grid-day-header'}
                     >
                       <span className="weekday">{WEEKDAY_LABELS[day.dayOfWeek - 1]}</span>
-                      <span className="date">{day.day}</span>
+                      <span className="date">
+                        {isToday ? <span className="date-num">{day.day}</span> : day.day}
+                      </span>
                     </div>
                   )
                 })}

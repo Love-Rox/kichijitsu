@@ -53,6 +53,25 @@
   gap: 8px;
 }
 
+/* Google 審査要件の導線: ホームページからプライバシーポリシー・規約へのリンク。
+   カレンダー本体の邪魔にならないよう控えめに(11px・薄墨・hoverでのみ墨色) */
+.toolbar-legal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolbar-legal a {
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: none;
+}
+
+.toolbar-legal a:hover {
+  color: #24211e;
+  text-decoration: underline;
+}
+
 .toolbar-account button {
   font: inherit;
   font-size: 13px;
@@ -83,7 +102,30 @@
   color: #ef4444;
 }
 
+/* 同期ボタン内の枡インジケーター(MasuIndicator size="sm") + テキストのロックアップ */
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .app-main {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/*
+ * 初回ロード中、グリッド中央に重ねる枡インジケーター(MasuIndicator size="md")の
+ * オーバーレイ。初期化完了で useMasuVisible が畳む(App.tsx 参照)。
+ */
+.init-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 247, 242, 0.72);
+  pointer-events: none;
+  z-index: 5;
 }

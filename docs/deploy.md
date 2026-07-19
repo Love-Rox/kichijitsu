@@ -53,10 +53,14 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
 mise exec -- pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_ID
 mise exec -- pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_SECRET
 mise exec -- pnpm --filter sync exec wrangler secret put SESSION_SECRET
+mise exec -- pnpm --filter sync exec wrangler secret put TOKEN_ENC_KEY
 ```
 
-（値は `apps/sync/.dev.vars.example` のコメント参照。`SESSION_SECRET` は
-`openssl rand -base64 32` などで新規に生成した、ローカル開発用とは別のランダム値を使うこと。）
+（値は `apps/sync/.dev.vars.example` のコメント参照。`SESSION_SECRET` と `TOKEN_ENC_KEY` は
+`openssl rand -base64 32` などで新規に生成した、ローカル開発用とは別のランダム値を使うこと。
+`TOKEN_ENC_KEY` は D1 に保存する refresh_token の at-rest 暗号化 (AES-256-GCM) に使う鍵。
+これを失う、または変更すると既存ユーザーの refresh_token が復号できなくなり全員再連携が
+必要になるので、生成した値は安全な場所 (パスワードマネージャ等) に控えておくこと。）
 
 ## 4. Google Cloud Console 側の設定
 
@@ -69,7 +73,17 @@ https://kichijitsu.love-rox.cc/auth/callback
 
 (ローカル開発用の `http://localhost:8787/auth/callback` は残したままでよい。)
 
-## 5. デプロイ
+## 5. 招待制 (ALLOWED_EMAILS) の運用
+
+`apps/sync/wrangler.jsonc` の `vars.ALLOWED_EMAILS` はカンマ区切りのメールアドレス allowlist
+で、リポジトリのデフォルトは空文字列 (＝全許可、誰でも Google 連携できる)。実際に招待制で
+運用したい場合は、デプロイ先の `wrangler.jsonc` の `ALLOWED_EMAILS` に招待する本人のメール
+アドレスをカンマ区切りで設定してから `pnpm run deploy:sync` すること (大小文字は区別されない)。
+リスト外のメールアドレスで `/auth/callback` に到達した場合、users への保存 (refresh_token を
+含む) は一切行われず、`APP_URL` へ `?auth_error=not_invited` を付けて 302 で戻される。招待者を
+増減したいだけであれば、この値を書き換えて sync を再デプロイするだけでよい (DB 変更は不要)。
+
+## 6. デプロイ
 
 まず apps/web をビルドする (デプロイスクリプトはビルドを行わず、既存の `apps/web/dist` を
 そのままアップロードするだけなので、必ず先にビルドすること):
@@ -86,7 +100,7 @@ mise exec -- pnpm run deploy:sync
 mise exec -- pnpm run deploy:web
 ```
 
-## 6. 検証
+## 7. 検証
 
 ```sh
 curl -s https://kichijitsu.love-rox.cc/api/me

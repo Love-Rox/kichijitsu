@@ -1,8 +1,35 @@
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
+const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke'
 
-/** 将来の書き戻し (milestone 期日変更など) に備え calendar フルスコープを要求する。 */
-export const OAUTH_SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar'].join(' ')
+const FULL_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar'
+const EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+const CALENDARLIST_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
+
+// Google OAuth 審査を通しやすくするため、書き込み権限を含むフル `calendar` スコープではなく
+// 予定の読み書き (calendar.events) とカレンダー一覧の読み取り (calendarlist.readonly) だけを
+// 要求する (最小権限)。
+export const OAUTH_SCOPES = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_READONLY_SCOPE].join(' ')
+
+/**
+ * granular consent (Google がスコープを個別に同意/拒否させる機能) では、要求した
+ * スコープの一部だけが許可されて token レスポンスが返ってくることがある。
+ *
+ * calendarlist.readonly が無くても「primary カレンダー固定」で動く余地はあるが、
+ * 現状の実装 (GET /api/calendars は calendarList.list を呼ぶ) はこれが無いと
+ * 機能しないため、緩和せず calendar.events と同様に必須として扱う。将来 primary への
+ * フォールバックを実装したら、この判定を緩めてよい。
+ *
+ * 旧フルスコープ (`.../auth/calendar`) は新しい 2 スコープの上位互換 (読み書き権限を
+ * 包含する) なので、granted に旧スコープしか無くても要件を満たしたものとして扱う —
+ * これにより、旧フルスコープで既に連携済みのユーザーが再連携しても弾かれない。
+ */
+export function hasRequiredScopes(grantedScope: string | undefined): boolean {
+  const granted = new Set((grantedScope ?? '').split(' ').filter(Boolean))
+  const hasEvents = granted.has(EVENTS_SCOPE) || granted.has(FULL_CALENDAR_SCOPE)
+  const hasCalendarList = granted.has(CALENDARLIST_READONLY_SCOPE) || granted.has(FULL_CALENDAR_SCOPE)
+  return hasEvents && hasCalendarList
+}
 
 export interface GoogleOAuthConfig {
   clientId: string
@@ -37,6 +64,8 @@ export interface ExchangedTokens {
   expiresIn: number
   refreshToken?: string
   idToken?: string
+  /** granular consent で実際に許可されたスコープ (space 区切り)。hasRequiredScopes に渡す。 */
+  scope: string
 }
 
 export async function exchangeCodeForTokens(
@@ -65,6 +94,7 @@ export async function exchangeCodeForTokens(
     expiresIn: data.expires_in,
     refreshToken: data.refresh_token,
     idToken: data.id_token,
+    scope: data.scope,
   }
 }
 
@@ -124,4 +154,25 @@ function base64UrlDecode(input: string): string {
   const binary = atob(base64)
   const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
   return new TextDecoder().decode(bytes)
+}
+
+/**
+ * アカウント削除 (連携解除) 時に Google 側のトークンを失効させる。
+ *
+ * 呼び出し側は revoke の成否に関わらず削除処理 (D1 行削除等) を続行してよい設計のため、
+ * ここでは決して throw しない (ネットワークエラーも含めて false を返すだけ)。
+ * 既に失効済みのトークンに対する revoke は Google 側が 400 を返すことがあるが、
+ * それは「連携解除したい」というユーザーの意図の達成を妨げる理由にはならない。
+ */
+export async function revokeToken(fetchFn: typeof fetch, token: string): Promise<boolean> {
+  try {
+    const response = await fetchFn(REVOKE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
 }

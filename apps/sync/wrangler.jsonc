@@ -13,8 +13,13 @@
   // 既定値、.dev.vars はローカル `wrangler dev` 専用の上書き」という wrangler の標準的な
   // 優先順位 (.dev.vars が vars を local dev でのみ上書きし、deploy には影響しない) を使い、
   // ローカル開発用の APP_URL は .dev.vars 側に置く (.dev.vars.example 参照)。
+  // ALLOWED_EMAILS: カンマ区切りの招待制 allowlist。空文字列 (デフォルト) = 全許可。
+  // ここを自分のメールだけに絞った値にしてコミットしないこと — 誰を招待するかは
+  // 運用側の判断であり、リポジトリのデフォルトは「制限なし」に保つ。実際に絞る場合は
+  // デプロイ環境の vars (wrangler.jsonc 編集 or `wrangler deploy` 時の環境) で設定する。
   "vars": {
-    "APP_URL": "https://kichijitsu.love-rox.cc"
+    "APP_URL": "https://kichijitsu.love-rox.cc",
+    "ALLOWED_EMAILS": ""
   },
   // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。
   // 同一ホストの他のパスは apps/web (kichijitsu-web) の Custom Domain が受ける。

@@ -13,7 +13,17 @@ GOOGLE_CLIENT_SECRET=your-client-secret
 # 生成例: openssl rand -base64 32
 SESSION_SECRET=replace-with-a-random-secret
 
+# refresh_token を D1 に保存する際の at-rest 暗号化鍵 (AES-256-GCM, 32 バイトを base64)。
+# 生成例: openssl rand -base64 32
+# この鍵を失う/変えると、既存ユーザーの refresh_token は復号できなくなり再連携が必要になる。
+TOKEN_ENC_KEY=replace-with-a-base64-32-byte-key
+
 # wrangler.jsonc の vars.APP_URL は本番値 (https://kichijitsu.love-rox.cc) がデフォルト。
 # .dev.vars に APP_URL を書くと `wrangler dev` 実行時だけこちらで上書きされる
 # (deploy には影響しない)。ローカルの apps/web (vite dev) 宛にリダイレクトしたいので上書きする。
 APP_URL=http://localhost:5173
+
+# 招待制 allowlist (カンマ区切り、大小文字は無視)。空なら全許可。
+# ローカルで「未招待メールは弾かれる」挙動を確認したい時だけ、自分以外のダミーアドレス等を
+# 入れて試す。通常のローカル開発では空のままで良い (wrangler.jsonc の既定値と同じ)。
+ALLOWED_EMAILS=

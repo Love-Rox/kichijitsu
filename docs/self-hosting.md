@@ -60,6 +60,7 @@ pnpm --filter sync exec wrangler d1 migrations apply <あなたのD1名> --remot
 pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_ID
 pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_SECRET
 pnpm --filter sync exec wrangler secret put SESSION_SECRET   # ランダムな長い文字列
+pnpm --filter sync exec wrangler secret put TOKEN_ENC_KEY     # openssl rand -base64 32 (refresh_token 暗号化鍵)
 pnpm --filter web build
 pnpm run deploy:sync
 pnpm run deploy:web

@@ -4,6 +4,8 @@ import type { IDBPDatabase } from 'idb'
 import type { CalendarListEntryDTO, MeResponse, SyncRequest, SyncResponse } from '@kichijitsu/shared'
 import { WeekGrid } from './components/WeekGrid'
 import { LogoMark, LogoWordmark } from './components/Logo'
+import { MasuIndicator } from './components/MasuIndicator'
+import { useMasuVisible } from './hooks/useMasuVisible'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
 import type { Occurrence } from './model/types'
@@ -49,6 +51,12 @@ function App() {
   const [me, setMe] = useState<MeResponse>({ connected: false })
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
   const autoSyncedRef = useRef(false)
+
+  // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
+  // グリッド中央に枡インジケーターをオーバーレイし、初期化完了で消す
+  const initializing = db === null
+  const initIndicator = useMasuVisible(initializing)
+  const syncIndicator = useMasuVisible(syncStatus === 'syncing')
 
   // 起動時: DB を開く → 初回のみ dummy データをシード → 表示週ぶんを展開 →
   // 展開済み範囲全体(単発イベント込み)を store に反映する
@@ -234,7 +242,7 @@ function App() {
       <header className="toolbar">
         <div className="logo-lockup">
           <LogoMark />
-          <LogoWordmark accent={false} />
+          <LogoWordmark />
         </div>
         <div className="toolbar-nav">
           <button type="button" onClick={goToPrevWeek} aria-label="前週">
@@ -256,7 +264,14 @@ function App() {
               <>
                 {me.email && <span className="account-email">{me.email}</span>}
                 <button type="button" onClick={runSync} disabled={syncStatus === 'syncing'}>
-                  {syncStatus === 'syncing' ? '同期中…' : '同期'}
+                  {syncIndicator.visible ? (
+                    <span className={syncIndicator.fading ? 'sync-indicator masu-indicator--fading' : 'sync-indicator'}>
+                      <MasuIndicator size="sm" />
+                      同期中
+                    </span>
+                  ) : (
+                    '同期'
+                  )}
                 </button>
                 {syncStatus === 'error' && <span className="sync-error">同期失敗</span>}
               </>
@@ -271,10 +286,19 @@ function App() {
               </button>
             )}
           </div>
+          <div className="toolbar-legal">
+            <a href="/privacy.html">プライバシー</a>
+            <a href="/terms.html">規約</a>
+          </div>
         </div>
       </header>
       <main className="app-main">
         <WeekGrid store={store} weekStart={weekStart} timeZone={timeZone} onPersist={handlePersist} />
+        {initIndicator.visible && (
+          <div className={initIndicator.fading ? 'init-overlay masu-indicator--fading' : 'init-overlay'}>
+            <MasuIndicator size="md" />
+          </div>
+        )}
       </main>
     </div>
   )

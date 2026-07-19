@@ -1,0 +1,67 @@
+/*
+ * 枡オーナメント ユーティリティ(brand/README.md 「枡オーナメント」節)。
+ * トークン・体系の正は /brand/README.md (変更禁止)。ここは UI 全体で使う
+ * CSS ユーティリティへの落とし込み。色は Logo.css の --logo-usuzumi /
+ * --logo-aka カスタムプロパティを再利用する(フォールバックはライト固定値)。
+ *
+ * 意味の体系:
+ *   .masu        薄墨・正立     = ふつうの項目
+ *   .masu--empty 枠だけ・透明   = 未完了
+ *   .masu--kichi 朱・-8°傾き    = 選ばれた・済んだ・今日 (常にセット、他と併用しない)
+ */
+
+.masu {
+  display: inline-block;
+  width: 0.52em;
+  height: 0.52em;
+  border-radius: 22%;
+  background: var(--logo-usuzumi, #dcd6c9);
+  vertical-align: baseline;
+}
+
+.masu--kichi {
+  background: var(--logo-aka, #d7402e);
+  transform: rotate(-8deg);
+}
+
+.masu--empty {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #cfc8ba;
+}
+
+/*
+ * 箇条書き: 黒丸の代わりに枡を ::before で描画する。完了した項目 (.done) は
+ * 朱の押印に変わり文字が薄くなる — リスト自体が進捗表示になる。
+ * 朱の枡は1つのまとまりにつき基本1個が原則だが、完了リストはその例外
+ * (完了したぶんだけ朱が増える)。ただしその場合は他の朱要素を併置しないこと。
+ */
+ul.masu-list {
+  list-style: none;
+  padding-left: 0.2em;
+  margin: 0;
+}
+
+ul.masu-list li {
+  position: relative;
+  padding-left: 1.5em;
+}
+
+ul.masu-list li::before {
+  content: '';
+  position: absolute;
+  left: 0.1em;
+  top: 0.72em;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 22%;
+  background: var(--logo-usuzumi, #dcd6c9);
+}
+
+ul.masu-list li.done::before {
+  background: var(--logo-aka, #d7402e);
+  transform: rotate(-8deg);
+}
+
+ul.masu-list li.done {
+  color: #8a8478;
+}

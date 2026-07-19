@@ -58,20 +58,32 @@
   line-height: 1;
 }
 
+/*
+ * ブランドルール改定 (2026-07-19, brand/README.md): j の枡は常に朱
+ * (マークと組むロックアップでも墨色にしない。ロゴ領域内は2つで1つのアクセント
+ * とみなす)。以前あった .logo-wordmark--accent / --ink の色分岐は廃止した。
+ *
+ * 位置(top): ユーザー指摘「j の枡が i の点より下に見える」を受けて再調整。
+ * 枡(0.14em 四方)は i の tittle(ドット)より大きいため、上端を揃えると
+ * 枡の重心が tittle より下に沈んで見える — tittle の「中心」と枡の「中心」を
+ * 一致させる必要がある。Chrome DevTools MCP でライブ計測(document.createRange()
+ * で "kichi" の i の実ピクセル位置を取得 + Canvas 2D で同フォントの 'i' を
+ * 拡大描画してドットの上下端をピクセルスキャン)した実測値から逆算した:
+ *   tittle の中心は .logo-wordmark-j の内容ボックス上端(top:0 の基準)から
+ *   約 0.12〜0.16em 下(アンチエイリアシングの影響でサブピクセル単位の厳密な
+ *   一致は難しく、実測にも ±1px 程度の幅がある)。枡の高さ 0.14em の半分
+ *   (0.07em)を引いた値をもとに、最終的にスクリーンショットの目視確認で
+ *   0.07em に調整した。
+ * フォントや OS が変わると再調整が必要な値なので、変えるときは同じ手順
+ * (実ピクセル計測)で検証すること — 目分量の em 値は今回ズレの原因になった。
+ */
 .logo-wordmark-masu {
   position: absolute;
   left: 50%;
-  top: 0.13em;
+  top: 0.07em;
   width: 0.14em;
   height: 0.14em;
   border-radius: 20%;
-  transform: translate(-50%, 0) rotate(-8deg);
-}
-
-.logo-wordmark--accent .logo-wordmark-masu {
   background: var(--logo-aka);
-}
-
-.logo-wordmark--ink .logo-wordmark-masu {
-  background: var(--logo-sumi);
+  transform: translate(-50%, 0) rotate(-8deg);
 }

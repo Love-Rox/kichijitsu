@@ -5,6 +5,7 @@ import { refreshAccessToken } from '../google/oauth'
 import { syncCalendar, type SyncCoreDeps } from '../core/sync'
 import { NotConnectedError } from '../core/errors'
 import { runRpc, type RpcResult } from '../rpc-result'
+import { decryptToken, InvalidCiphertextError } from '../crypto'
 
 // アクセストークンをこの秒数前倒しで期限切れ扱いにし、ギリギリで失効したリクエストを防ぐ。
 const TOKEN_EXPIRY_SKEW_SECONDS = 60
@@ -30,6 +31,8 @@ export class UserSyncDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     ctx.blockConcurrencyWhile(async () => {
+      // token_cache.access_token は平文で保存する (accepted risk: 寿命が ~1h と短く、
+      // D1 の refresh_token (無期限・暗号化対象) とはリスクの性質が違うため)。
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS token_cache (
           id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -58,6 +61,14 @@ export class UserSyncDO extends DurableObject<Env> {
     })
   }
 
+  /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ) を全消去する。 */
+  async clearSyncState(): Promise<RpcResult<void>> {
+    return runRpc(async () => {
+      this.ctx.storage.sql.exec('DELETE FROM token_cache')
+      this.ctx.storage.sql.exec('DELETE FROM sync_tokens')
+    })
+  }
+
   private buildDeps(userId: string): SyncCoreDeps {
     return {
       fetch,
@@ -83,10 +94,23 @@ export class UserSyncDO extends DurableObject<Env> {
       throw new NotConnectedError()
     }
 
+    let refreshToken: string
+    try {
+      refreshToken = await decryptToken(this.env.TOKEN_ENC_KEY, row.refresh_token)
+    } catch (err) {
+      if (err instanceof InvalidCiphertextError) {
+        // v1: プレフィックスの無い行 (暗号化導入前の平文データ) や、改ざん/鍵不一致による
+        // 復号失敗。既存データは dev 用のダミーしか無いため移行コードは書かず、単純に
+        // 「未連携」として扱い再連携 (再ログイン) に誘導する。
+        throw new NotConnectedError()
+      }
+      throw err
+    }
+
     const refreshed = await refreshAccessToken(
       fetch,
       { clientId: this.env.GOOGLE_CLIENT_ID, clientSecret: this.env.GOOGLE_CLIENT_SECRET },
-      row.refresh_token,
+      refreshToken,
     )
 
     // 先に永続化してからメモリ上の呼び出し元へ返す (persist first, cache second)

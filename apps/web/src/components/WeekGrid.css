@@ -66,18 +66,29 @@
 }
 
 .week-grid-day-header.is-today .weekday {
-  color: #2563eb;
+  /* brand/README.md: アクセントは常に朱ひとつ。下の枡バッジと揃える */
+  color: #d7402e;
 }
 
+/*
+ * 今日バッジ = 枡オーナメント(brand/README.md「今日の日付バッジ」)。
+ * 朱で -8° 傾いた枡に、数字だけ逆回転 (rotate(8deg)) させて正立させる。
+ */
 .week-grid-day-header.is-today .date {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  background: #2563eb;
-  color: #fff;
+  border-radius: 26%;
+  background: #d7402e;
+  color: #faf7f2;
+  transform: rotate(-8deg);
+}
+
+.week-grid-day-header.is-today .date-num {
+  display: inline-block;
+  transform: rotate(8deg);
 }
 
 /* ---- 本体: 縦スクロールする領域 ---- */

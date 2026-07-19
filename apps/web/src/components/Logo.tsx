@@ -40,17 +40,11 @@ export function LogoMark({ className }: { className?: string }) {
 }
 
 interface LogoWordmarkProps {
-  /**
-   * true (既定): j の点(tittle)を朱の枡にする — ワードマーク単独使用時のみ。
-   * false: マークと組むロックアップ用。brand/README.md のルール「マークを置いたら
-   * ワードマークは墨一色にする(アクセントは常に朱ひとつ)」に従い、枡を墨色にする。
-   */
-  accent?: boolean
   className?: string
 }
 
 /**
- * 「kichijitsu」の文字組み。署名ディテールとして j の点(tittle)を傾いた枡に置き換える。
+ * 「kichijitsu」の文字組み。署名ディテールとして j の点(tittle)を傾いた朱の枡に置き換える。
  *
  * tittle 実装方式: U+0237 (dotless j, "ȷ") を採用。
  * Chrome DevTools MCP で実機確認 (このツールバーが使う system-ui フォント、
@@ -58,11 +52,14 @@ interface LogoWordmarkProps {
  * ため、フォールバック案(通常の j を生成り色矩形でマスクする方式)は不要だった。
  * 枡は絶対配置の <span class="logo-wordmark-masu"> を重ねているだけで、
  * dotless j 自体はネイティブの点を持たないので二重に点が出ることもない。
+ *
+ * ブランドルール改定 (2026-07-19, brand/README.md): j の枡は常に朱。以前は
+ * マークと組むロックアップ時のみ墨色にする `accent` prop があったが、ユーザーの
+ * 指摘で「ロゴ領域内は j の枡とマークの朱で1つのアクセントとみなす」に変更され、
+ * このコンポーネントは常時朱で固定になった(呼び出し側の分岐は不要)。
  */
-export function LogoWordmark({ accent = true, className }: LogoWordmarkProps) {
-  const classes = ['logo-wordmark', accent ? 'logo-wordmark--accent' : 'logo-wordmark--ink', className]
-    .filter(Boolean)
-    .join(' ')
+export function LogoWordmark({ className }: LogoWordmarkProps) {
+  const classes = ['logo-wordmark', className].filter(Boolean).join(' ')
 
   return (
     <span className={classes} aria-label="kichijitsu">
