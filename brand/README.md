@@ -11,9 +11,17 @@
 | `mark-week.svg` | 横長マーク。ヘッダー・README・OG 画像の素材 |
 | `tile.svg` | アプリアイコン (48px〜)。月グリッド 3x2 版 |
 | `favicon.svg` | ファビコン。16px でも読める 2x2 簡約版 |
+| `wordmark.svg` | ワードマーク（確定版 2026-07-19）。**手編集禁止**、再生成は `gen-wordmark.js` |
 
-ワードマークは SVG を持たず、アプリ内で文字組み + j の点（tittle）を傾いた朱の枡に
-置き換えて描画する（`apps/web/src/components/Logo.tsx`）。
+### ワードマーク
+
+- Inter SemiBold（SIL OFL 1.1, https://rsms.me/inter/）を**アウトライン化**した
+  固定ジオメトリ。フォント・OS に依存しない
+- **i の点3つ = 正立した墨の枡**（`currentColor` — ダークテーマで自動反転）、
+  **j の点 = -8° 傾いた朱の枡**（stem 幅の 1.35 倍、墨枡は 1.08 倍）
+- 調整したいときは `gen-wordmark.js` のパラメータ（枡サイズ比・傾き・字間）を
+  変えて再生成する（要 opentype.js + Inter-SemiBold.otf。手順はスクリプト冒頭）
+- 位置を目分量の em で調整する文字組み実装は廃止（フォント差でズレるため）
 
 ## トークン
 
