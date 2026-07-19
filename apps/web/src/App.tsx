@@ -22,8 +22,10 @@ import {
   type KichijitsuDB,
 } from './db/database'
 import { ensureExpanded } from './expansion/ensureExpanded'
-import { applySyncResponse } from './sync/applySync'
+import { applySyncResponse, deleteGoogleData } from './sync/applySync'
 import './App.css'
+
+type DisconnectState = 'idle' | 'confirming' | 'disconnecting' | 'error'
 
 /** 指定日を含む週の月曜日 */
 function mondayOf(date: Temporal.PlainDate): Temporal.PlainDate {
@@ -50,6 +52,7 @@ function App() {
 
   const [me, setMe] = useState<MeResponse>({ connected: false })
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
+  const [disconnectState, setDisconnectState] = useState<DisconnectState>('idle')
   const autoSyncedRef = useRef(false)
 
   // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
@@ -174,6 +177,31 @@ function App() {
     runSync()
   }, [db, me.connected, runSync])
 
+  // 「連携解除」確定時: サーバー側 (Google revoke + データ削除 + sid cookie 消去) を
+  // DELETE /api/account に任せ、成功したらローカルの google 由来データも消して未接続に戻す。
+  // window.confirm は使わずツールバー側のインライン2段階確認(連携解除→[解除する]/[やめる])で代替している
+  const handleDisconnect = useCallback(async () => {
+    setDisconnectState('disconnecting')
+    try {
+      const res = await fetch('/api/account', { method: 'DELETE' })
+      if (!res.ok) {
+        throw new Error(`DELETE /api/account failed: ${res.status}`)
+      }
+      setMe({ connected: false })
+      autoSyncedRef.current = false
+      if (db) {
+        await deleteGoogleData(db)
+        const state = await getExpansionState(db)
+        const all = state ? await getOccurrencesBetween(db, state.expandedFromMs, state.expandedToMs) : []
+        store.load(all)
+      }
+      setDisconnectState('idle')
+    } catch (err) {
+      console.error('kichijitsu: account disconnect failed', err)
+      setDisconnectState('error')
+    }
+  }, [db, store])
+
   // ドラッグ確定時の永続化。store.update は WeekGrid 側で同期的に呼ばれる
   // (楽観的更新)。ここでは IndexedDB への書き込みだけを非同期・fire-and-forget で行う
   const handlePersist = useCallback(
@@ -274,6 +302,36 @@ function App() {
                   )}
                 </button>
                 {syncStatus === 'error' && <span className="sync-error">同期失敗</span>}
+                {disconnectState === 'confirming' || disconnectState === 'disconnecting' ? (
+                  <span className="disconnect-confirm">
+                    連携解除しますか？
+                    <button
+                      type="button"
+                      className="disconnect-confirm-btn"
+                      onClick={handleDisconnect}
+                      disabled={disconnectState === 'disconnecting'}
+                    >
+                      解除する
+                    </button>
+                    <button
+                      type="button"
+                      className="disconnect-confirm-btn"
+                      onClick={() => setDisconnectState('idle')}
+                      disabled={disconnectState === 'disconnecting'}
+                    >
+                      やめる
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="disconnect-link"
+                    onClick={() => setDisconnectState('confirming')}
+                  >
+                    連携解除
+                  </button>
+                )}
+                {disconnectState === 'error' && <span className="sync-error">解除失敗</span>}
               </>
             ) : (
               <button

@@ -102,6 +102,48 @@
   color: #ef4444;
 }
 
+/*
+ * 「連携解除」導線: 目立たせすぎない控えめなテキストリンク。
+ * .toolbar-account button の枠付きボタン様式(border/background)を打ち消すため
+ * .toolbar-account との組み合わせで上書きしている。
+ */
+.toolbar-account .disconnect-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  color: #8a8478;
+}
+
+.toolbar-account .disconnect-link:hover {
+  background: none;
+  color: #24211e;
+  text-decoration: underline;
+}
+
+/* 「連携解除しますか？」のインライン2段階確認(window.confirm は使わない方針のため) */
+.disconnect-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #55504a;
+}
+
+.toolbar-account .disconnect-confirm-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  text-decoration: underline;
+  color: #8a8478;
+}
+
+.toolbar-account .disconnect-confirm-btn:hover:not(:disabled) {
+  background: none;
+  color: #24211e;
+}
+
 /* 同期ボタン内の枡インジケーター(MasuIndicator size="sm") + テキストのロックアップ */
 .sync-indicator {
   display: inline-flex;
