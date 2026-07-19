@@ -22,6 +22,11 @@ export interface Occurrence {
   color: string
   source: OccurrenceSource
   link?: OccurrenceLink
+  /**
+   * シリーズ由来の場合のみ: 展開時の元の開始時刻 (epoch ms)。
+   * ドラッグ等で startMs が変わっても不変で、InstanceOverride との対応付けに使う
+   */
+  originalStartMs?: number
 }
 
 /** 終日予定は時刻を持たない日付として別レイヤーで扱う（UTC変換に巻き込まない） */

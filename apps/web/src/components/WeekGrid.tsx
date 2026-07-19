@@ -17,6 +17,8 @@ interface WeekGridProps {
   store: OccurrenceStore
   weekStart: Temporal.PlainDate
   timeZone: string
+  /** ドラッグ確定時、store.update に加えて呼ばれる永続化フック(IndexedDB書き込みは App 側が担う) */
+  onPersist: (updated: Occurrence) => void
 }
 
 type SlidePhase = 'idle' | 'next' | 'prev'
@@ -36,7 +38,7 @@ interface WeekPanelData {
   dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<Occurrence>> }[]
 }
 
-export function WeekGrid({ store, weekStart, timeZone }: WeekGridProps) {
+export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds)
 
@@ -142,9 +144,12 @@ export function WeekGrid({ store, weekStart, timeZone }: WeekGridProps) {
 
   const handleCommit = useCallback(
     (updated: Occurrence) => {
+      // 楽観的・同期: まず store を即座に更新して見た目に反映する
       store.update(updated)
+      // 永続化は非同期・fire-and-forget(App 側が db 書き込みを担当)
+      onPersist(updated)
     },
-    [store],
+    [store, onPersist],
   )
 
   const transform = transformForPhase(phase)
