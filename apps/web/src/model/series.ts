@@ -15,6 +15,12 @@ export interface EventSeries {
   source: OccurrenceSource
   /** 展開された全 occurrence に引き継がれる元リソースへの参照 (Google の htmlLink 等) */
   link?: OccurrenceLink
+  /** Google 由来のみ: どのアカウントのどのカレンダーか (展開時に occurrence へ引き継ぐ) */
+  accountId?: string
+  calendarId?: string
+  /** ホバー/詳細表示用 (展開時に occurrence へ引き継ぐ) */
+  location?: string
+  description?: string
   /** 初回開始のローカル日時 (タイムゾーンオフセットなしの ISO)。例 "2026-07-20T10:00" */
   dtstartIso: string
   /** IANA タイムゾーン。例 "Asia/Tokyo" */
@@ -46,6 +52,8 @@ export interface InstanceOverride {
     startMs?: number
     endMs?: number
     color?: string
+    location?: string
+    description?: string
   } | null
 }
 

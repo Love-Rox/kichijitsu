@@ -13,6 +13,8 @@ interface RawGoogleEvent {
   updated?: string
   colorId?: string
   htmlLink?: string
+  location?: string
+  description?: string
 }
 
 interface RawEventsListResponse {
@@ -34,6 +36,8 @@ export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
     updated: raw.updated,
     colorId: raw.colorId,
     htmlLink: raw.htmlLink,
+    location: raw.location,
+    description: raw.description,
   }
 }
 

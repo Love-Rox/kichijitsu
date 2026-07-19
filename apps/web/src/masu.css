@@ -17,6 +17,14 @@
   border-radius: 22%;
   background: var(--logo-usuzumi, #dcd6c9);
   vertical-align: baseline;
+  /*
+   * flex item として置かれたときの保険。.masu は中身の無い <span> なので、
+   * flex コンテナ内に置くと「automatic minimum size (min-width:auto の
+   * content-based な下限)」が 0 になり、既定の flex-shrink:1 のままだと
+   * 明示した width が無視されて 0 幅に潰れる(実機の Chrome DevTools MCP で発見)。
+   * flex item でない通常の文脈では無害なので、ここで一律に設定しておく。
+   */
+  flex-shrink: 0;
 }
 
 .masu--kichi {

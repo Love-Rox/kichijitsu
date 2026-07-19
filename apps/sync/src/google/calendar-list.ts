@@ -5,6 +5,7 @@ interface RawCalendarListEntry {
   id: string
   summary: string
   primary?: boolean
+  backgroundColor?: string
 }
 
 interface RawCalendarListResponse {
@@ -22,5 +23,10 @@ export async function fetchCalendarList(
     throw new GoogleApiError(response.status, await response.text())
   }
   const data = (await response.json()) as RawCalendarListResponse
-  return data.items.map((item) => ({ id: item.id, summary: item.summary, primary: item.primary }))
+  return data.items.map((item) => ({
+    id: item.id,
+    summary: item.summary,
+    primary: item.primary,
+    backgroundColor: item.backgroundColor,
+  }))
 }

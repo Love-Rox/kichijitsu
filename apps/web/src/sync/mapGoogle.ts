@@ -9,10 +9,13 @@ import type { Occurrence } from '../model/types'
  * サーバー (apps/sync) はイベント本体を保存しない設計のため、正規化・展開の
  * 責務は全てこことその先 (expandSeries) がクライアント側で負う。
  *
- * id 規則: Google 由来は全て "g:" プレフィックス。
- * - 単発 occurrence: `g:<event.id>`
- * - シリーズ (繰り返しの親): `g:<event.id>` (親自身の id がそのままシリーズ id)
- * - 例外インスタンスの override: seriesId は `g:<recurringEventId>`、
+ * id 規則(マルチアカウント対応 2026-07-19): Google 由来は全て
+ * `g:<accountId>:<calendarId>:<event.id>`。同じ予定が複数のカレンダーに
+ * 同じ event.id で現れうる(共有予定・他人のカレンダーへの招待コピー等)ため、
+ * event.id 単体では衝突する — (accountId, calendarId) をキーに含めて防ぐ。
+ * - 単発 occurrence: `g:<accountId>:<calendarId>:<event.id>`
+ * - シリーズ (繰り返しの親): 同上 (親自身の id がそのままシリーズ id)
+ * - 例外インスタンスの override: seriesId は `g:<accountId>:<calendarId>:<recurringEventId>`、
  *   override 自身の id は instanceId() 規則 (`${seriesId}:${originalStartMs}`)
  *
  * 個々のイベント変換は失敗しても throw しない: 1件の異常が同期全体を
@@ -22,10 +25,23 @@ export interface MappedSync {
   series: EventSeries[]
   overrides: InstanceOverride[]
   singles: Occurrence[]
-  /** 単発イベントが cancelled になった場合の occurrence id (`g:<event.id>`) */
+  /** 単発イベントが cancelled になった場合の occurrence id */
   deletedSingleIds: string[]
   /** 終日 (start.date のみ) でスキップした件数。UI が終日予定に未対応なため */
   skippedAllDay: number
+}
+
+/** mapGoogleEvents の呼び出しごとのコンテキスト: どのアカウント・どのカレンダーの同期か */
+export interface MapGoogleContext {
+  accountId: string
+  calendarId: string
+  /** カレンダー自体の色 (Google の backgroundColor)。イベント個別 colorId が無いときのフォールバック */
+  defaultColor?: string
+}
+
+/** id 規則: `g:<accountId>:<calendarId>:<eventId>` */
+function eventKey(ctx: MapGoogleContext, eventId: string): string {
+  return `g:${ctx.accountId}:${ctx.calendarId}:${eventId}`
 }
 
 /**
@@ -47,9 +63,19 @@ const GOOGLE_COLOR_MAP: Record<string, string> = {
 }
 const DEFAULT_COLOR = '#3b82f6'
 
-function colorFor(colorId: string | undefined): string {
-  if (!colorId) return DEFAULT_COLOR
-  return GOOGLE_COLOR_MAP[colorId] ?? DEFAULT_COLOR
+/**
+ * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
+ * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
+ * それも無ければ最終フォールバックの DEFAULT_COLOR。
+ * colorId が未知の値の場合もカレンダー色へフォールバックする(決め打ちの
+ * DEFAULT_COLOR よりカレンダー色の方がユーザーの意図に近いため)。
+ */
+function colorFor(colorId: string | undefined, ctx: MapGoogleContext): string {
+  if (colorId) {
+    const mapped = GOOGLE_COLOR_MAP[colorId]
+    if (mapped) return mapped
+  }
+  return ctx.defaultColor ?? DEFAULT_COLOR
 }
 
 function durationMinutesBetween(startIso: string, endIso: string): number {
@@ -119,7 +145,7 @@ function originalStartMsOf(event: GoogleEventDTO): number {
 }
 
 /** 繰り返しの親イベント → EventSeries。RRULE 行が見つからなければ null (呼び出し側で warn 済み) */
-function buildSeries(event: GoogleEventDTO): EventSeries | null {
+function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries | null {
   if (!event.start?.dateTime || !event.end?.dateTime) {
     throw new Error(`series event ${event.id} missing start/end dateTime`)
   }
@@ -156,10 +182,14 @@ function buildSeries(event: GoogleEventDTO): EventSeries | null {
   }
 
   return {
-    id: `g:${event.id}`,
+    id: eventKey(ctx, event.id),
     title: event.summary ?? '(無題)',
-    color: colorFor(event.colorId),
+    color: colorFor(event.colorId, ctx),
     source: 'google',
+    accountId: ctx.accountId,
+    calendarId: ctx.calendarId,
+    location: event.location,
+    description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     dtstartIso,
     timeZone,
@@ -170,11 +200,11 @@ function buildSeries(event: GoogleEventDTO): EventSeries | null {
 }
 
 /** 例外インスタンス (recurringEventId あり) → InstanceOverride */
-function buildOverride(event: GoogleEventDTO): InstanceOverride {
+function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOverride {
   if (!event.recurringEventId) {
     throw new Error(`override event ${event.id} missing recurringEventId`)
   }
-  const seriesId = `g:${event.recurringEventId}`
+  const seriesId = eventKey(ctx, event.recurringEventId)
   const originalStartMs = originalStartMsOf(event)
 
   if (event.status === 'cancelled') {
@@ -192,25 +222,40 @@ function buildOverride(event: GoogleEventDTO): InstanceOverride {
   if (event.summary !== undefined) {
     patch.title = event.summary
   }
+  if (event.location !== undefined) {
+    patch.location = event.location
+  }
+  if (event.description !== undefined) {
+    patch.description = event.description
+  }
 
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch }
 }
 
 /** 単発イベント → Occurrence。start/end.dateTime は呼び出し側で存在確認済み */
-function buildSingle(event: GoogleEventDTO, startDateTime: string, endDateTime: string): Occurrence {
+function buildSingle(
+  event: GoogleEventDTO,
+  startDateTime: string,
+  endDateTime: string,
+  ctx: MapGoogleContext,
+): Occurrence {
   return {
-    id: `g:${event.id}`,
+    id: eventKey(ctx, event.id),
     seriesId: null,
     title: event.summary ?? '(無題)',
     startMs: Temporal.Instant.from(startDateTime).epochMilliseconds,
     endMs: Temporal.Instant.from(endDateTime).epochMilliseconds,
-    color: colorFor(event.colorId),
+    color: colorFor(event.colorId, ctx),
     source: 'google',
+    accountId: ctx.accountId,
+    calendarId: ctx.calendarId,
+    location: event.location,
+    description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
   }
 }
 
-export function mapGoogleEvents(events: GoogleEventDTO[]): MappedSync {
+export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext): MappedSync {
   const series: EventSeries[] = []
   const overrides: InstanceOverride[] = []
   const singles: Occurrence[] = []
@@ -226,13 +271,13 @@ export function mapGoogleEvents(events: GoogleEventDTO[]): MappedSync {
       }
 
       if (event.recurrence && event.recurrence.length > 0) {
-        const built = buildSeries(event)
+        const built = buildSeries(event, ctx)
         if (built) series.push(built)
         continue
       }
 
       if (event.recurringEventId) {
-        overrides.push(buildOverride(event))
+        overrides.push(buildOverride(event, ctx))
         continue
       }
 
@@ -242,10 +287,10 @@ export function mapGoogleEvents(events: GoogleEventDTO[]): MappedSync {
         continue
       }
       if (event.status === 'cancelled') {
-        deletedSingleIds.push(`g:${event.id}`)
+        deletedSingleIds.push(eventKey(ctx, event.id))
         continue
       }
-      singles.push(buildSingle(event, event.start.dateTime, event.end.dateTime))
+      singles.push(buildSingle(event, event.start.dateTime, event.end.dateTime, ctx))
     } catch (err) {
       console.warn(`mapGoogleEvents: failed to convert event ${event.id}, skipping`, err)
     }

@@ -10,6 +10,15 @@ import { DAY_MS } from '../expansion/windowPolicy'
  * 永続化に触れる。スキーマ変更は必ずここの version を上げて upgrade で行う。
  */
 
+/**
+ * アカウントごとに選択中のカレンダー id 一覧。meta ストアに
+ * key="visibleCalendars" で保存する(マルチアカウント対応 2026-07-19)。
+ * 初回連携時はデフォルトで primary カレンダーのみが入る (App.tsx が設定)。
+ */
+export interface VisibleCalendarsMap {
+  [accountId: string]: string[]
+}
+
 export interface KichijitsuDB extends DBSchema {
   occurrences: {
     key: string
@@ -24,15 +33,17 @@ export interface KichijitsuDB extends DBSchema {
     key: string
     value: InstanceOverride
   }
+  /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string
-    value: ExpansionState
+    value: ExpansionState | VisibleCalendarsMap
   }
 }
 
 const DB_NAME = 'kichijitsu'
 const DB_VERSION = 1
 const META_EXPANSION_KEY = 'expansion'
+const META_VISIBLE_CALENDARS_KEY = 'visibleCalendars'
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined
 
@@ -147,7 +158,10 @@ export async function getExpansionState(
   db: IDBPDatabase<KichijitsuDB>,
 ): Promise<ExpansionState | null> {
   const state = await db.get('meta', META_EXPANSION_KEY)
-  return state ?? null
+  // meta ストアは key ごとに value の形が違う(VisibleCalendarsMap と共存)ため、
+  // ExpansionState の形をしているかを軽くチェックしてから返す
+  if (!state || typeof state !== 'object' || !('expandedFromMs' in state)) return null
+  return state as ExpansionState
 }
 
 export async function setExpansionState(
@@ -157,6 +171,81 @@ export async function setExpansionState(
   await db.put('meta', state, META_EXPANSION_KEY)
 }
 
+/** 保存済みの選択中カレンダー一覧。未保存なら空オブジェクト */
+export async function getVisibleCalendars(
+  db: IDBPDatabase<KichijitsuDB>,
+): Promise<VisibleCalendarsMap> {
+  const value = await db.get('meta', META_VISIBLE_CALENDARS_KEY)
+  // meta ストアは key ごとに value の形が違う(ExpansionState と共存)ため、
+  // ExpansionState を誤って返さないよう軽く形をチェックする
+  if (!value || typeof value !== 'object' || 'expandedFromMs' in value) return {}
+  return value as VisibleCalendarsMap
+}
+
+export async function setVisibleCalendars(
+  db: IDBPDatabase<KichijitsuDB>,
+  visibleCalendars: VisibleCalendarsMap,
+): Promise<void> {
+  await db.put('meta', visibleCalendars, META_VISIBLE_CALENDARS_KEY)
+}
+
 export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {
   return db.count('series')
+}
+
+/** cleanupLegacyGoogleData の戻り値。全て 0 なら削除対象が無かった(冪等の2回目以降含む) */
+export interface LegacyCleanupResult {
+  seriesRemoved: number
+  occurrencesRemoved: number
+  overridesRemoved: number
+}
+
+/**
+ * レガシー Google データの掃除 (2026-07-19 の ID スコープ化 `g:<eventId>` →
+ * `g:<accountId>:<calendarId>:<eventId>` 以前に保存された残骸)。
+ *
+ * 旧 ID 体系の series/occurrences は source==='google' なのに accountId が
+ * 付いていない(現行のフィルタ `${accountId}:${calendarId}` にはどのみち
+ * マッチしないので、どのみち不可視の残骸)。overrides は自身に source/accountId
+ * を持たないため、代わりに seriesId が旧形式かどうかで判定する: 旧形式は
+ * `g:<eventId>` (コロン区切り2セグメント)、新形式は `g:<accountId>:<calendarId>:<eventId>`
+ * (4セグメント以上)なので、`g:` で始まり3セグメント未満なら旧形式とみなす。
+ *
+ * 起動のたびに呼んでよい設計(冪等): 一度掃除し終われば以降は全て 0 件で
+ * 即 return する。呼び出し側は 0 件なら何もログを出さない想定。
+ */
+export async function cleanupLegacyGoogleData(
+  db: IDBPDatabase<KichijitsuDB>,
+): Promise<LegacyCleanupResult> {
+  const [allSeries, allOccurrences, allOverrides] = await Promise.all([
+    getAllSeries(db),
+    getAllOccurrences(db),
+    getAllOverrides(db),
+  ])
+
+  const legacySeriesIds = allSeries
+    .filter((s) => s.source === 'google' && s.accountId === undefined)
+    .map((s) => s.id)
+  const legacyOccurrenceIds = allOccurrences
+    .filter((o) => o.source === 'google' && o.accountId === undefined)
+    .map((o) => o.id)
+  const legacyOverrideIds = allOverrides
+    .filter((o) => o.seriesId.startsWith('g:') && o.seriesId.split(':').length < 3)
+    .map((o) => o.id)
+
+  if (legacySeriesIds.length === 0 && legacyOccurrenceIds.length === 0 && legacyOverrideIds.length === 0) {
+    return { seriesRemoved: 0, occurrencesRemoved: 0, overridesRemoved: 0 }
+  }
+
+  await Promise.all([
+    deleteSeriesByIds(db, legacySeriesIds),
+    deleteOccurrencesByIds(db, legacyOccurrenceIds),
+    deleteOverridesByIds(db, legacyOverrideIds),
+  ])
+
+  return {
+    seriesRemoved: legacySeriesIds.length,
+    occurrencesRemoved: legacyOccurrenceIds.length,
+    overridesRemoved: legacyOverrideIds.length,
+  }
 }

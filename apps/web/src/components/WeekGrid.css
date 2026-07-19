@@ -113,16 +113,16 @@
     to bottom,
     transparent 0,
     transparent 11px,
-    rgba(229, 231, 235, 0.4) 11px,
-    rgba(229, 231, 235, 0.4) 12px,
+    rgba(229, 231, 235, 0.22) 11px,
+    rgba(229, 231, 235, 0.22) 12px,
     transparent 12px,
     transparent 23px,
-    rgba(229, 231, 235, 0.7) 23px,
-    rgba(229, 231, 235, 0.7) 24px,
+    rgba(229, 231, 235, 0.45) 23px,
+    rgba(229, 231, 235, 0.45) 24px,
     transparent 24px,
     transparent 35px,
-    rgba(229, 231, 235, 0.4) 35px,
-    rgba(229, 231, 235, 0.4) 36px,
+    rgba(229, 231, 235, 0.22) 35px,
+    rgba(229, 231, 235, 0.22) 36px,
     transparent 36px,
     transparent 47px,
     #e5e7eb 47px,
@@ -172,16 +172,16 @@
     to bottom,
     transparent 0,
     transparent 11px,
-    rgba(229, 231, 235, 0.4) 11px,
-    rgba(229, 231, 235, 0.4) 12px,
+    rgba(229, 231, 235, 0.22) 11px,
+    rgba(229, 231, 235, 0.22) 12px,
     transparent 12px,
     transparent 23px,
-    rgba(229, 231, 235, 0.7) 23px,
-    rgba(229, 231, 235, 0.7) 24px,
+    rgba(229, 231, 235, 0.45) 23px,
+    rgba(229, 231, 235, 0.45) 24px,
     transparent 24px,
     transparent 35px,
-    rgba(229, 231, 235, 0.4) 35px,
-    rgba(229, 231, 235, 0.4) 36px,
+    rgba(229, 231, 235, 0.22) 35px,
+    rgba(229, 231, 235, 0.22) 36px,
     transparent 36px,
     transparent 47px,
     #e5e7eb 47px,
@@ -306,4 +306,140 @@
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
+}
+
+/*
+ * ---- ホバーツールチップ ----
+ * EventBlock.tsx が document.body 直下に1個だけ作って使い回す DOM ノード
+ * (drag-badge と同じ流儀)。表示/非表示・位置更新は直接 style 書き込みで行う。
+ */
+.event-tooltip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 260px;
+  background: #24211e;
+  color: #faf7f2;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.event-tooltip-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-tooltip-range {
+  color: #d6d0c4;
+}
+
+/* 場所: 記号なしの薄墨表示 */
+.event-tooltip-location {
+  color: #a39c8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * ---- クリック詳細ポップオーバー ----
+ * EventBlock.tsx から document.body へ createPortal している(週ストリップの
+ * transform 祖先に position:fixed の containing block を奪われないため)。
+ */
+.event-detail-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(36, 33, 30, 0.2);
+  padding: 14px 16px;
+}
+
+.event-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.event-detail-close:hover {
+  color: #24211e;
+}
+
+.event-detail-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+  padding-right: 20px;
+  margin-bottom: 6px;
+}
+
+.event-detail-datetime {
+  font-size: 12px;
+  color: #55504a;
+  margin-bottom: 8px;
+}
+
+.event-detail-location {
+  font-size: 12px;
+  color: #8a8478;
+  margin-bottom: 8px;
+}
+
+.event-detail-description {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #55504a;
+  white-space: pre-line;
+  margin-bottom: 10px;
+  /* 最大10行程度で省略する(それ以上は表示しない、編集機能もないため全文表示にはしない) */
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.event-detail-link {
+  display: inline-block;
+  font-size: 12px;
+  color: #d7402e;
+  margin-bottom: 10px;
+}
+
+.event-detail-link:hover {
+  text-decoration: underline;
+}
+
+.event-detail-calendar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #8a8478;
+  padding-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-calendar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
 }

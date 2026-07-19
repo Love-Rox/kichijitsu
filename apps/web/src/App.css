@@ -47,10 +47,56 @@
   gap: 12px;
 }
 
+/* position: relative は CalendarSettingsPanel (.calendar-panel) の絶対配置アンカー */
 .toolbar-account {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* アカウント表示部(クリックでカレンダー設定パネルを開閉)。1件なら email、複数なら件数表示 */
+.account-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.account-summary:hover {
+  background: #f3f4f6;
+}
+
+.account-summary-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.account-gear {
+  font-size: 12px;
+  color: #8a8478;
+}
+
+/*
+ * オフライン表示(brand/README.md「枡オーナメント」節: 空枡+「オフライン」= サーバーに
+ * 届かない状態、表示はローカルレプリカで継続)。App.tsx の useOffline 参照
+ */
+.offline-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #8a8478;
+  white-space: nowrap;
 }
 
 /* Google 審査要件の導線: ホームページからプライバシーポリシー・規約へのリンク。
@@ -92,56 +138,9 @@
   cursor: default;
 }
 
-.account-email {
-  font-size: 12px;
-  color: #6b7280;
-}
-
 .sync-error {
   font-size: 12px;
   color: #ef4444;
-}
-
-/*
- * 「連携解除」導線: 目立たせすぎない控えめなテキストリンク。
- * .toolbar-account button の枠付きボタン様式(border/background)を打ち消すため
- * .toolbar-account との組み合わせで上書きしている。
- */
-.toolbar-account .disconnect-link {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 11px;
-  color: #8a8478;
-}
-
-.toolbar-account .disconnect-link:hover {
-  background: none;
-  color: #24211e;
-  text-decoration: underline;
-}
-
-/* 「連携解除しますか？」のインライン2段階確認(window.confirm は使わない方針のため) */
-.disconnect-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: #55504a;
-}
-
-.toolbar-account .disconnect-confirm-btn {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 11px;
-  text-decoration: underline;
-  color: #8a8478;
-}
-
-.toolbar-account .disconnect-confirm-btn:hover:not(:disabled) {
-  background: none;
-  color: #24211e;
 }
 
 /* 同期ボタン内の枡インジケーター(MasuIndicator size="sm") + テキストのロックアップ */

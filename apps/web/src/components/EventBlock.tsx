@@ -1,8 +1,15 @@
-import { useEffect, useRef } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react'
 import type { Occurrence } from '../model/types'
 import { snapEndMs, snapStartMs } from '../layout/snap'
-import { formatRange, formatTime, minutesToPx, pxToMinutes } from '../layout/gridMetrics'
+import { formatDetailDateTime, formatRange, formatTime, minutesToPx, pxToMinutes } from '../layout/gridMetrics'
+
+/** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
+export interface CalendarInfo {
+  summary: string
+  backgroundColor?: string
+}
 
 interface EventBlockProps {
   occurrence: Occurrence
@@ -20,6 +27,8 @@ interface EventBlockProps {
   /** このブロックが属する週の7日ぶんの 0:00 (epoch ms)。日をまたぐ移動の着地点計算に使う */
   weekDayStarts: readonly number[]
   onCommit: (updated: Occurrence) => void
+  /** `${accountId}:${calendarId}` → カレンダー名/色。詳細ポップオーバーの「どのカレンダーか」表示用 */
+  calendarLookup: Map<string, CalendarInfo>
 }
 
 interface DragState {
@@ -46,9 +55,58 @@ interface DragState {
 }
 
 const CLICK_THRESHOLD_PX = 4
+const HOVER_DELAY_MS = 400
+const TOOLTIP_OFFSET_PX = 14
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value))
+}
+
+/**
+ * ホバーツールチップは全 EventBlock で1個の DOM ノードを使い回す(drag-badge と
+ * 同じ流儀: React 管理下に置かず、直接 DOM 操作で表示/非表示・位置更新する)。
+ * 同時にホバーできるブロックは常に1つなので、シングルトンで十分。
+ */
+let sharedTooltipEl: HTMLDivElement | null = null
+function getSharedTooltipEl(): HTMLDivElement {
+  if (!sharedTooltipEl) {
+    sharedTooltipEl = document.createElement('div')
+    sharedTooltipEl.className = 'event-tooltip'
+    sharedTooltipEl.style.display = 'none'
+    document.body.appendChild(sharedTooltipEl)
+  }
+  return sharedTooltipEl
+}
+
+function positionTooltip(el: HTMLDivElement, clientX: number, clientY: number) {
+  el.style.transform = `translate(${clientX + TOOLTIP_OFFSET_PX}px, ${clientY + TOOLTIP_OFFSET_PX}px)`
+}
+
+/**
+ * Google の description は HTML を含み得るため、表示前にプレーンテキスト化する。
+ * ブロック境界 (<br>/<p>/<div>/<li>) を改行に変換してから DOMParser でタグを剥がす
+ * ("要素の textContent" は改行を保持しないため、これをしないと段落が繋がって読みにくくなる)。
+ * 厳密な HTML→text 変換ではなく、詳細ポップオーバーで読める程度の簡易処理。
+ */
+function stripHtmlToPlainText(html: string): string {
+  const withBreaks = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n')
+  const doc = new DOMParser().parseFromString(withBreaks, 'text/html')
+  const text = doc.body.textContent ?? ''
+  return text.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** 詳細ポップオーバーの想定サイズ。ビューポート外にはみ出さないようクランプするための概算値 */
+const DETAIL_POPOVER_WIDTH = 300
+const DETAIL_POPOVER_MAX_HEIGHT = 420
+const DETAIL_POPOVER_MARGIN = 8
+
+function clampPopoverPosition(x: number, y: number): { left: number; top: number } {
+  const maxLeft = Math.max(DETAIL_POPOVER_MARGIN, window.innerWidth - DETAIL_POPOVER_WIDTH - DETAIL_POPOVER_MARGIN)
+  const maxTop = Math.max(DETAIL_POPOVER_MARGIN, window.innerHeight - DETAIL_POPOVER_MAX_HEIGHT - DETAIL_POPOVER_MARGIN)
+  return {
+    left: clamp(x, DETAIL_POPOVER_MARGIN, maxLeft),
+    top: clamp(y, DETAIL_POPOVER_MARGIN, maxTop),
+  }
 }
 
 /**
@@ -70,9 +128,15 @@ export function EventBlock({
   dayStartMs,
   weekDayStarts,
   onCommit,
+  calendarLookup,
 }: EventBlockProps) {
   const elRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
+  const hoverTimeoutRef = useRef<number | undefined>(undefined)
+  const tooltipShownRef = useRef(false)
+  const detailCardRef = useRef<HTMLDivElement>(null)
+  // クリック(≒詳細ポップオーバーを開く座標)。null の間は非表示
+  const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleKeyDown = useRef((e: KeyboardEvent) => {
@@ -83,6 +147,58 @@ export function EventBlock({
     const badge = document.createElement('div')
     badge.className = 'drag-badge'
     return badge
+  }
+
+  function hideTooltip() {
+    if (hoverTimeoutRef.current !== undefined) {
+      window.clearTimeout(hoverTimeoutRef.current)
+      hoverTimeoutRef.current = undefined
+    }
+    if (tooltipShownRef.current) {
+      getSharedTooltipEl().style.display = 'none'
+      tooltipShownRef.current = false
+    }
+  }
+
+  function showTooltip(clientX: number, clientY: number) {
+    const el = getSharedTooltipEl()
+    el.replaceChildren()
+
+    const titleEl = document.createElement('div')
+    titleEl.className = 'event-tooltip-title'
+    titleEl.textContent = occurrence.title
+    el.appendChild(titleEl)
+
+    const rangeEl = document.createElement('div')
+    rangeEl.className = 'event-tooltip-range'
+    rangeEl.textContent = formatRange(occurrence.startMs, occurrence.endMs, timeZone)
+    el.appendChild(rangeEl)
+
+    if (occurrence.location) {
+      const locationEl = document.createElement('div')
+      locationEl.className = 'event-tooltip-location'
+      locationEl.textContent = occurrence.location
+      el.appendChild(locationEl)
+    }
+
+    el.style.display = 'block'
+    positionTooltip(el, clientX, clientY)
+    tooltipShownRef.current = true
+  }
+
+  function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
+    if (dragRef.current) return
+    const clientX = e.clientX
+    const clientY = e.clientY
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      hoverTimeoutRef.current = undefined
+      if (dragRef.current) return // タイマー発火までにドラッグが始まっていたら出さない
+      showTooltip(clientX, clientY)
+    }, HOVER_DELAY_MS)
+  }
+
+  function handlePointerLeave() {
+    hideTooltip()
   }
 
   function cancelDrag() {
@@ -104,9 +220,11 @@ export function EventBlock({
     dragRef.current = null
   }
 
-  // アンマウント時にドラッグ中なら後始末（バッジ・リスナーの残留防止）
+  // アンマウント時にドラッグ中なら後始末（バッジ・リスナーの残留防止）。
+  // ホバー中のツールチップ(共有 DOM ノード)もこのブロック宛のままにしない
   useEffect(() => {
     return () => {
+      hideTooltip()
       const ds = dragRef.current
       if (!ds) return
       window.removeEventListener('keydown', handleKeyDown)
@@ -116,6 +234,26 @@ export function EventBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 詳細ポップオーバーが開いている間: 外側クリック・Escape で閉じる
+  useEffect(() => {
+    if (!detailPos) return
+    function onPointerDownOutside(e: PointerEvent) {
+      const card = detailCardRef.current
+      if (card && !card.contains(e.target as Node)) {
+        setDetailPos(null)
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDetailPos(null)
+    }
+    document.addEventListener('pointerdown', onPointerDownOutside)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDownOutside)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [detailPos])
+
   function beginDrag(
     e: ReactPointerEvent<HTMLDivElement>,
     kind: DragState['kind'],
@@ -124,6 +262,7 @@ export function EventBlock({
     const el = elRef.current
     const gridEl = el?.parentElement?.parentElement
     if (!el || !gridEl) return
+    hideTooltip() // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
     el.setPointerCapture(e.pointerId)
     const gridRect = gridEl.getBoundingClientRect()
     const columnWidthPx = gridRect.width / 7
@@ -165,7 +304,13 @@ export function EventBlock({
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const ds = dragRef.current
     const el = elRef.current
-    if (!ds || !el || ds.pointerId !== e.pointerId) return
+    if (!ds || !el || ds.pointerId !== e.pointerId) {
+      // ドラッグ中でなければ、表示中のツールチップをポインタに追従させる(DOM 直書き、state 更新なし)
+      if (!ds && tooltipShownRef.current) {
+        positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY)
+      }
+      return
+    }
 
     const dx = e.clientX - ds.startClientX
     const dy = e.clientY - ds.startClientY
@@ -234,8 +379,10 @@ export function EventBlock({
     ds.badgeEl.remove()
 
     if (!ds.moved) {
-      // 移動閾値未満はクリック扱い。将来の詳細表示用に今は何もしない
+      // 移動閾値未満はクリック扱い: 詳細ポップオーバーを開く
       dragRef.current = null
+      hideTooltip()
+      setDetailPos({ x: e.clientX, y: e.clientY })
       return
     }
 
@@ -272,29 +419,114 @@ export function EventBlock({
     style.height = height
   }
 
+  const calendarInfo =
+    occurrence.accountId && occurrence.calendarId
+      ? calendarLookup.get(`${occurrence.accountId}:${occurrence.calendarId}`)
+      : undefined
+
+  return (
+    <>
+      <div
+        ref={elRef}
+        className={isCompact ? 'event event--compact' : 'event'}
+        style={style}
+        onPointerDown={handlePointerDownMove}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
+      >
+        {isCompact ? (
+          <span className="event-line">
+            <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+            <span className="event-title">{occurrence.title}</span>
+          </span>
+        ) : (
+          <>
+            <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+            <span className="event-title">{occurrence.title}</span>
+          </>
+        )}
+        <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
+      </div>
+      {detailPos &&
+        createPortal(
+          <EventDetailCard
+            ref={detailCardRef}
+            occurrence={occurrence}
+            timeZone={timeZone}
+            position={detailPos}
+            calendarInfo={calendarInfo}
+            onClose={() => setDetailPos(null)}
+          />,
+          document.body,
+        )}
+    </>
+  )
+}
+
+interface EventDetailCardProps {
+  occurrence: Occurrence
+  timeZone: string
+  position: { x: number; y: number }
+  calendarInfo?: CalendarInfo
+  onClose: () => void
+  /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
+  ref?: Ref<HTMLDivElement>
+}
+
+/**
+ * クリック詳細ポップオーバー。日時・場所・説明(プレーン化+最大10行程度でクランプ)・
+ * Google で開くリンク・どのカレンダーか、を表示のみで持つ(編集機能は無し)。
+ * .week-grid-days-viewport (overflow:hidden) の中に transform を持つ祖先
+ * (.week-grid-days-strip) がいるため、position:fixed の containing block が
+ * ビューポートではなくその祖先になってしまう問題を避けるべく document.body へ
+ * createPortal している。
+ */
+function EventDetailCard({
+  occurrence,
+  timeZone,
+  position,
+  calendarInfo,
+  onClose,
+  ref,
+}: EventDetailCardProps) {
+  const { left, top } = clampPopoverPosition(position.x, position.y)
+  const plainDescription = occurrence.description ? stripHtmlToPlainText(occurrence.description) : ''
+
   return (
     <div
-      ref={elRef}
-      className={isCompact ? 'event event--compact' : 'event'}
-      style={style}
-      title={occurrence.title}
-      onPointerDown={handlePointerDownMove}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      ref={ref}
+      className="event-detail-popover"
+      style={{ left, top }}
+      role="dialog"
+      aria-label={occurrence.title}
     >
-      {isCompact ? (
-        <span className="event-line">
-          <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
-          <span className="event-title">{occurrence.title}</span>
-        </span>
-      ) : (
-        <>
-          <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
-          <span className="event-title">{occurrence.title}</span>
-        </>
+      <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
+        ×
+      </button>
+      <div className="event-detail-title">{occurrence.title}</div>
+      <div className="event-detail-datetime">
+        {formatDetailDateTime(occurrence.startMs, occurrence.endMs, timeZone)}
+      </div>
+      {occurrence.location && <div className="event-detail-location">{occurrence.location}</div>}
+      {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
+      {occurrence.link?.url && (
+        <a className="event-detail-link" href={occurrence.link.url} target="_blank" rel="noopener noreferrer">
+          Google で開く
+        </a>
       )}
-      <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
+      {calendarInfo && (
+        <div className="event-detail-calendar">
+          <span
+            className="event-detail-calendar-dot"
+            style={{ background: calendarInfo.backgroundColor ?? '#9ca3af' }}
+            aria-hidden="true"
+          />
+          {calendarInfo.summary}
+        </div>
+      )}
     </div>
   )
 }

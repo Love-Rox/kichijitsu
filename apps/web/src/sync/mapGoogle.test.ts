@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Temporal } from '@js-temporal/polyfill'
 import type { GoogleEventDTO } from '@kichijitsu/shared'
-import { mapGoogleEvents } from './mapGoogle'
+import { mapGoogleEvents, type MapGoogleContext } from './mapGoogle'
 import { instanceId } from '../model/series'
 
 function zms(iso: string, timeZone: string): number {
@@ -18,6 +18,9 @@ function baseEvent(overrides: Partial<GoogleEventDTO> = {}): GoogleEventDTO {
     ...overrides,
   }
 }
+
+/** テスト全体の既定コンテキスト。マルチアカウント対応の id スコープ検証は専用の describe で行う */
+const ctx: MapGoogleContext = { accountId: 'acc-1', calendarId: 'cal-1' }
 
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -38,11 +41,13 @@ describe('mapGoogleEvents', () => {
       ],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series).toHaveLength(1)
     const series = result.series[0]
-    expect(series.id).toBe('g:series-evt')
+    expect(series.id).toBe('g:acc-1:cal-1:series-evt')
+    expect(series.accountId).toBe('acc-1')
+    expect(series.calendarId).toBe('cal-1')
     expect(series.dtstartIso).toBe('2026-07-20T10:00')
     expect(series.timeZone).toBe('Asia/Tokyo')
     expect(series.durationMin).toBe(60)
@@ -59,7 +64,7 @@ describe('mapGoogleEvents', () => {
       recurrence: ['RRULE:FREQ=DAILY', 'EXDATE:20260720T010000Z'],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series[0].exdatesMs).toEqual([
       Temporal.ZonedDateTime.from({
@@ -83,7 +88,7 @@ describe('mapGoogleEvents', () => {
       ],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series[0].exdatesMs).toEqual([
       zms('2026-07-20T10:00', 'Asia/Tokyo'),
@@ -101,14 +106,14 @@ describe('mapGoogleEvents', () => {
       end: undefined,
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.overrides).toHaveLength(1)
     const override = result.overrides[0]
     const originalStartMs = zms('2026-07-27T10:00', 'Asia/Tokyo')
-    expect(override.seriesId).toBe('g:series-evt')
+    expect(override.seriesId).toBe('g:acc-1:cal-1:series-evt')
     expect(override.originalStartMs).toBe(originalStartMs)
-    expect(override.id).toBe(instanceId('g:series-evt', originalStartMs))
+    expect(override.id).toBe(instanceId('g:acc-1:cal-1:series-evt', originalStartMs))
     expect(override.patch).toBeNull()
   })
 
@@ -122,7 +127,7 @@ describe('mapGoogleEvents', () => {
       end: { dateTime: '2026-07-27T15:00:00+09:00', timeZone: 'Asia/Tokyo' },
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.overrides).toHaveLength(1)
     const override = result.overrides[0]
@@ -141,27 +146,29 @@ describe('mapGoogleEvents', () => {
       htmlLink: 'https://calendar.google.com/event?eid=abc',
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.singles).toHaveLength(1)
     const occ = result.singles[0]
-    expect(occ.id).toBe('g:single-1')
+    expect(occ.id).toBe('g:acc-1:cal-1:single-1')
     expect(occ.seriesId).toBeNull()
     expect(occ.title).toBe('Lunch')
     expect(occ.startMs).toBe(zms('2026-07-20T10:00', 'Asia/Tokyo'))
     expect(occ.endMs).toBe(zms('2026-07-20T11:00', 'Asia/Tokyo'))
     expect(occ.color).toBe('#f6bf26')
     expect(occ.source).toBe('google')
+    expect(occ.accountId).toBe('acc-1')
+    expect(occ.calendarId).toBe('cal-1')
     expect(occ.link).toEqual({ url: 'https://calendar.google.com/event?eid=abc' })
   })
 
   it('cancelled な単発イベントは deletedSingleIds に入る', () => {
     const event = baseEvent({ id: 'single-cancelled', status: 'cancelled' })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.singles).toHaveLength(0)
-    expect(result.deletedSingleIds).toEqual(['g:single-cancelled'])
+    expect(result.deletedSingleIds).toEqual(['g:acc-1:cal-1:single-cancelled'])
   })
 
   it('終日イベント (start.date のみ) は skippedAllDay をインクリメントしてスキップする', () => {
@@ -171,7 +178,7 @@ describe('mapGoogleEvents', () => {
       end: { date: '2026-07-21' },
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.singles).toHaveLength(0)
     expect(result.series).toHaveLength(0)
@@ -185,7 +192,7 @@ describe('mapGoogleEvents', () => {
       recurrence: ['RRULE:FREQ=DAILY', 'RDATE:20260801T100000Z'],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series).toHaveLength(1)
     expect(result.series[0].rrule).toBe('FREQ=DAILY')
@@ -198,7 +205,7 @@ describe('mapGoogleEvents', () => {
       recurrence: ['EXDATE;TZID=Asia/Tokyo:20260720T100000'],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series).toHaveLength(0)
     expect(console.warn).toHaveBeenCalled()
@@ -210,7 +217,7 @@ describe('mapGoogleEvents', () => {
       recurrence: ['RRULE:FREQ=DAILY', 'EXDATE;TZID=Asia/Tokyo:not-a-date'],
     })
 
-    const result = mapGoogleEvents([event])
+    const result = mapGoogleEvents([event], ctx)
 
     expect(result.series).toHaveLength(1)
     expect(result.series[0].exdatesMs).toEqual([])
@@ -225,11 +232,127 @@ describe('mapGoogleEvents', () => {
     })
     const healthy = baseEvent({ id: 'healthy-single' })
 
-    const result = mapGoogleEvents([broken, healthy])
+    const result = mapGoogleEvents([broken, healthy], ctx)
 
     expect(result.overrides).toHaveLength(0)
     expect(result.singles).toHaveLength(1)
-    expect(result.singles[0].id).toBe('g:healthy-single')
+    expect(result.singles[0].id).toBe('g:acc-1:cal-1:healthy-single')
     expect(console.warn).toHaveBeenCalled()
+  })
+})
+
+describe('mapGoogleEvents: id スコープ (マルチアカウント/マルチカレンダー)', () => {
+  it('同じ event.id でも (accountId, calendarId) が違えば別 occurrence id になる(共有予定の衝突対策)', () => {
+    const event = baseEvent({ id: 'shared-evt' })
+
+    const resultA = mapGoogleEvents([event], { accountId: 'acc-1', calendarId: 'cal-1' })
+    const resultB = mapGoogleEvents([event], { accountId: 'acc-1', calendarId: 'cal-2' })
+    const resultC = mapGoogleEvents([event], { accountId: 'acc-2', calendarId: 'cal-1' })
+
+    expect(resultA.singles[0].id).toBe('g:acc-1:cal-1:shared-evt')
+    expect(resultB.singles[0].id).toBe('g:acc-1:cal-2:shared-evt')
+    expect(resultC.singles[0].id).toBe('g:acc-2:cal-1:shared-evt')
+    const ids = [resultA, resultB, resultC].map((r) => r.singles[0].id)
+    expect(new Set(ids).size).toBe(3)
+  })
+
+  it('シリーズの id・override の seriesId も (accountId, calendarId) でスコープされる', () => {
+    const series = baseEvent({ id: 'series-shared', recurrence: ['RRULE:FREQ=DAILY'] })
+    const exception = baseEvent({
+      id: 'exception-shared',
+      recurringEventId: 'series-shared',
+      originalStartTime: { dateTime: '2026-07-27T10:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      start: { dateTime: '2026-07-27T14:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      end: { dateTime: '2026-07-27T15:00:00+09:00', timeZone: 'Asia/Tokyo' },
+    })
+
+    const result = mapGoogleEvents([series, exception], { accountId: 'acc-1', calendarId: 'cal-2' })
+
+    expect(result.series[0].id).toBe('g:acc-1:cal-2:series-shared')
+    expect(result.overrides[0].seriesId).toBe('g:acc-1:cal-2:series-shared')
+  })
+})
+
+describe('mapGoogleEvents: 色フォールバック', () => {
+  it('colorId があれば Google 公式パレットの色を使う(カレンダー色より優先)', () => {
+    const event = baseEvent({ id: 'colored', colorId: '11' })
+
+    const result = mapGoogleEvents([event], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.singles[0].color).toBe('#d50000') // colorId '11' = Tomato
+  })
+
+  it('colorId が無ければカレンダーの backgroundColor (defaultColor) を使う', () => {
+    const event = baseEvent({ id: 'no-color-id' })
+
+    const result = mapGoogleEvents([event], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.singles[0].color).toBe('#123456')
+  })
+
+  it('colorId が未知の値でもカレンダー色へフォールバックする(決め打ちの既定色にはしない)', () => {
+    const event = baseEvent({ id: 'unknown-color-id', colorId: '999' })
+
+    const result = mapGoogleEvents([event], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.singles[0].color).toBe('#123456')
+  })
+
+  it('colorId も defaultColor も無ければ最終フォールバック色になる', () => {
+    const event = baseEvent({ id: 'no-color-at-all' })
+
+    const result = mapGoogleEvents([event], ctx) // defaultColor 未指定
+
+    expect(result.singles[0].color).toBe('#3b82f6')
+  })
+})
+
+describe('mapGoogleEvents: location / description の取り込み', () => {
+  it('単発イベント・シリーズの location/description を写す', () => {
+    const single = baseEvent({
+      id: 'single-with-location',
+      location: '会議室A',
+      description: '<p>資料は事前に共有します</p>',
+    })
+    const series = baseEvent({
+      id: 'series-with-location',
+      recurrence: ['RRULE:FREQ=WEEKLY'],
+      location: 'オンライン (Google Meet)',
+      description: '毎週の定例',
+    })
+
+    const result = mapGoogleEvents([single, series], ctx)
+
+    expect(result.singles[0].location).toBe('会議室A')
+    expect(result.singles[0].description).toBe('<p>資料は事前に共有します</p>')
+    expect(result.series[0].location).toBe('オンライン (Google Meet)')
+    expect(result.series[0].description).toBe('毎週の定例')
+  })
+
+  it('location/description が無いイベントは undefined のまま。例外インスタンスは指定があるときだけ patch に入る', () => {
+    const plain = baseEvent({ id: 'plain-single' })
+    const exceptionWithLocation = baseEvent({
+      id: 'exception-with-location',
+      recurringEventId: 'series-evt',
+      originalStartTime: { dateTime: '2026-07-27T10:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      start: { dateTime: '2026-07-27T14:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      end: { dateTime: '2026-07-27T15:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      location: '会議室B',
+    })
+    const exceptionWithoutLocation = baseEvent({
+      id: 'exception-without-location',
+      recurringEventId: 'series-evt',
+      originalStartTime: { dateTime: '2026-08-03T10:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      start: { dateTime: '2026-08-03T14:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      end: { dateTime: '2026-08-03T15:00:00+09:00', timeZone: 'Asia/Tokyo' },
+    })
+
+    const result = mapGoogleEvents([plain, exceptionWithLocation, exceptionWithoutLocation], ctx)
+
+    expect(result.singles[0].location).toBeUndefined()
+    expect(result.singles[0].description).toBeUndefined()
+    expect(result.overrides[0].patch).toMatchObject({ location: '会議室B' })
+    expect(result.overrides[1].patch).not.toHaveProperty('location')
+    expect(result.overrides[1].patch).not.toHaveProperty('description')
   })
 })

@@ -45,7 +45,16 @@ mise exec -- pnpm --filter sync typecheck
 mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-sync --remote
 ```
 
-`apps/sync/migrations/0001_init.sql` (`users` テーブル) が本番 D1 に適用される。
+未適用のマイグレーションがまとめて本番 D1 に適用される:
+
+- `0001_init.sql` — `users` テーブル (廃止済み。0002 で `accounts` に置き換わる)
+- `0002_accounts.sql` — マルチアカウント対応。`accounts(id, profile_id, email,
+  refresh_token, created_at)` を作り、既存の `users` 行を `profile_id = id` として
+  そのままコピーしたうえで `users` を DROP する (「1 ユーザー = 1 プロファイル」という
+  前提での素朴な移行で十分と判断した理由は migration ファイル内のコメント参照)。
+  ローカルで `wrangler d1 migrations apply kichijitsu-sync --local` を先に試して、
+  `wrangler d1 execute kichijitsu-sync --local --command "SELECT * FROM accounts"`
+  で移行結果を確認しておくと安心。
 
 ## 3. Secrets を登録
 
@@ -79,7 +88,7 @@ https://kichijitsu.love-rox.cc/auth/callback
 で、リポジトリのデフォルトは空文字列 (＝全許可、誰でも Google 連携できる)。実際に招待制で
 運用したい場合は、デプロイ先の `wrangler.jsonc` の `ALLOWED_EMAILS` に招待する本人のメール
 アドレスをカンマ区切りで設定してから `pnpm run deploy:sync` すること (大小文字は区別されない)。
-リスト外のメールアドレスで `/auth/callback` に到達した場合、users への保存 (refresh_token を
+リスト外のメールアドレスで `/auth/callback` に到達した場合、accounts への保存 (refresh_token を
 含む) は一切行われず、`APP_URL` へ `?auth_error=not_invited` を付けて 302 で戻される。招待者を
 増減したいだけであれば、この値を書き換えて sync を再デプロイするだけでよい (DB 変更は不要)。
 
@@ -104,7 +113,7 @@ mise exec -- pnpm run deploy:web
 
 ```sh
 curl -s https://kichijitsu.love-rox.cc/api/me
-# => {"connected":false}
+# => {"connected":false,"accounts":[]}
 
 curl -sI https://kichijitsu.love-rox.cc/
 # => 200 (index.html が返る)
@@ -112,7 +121,9 @@ curl -sI https://kichijitsu.love-rox.cc/
 
 ブラウザで `https://kichijitsu.love-rox.cc/` を開いてトップページが表示されることを確認する。
 続けて `/auth/login` から Google 連携フローが正常に完走し、連携後に `/api/me` が
-`{"connected":true,"email":"..."}` を返すことも確認する。
+`{"connected":true,"accounts":[{"id":"...","email":"..."}]}` を返すことも確認する。
+複数アカウントを持たせたい場合は `/auth/login?add=1` (有効なセッションが必要) で
+現在のプロファイルにもう1つ Google アカウントを追加できる。
 
 ## 参考: 設定変更後の型再生成
 

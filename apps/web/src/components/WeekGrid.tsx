@@ -4,14 +4,13 @@ import type { Occurrence } from '../model/types'
 import type { OccurrenceStore } from '../store/occurrenceStore'
 import { useOccurrences } from '../store/occurrenceStore'
 import { packColumns } from '../layout/packColumns'
-import { minutesToPx } from '../layout/gridMetrics'
-import { EventBlock } from './EventBlock'
+import { minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { EventBlock, type CalendarInfo } from './EventBlock'
 import './WeekGrid.css'
 
 const INITIAL_SCROLL_HOUR = 8
 const COMPACT_THRESHOLD_MIN = 40
 const SLIDE_MS = 200
-const WEEKDAY_LABELS = ['月', '火', '水', '木', '金', '土', '日']
 
 interface WeekGridProps {
   store: OccurrenceStore
@@ -19,6 +18,14 @@ interface WeekGridProps {
   timeZone: string
   /** ドラッグ確定時、store.update に加えて呼ばれる永続化フック(IndexedDB書き込みは App 側が担う) */
   onPersist: (updated: Occurrence) => void
+  /**
+   * 選択中カレンダーの `${accountId}:${calendarId}` キー集合(マルチアカウント対応 2026-07-19)。
+   * source==='google' な occurrence だけをこれでフィルタする。ローカル/未設定 source
+   * (source !== 'google') は選択状態に関係なく常に表示する。
+   */
+  visibleCalendarKeys: Set<string>
+  /** `${accountId}:${calendarId}` → カレンダー名/色。EventBlock の詳細ポップオーバーが「どのカレンダーか」を出すのに使う */
+  calendarLookup: Map<string, CalendarInfo>
 }
 
 type SlidePhase = 'idle' | 'next' | 'prev'
@@ -38,7 +45,14 @@ interface WeekPanelData {
   dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<Occurrence>> }[]
 }
 
-export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProps) {
+export function WeekGrid({
+  store,
+  weekStart,
+  timeZone,
+  onPersist,
+  visibleCalendarKeys,
+  calendarLookup,
+}: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds)
 
@@ -120,6 +134,16 @@ export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProp
   )
   const occurrences = useOccurrences(store, rangeStartMs, rangeEndMs)
 
+  // カレンダー選択(マルチアカウント対応 2026-07-19): google 由来だけを
+  // visibleCalendarKeys でフィルタする。ローカルデータは常に表示する
+  const visibleOccurrences = useMemo(
+    () =>
+      occurrences.filter(
+        (o) => o.source !== 'google' || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+      ),
+    [occurrences, visibleCalendarKeys],
+  )
+
   const weekPanels = useMemo<WeekPanelData[]>(
     () =>
       weeks.map((weekPanelStart) => {
@@ -127,7 +151,7 @@ export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProp
         const dayStarts = days.map((d) => d.toZonedDateTime({ timeZone }).epochMilliseconds)
         const dayEnds = [...dayStarts.slice(1), weekPanelStart.add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds]
         const dayData = days.map((day, i) => {
-          const items = occurrences.filter(
+          const items = visibleOccurrences.filter(
             (o) => o.startMs >= dayStarts[i] && o.startMs < dayEnds[i],
           )
           const positioned = packColumns(
@@ -139,7 +163,7 @@ export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProp
         })
         return { weekPanelStart, days, dayStarts, dayEnds, dayData }
       }),
-    [weeks, occurrences, timeZone],
+    [weeks, visibleOccurrences, timeZone],
   )
 
   const handleCommit = useCallback(
@@ -233,6 +257,7 @@ export function WeekGrid({ store, weekStart, timeZone, onPersist }: WeekGridProp
                               dayStartMs={dayStartMs}
                               weekDayStarts={dayStarts}
                               onCommit={handleCommit}
+                              calendarLookup={calendarLookup}
                             />
                           )
                         })}

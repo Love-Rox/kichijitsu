@@ -7,11 +7,13 @@ import {
   SESSION_COOKIE_MAX_AGE,
   SESSION_COOKIE_NAME,
   createSessionCookieValue,
+  verifySessionCookieValue,
 } from '../session'
 import { buildAuthorizationUrl, decodeIdToken, exchangeCodeForTokens, hasRequiredScopes } from '../google/oauth'
 import { isHttpsRequest } from '../http'
 import { isEmailAllowed } from '../allowlist'
 import { encryptToken } from '../crypto'
+import { encodeOAuthState, decodeOAuthState } from '../oauth-state'
 
 export const authRoutes = new Hono<AppEnv>()
 
@@ -25,8 +27,22 @@ function redirectUriFor(env: { OAUTH_REDIRECT_URL?: string }, requestUrl: string
   return new URL('/auth/callback', requestUrl).toString()
 }
 
-authRoutes.get('/auth/login', (c) => {
-  const state = crypto.randomUUID()
+authRoutes.get('/auth/login', async (c) => {
+  // ?add=1 は「今のセッション (プロファイル) にアカウントを追加する」モード。
+  // 有効なセッションが無ければ通常ログインにフォールバックする (新規プロファイルを作る)。
+  const wantsAddMode = c.req.query('add') === '1'
+  let addModeProfileId: string | null = null
+  if (wantsAddMode) {
+    const sid = getCookie(c, SESSION_COOKIE_NAME)
+    if (sid) {
+      addModeProfileId = await verifySessionCookieValue(c.env.SESSION_SECRET, sid)
+    }
+  }
+
+  const nonce = crypto.randomUUID()
+  const state = encodeOAuthState(
+    addModeProfileId ? { nonce, mode: 'add', profileId: addModeProfileId } : { nonce, mode: 'login' },
+  )
 
   // 本番 (https://kichijitsu.love-rox.cc) では Secure を付け、ローカル `wrangler dev`
   // (素の http://localhost) では付けない。Secure な Cookie は非 HTTPS ではブラウザに
@@ -64,6 +80,10 @@ authRoutes.get('/auth/callback', async (c) => {
   if (!code || !returnedState || !cookieState || returnedState !== cookieState) {
     return c.json({ error: 'invalid_oauth_state' }, 400)
   }
+  const state = decodeOAuthState(cookieState)
+  if (!state) {
+    return c.json({ error: 'invalid_oauth_state' }, 400)
+  }
 
   const tokens = await exchangeCodeForTokens(
     fetch,
@@ -80,17 +100,18 @@ authRoutes.get('/auth/callback', async (c) => {
 
   if (!hasRequiredScopes(tokens.scope)) {
     // granular consent でユーザーがカレンダー系スコープの一部/全部を外した場合。
-    // userId/email 抜きで判定できるので decodeIdToken より前でチェックし、users への
-    // 保存 (refresh_token を含む) は一切行わずに弾く。
+    // accountId/email 抜きで判定できるので decodeIdToken より前でチェックし、accounts への
+    // 保存 (refresh_token を含む) は一切行わずに弾く。allowlist / scope 検査はアカウント
+    // 単位で行う (login/add どちらのモードでも同じ)。
     const deniedUrl = new URL(c.env.APP_URL)
     deniedUrl.searchParams.set('auth_error', 'insufficient_scope')
     return c.redirect(deniedUrl.toString(), 302)
   }
 
-  const { sub: userId, email } = decodeIdToken(tokens.idToken)
+  const { sub: accountId, email } = decodeIdToken(tokens.idToken)
 
   if (!isEmailAllowed(c.env.ALLOWED_EMAILS, email)) {
-    // 招待制 allowlist に無いメールアドレス。users への保存 (特に refresh_token) を
+    // 招待制 allowlist に無いメールアドレス。accounts への保存 (特に refresh_token) を
     // 一切行わずに弾く — 未招待ユーザーの Google トークンをサーバーに残さないため。
     const deniedUrl = new URL(c.env.APP_URL)
     deniedUrl.searchParams.set('auth_error', 'not_invited')
@@ -99,9 +120,18 @@ authRoutes.get('/auth/callback', async (c) => {
 
   // 再連携で Google が refresh_token を返さないことがある (通常は最初の同意時のみ発行)。
   // その場合は既存の (暗号化済み) refresh_token をそのまま再利用する。
-  const existing = await c.env.DB.prepare('SELECT refresh_token FROM users WHERE id = ?')
-    .bind(userId)
-    .first<{ refresh_token: string }>()
+  const existing = await c.env.DB.prepare('SELECT profile_id, refresh_token FROM accounts WHERE id = ?')
+    .bind(accountId)
+    .first<{ profile_id: string; refresh_token: string }>()
+
+  // プロファイルの決め方:
+  // - add モード: state に載っている (今ログイン中の) プロファイルにそのまま追加する。
+  //   既にこの Google アカウントが別プロファイルに属していても、今回の OAuth 同意で
+  //   本人確認は取れているので、現在のプロファイルへ付け替える (アカウントの持ち主が
+  //   自分の意思で行う操作なので、これは正当な移動として扱う)。
+  // - login モード (通常): このアカウントが既にどこかのプロファイルに属していれば
+  //   それを使う (= 再ログイン)。初めて連携するアカウントなら新しいプロファイルを作る。
+  const profileId = state.mode === 'add' ? state.profileId : (existing?.profile_id ?? crypto.randomUUID())
 
   // Google から新しい平文 refresh_token を受け取った時だけ暗号化する。既存行を使い回す
   // 場合は D1 に入っている値 (= 既に v1 暗号文、または移行対象外の旧平文) をそのまま書き戻す
@@ -114,20 +144,24 @@ authRoutes.get('/auth/callback', async (c) => {
   }
 
   await c.env.DB.prepare(
-    `INSERT INTO users (id, email, refresh_token, created_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET email = excluded.email, refresh_token = excluded.refresh_token`,
+    `INSERT INTO accounts (id, profile_id, email, refresh_token, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token`,
   )
-    .bind(userId, email, refreshTokenToStore, Date.now())
+    .bind(accountId, profileId, email, refreshTokenToStore, Date.now())
     .run()
 
-  const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, userId)
-  setCookie(c, SESSION_COOKIE_NAME, sessionValue, {
-    httpOnly: true,
-    secure: isHttpsRequest(c.req.url),
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: SESSION_COOKIE_MAX_AGE,
-  })
+  if (state.mode !== 'add') {
+    // add モードでは既存セッションをそのまま使うので、新しい sid は発行しない
+    // (「新セッションを作らない」)。
+    const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, profileId)
+    setCookie(c, SESSION_COOKIE_NAME, sessionValue, {
+      httpOnly: true,
+      secure: isHttpsRequest(c.req.url),
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: SESSION_COOKIE_MAX_AGE,
+    })
+  }
 
   return c.redirect(c.env.APP_URL, 302)
 })

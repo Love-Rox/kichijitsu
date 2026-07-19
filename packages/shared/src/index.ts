@@ -1,4 +1,6 @@
 export type {
+  AccountDTO,
+  DisconnectRequest,
   ApiError,
   CalendarListEntryDTO,
   GoogleEventDTO,

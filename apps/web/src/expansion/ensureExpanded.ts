@@ -143,6 +143,9 @@ async function doReexpand(db: IDBPDatabase<KichijitsuDB>, store: OccurrenceStore
     .filter((o) => o.seriesId !== null && seriesIds.has(o.seriesId))
     .map((o) => o.id)
   await deleteOccurrencesByIds(db, staleIds)
+  // store.load() は追加専用なので、置き換え前に古い occurrence を明示的に消しておく
+  // (消さないと RRULE 変更等で無くなった回が残骸として表示され続ける)
+  store.remove(staleIds)
 
   const occurrences = await runExpansion(series, overrides, state.expandedFromMs, state.expandedToMs)
   await putOccurrences(db, occurrences)

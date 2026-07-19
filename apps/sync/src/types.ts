@@ -5,6 +5,7 @@
 export interface AppEnv {
   Bindings: Env
   Variables: {
-    userId?: string
+    /** sid cookie が指すプロファイル (セッション)。1 プロファイルに複数の Google アカウントがぶら下がる。 */
+    profileId?: string
   }
 }

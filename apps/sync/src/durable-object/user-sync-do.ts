@@ -20,8 +20,9 @@ interface SyncTokenRow extends Record<string, SqlStorageValue> {
 }
 
 /**
- * ユーザーごとの同期状態を保持する Durable Object。
- * `env.USER_SYNC.getByName(userId)` で常に同じインスタンスに到達する。
+ * Google アカウントごとの同期状態を保持する Durable Object (account 単位。プロファイル単位
+ * ではない — 1 プロファイルに複数アカウントがぶら下がっていても DO は分かれたまま)。
+ * `env.USER_SYNC.getByName(accountId)` で常に同じインスタンスに到達する。
  *
  * 保持するもの:
  * - calendarId ごとの Google Calendar syncToken
@@ -49,13 +50,13 @@ export class UserSyncDO extends DurableObject<Env> {
     })
   }
 
-  async sync(userId: string, calendarId: string): Promise<RpcResult<SyncResponse>> {
-    return runRpc(() => syncCalendar(this.buildDeps(userId), calendarId))
+  async sync(accountId: string, calendarId: string): Promise<RpcResult<SyncResponse>> {
+    return runRpc(() => syncCalendar(this.buildDeps(accountId), calendarId))
   }
 
-  async listCalendars(userId: string): Promise<RpcResult<CalendarListEntryDTO[]>> {
+  async listCalendars(accountId: string): Promise<RpcResult<CalendarListEntryDTO[]>> {
     return runRpc(async () => {
-      const deps = this.buildDeps(userId)
+      const deps = this.buildDeps(accountId)
       const accessToken = await deps.getAccessToken()
       return fetchCalendarList(fetch, accessToken)
     })
@@ -69,17 +70,17 @@ export class UserSyncDO extends DurableObject<Env> {
     })
   }
 
-  private buildDeps(userId: string): SyncCoreDeps {
+  private buildDeps(accountId: string): SyncCoreDeps {
     return {
       fetch,
-      getAccessToken: () => this.getOrRefreshAccessToken(userId, false),
-      forceRefreshAccessToken: () => this.getOrRefreshAccessToken(userId, true),
+      getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
+      forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
       getSyncToken: (calendarId) => Promise.resolve(this.readSyncToken(calendarId)),
       saveSyncToken: (calendarId, syncToken) => Promise.resolve(this.writeSyncToken(calendarId, syncToken)),
     }
   }
 
-  private async getOrRefreshAccessToken(userId: string, forceRefresh: boolean): Promise<string> {
+  private async getOrRefreshAccessToken(accountId: string, forceRefresh: boolean): Promise<string> {
     if (!forceRefresh) {
       const cached = this.readCachedToken()
       if (cached && cached.expires_at > Date.now() + TOKEN_EXPIRY_SKEW_SECONDS * 1000) {
@@ -87,8 +88,8 @@ export class UserSyncDO extends DurableObject<Env> {
       }
     }
 
-    const row = await this.env.DB.prepare('SELECT refresh_token FROM users WHERE id = ?')
-      .bind(userId)
+    const row = await this.env.DB.prepare('SELECT refresh_token FROM accounts WHERE id = ?')
+      .bind(accountId)
       .first<{ refresh_token: string }>()
     if (!row) {
       throw new NotConnectedError()

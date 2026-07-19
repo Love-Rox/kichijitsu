@@ -22,6 +22,20 @@ export class OccurrenceStore {
     this.bump()
   }
 
+  /**
+   * id 指定で occurrence を取り除く。load() は追加専用(既存 id の再 put はできても
+   * 消えたものは消せない)ため、IndexedDB 側で削除した occurrence
+   * (sync の isFullSync 差し替え・カレンダー選択解除・イベントの cancelled 等)を
+   * store からも確実に消すにはこちらを呼ぶ必要がある。
+   */
+  remove(ids: Iterable<string>): void {
+    let changed = false
+    for (const id of ids) {
+      if (this.byId.delete(id)) changed = true
+    }
+    if (changed) this.bump()
+  }
+
   get(id: string): Occurrence | undefined {
     return this.byId.get(id)
   }

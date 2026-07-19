@@ -21,21 +21,45 @@ export interface GoogleEventDTO {
   updated?: string
   colorId?: string
   htmlLink?: string
+  /** 場所 (会議室、住所、URL など Google の location フィールドそのまま) */
+  location?: string
+  /** 説明 (HTML を含み得る。表示側でプレーンテキスト化する) */
+  description?: string
 }
 
+/** 連携済みの Google アカウント1件。id は Google の sub */
+export interface AccountDTO {
+  id: string
+  email: string
+}
+
+/**
+ * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
+ * プロファイルに複数の Google アカウントがぶら下がる。
+ * connected は accounts.length > 0 と同義（後方互換のため残す）
+ */
 export interface MeResponse {
   connected: boolean
-  email?: string
+  accounts: AccountDTO[]
 }
 
 export interface CalendarListEntryDTO {
   id: string
   summary: string
   primary?: boolean
+  /** Google カレンダーの色 (#rrggbb)。表示色のデフォルトに使う */
+  backgroundColor?: string
 }
 
+/** GET /api/calendars?accountId=... で対象アカウントを指定する */
 export interface SyncRequest {
+  accountId: string
   calendarId: string
+}
+
+/** DELETE /api/account の body。accountId 指定でそのアカウントのみ解除、省略で全解除 */
+export interface DisconnectRequest {
+  accountId?: string
 }
 
 export interface SyncResponse {

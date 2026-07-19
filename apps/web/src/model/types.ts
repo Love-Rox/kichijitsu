@@ -27,6 +27,12 @@ export interface Occurrence {
    * ドラッグ等で startMs が変わっても不変で、InstanceOverride との対応付けに使う
    */
   originalStartMs?: number
+  /** Google 由来のみ: どのアカウントのどのカレンダーか。表示トグルと削除の単位 */
+  accountId?: string
+  calendarId?: string
+  /** ホバー/詳細表示用。location は会議室・住所・URL 等 */
+  location?: string
+  description?: string
 }
 
 /** 終日予定は時刻を持たない日付として別レイヤーで扱う（UTC変換に巻き込まない） */

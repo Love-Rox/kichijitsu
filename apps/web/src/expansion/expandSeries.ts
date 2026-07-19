@@ -296,6 +296,8 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     const endMs = override?.patch?.endMs ?? defaultEndMs
     const title = override?.patch?.title ?? series.title
     const color = override?.patch?.color ?? series.color
+    const location = override?.patch?.location ?? series.location
+    const description = override?.patch?.description ?? series.description
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue
@@ -310,6 +312,10 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       color,
       source: series.source,
       link: series.link,
+      accountId: series.accountId,
+      calendarId: series.calendarId,
+      location,
+      description,
       originalStartMs,
     })
   }
