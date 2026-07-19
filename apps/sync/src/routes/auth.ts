@@ -9,6 +9,7 @@ import {
   createSessionCookieValue,
 } from '../session'
 import { buildAuthorizationUrl, decodeIdToken, exchangeCodeForTokens } from '../google/oauth'
+import { isHttpsRequest } from '../http'
 
 export const authRoutes = new Hono<AppEnv>()
 
@@ -19,11 +20,12 @@ function redirectUriFor(requestUrl: string): string {
 authRoutes.get('/auth/login', (c) => {
   const state = crypto.randomUUID()
 
-  // Secure 属性は localhost (http) でも主要ブラウザが「潜在的に信頼できるオリジン」として
-  // 扱うため wrangler dev でも問題なく動く。
+  // 本番 (https://kichijitsu.love-rox.cc) では Secure を付け、ローカル `wrangler dev`
+  // (素の http://localhost) では付けない。Secure な Cookie は非 HTTPS ではブラウザに
+  // 保存されない実装もあるため、リクエストのスキームで動的に切り替える。
   setCookie(c, STATE_COOKIE_NAME, state, {
     httpOnly: true,
-    secure: true,
+    secure: isHttpsRequest(c.req.url),
     sameSite: 'Lax',
     path: '/',
     maxAge: STATE_COOKIE_MAX_AGE,
@@ -89,7 +91,7 @@ authRoutes.get('/auth/callback', async (c) => {
   const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, userId)
   setCookie(c, SESSION_COOKIE_NAME, sessionValue, {
     httpOnly: true,
-    secure: true,
+    secure: isHttpsRequest(c.req.url),
     sameSite: 'Lax',
     path: '/',
     maxAge: SESSION_COOKIE_MAX_AGE,

@@ -12,3 +12,8 @@ GOOGLE_CLIENT_SECRET=your-client-secret
 # セッション Cookie の署名 (HMAC-SHA256) に使うランダムな秘密文字列。
 # 生成例: openssl rand -base64 32
 SESSION_SECRET=replace-with-a-random-secret
+
+# wrangler.jsonc の vars.APP_URL は本番値 (https://kichijitsu.love-rox.cc) がデフォルト。
+# .dev.vars に APP_URL を書くと `wrangler dev` 実行時だけこちらで上書きされる
+# (deploy には影響しない)。ローカルの apps/web (vite dev) 宛にリダイレクトしたいので上書きする。
+APP_URL=http://localhost:5173

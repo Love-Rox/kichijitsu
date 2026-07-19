@@ -6,10 +6,24 @@
   "observability": {
     "enabled": true
   },
-  // ローカル開発でのアプリの Origin。デプロイ時は実際の Web アプリの URL に上書きする。
+  // APP_URL は本番値をデフォルトにしている。理由: このプロジェクトはステージング等を持たず
+  // 常に同じ D1/Durable Object/secrets を使う単一デプロイ先なので、wrangler の named
+  // environments (env.production 等) を導入すると bindings 一式を environment ごとに
+  // 複製する必要が生じ、かえって設定が重複・乖離しやすくなる。代わりに「vars はデプロイ時の
+  // 既定値、.dev.vars はローカル `wrangler dev` 専用の上書き」という wrangler の標準的な
+  // 優先順位 (.dev.vars が vars を local dev でのみ上書きし、deploy には影響しない) を使い、
+  // ローカル開発用の APP_URL は .dev.vars 側に置く (.dev.vars.example 参照)。
   "vars": {
-    "APP_URL": "http://localhost:5173"
+    "APP_URL": "https://kichijitsu.love-rox.cc"
   },
+  // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。
+  // 同一ホストの他のパスは apps/web (kichijitsu-web) の Custom Domain が受ける。
+  // 同一ホストで両方が定義された場合、zone route (これ) が Custom Domain より優先されるため
+  // 経路は確実に分離される。
+  "routes": [
+    { "pattern": "kichijitsu.love-rox.cc/api/*", "zone_name": "love-rox.cc" },
+    { "pattern": "kichijitsu.love-rox.cc/auth/*", "zone_name": "love-rox.cc" }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

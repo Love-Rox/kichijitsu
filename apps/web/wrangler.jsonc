@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // apps/web の静的アセットだけを配信する assets-only Worker (Worker スクリプト本体は無い)。
+  // デプロイ前提: `pnpm --filter web build` 済みで ./dist が最新であること
+  // (wrangler deploy はビルドを行わず、既存の dist をそのままアップロードする)。
+  "name": "kichijitsu-web",
+  "compatibility_date": "2026-07-19",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    // SPA: 静的ファイルに一致しないパスは index.html にフォールバックさせる
+    // (クライアントサイドルーティングのため)。
+    "not_found_handling": "single-page-application"
+  },
+  // Custom Domain: kichijitsu.love-rox.cc の DNS レコードは Cloudflare が自動管理する。
+  // 同一ホスト上の /api/* と /auth/* は apps/sync (kichijitsu-sync) の zone route が
+  // Custom Domain より優先されるため、そちらへ届く。
+  "routes": [
+    {
+      "pattern": "kichijitsu.love-rox.cc",
+      "custom_domain": true
+    }
+  ]
+}
