@@ -3,6 +3,9 @@
   "name": "kichijitsu-sync",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-19",
+  // agents (Cloudflare Agents SDK, McpAgent) が要求する。docs/mcp.md Part B の /mcp
+  // エンドポイント (KichijitsuMcpAgent) 用。
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
   },
@@ -45,6 +48,9 @@
   "routes": [
     { "pattern": "kichijitsu.love-rox.cc/api/*", "zone_name": "love-rox.cc" },
     { "pattern": "kichijitsu.love-rox.cc/auth/*", "zone_name": "love-rox.cc" },
+    // docs/mcp.md Part B: Streamable HTTP は単一エンドポイントなので `/*` は付けない
+    // (POST/GET/DELETE いずれもこの同じ URL を叩く、MCP 仕様どおり)。
+    { "pattern": "kichijitsu.love-rox.cc/mcp", "zone_name": "love-rox.cc" },
   ],
   "d1_databases": [
     {
@@ -66,6 +72,10 @@
         "name": "PROFILE_HUB",
         "class_name": "ProfileHubDO",
       },
+      {
+        "name": "KICHIJITSU_MCP",
+        "class_name": "KichijitsuMcpAgent",
+      },
     ],
   },
   "migrations": [
@@ -76,6 +86,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["ProfileHubDO"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["KichijitsuMcpAgent"],
     },
   ],
   // watch channel の期限 (Google Calendar は最大 1 週間) が切れる前に再登録する。

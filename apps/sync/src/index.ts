@@ -4,6 +4,7 @@ import { authRoutes } from "./routes/auth";
 import { githubAuthRoutes } from "./routes/github-auth";
 import { apiRoutes } from "./routes/api";
 import { webhookRoutes } from "./routes/webhook";
+import { mcpRoutes } from "./routes/mcp";
 import { registerWatch, stopWatch, buildWebhookAddress } from "./google/watch";
 import {
   buildRenewedWatchRow,
@@ -14,6 +15,7 @@ import { computeChannelToken } from "./watch-token";
 
 export { UserSyncDO } from "./durable-object/user-sync-do";
 export { ProfileHubDO } from "./durable-object/profile-hub-do";
+export { KichijitsuMcpAgent } from "./durable-object/mcp-agent";
 
 const app = new Hono<AppEnv>();
 
@@ -21,6 +23,7 @@ app.route("/", authRoutes);
 app.route("/", githubAuthRoutes);
 app.route("/", apiRoutes);
 app.route("/", webhookRoutes);
+app.route("/", mcpRoutes);
 
 app.onError((err, c) => {
   console.error("Unhandled error", err);
