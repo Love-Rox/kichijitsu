@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import { toBusyIntervals, toMcpEventView } from "../src/core/mcp-events";
+import { dedupeEventViews, toBusyIntervals, toMcpEventView } from "../src/core/mcp-events";
 import type { GoogleEventDTO } from "@kichijitsu/shared";
+import type { McpEventView } from "../src/core/mcp-events";
 
 function makeEvent(overrides: Partial<GoogleEventDTO> & { id: string }): GoogleEventDTO {
   return { status: "confirmed", ...overrides };
@@ -101,5 +102,43 @@ describe("toBusyIntervals", () => {
   it("excludes events missing start or end entirely", () => {
     const events = [makeEvent({ id: "evt-1", end: { dateTime: "2026-01-01T10:00:00Z" } })];
     expect(toBusyIntervals(events)).toEqual([]);
+  });
+});
+
+function makeView(accountId: string, calendarId: string, id: string): McpEventView {
+  return { accountId, calendarId, id };
+}
+
+describe("dedupeEventViews", () => {
+  it("passes through unchanged when there are no duplicates", () => {
+    const events = [makeView("acc-1", "cal-a", "evt-1"), makeView("acc-1", "cal-a", "evt-2")];
+    expect(dedupeEventViews(events)).toEqual(events);
+  });
+
+  it("removes an exact calendarId+id duplicate, keeping the first occurrence", () => {
+    const first = makeView("acc-1", "cal-a", "evt-1");
+    // 同じイベントが別アカウント経由で見えているケース (dedupeReadTargetsByCalendar の
+    // 対象側 dedupe をすり抜けた場合の結果側の安全網)。
+    const duplicate = makeView("acc-2", "cal-a", "evt-1");
+    expect(dedupeEventViews([first, duplicate])).toEqual([first]);
+  });
+
+  it("does not dedupe the same id across different calendarIds", () => {
+    const events = [makeView("acc-1", "cal-a", "evt-1"), makeView("acc-2", "cal-b", "evt-1")];
+    expect(dedupeEventViews(events)).toEqual(events);
+  });
+
+  it("preserves first-occurrence order of surviving events", () => {
+    const events = [
+      makeView("acc-1", "cal-a", "evt-3"),
+      makeView("acc-1", "cal-a", "evt-1"),
+      makeView("acc-2", "cal-a", "evt-3"), // duplicate of the first (same calendarId+id)
+      makeView("acc-1", "cal-a", "evt-2"),
+    ];
+    expect(dedupeEventViews(events)).toEqual([
+      makeView("acc-1", "cal-a", "evt-3"),
+      makeView("acc-1", "cal-a", "evt-1"),
+      makeView("acc-1", "cal-a", "evt-2"),
+    ]);
   });
 });

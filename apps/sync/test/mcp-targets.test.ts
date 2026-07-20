@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  dedupeReadTargetsByCalendar,
   flattenVisibleCalendarTargets,
   resolveDefaultWriteAccountId,
   resolveFallbackTarget,
@@ -55,6 +56,58 @@ describe("resolveFallbackTarget", () => {
   });
 });
 
+describe("dedupeReadTargetsByCalendar", () => {
+  it("returns an empty array for an empty input", () => {
+    expect(dedupeReadTargetsByCalendar([], [])).toEqual([]);
+  });
+
+  it("leaves a calendarId visible from only one account unaffected", () => {
+    const targets = [{ accountId: "acc-1", calendarId: "cal-a" }];
+    const accounts = [{ id: "acc-1", isOwner: true }];
+    expect(dedupeReadTargetsByCalendar(targets, accounts)).toEqual(targets);
+  });
+
+  it("keeps the owner account's target when the calendarId is shared", () => {
+    const targets = [
+      { accountId: "acc-1", calendarId: "shared@example.com" },
+      { accountId: "acc-2", calendarId: "shared@example.com" },
+    ];
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: true },
+    ];
+    expect(dedupeReadTargetsByCalendar(targets, accounts)).toEqual([
+      { accountId: "acc-2", calendarId: "shared@example.com" },
+    ]);
+  });
+
+  it("picks the smallest accountId (ascending string compare) when no target is the owner", () => {
+    const targets = [
+      { accountId: "acc-2", calendarId: "shared@example.com" },
+      { accountId: "acc-1", calendarId: "shared@example.com" },
+    ];
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(dedupeReadTargetsByCalendar(targets, accounts)).toEqual([
+      { accountId: "acc-1", calendarId: "shared@example.com" },
+    ]);
+  });
+
+  it("preserves multiple distinct calendarIds without over-collapsing", () => {
+    const targets = [
+      { accountId: "acc-1", calendarId: "cal-a" },
+      { accountId: "acc-2", calendarId: "cal-b" },
+    ];
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(dedupeReadTargetsByCalendar(targets, accounts)).toEqual(targets);
+  });
+});
+
 describe("resolveReadTargets", () => {
   it("returns an empty array when both accounts and visibleCalendars are empty", () => {
     expect(resolveReadTargets([], {})).toEqual([]);
@@ -91,6 +144,53 @@ describe("resolveReadTargets", () => {
     ];
     expect(resolveReadTargets(accounts, { "acc-1": ["cal-a"] })).toEqual([
       { accountId: "acc-1", calendarId: "cal-a" },
+    ]);
+  });
+
+  it("collapses the same calendarId visible from 2 accounts to 1, preferring the owner", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: true },
+    ];
+    expect(
+      resolveReadTargets(accounts, {
+        "acc-1": ["shared@example.com"],
+        "acc-2": ["shared@example.com"],
+      }),
+    ).toEqual([{ accountId: "acc-2", calendarId: "shared@example.com" }]);
+  });
+
+  it("collapses a shared calendarId to the lowest accountId when neither account is owner", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(
+      resolveReadTargets(accounts, {
+        "acc-2": ["shared@example.com"],
+        "acc-1": ["shared@example.com"],
+      }),
+    ).toEqual([{ accountId: "acc-1", calendarId: "shared@example.com" }]);
+  });
+
+  it("leaves a calendarId visible from only one account unaffected", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: true },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(resolveReadTargets(accounts, { "acc-1": ["cal-a"] })).toEqual([
+      { accountId: "acc-1", calendarId: "cal-a" },
+    ]);
+  });
+
+  it("preserves multiple distinct calendarIds across accounts without over-collapsing", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: true },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(resolveReadTargets(accounts, { "acc-1": ["cal-a"], "acc-2": ["cal-b"] })).toEqual([
+      { accountId: "acc-1", calendarId: "cal-a" },
+      { accountId: "acc-2", calendarId: "cal-b" },
     ]);
   });
 });

@@ -40,6 +40,23 @@ export function toMcpEventView(
 }
 
 /**
+ * list_events/search_events 用: 同じカレンダーが複数アカウントから見える場合 (dedupeReadTargetsByCalendar
+ * で対象自体は1つに絞られるが、念のための結果側の安全網) に、同一イベントの重複を除去する。
+ * `calendarId + id` の複合キーで同一視し、最初に現れたものを残す (安定ソート、入力順は保持)。
+ */
+export function dedupeEventViews(events: McpEventView[]): McpEventView[] {
+  const seen = new Set<string>();
+  const deduped: McpEventView[] = [];
+  for (const event of events) {
+    const key = `${event.calendarId}:${event.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(event);
+  }
+  return deduped;
+}
+
+/**
  * suggest_free_slots 用: busy interval として扱えるイベントだけを busy interval に変換する。
  * - status === "cancelled" は除外
  * - start.dateTime / end.dateTime が無い (終日予定など具体的な時刻を持たない) ものは除外

@@ -24,7 +24,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GoogleEventDTO } from "@kichijitsu/shared";
 import { computeFreeSlots } from "../core/free-slots";
-import { toBusyIntervals, toMcpEventView, type McpEventView } from "../core/mcp-events";
+import {
+  dedupeEventViews,
+  toBusyIntervals,
+  toMcpEventView,
+  type McpEventView,
+} from "../core/mcp-events";
 import { defaultSearchWindow, filterEventsByQuery } from "../core/mcp-search";
 import type { McpCalendarTarget } from "../core/mcp-targets";
 import {
@@ -57,9 +62,11 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
         const profileId = this.requireProfileId();
         const targets = await resolveMcpReadTargets(this.env, profileId);
         const rawEvents = await this.fetchEventsForTargets(targets, timeMin, timeMax);
-        const events = rawEvents
-          .map(({ target, event }) => toMcpEventView(target.accountId, target.calendarId, event))
-          .sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)));
+        const events = dedupeEventViews(
+          rawEvents.map(({ target, event }) =>
+            toMcpEventView(target.accountId, target.calendarId, event),
+          ),
+        ).sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)));
         return { content: [{ type: "text", text: JSON.stringify(events) }] };
       },
     );
@@ -89,10 +96,11 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
         // rawEvents と matched を event.id で突き合わせて accountId/calendarId を復元する
         // (filterEventsByQuery は GoogleEventDTO[] しか見ないため)。
         const matchedIds = new Set(matched.map((event) => event.id));
-        const events = rawEvents
-          .filter(({ event }) => matchedIds.has(event.id))
-          .map(({ target, event }) => toMcpEventView(target.accountId, target.calendarId, event))
-          .sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)));
+        const events = dedupeEventViews(
+          rawEvents
+            .filter(({ event }) => matchedIds.has(event.id))
+            .map(({ target, event }) => toMcpEventView(target.accountId, target.calendarId, event)),
+        ).sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)));
         return { content: [{ type: "text", text: JSON.stringify(events) }] };
       },
     );
@@ -101,7 +109,8 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
       "suggest_free_slots",
       {
         description:
-          "指定期間・所要時間から空き時間の候補を返す (読み取り専用)。" +
+          "指定期間・所要時間から空き時間の候補を返す (読み取り専用)。候補は最も早いものから" +
+          "時系列順に返る。stepMinutes 省略時は30分刻み、maxCandidates 省略時は全体で最大10件。" +
           "timeZone は現状 UTC 前提の簡易実装。",
         inputSchema: {
           timeMin: z.string(),
@@ -114,9 +123,19 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
               endHour: z.number().int().min(0).max(24),
             })
             .optional(),
+          stepMinutes: z.number().int().positive().optional(),
+          maxCandidates: z.number().int().positive().optional(),
         },
       },
-      async ({ timeMin, timeMax, durationMinutes, timeZone, workingHours }) => {
+      async ({
+        timeMin,
+        timeMax,
+        durationMinutes,
+        timeZone,
+        workingHours,
+        stepMinutes,
+        maxCandidates,
+      }) => {
         const profileId = this.requireProfileId();
         const targets = await resolveMcpReadTargets(this.env, profileId);
         const rawEvents = await this.fetchEventsForTargets(targets, timeMin, timeMax);
@@ -129,6 +148,8 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
           durationMs: durationMinutes * 60_000,
           workingHours,
           timeZone,
+          stepMinutes,
+          maxCandidates,
         }).map((slot) => ({
           startMs: new Date(slot.startMs).toISOString(),
           endMs: new Date(slot.endMs).toISOString(),

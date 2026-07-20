@@ -44,16 +44,57 @@ export function resolveFallbackTarget(accounts: McpAccountRow[]): McpCalendarTar
 }
 
 /**
+ * 同じ calendarId が複数アカウントから見える場合 (例: 複数の Google アカウントに同じ
+ * sasagar@gmail.com が追加されている) に、target を1件へ収束させる。選択則は完全に
+ * 決定的にする: その calendarId の target 群にオーナーアカウントのものがあればそれを
+ * 採用し、無ければ accountId の文字列比較 (`<`) で昇順最小の target を採用する
+ * (tie-break の再現性のため)。
+ */
+export function dedupeReadTargetsByCalendar(
+  targets: McpCalendarTarget[],
+  accounts: McpAccountRow[],
+): McpCalendarTarget[] {
+  const ownerAccountIds = new Set(
+    accounts.filter((account) => account.isOwner).map((account) => account.id),
+  );
+
+  const groupsByCalendarId = new Map<string, McpCalendarTarget[]>();
+  for (const target of targets) {
+    const group = groupsByCalendarId.get(target.calendarId);
+    if (group) {
+      group.push(target);
+    } else {
+      groupsByCalendarId.set(target.calendarId, [target]);
+    }
+  }
+
+  const deduped: McpCalendarTarget[] = [];
+  for (const group of groupsByCalendarId.values()) {
+    const ownerTarget = group.find((target) => ownerAccountIds.has(target.accountId));
+    if (ownerTarget) {
+      deduped.push(ownerTarget);
+      continue;
+    }
+    deduped.push(
+      group.reduce((smallest, target) =>
+        target.accountId < smallest.accountId ? target : smallest,
+      ),
+    );
+  }
+  return deduped;
+}
+
+/**
  * 読み取り系ツール向けの対象解決本体: 選択 (visibleCalendars) をフラット化した結果が
- * 1件以上あればそれを使い、無ければ resolveFallbackTarget にフォールバックする。
- * アカウントも選択も両方空なら空配列 (対象なし)。
+ * 1件以上あれば dedupeReadTargetsByCalendar で calendarId 単位に収束させて使い、無ければ
+ * resolveFallbackTarget にフォールバックする。アカウントも選択も両方空なら空配列 (対象なし)。
  */
 export function resolveReadTargets(
   accounts: McpAccountRow[],
   visibleCalendars: Record<string, string[]>,
 ): McpCalendarTarget[] {
   const flattened = flattenVisibleCalendarTargets(visibleCalendars);
-  if (flattened.length > 0) return flattened;
+  if (flattened.length > 0) return dedupeReadTargetsByCalendar(flattened, accounts);
 
   const fallback = resolveFallbackTarget(accounts);
   return fallback ? [fallback] : [];
