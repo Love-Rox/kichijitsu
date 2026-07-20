@@ -169,6 +169,31 @@
   white-space: nowrap;
 }
 
+/*
+ * キーボードショートカット ヘルプ('?' キーと同じトグル、フェーズ6)。
+ * toolbar-legal のリンクと同じトーンで控えめに(円形の "?" バッジ)。
+ */
+.toolbar-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 50%;
+  background: #fff;
+  color: #8a8478;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toolbar-help-btn:hover {
+  color: #24211e;
+  background: #f3f4f6;
+}
+
 /* Google 審査要件の導線: ホームページからプライバシーポリシー・規約へのリンク。
    カレンダー本体の邪魔にならないよう控えめに(11px・薄墨・hoverでのみ墨色) */
 .toolbar-legal {

@@ -24,7 +24,10 @@ import { MonthView } from './components/MonthView'
 import { LogoMark, LogoWordmark } from './components/Logo'
 import { MasuIndicator } from './components/MasuIndicator'
 import { CalendarSettingsPanel } from './components/CalendarSettingsPanel'
+import { KeyboardHelpOverlay } from './components/KeyboardHelpOverlay'
+import { SearchOverlay } from './components/SearchOverlay'
 import type { CalendarInfo } from './components/EventBlock'
+import { isEditableTarget, isViewAllowedForWidth, resolveShortcut, type View } from './keyboard/shortcuts'
 import { useMasuVisible } from './hooks/useMasuVisible'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { useOffline } from './hooks/useOffline'
@@ -55,6 +58,7 @@ import {
   type VisibleCalendarsMap,
 } from './db/database'
 import { ensureExpanded } from './expansion/ensureExpanded'
+import { resolveJumpDate, type SearchJumpTarget } from './search/searchOccurrences'
 import { applySyncResponse, deleteGoogleData } from './sync/applySync'
 import { mondayOf, monthGridRangeMs } from './layout/monthGrid'
 import { stepAnchor } from './layout/dayGrid'
@@ -64,8 +68,9 @@ import './App.css'
  * モバイル対応フェーズ2(docs/multiplatform.md): 週ビュー('week')に加えて、狭幅向けの
  * N日タイムライン(day3=3日、day1=1日)を追加する。'month' は従来通り別レイアウト。
  * WeekGrid はこのうち 'month' 以外を dayCount 可変の同一グリッドとして描画する。
+ * View 型そのものは keyboard/shortcuts.ts を正としてそこから import する
+ * (グローバルショートカットの view 切替キーが同じ許容規則を参照する必要があるため)。
  */
-type View = 'week' | 'month' | 'day3' | 'day1'
 
 /** view ごとの表示日数。'month' は WeekGrid を使わないため呼ばない想定(0を返す) */
 function dayCountForView(view: View): number {
@@ -85,12 +90,6 @@ const VIEW_STORAGE_KEY = 'kichijitsu:view'
 
 function isView(value: string): value is View {
   return value === 'week' || value === 'month' || value === 'day3' || value === 'day1'
-}
-
-/** 狭幅/広幅それぞれで toolbar のビュー切替ボタンに出せる(≒意味のある)view かどうか */
-function isViewAllowedForWidth(view: View, narrow: boolean): boolean {
-  if (view === 'month') return true
-  return narrow ? view === 'day3' || view === 'day1' : view === 'week'
 }
 
 /** localStorage に保存された前回選択 view を読む。プライベートモード等で無効なら null */
@@ -185,6 +184,11 @@ function App() {
   const [calendarsByAccount, setCalendarsByAccount] = useState<Record<string, CalendarListEntryDTO[]>>({})
   const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({})
   const [panelOpen, setPanelOpen] = useState(false)
+  // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
+  const [helpOpen, setHelpOpen] = useState(false)
+  // 予定検索オーバーレイ(フェーズ6)の開閉。ツールバーの検索ボタンからのみ開く
+  // (キーボードショートカット化は別途 keyboard/shortcuts.ts 側の対応が必要なため今回は配線しない)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -963,23 +967,78 @@ function App() {
     [withNavLock],
   )
 
+  // 'n' ショートカット(新規予定作成、フェーズ6)。理想は「今日の次の30分枠に作成入力を
+  // 自動で開く」ことだが、作成入力(タイトル入力欄・draft state)は DayColumn.tsx が
+  // ローカルに持っており、App からは直接開けない。ここでは簡易実装として「今日を含む
+  // タイムラインビューへ移動する」にとどめ、そこから空き領域クリック/ドラッグで
+  // 作成できる状態を用意する。
+  // TODO: DayColumn の draft state を App まで持ち上げる(または WeekGrid に
+  // 「起動時に指定 ms で作成入力を自動オープンする」imperative な API を持たせる)と、
+  // 実際に入力欄まで自動で開けるようになる。
+  const handleNewEventShortcut = useCallback(() => {
+    if (!defaultWriteTarget) return // 書き込み先カレンダーが無ければ何もしない(ボタン起点の作成と同じ制約)
+    withNavLock(() => {
+      const targetView: View = view === 'month' ? (isNarrow ? 'day1' : 'week') : view
+      setView(targetView)
+      setTimelineStart(targetView === 'week' ? mondayOf(Temporal.Now.plainDateISO()) : Temporal.Now.plainDateISO())
+    })
+  }, [defaultWriteTarget, view, isNarrow, withNavLock])
+
+  // グローバルキーボードショートカット(フェーズ6)。←/→/t は元々このハンドラが
+  // 持っていたもの(WeekGrid 側は ←/→/t を処理していない、二重登録なし)に、
+  // w/m/d/1/3(ビュー切替)・n(新規予定)・?(ヘルプ)・Escape(ヘルプを閉じる)を追加する。
+  // キー→アクションの対応表自体は keyboard/shortcuts.ts の純関数 (resolveShortcut) に
+  // 切り出してあり、テストはそちらで行う。ここでは:
+  //   1. 入力中(input/textarea/contenteditable)なら常に無視
+  //   2. Escape は最前面のオーバーレイ(ヘルプ)だけを閉じる。詳細ポップオーバー・設定パネルは
+  //      各自の Escape リスナー (useCloseOnOutsideOrEscape / 下の panelOpen effect) が
+  //      既に閉じるので、ここでは二重に処理しない
+  //   3. それ以外のショートカットは、詳細ポップオーバー・設定パネル・ヘルプが開いている間は
+  //      発火させない(作成入力は <input> なので 1. のガードで既にカバーされている)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      if (isEditableTarget(target?.tagName ?? null, target?.isContentEditable ?? false)) return
+
+      const action = resolveShortcut(e, isNarrow)
+      if (!action) return
+
+      if (action.kind === 'escape') {
+        if (helpOpen) setHelpOpen(false)
         return
       }
-      if (e.key === 'ArrowLeft') {
-        goToPrev()
-      } else if (e.key === 'ArrowRight') {
-        goToNext()
-      } else if (e.key === 't' || e.key === 'T') {
-        goToToday()
+
+      // 他のオーバーレイ(詳細ポップオーバー・設定パネル・予定検索・ヘルプ自身など)が
+      // 開いている間は無視する。個別に state/class を列挙せず role="dialog" を共通の
+      // 目印にする(EventDetailCard/CalendarSettingsPanel/SearchOverlay/KeyboardHelpOverlay は
+      // いずれも role="dialog" を持つ、既存の流儀)。これにより新しいオーバーレイが増えても
+      // ここを更新し忘れる心配がない。
+      if (document.querySelector('[role="dialog"]')) return
+
+      switch (action.kind) {
+        case 'prev':
+          goToPrev()
+          break
+        case 'next':
+          goToNext()
+          break
+        case 'today':
+          goToToday()
+          break
+        case 'switchView':
+          switchView(action.view)
+          break
+        case 'newEvent':
+          handleNewEventShortcut()
+          break
+        case 'toggleHelp':
+          setHelpOpen((v) => !v)
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [goToPrev, goToNext, goToToday])
+  }, [goToPrev, goToNext, goToToday, switchView, handleNewEventShortcut, isNarrow, helpOpen])
 
   // カレンダー設定パネル: 外側クリック・Escape で閉じる
   useEffect(() => {
@@ -1020,6 +1079,19 @@ function App() {
     return lookup
   }, [calendarsByAccount])
 
+  // 検索結果からのジャンプ(SearchOverlay から受け取る唯一のコールバック、フェーズ6)。
+  // 対象の予定を含む日へ day1 タイムラインで移動する(月表示セルクリック時の
+  // handleNavigateToDay と同じ動線を再利用するだけの薄いラッパー)。
+  // 将来 '/' や Cmd+K でオーバーレイを開けるようにする場合は、ショートカット側から
+  // このすぐ下の openSearch を呼べばよい(今回はツールバーボタンからの起動のみ配線する)。
+  const handleSearchJump = useCallback(
+    (target: SearchJumpTarget) => {
+      handleNavigateToDay(resolveJumpDate(target, timeZone))
+    },
+    [handleNavigateToDay, timeZone],
+  )
+  const openSearch = useCallback(() => setSearchOpen(true), [])
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -1036,6 +1108,10 @@ function App() {
           </button>
           <button type="button" onClick={goToNext} aria-label={view === 'week' ? '次週' : view === 'month' ? '次月' : '次へ'}>
             →
+          </button>
+          {/* 予定検索(フェーズ6)。SearchOverlay 側で入力欄にオートフォーカスする */}
+          <button type="button" onClick={openSearch} aria-label="予定を検索">
+            🔍
           </button>
         </div>
         {/*
@@ -1170,6 +1246,16 @@ function App() {
               </button>
             )}
           </div>
+          {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル */}
+          <button
+            type="button"
+            className="toolbar-help-btn"
+            onClick={() => setHelpOpen((v) => !v)}
+            aria-label="キーボードショートカット一覧"
+            title="キーボードショートカット (?)"
+          >
+            ?
+          </button>
           <div className="toolbar-legal">
             <a href="/privacy.html">プライバシー</a>
             <a href="/terms.html">規約</a>
@@ -1214,6 +1300,17 @@ function App() {
           </div>
         )}
       </main>
+      {helpOpen && <KeyboardHelpOverlay onClose={() => setHelpOpen(false)} />}
+      {searchOpen && (
+        <SearchOverlay
+          onClose={() => setSearchOpen(false)}
+          db={db}
+          timeZone={timeZone}
+          visibleCalendarKeys={visibleCalendarKeys}
+          calendarLookup={calendarLookup}
+          onJump={handleSearchJump}
+        />
+      )}
     </div>
   )
 }

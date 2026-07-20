@@ -1,0 +1,112 @@
+/*
+ * 予定検索オーバーレイ(フェーズ6)。画面全体を薄く覆うバックドロップ + 上部中央に浮かぶ
+ * 検索カード、というコマンドパレット的な構成。z-index は WeekGrid のドラッグ関連 (最大1000)
+ * より確実に上に出るよう 2000 台にしてある。色は CalendarSettingsPanel.css / App.css と
+ * 揃えたブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・朱 --logo-aka)を使う。
+ */
+.search-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  /* 画面上部中央。ツールバー(48px)の下に少し余白を空けて浮かせる */
+  padding-top: 96px;
+}
+
+.search-overlay {
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
+  display: flex;
+  flex-direction: column;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  overflow: hidden;
+}
+
+.search-overlay-input {
+  font: inherit;
+  font-size: 15px;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 16px;
+  outline: none;
+  color: #24211e;
+  background: transparent;
+}
+
+.search-overlay-input::placeholder {
+  color: #b3ac9d;
+}
+
+.search-overlay-results {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.search-overlay-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: #8a8478;
+}
+
+.search-result-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font: inherit;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: #24211e;
+}
+
+.search-result-row:hover,
+.search-result-row.is-active {
+  background: #f5f1e8;
+}
+
+.search-result-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+}
+
+.search-result-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-result-title {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-meta {
+  font-size: 12px;
+  color: #8a8478;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .search-overlay-backdrop {
+    padding-top: 64px;
+  }
+}

@@ -1,0 +1,113 @@
+/*
+ * '?' キーのグローバルショートカットで開くヘルプオーバーレイ(フェーズ6)。
+ * CalendarSettingsPanel と同じ配色(薄墨・生成り・朱アクセント、brand/README.md)を
+ * 踏襲するが、こちらはツールバーからの相対配置ではなく画面中央のモーダルにする
+ * (ショートカット表はどのビューからでも同じ位置で開いてほしいため)。
+ */
+.keyboard-help-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.keyboard-help-card {
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(480px, calc(100vh - 64px));
+  overflow-y: auto;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(36, 33, 30, 0.16);
+  padding: 16px;
+  text-align: left;
+}
+
+.keyboard-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.keyboard-help-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.keyboard-help-close {
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.keyboard-help-close:hover {
+  color: #24211e;
+}
+
+.keyboard-help-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.keyboard-help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.keyboard-help-row + .keyboard-help-row {
+  border-top: 1px solid #f0ece3;
+}
+
+.keyboard-help-keys {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.keyboard-help-key-sep {
+  margin: 0 3px;
+  font-size: 11px;
+  color: #cfc8ba;
+}
+
+.keyboard-help-kbd {
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
+  font: inherit;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #55504a;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.keyboard-help-label {
+  font-size: 13px;
+  color: #24211e;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .keyboard-help-card {
+    padding: 12px;
+  }
+}
