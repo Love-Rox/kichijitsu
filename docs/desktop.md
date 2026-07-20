@@ -102,3 +102,11 @@ pnpm --filter desktop build   # リリースビルド（= pnpm build:desktop）
    版は VAPID の Web Push。docs/multiplatform.md の「通知」セクション参照）
 5. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
    要るため、当面は今回のリモート URL 方式のまま運用する
+
+## Mac 配布: Homebrew cask + 署名回避（2026-07-21 ユーザー決定）
+
+- **配布は Homebrew cask（自前 tap）**。Apple の署名・公証（Developer Program 有料 + notarization）は**行わない**（無料運用）。
+- 未署名の Tauri バイナリ（.dmg or .app.tar.gz 等）を **GitHub Releases** に置き、cask の `url`/`sha256` でそれを取得する。
+- **署名回避 / Gatekeeper（quarantine）の具体手順は、ユーザーの既存リポジトリ `labolabo` / `harushion` の cask 実装に倣う**（Homebrew tap の cask .rb を参照して同じ形にする）。実装時（Tauri 増分2）に GitHub でそれらの cask を確認してから書く。ここに憶測の手順は書かない。
+- CI: リリースビルド（`tauri build`）→ GitHub Releases へ添付 → tap の cask を更新、という流れを想定（`voidzero-dev/setup-vp` とは別。Rust ビルドが要るので macOS runner）。
+- 参考: この方式は「署名しない代わりに Homebrew 経由でインストールさせる」もので、ダウンロード直開きの `"開発元を確認できません"` を回避する狙い。正確な回避方法は上記2リポジトリで確認する。
