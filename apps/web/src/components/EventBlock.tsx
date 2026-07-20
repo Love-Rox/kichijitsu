@@ -16,6 +16,7 @@ import {
   formatDetailDateTime,
   formatRange,
   formatTime,
+  isBusyPlaceholder,
   minutesToPx,
   pxToMinutes,
 } from '../layout/gridMetrics'
@@ -360,6 +361,9 @@ export function EventBlock({
   // カスケード表示(フェーズ5): leftPct/widthPct は「日列の左右インセットを除いた
   // 使用可能幅」に対する % (WeekGrid 側で計算済み)。px のインセットと % を
   // calc() で組み合わせ、予定が日の仕切り線に密着しないようにする
+  // Busy/予定あり は中身の無い「ブロックされた時間」。実予定と区別できるよう
+  // 斜線ハッチの控えめな見た目にする(.event--busy)。色は使わずグレーで統一。
+  const isBusy = isBusyPlaceholder(occurrence.title)
   const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`
   const style: CSSProperties = {
     top,
@@ -368,8 +372,13 @@ export function EventBlock({
     zIndex: stackIndex + 1,
     // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと
     // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
-    backgroundColor: `color-mix(in srgb, ${occurrence.color} 15%, white)`,
-    borderLeftColor: occurrence.color,
+    // Busy は色を使わずグレーのハッチ(CSS 側 .event--busy)に任せるので背景指定しない。
+    ...(isBusy
+      ? {}
+      : {
+          backgroundColor: `color-mix(in srgb, ${occurrence.color} 15%, white)`,
+          borderLeftColor: occurrence.color,
+        }),
   }
   if (!isResizing) {
     style.height = height
@@ -390,7 +399,13 @@ export function EventBlock({
     <>
       <div
         ref={elRef}
-        className={isCompact ? 'event event--compact' : 'event'}
+        className={[
+          'event',
+          isCompact ? 'event--compact' : '',
+          isBusy ? 'event--busy' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={style}
         onPointerDown={handlePointerDownMove}
         onPointerMove={handlePointerMove}

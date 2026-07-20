@@ -73,11 +73,16 @@
   width: 20px;
   height: 20px;
   padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: none;
+  /* ボタンのネイティブ枠(角丸)を徹底的に消す。appearance:none だけでは
+   * 一部ブラウザ(Safari 等)で角丸のクロムが残り、中の枡と二重枠に見えた
+   * (ユーザー指摘 2026-07-20)。border/radius/影/タップハイライトを全て無効化する */
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
   appearance: none;
   -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
   cursor: pointer;
   flex: none;
   outline: none;

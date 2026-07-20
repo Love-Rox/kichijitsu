@@ -308,6 +308,29 @@
   box-shadow: 0 6px 18px rgba(36, 33, 30, 0.3);
 }
 
+/*
+ * Busy/予定あり = 中身の無い「ブロックされた時間」。実予定と一目で区別できるよう
+ * 斜線ハッチのグレー表示にする(色は使わない)。文字は控えめ、影も弱め。
+ * z 順序は WeekGrid 側で常に最背面に回している。
+ */
+.event--busy {
+  border-left-color: #c9c2b4;
+  color: #8a8478;
+  box-shadow: none;
+  background-color: #f4f1ea;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    rgba(140, 132, 120, 0.16) 5px,
+    rgba(140, 132, 120, 0.16) 10px
+  );
+}
+
+.event--busy:hover {
+  box-shadow: 0 4px 12px rgba(36, 33, 30, 0.2);
+}
+
 .event-header-row {
   display: flex;
   align-items: center;
