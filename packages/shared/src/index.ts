@@ -32,4 +32,7 @@ export type {
   GitHubItemType,
   GitHubItemDTO,
   GitHubItemsResponse,
+  GitHubWorkKind,
+  GitHubWorkItemDTO,
+  GitHubQueueResponse,
 } from "./protocol";

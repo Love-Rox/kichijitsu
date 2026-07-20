@@ -16,6 +16,7 @@ import type {
   EventPatchRequest,
   EventPatchResponse,
   GitHubItemsResponse,
+  GitHubQueueResponse,
   MeResponse,
   SyncRequest,
   TaskListsResponse,
@@ -32,6 +33,7 @@ import { SESSION_COOKIE_NAME } from "../session";
 import { decryptToken, InvalidCiphertextError } from "../crypto";
 import { revokeToken } from "../google/oauth";
 import { fetchGitHubItems } from "../core/github-items";
+import { fetchGitHubQueue } from "../core/github-queue";
 import { GitHubApiError } from "../github/http";
 import { registerWatch, stopWatch, buildWebhookAddress } from "../google/watch";
 import {
@@ -113,26 +115,13 @@ apiRoutes.delete("/api/github", requireAuth, async (c) => {
 apiRoutes.get("/api/github/items", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  const connection = await c.env.DB.prepare(
-    "SELECT access_token FROM github_connections WHERE profile_id = ?",
-  )
-    .bind(profileId)
-    .first<{ access_token: string }>();
-  if (!connection) {
-    return c.json<ApiError>({ error: "github_not_connected" }, 409);
-  }
-
-  let accessToken: string;
-  try {
-    accessToken = await decryptToken(c.env.TOKEN_ENC_KEY, connection.access_token);
-  } catch (err) {
-    if (!(err instanceof InvalidCiphertextError)) throw err;
-    console.warn(`github items: could not decrypt access_token for profile ${profileId}`);
-    return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github items");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
   }
 
   try {
-    const items = await fetchGitHubItems({ fetch, token: accessToken });
+    const items = await fetchGitHubItems({ fetch, token: resolved.token });
     return c.json<GitHubItemsResponse>({ items });
   } catch (err) {
     if (err instanceof GitHubApiError && err.status === 401) {
@@ -140,6 +129,31 @@ apiRoutes.get("/api/github/items", requireAuth, async (c) => {
       return c.json<ApiError>({ error: "github_auth_expired" }, 401);
     }
     console.error(`github items: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// GitHub 作業キュー取得 (docs/github-integration.md フェーズ②「作業キュー」、2026-07-20)。
+// review request / assigned issue / 自分の open PR を Search API 横断で取って DTO で返す
+// だけ (サーバーは永続化しない)。表示 (サイドレール) は Part B で別途。
+// エラーマッピングは /api/github/items と同じ (resolveGitHubAccessToken を共有)。
+apiRoutes.get("/api/github/queue", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github queue");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const items = await fetchGitHubQueue({ fetch, token: resolved.token });
+    return c.json<GitHubQueueResponse>({ items });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github queue: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github queue: fetch failed for profile ${profileId}`, err);
     return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
   }
 });
@@ -743,6 +757,39 @@ async function loadVisibleCalendars(
     prefsResult.results.map((row) => row.account_id),
     visibleResult.results,
   );
+}
+
+/**
+ * GET /api/github/items と /api/github/queue で共通のトークン解決 (docs/github-integration.md
+ * フェーズ①②、2026-07-20)。github_connections を profileId で引いて復号するだけの処理が
+ * 両ルートで重複していたので DRY 化した — 挙動 (未連携 409 / 復号失敗 401) は変えていない。
+ */
+type GitHubTokenResolution =
+  | { ok: true; token: string }
+  | { ok: false; error: "github_not_connected" | "github_auth_expired"; status: 409 | 401 };
+
+async function resolveGitHubAccessToken(
+  env: Env,
+  profileId: string,
+  logPrefix: string,
+): Promise<GitHubTokenResolution> {
+  const connection = await env.DB.prepare(
+    "SELECT access_token FROM github_connections WHERE profile_id = ?",
+  )
+    .bind(profileId)
+    .first<{ access_token: string }>();
+  if (!connection) {
+    return { ok: false, error: "github_not_connected", status: 409 };
+  }
+
+  try {
+    const token = await decryptToken(env.TOKEN_ENC_KEY, connection.access_token);
+    return { ok: true, token };
+  } catch (err) {
+    if (!(err instanceof InvalidCiphertextError)) throw err;
+    console.warn(`${logPrefix}: could not decrypt access_token for profile ${profileId}`);
+    return { ok: false, error: "github_auth_expired", status: 401 };
+  }
 }
 
 /** GET /api/me 用: プロファイルの GitHub 連携 (docs/github-oauth.md)。無ければ null。 */

@@ -83,6 +83,39 @@ export interface GitHubItemsResponse {
 }
 
 /**
+ * GET /api/github/queue が返す1件の分類 (docs/github-integration.md フェーズ②「作業キュー」、
+ * 2026-07-20)。GitHub Search API の3クエリ (review-requested:@me / assignee:@me /
+ * author:@me) に対応する。
+ */
+export type GitHubWorkKind = "review_requested" | "assigned" | "authored";
+
+/**
+ * 作業キューの1件 (docs/github-integration.md フェーズ②)。同一 (repo, number) が複数クエリに
+ * ヒットすること (自分が author かつ assignee 等) があるため dedupe せず、該当する分類を
+ * `kinds` に配列でまとめる — UI 側は1アイテムとして素直に扱える。
+ */
+export interface GitHubWorkItemDTO {
+  /** 安定 ID: `ghq:{owner}/{repo}:{issue|pr}:{number}` */
+  id: string;
+  type: "issue" | "pr";
+  /** このアイテムが該当する分類 (複数可、重複なし)。 */
+  kinds: GitHubWorkKind[];
+  title: string;
+  /** "owner/repo" */
+  repo: string;
+  number: number;
+  /** html_url */
+  url: string;
+  /** ISO 8601 (並び替え用)。 */
+  updatedAt: string;
+}
+
+/** GET /api/github/queue のレスポンス。 */
+export interface GitHubQueueResponse {
+  items: GitHubWorkItemDTO[];
+}
+
+/**
  * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
  * プロファイルに複数の Google アカウントがぶら下がる。
  * connected は accounts.length > 0 と同義（後方互換のため残す）
