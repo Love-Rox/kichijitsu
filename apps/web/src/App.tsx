@@ -1768,13 +1768,22 @@ function App() {
   const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
   const reportTimeEntries = useTimeEntries(timeEntryStore);
 
+  // hook 実績・commit 推定の取得トリガー(docs/github-integration.md「時間計測」増分2 Part B、
+  // GitHubPane 増分2で拡張)。当初は TimeReportOverlay を開いたとき(reportOpen)だけだったが、
+  // GitHubPane の実績セクション(ActualsSection)も同じデータを使うため、「ペインが開いていて
+  // GitHub 連携済み」でも取得するよう広げる。GitHubPane 自体が `paneOpen && me.github` でしか
+  // 描画されない(App.tsx 下部の render 参照)ため、この条件は「実績セクションが実際に見えている」
+  // と同値 — 二重取得(reportOpen と paneOpen が両方 true でも1回の effect 実行にしかならない)は
+  // 依存配列がそのまま防ぐ。
+  const needsActualsData = reportOpen || (paneOpen && !!me.github);
+
   // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
   // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
-  // レポートを開いたときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
+  // needsActualsData のときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
   // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空のまま
   // (レポート表示自体は継続できる、他の実績経路と同じ「取りこぼしより安全側」の方針)。
   useEffect(() => {
-    if (!reportOpen) return;
+    if (!needsActualsData) return;
     let cancelled = false;
     checkedFetch("/api/work-logs")
       .then(async (res) => {
@@ -1792,7 +1801,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [reportOpen, checkedFetch]);
+  }, [needsActualsData, checkedFetch]);
 
   const reportHookActualByLinkedItem = useMemo(
     () =>
@@ -1804,14 +1813,17 @@ function App() {
   );
 
   // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。
-  // レポートを開いたときだけ POST /api/github/pr-commits を叩く(interval 等の常時ポーリングは
-  // しない)。対象は reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の
-  // {repo, number} のみ — issue は commit と紐づかないため送らない。未連携(me.github===null)
-  // なら取得せず推定列は空のまま。401→githubAuthExpired 経路に合流(①②と同じ再連携導線を共有)、
-  // 409(未連携相当、通常は me.github が null のはずなので基本発生しない)は空扱い、
-  // 502・ネットワークエラーは一時的な失敗として warn のみ(前回の推定を維持する)。
+  // needsActualsData(レポートを開いた、または実績セクションが可視)のときだけ
+  // POST /api/github/pr-commits を叩く(interval 等の常時ポーリングはしない)。対象は
+  // reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の {repo, number} のみ
+  // — issue は commit と紐づかないため送らない。未連携(me.github===null)なら取得せず推定列は
+  // 空のまま(needsActualsData の paneOpen 経路は既に me.github を含むが、reportOpen 経路は
+  // 含まないため引き続きここで明示的にガードする)。401→githubAuthExpired 経路に合流
+  // (①②と同じ再連携導線を共有)、409(未連携相当、通常は me.github が null のはずなので
+  // 基本発生しない)は空扱い、502・ネットワークエラーは一時的な失敗として warn のみ
+  // (前回の推定を維持する)。
   useEffect(() => {
-    if (!reportOpen || !me.github) return;
+    if (!needsActualsData || !me.github) return;
     const prItems = collectPrTargets(reportPlannedBlocks, reportTimeEntries);
     if (prItems.length === 0) {
       setPrCommitEstimates({});
@@ -1852,7 +1864,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [reportOpen, me.github, reportPlannedBlocks, reportTimeEntries, checkedFetch]);
+  }, [needsActualsData, me.github, reportPlannedBlocks, reportTimeEntries, checkedFetch]);
 
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
@@ -2503,6 +2515,12 @@ function App() {
               window.location.href = "/auth/github/login";
             }}
             onDragStart={() => setPaneOpen(false)}
+            reportPlannedBlocks={reportPlannedBlocks}
+            reportTimeEntries={reportTimeEntries}
+            reportWorkLogs={reportWorkLogs}
+            prCommitEstimatesByKey={prCommitEstimates}
+            nowMs={timerNowMs}
+            onOpenDetailReport={() => setReportOpen(true)}
           />
         )}
       </main>
