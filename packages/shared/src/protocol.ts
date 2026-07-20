@@ -43,6 +43,21 @@ export interface AccountDTO {
 export interface MeResponse {
   connected: boolean
   accounts: AccountDTO[]
+  /**
+   * カレンダー選択のサーバー保存値 (2026-07-20): accountId → 表示中カレンダー id 配列。
+   * 端末間で選択を揃えるため。エントリが無いアカウントは「未設定」でクライアントが
+   * primary をデフォルト選択する。空配列は「全部外した」意思として尊重する。
+   */
+  visibleCalendars: Record<string, string[]>
+}
+
+/**
+ * PUT /api/visible-calendars — カレンダー選択をサーバーに保存 (端末間同期)。
+ * 対象アカウントの所属検証あり。1アカウントぶんを上書き保存する。
+ */
+export interface VisibleCalendarsRequest {
+  accountId: string
+  calendarIds: string[]
 }
 
 export interface CalendarListEntryDTO {

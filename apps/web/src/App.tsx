@@ -19,6 +19,7 @@ import {
   resolveDefaultWriteTarget,
   type WriteTargetCandidate,
 } from './sync/eventCreate'
+import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from './sync/visibleCalendars'
 import { WeekGrid } from './components/WeekGrid'
 import { MonthView } from './components/MonthView'
 import { LogoMark, LogoWordmark } from './components/Logo'
@@ -180,7 +181,7 @@ function App() {
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
   // カレンダー一覧を取得し、選択中カレンダー(IndexedDB meta に永続化)ごとに同期する。
-  const [me, setMe] = useState<MeResponse>({ connected: false, accounts: [] })
+  const [me, setMe] = useState<MeResponse>({ connected: false, accounts: [], visibleCalendars: {} })
   const [calendarsByAccount, setCalendarsByAccount] = useState<Record<string, CalendarListEntryDTO[]>>({})
   const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({})
   const [panelOpen, setPanelOpen] = useState(false)
@@ -253,6 +254,29 @@ function App() {
         })
         .catch((err) => {
           console.warn('kichijitsu: POST /api/watch failed', err)
+        })
+    },
+    [checkedFetch],
+  )
+
+  // PUT /api/visible-calendars — カレンダー選択をサーバーに保存する (端末間同期、2026-07-20)。
+  // handleToggleCalendar のトグル時と、fetchCalendarsFor の初回 primary デフォルト選択時に呼ぶ。
+  // fire-and-forget: UI/IndexedDB は既に楽観的更新済みなので、失敗してもロールバックしない
+  // (選択はローカルに残るため動作は継続でき、オフライン表示は checkedFetch の markOffline に委ねる)
+  const putVisibleCalendars = useCallback(
+    (accountId: string, calendarIds: string[]) => {
+      checkedFetch('/api/visible-calendars', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildVisibleCalendarsRequest(accountId, calendarIds)),
+      })
+        .then((res) => {
+          if (!res.ok) {
+            console.warn(`kichijitsu: PUT /api/visible-calendars failed (${accountId}): ${res.status}`)
+          }
+        })
+        .catch((err) => {
+          console.warn('kichijitsu: PUT /api/visible-calendars failed', err)
         })
     },
     [checkedFetch],
@@ -389,13 +413,18 @@ function App() {
     try {
       const res = await checkedFetch('/api/me')
       if (!res.ok) {
-        setMe({ connected: false, accounts: [] })
+        setMe({ connected: false, accounts: [], visibleCalendars: {} })
         return
       }
       const data = (await res.json()) as MeResponse
       setMe(data)
+      // サーバーに configured なエントリを取り込む(サーバーが正)。無いアカウントは
+      // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す
+      // (mergeServerVisibleCalendars 参照。init effect の IndexedDB ロードとの解決順序に
+      // 依存しない — どちらが先でも既存のレース対策(prev 優先マージ)と両立する)
+      setVisibleCalendarsState((prev) => mergeServerVisibleCalendars(prev, data.visibleCalendars))
     } catch {
-      setMe({ connected: false, accounts: [] })
+      setMe({ connected: false, accounts: [], visibleCalendars: {} })
     }
   }, [checkedFetch])
 
@@ -437,8 +466,9 @@ function App() {
           const calendars = (await res.json()) as CalendarListEntryDTO[]
           if (isCancelled()) return
           setCalendarsByAccount((prev) => ({ ...prev, [account.id]: calendars }))
-          // このアカウントにまだ選択状態が無ければ primary をデフォルト選択し、
-          // その場で watch も登録する(初回連携時)
+          // このアカウントにまだ選択状態が無ければ(=サーバーにも configured なエントリが
+          // 無く、ローカルにも無い)primary をデフォルト選択し、その場で watch も登録し、
+          // 次回別端末でも同じ選択になるようサーバーにも保存する(初回連携時)
           const alreadySelected = visibleCalendarsRef.current[account.id] !== undefined
           const primary = calendars.find((c) => c.primary) ?? calendars[0]
           setVisibleCalendarsState((prev) => {
@@ -448,6 +478,7 @@ function App() {
           })
           if (!alreadySelected && primary) {
             postWatch(account.id, primary.id, true)
+            putVisibleCalendars(account.id, [primary.id])
           }
         } catch (err) {
           console.error('kichijitsu: failed to load calendars', err)
@@ -456,7 +487,7 @@ function App() {
         }
       }
     },
-    [checkedFetch, postWatch],
+    [checkedFetch, postWatch, putVisibleCalendars],
   )
 
   // me.accounts が増えるたびに、まだ取得していないアカウントのカレンダー一覧を取りに行く(初回のみ)
@@ -620,6 +651,8 @@ function App() {
         : current.filter((id) => id !== calendarId)
       setVisibleCalendarsState((prev) => ({ ...prev, [accountId]: nextForAccount }))
       postWatch(accountId, calendarId, nextChecked)
+      // サーバーへ保存(端末間同期、2026-07-20)。UI/IndexedDB は上ですでに楽観的更新済み
+      putVisibleCalendars(accountId, nextForAccount)
 
       if (!db) return
 
@@ -636,7 +669,7 @@ function App() {
         })
       }
     },
-    [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch],
+    [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch, putVisibleCalendars],
   )
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
@@ -656,7 +689,8 @@ function App() {
 
       setMe((prev) => {
         const accounts = prev.accounts.filter((a) => a.id !== accountId)
-        return { connected: accounts.length > 0, accounts }
+        const { [accountId]: _removedVisible, ...remainingVisibleCalendars } = prev.visibleCalendars
+        return { connected: accounts.length > 0, accounts, visibleCalendars: remainingVisibleCalendars }
       })
       setCalendarsByAccount((prev) => {
         const { [accountId]: _removed, ...rest } = prev
@@ -1169,15 +1203,32 @@ function App() {
           )}
         </div>
         <div className="toolbar-right">
+          {/*
+           * モバイル狭幅対応: 年月表示を「7月」/「7/20」まで縮める(スマホヘッダー1段化)。
+           * 広幅は従来通りフル表記のまま(isNarrow は既存の useMediaQuery state を流用するだけで
+           * ロジックの追加は無い)。
+           */}
           <span className="month-label">
             {view === 'month' ? (
-              <>
-                {monthCursor.year}年{monthCursor.month}月
-              </>
+              isNarrow ? (
+                <>{monthCursor.month}月</>
+              ) : (
+                <>
+                  {monthCursor.year}年{monthCursor.month}月
+                </>
+              )
             ) : view === 'day1' ? (
-              <>
-                {timelineStart.year}年{timelineStart.month}月{timelineStart.day}日
-              </>
+              isNarrow ? (
+                <>
+                  {timelineStart.month}/{timelineStart.day}
+                </>
+              ) : (
+                <>
+                  {timelineStart.year}年{timelineStart.month}月{timelineStart.day}日
+                </>
+              )
+            ) : isNarrow ? (
+              <>{timelineStart.month}月</>
             ) : (
               <>
                 {timelineStart.year}年{timelineStart.month}月
@@ -1190,7 +1241,7 @@ function App() {
               title="サーバーに接続できません。表示はローカルに保存されたデータです"
             >
               <span className="masu masu--empty" aria-hidden="true" />
-              オフライン
+              <span className="offline-indicator-label">オフライン</span>
             </span>
           )}
           <div className="toolbar-account" ref={accountAreaRef}>
@@ -1202,6 +1253,11 @@ function App() {
                   onClick={() => setPanelOpen((open) => !open)}
                   aria-expanded={panelOpen}
                   aria-haspopup="dialog"
+                  // 狭幅では .account-summary-label を CSS で隠し ⚙ アイコンだけにするため、
+                  // アクセシブルネームが失われないよう明示の aria-label を持たせる
+                  aria-label={
+                    me.accounts.length === 1 ? me.accounts[0].email : `${me.accounts.length}アカウント連携中`
+                  }
                 >
                   <span className="account-summary-label">
                     {me.accounts.length === 1 ? me.accounts[0].email : `${me.accounts.length}アカウント連携中`}
@@ -1210,12 +1266,22 @@ function App() {
                     ⚙
                   </span>
                 </button>
-                <button type="button" onClick={runSync} disabled={syncStatus === 'syncing'}>
+                <button
+                  type="button"
+                  className="toolbar-sync-btn"
+                  onClick={runSync}
+                  disabled={syncStatus === 'syncing'}
+                  aria-label="同期"
+                  title="同期"
+                >
                   {syncIndicator.visible ? (
                     <span className={syncIndicator.fading ? 'sync-indicator masu-indicator--fading' : 'sync-indicator'}>
                       <MasuIndicator size="sm" />
-                      同期中
+                      {/* 狭幅ではテキストを省き枡アイコンのみにして幅を詰める(1段化) */}
+                      {!isNarrow && '同期中'}
                     </span>
+                  ) : isNarrow ? (
+                    '⟳'
                   ) : (
                     '同期'
                   )}

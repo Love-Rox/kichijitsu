@@ -82,6 +82,15 @@ export function CalendarSettingsPanel({
       <button type="button" className="calendar-panel-add-account" onClick={onAddAccount}>
         + アカウントを追加
       </button>
+      {/*
+       * Google 審査要件の導線(プライバシーポリシー・規約)。狭幅ヘッダーではスペース確保のため
+       * ヘッダー直下のリンク (.toolbar-legal) を隠す代わりに、設定パネル下部へ集約する
+       * (App.tsx 参照)。パネルは幅に余裕があるため常時表示でよい。
+       */}
+      <div className="calendar-panel-legal">
+        <a href="/privacy.html">プライバシー</a>
+        <a href="/terms.html">規約</a>
+      </div>
     </div>
   )
 }

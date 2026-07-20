@@ -166,3 +166,27 @@
 .calendar-panel-add-account:hover {
   text-decoration: underline;
 }
+
+/*
+ * プライバシー/規約リンク(App.tsx の .toolbar-legal と同内容)。狭幅ヘッダーから
+ * 隠した分をここに集約するフッター(スマホ対応、docs/multiplatform.md)。
+ */
+.calendar-panel-legal {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f0ece3;
+}
+
+.calendar-panel-legal a {
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: none;
+}
+
+.calendar-panel-legal a:hover {
+  color: #24211e;
+  text-decoration: underline;
+}

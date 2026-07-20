@@ -66,6 +66,34 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
   `is_owner=1` にする移行を行う (`profile_id` 自体は変更しない = 既存の束は壊さない)。
   さらに `idx_accounts_one_owner_per_profile` (`profile_id` 上の部分ユニークインデックス、
   `WHERE is_owner = 1`) で「1 プロファイルにつきオーナーは高々1人」を DB レベルでも保証する。
+- `0005_visible_calendars.sql` — **カレンダー選択のサーバー保存** (下記参照)。
+  「どのカレンダーを表示するか」の選択がこれまで端末ローカル (IndexedDB) のみで、
+  端末間で揃わなかった (別端末で一部カレンダーが出ない原因) 問題を解消する。
+  選択の実体を持つ `account_visible_calendars(account_id, calendar_id, created_at,
+  PRIMARY KEY(account_id, calendar_id))` と、そのアカウントが選択を設定済みかを持つ
+  `account_calendar_prefs(account_id PRIMARY KEY, configured, updated_at)` の2テーブルを
+  新規作成するのみで、既存データの移行は無い。2テーブルに分けているのは「未設定
+  (行が無い＝クライアントが primary をデフォルト選択)」と「空選択 (全部外した、という
+  明示的な意思)」を区別するため。
+
+### カレンダー選択のサーバー保存 (2026-07-20)
+
+これまで「どのカレンダーを表示するか」はクライアント (IndexedDB) にしか保存されておらず、
+端末を跨ぐと選択が揃わなかった。`GET /api/me` の `MeResponse.visibleCalendars`
+(`Record<accountId, calendarId[]>`) と `PUT /api/visible-calendars`
+(`VisibleCalendarsRequest { accountId, calendarIds }`) でサーバー保存に対応した。
+
+- `GET /api/me` はプロファイルの全アカウントについて `account_calendar_prefs` を引き、
+  **configured なアカウントだけ** `visibleCalendars` にエントリを含める (configured で
+  選択0件なら空配列、configured でない = 行が無いアカウントはキーごと省略)。集約ロジック本体は
+  `apps/sync/src/core/visible-calendars.ts` の `aggregateVisibleCalendars` (純関数・テスト済み)。
+- `PUT /api/visible-calendars` (要ログイン + 所属検証) は対象アカウントの
+  `account_visible_calendars` を DELETE→INSERT で全置換し、`account_calendar_prefs` に
+  `configured=1` を upsert する。D1 の `batch()` で実行するため暗黙のトランザクションになる。
+- `DELETE /api/account` でのアカウント削除時は `account_visible_calendars` /
+  `account_calendar_prefs` の該当行もあわせて削除する (`disconnectAccount` 内)。
+- クライアント側 (apps/web、IndexedDB 保存) の切り替えは今回のスコープ外
+  (サーバー API の追加のみ)。
 
 ### アカウント設計の分離 (2026-07-20)
 
@@ -99,8 +127,9 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
 同時に存在できる」設計にするには `(profile_id, sub)` の複合キーテーブルへの
 大改修が必要で、別途対応とする。
 
-**スコープ外 (別途対応)**: カレンダー選択状態のサーバー同期 (現状クライアント
-ローカルのみ)。今回はプロファイル解決ロジックの修正のみに絞った。
+**スコープ外 (別途対応)**: カレンダー選択状態のサーバー同期 (当時はクライアント
+ローカルのみ)。今回 (0004) はプロファイル解決ロジックの修正のみに絞った。
+→ サーバー保存 API は `0005_visible_calendars.sql` で対応済み (下記参照)。
 
 ## 3. Secrets を登録
 

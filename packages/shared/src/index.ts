@@ -5,6 +5,7 @@ export type {
   CalendarListEntryDTO,
   GoogleEventDTO,
   MeResponse,
+  VisibleCalendarsRequest,
   SyncRequest,
   ServerEvent,
   EventPatchRequest,

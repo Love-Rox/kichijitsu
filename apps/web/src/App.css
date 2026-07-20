@@ -15,41 +15,6 @@
   box-sizing: border-box;
 }
 
-/*
- * ---- モバイル対応(フェーズ2、docs/multiplatform.md) ----
- * 狭幅(~640px 未満)ではツールバーをコンパクト化する: 固定高さをやめて折り返しを許可し、
- * ロゴ・アカウント表示の優先度を下げて幅を詰める。横スクロールで body が溢れないよう、
- * 折り返し前提のレイアウトに切り替える(App.tsx useMediaQuery('(max-width: 640px)') と揃える)。
- */
-@media (max-width: 640px) {
-  .toolbar {
-    height: auto;
-    flex-wrap: wrap;
-    row-gap: 6px;
-    padding: 8px 10px;
-  }
-
-  .toolbar-right {
-    gap: 8px;
-  }
-
-  .account-summary-label {
-    max-width: 96px;
-  }
-
-  .toolbar-legal {
-    display: none;
-  }
-
-  /* タップ領域の確保(44px 目安、ユーザー要望): 主要操作ボタンの最小タップ高さを揃える */
-  .toolbar-nav button,
-  .toolbar-view-toggle button,
-  .toolbar-account > button {
-    min-height: 40px;
-    padding: 4px 12px;
-  }
-}
-
 .toolbar .month-label {
   font-size: 13px;
   color: #6b7280;
@@ -270,4 +235,126 @@
   background: rgba(250, 247, 242, 0.72);
   pointer-events: none;
   z-index: 5;
+}
+
+/*
+ * ---- モバイル対応(フェーズ2→ヘッダー1段化、docs/multiplatform.md) ----
+ * 狭幅(~640px 未満)ではツールバーを1段(nowrap)に収める。PC(48px)の2/3程度の
+ * 視覚的高さを目安に、副次要素(ワードマーク・オフライン文言・アカウント email 文言・
+ * ?ヘルプ・プライバシー/規約リンク)を隠して主要動線(ロゴ枡・←今日→・検索・ビュー切替・
+ * 同期・アカウント⚙)だけを1行に残す。プライバシー/規約は設定パネル下部
+ * (CalendarSettingsPanel の .calendar-panel-legal) に移設してあるので、ヘッダーから
+ * 消してもリンク自体は失われない。App.tsx useMediaQuery('(max-width: 640px)') と揃える。
+ *
+ * このブロックはファイル末尾に置く: 同じ詳細度(単一クラス)の場合、CSS は
+ * @media の有無に関わらず「ソース順で後に出てきた宣言」が勝つ。上の各セクションで
+ * 定義した無条件の基本スタイル (.toolbar-legal, .toolbar-help-btn 等) より後ろに
+ * 置かないと、狭幅時にもここでの上書きが効かない(実際に旧コードの
+ * .toolbar-legal { display: none } がファイル先頭寄りにあったため無効化されていた
+ * 既知のバグがあった → これが「プライバシー/規約が狭幅でも常時表示されてしまう」
+ * 不具合の原因だった。ユーザー指摘・本対応で修正)。
+ */
+@media (max-width: 640px) {
+  .toolbar {
+    height: auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    /* space-between (基本スタイル) のままだと4グループ間に均等な余白ができて
+       間延びするため、狭幅では左詰め + gap で密着させ、.toolbar-right だけ
+       margin-left: auto で右端に寄せる */
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 4px 6px;
+    /*
+     * overflow: hidden はここでは使わない — .toolbar-account 配下の
+     * カレンダー設定パネル(.calendar-panel, position:absolute で toolbar の
+     * 下端からはみ出して表示される)まで一緒にクリップしてしまうバグがあった
+     * (実機検証で発覚)。ここに残る要素は全て固定長文字(今日/1日/3日/月/⟳/同期/
+     * 7月など、可変長になり得る email 文言等は狭幅で別途非表示にしてある)なので、
+     * 実測(Chrome DevTools MCP, 390px)で1行に収まることを確認済み。
+     */
+  }
+
+  .logo-lockup {
+    flex: none;
+    gap: 0;
+  }
+
+  /* ロゴはマーク(枡)のみ表示。ワードマークは幅を食うため狭幅では隠す */
+  .logo-wordmark {
+    display: none;
+  }
+
+  .toolbar-nav {
+    flex: none;
+    gap: 1px;
+  }
+
+  .toolbar-view-toggle {
+    flex: none;
+  }
+
+  .toolbar-right {
+    flex: none;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .toolbar .month-label {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* オフライン表示はアイコン(空枡)のみ残し、文言は隠して幅を詰める(title で内容は読める) */
+  .offline-indicator-label {
+    display: none;
+  }
+
+  /* アカウントの email/件数文言は隠し ⚙ アイコンのみに(アクセシブルネームは
+     button の aria-label 側で維持、App.tsx 参照) */
+  .account-summary-label {
+    display: none;
+  }
+
+  .account-summary {
+    gap: 0;
+  }
+
+  /* '?' ヘルプはモバイルでは使用頻度が低い(キーボードショートカット前提の機能)ため隠す */
+  .toolbar-help-btn {
+    display: none;
+  }
+
+  .toolbar-legal {
+    display: none;
+  }
+
+  /*
+   * タップ領域の確保(44px 目安、ユーザー要望)。ボタン自体の視覚的な高さは
+   * padding を絞って抑えつつ、min-height で当たり判定を確保する
+   * (フォントサイズも詰めて横幅を節約する)。
+   */
+  .toolbar-nav button,
+  .toolbar-view-toggle button,
+  .toolbar-account > button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 4px 5px;
+  }
+
+  /* ← / → / 検索(🔍)はテキストが無いアイコンボタンなので左右パディングをさらに詰める
+     (min-width は付けない: グリフ+padding の自然幅の方が min-height=36px の正方形に
+     近く収まりが良く、min-width を足すと逆に幅を食ってしまう) */
+  .toolbar-nav button[aria-label] {
+    padding: 4px 4px;
+  }
+
+  /* 同期ボタン: 狭幅では isNarrow 分岐で '⟳' アイコンのみになるので幅を詰める */
+  .toolbar-sync-btn {
+    padding: 4px 5px;
+  }
+
+  .toolbar-account {
+    gap: 4px;
+  }
 }

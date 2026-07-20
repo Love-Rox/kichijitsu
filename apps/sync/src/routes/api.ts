@@ -13,6 +13,7 @@ import type {
   EventPatchResponse,
   MeResponse,
   SyncRequest,
+  VisibleCalendarsRequest,
   WatchRequest,
 } from '@kichijitsu/shared'
 import type { AppEnv } from '../types'
@@ -28,6 +29,12 @@ import {
   type AccountMembership,
 } from '../accounts'
 import { buildWatchRow } from '../core/watch-service'
+import {
+  aggregateVisibleCalendars,
+  buildCalendarPrefsRow,
+  buildVisibleCalendarRows,
+  isValidVisibleCalendarsRequest,
+} from '../core/visible-calendars'
 import { computeChannelToken } from '../watch-token'
 import { PROFILE_ID_HEADER } from '../durable-object/profile-hub-do'
 import type { RpcResult } from '../rpc-result'
@@ -43,13 +50,63 @@ apiRoutes.use('*', populateProfileId)
 apiRoutes.get('/api/me', async (c) => {
   const profileId = c.get('profileId')
   if (!profileId) {
-    return c.json<MeResponse>({ connected: false, accounts: [] })
+    return c.json<MeResponse>({ connected: false, accounts: [], visibleCalendars: {} })
   }
   const { results } = await c.env.DB.prepare('SELECT id, email FROM accounts WHERE profile_id = ? ORDER BY created_at ASC')
     .bind(profileId)
     .all<{ id: string; email: string }>()
   const accounts: AccountDTO[] = results.map((row) => ({ id: row.id, email: row.email }))
-  return c.json<MeResponse>({ connected: accounts.length > 0, accounts })
+  const visibleCalendars = await loadVisibleCalendars(
+    c.env,
+    accounts.map((account) => account.id),
+  )
+  return c.json<MeResponse>({ connected: accounts.length > 0, accounts, visibleCalendars })
+})
+
+// カレンダー選択をサーバーに保存する (2026-07-20、端末間同期)。対象アカウントの所属検証あり。
+// 1アカウントぶんを DELETE→INSERT の全置換で書き込み、あわせて account_calendar_prefs に
+// configured=1 を upsert する (「未設定」と「空選択」を区別するためのフラグ。詳細は
+// migrations/0005_visible_calendars.sql と core/visible-calendars.ts のコメント参照)。
+// D1 の batch は暗黙のトランザクションとして実行される。
+apiRoutes.put('/api/visible-calendars', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: VisibleCalendarsRequest
+  try {
+    body = await c.req.json<VisibleCalendarsRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (!isValidVisibleCalendarsRequest(body)) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const account = await c.env.DB.prepare('SELECT profile_id FROM accounts WHERE id = ?')
+    .bind(body.accountId)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  const now = Date.now()
+  const rows = buildVisibleCalendarRows(body.accountId, body.calendarIds, now)
+  const prefsRow = buildCalendarPrefsRow(body.accountId, now)
+
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM account_visible_calendars WHERE account_id = ?').bind(body.accountId),
+    ...rows.map((row) =>
+      c.env.DB.prepare('INSERT INTO account_visible_calendars (account_id, calendar_id, created_at) VALUES (?, ?, ?)').bind(
+        row.account_id,
+        row.calendar_id,
+        row.created_at,
+      ),
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO account_calendar_prefs (account_id, configured, updated_at) VALUES (?, 1, ?)
+       ON CONFLICT(account_id) DO UPDATE SET configured = 1, updated_at = excluded.updated_at`,
+    ).bind(prefsRow.account_id, prefsRow.updated_at),
+  ])
+
+  return c.body(null, 204)
 })
 
 apiRoutes.get('/api/calendars', requireAuth, async (c) => {
@@ -335,7 +392,37 @@ async function disconnectAccount(env: Env, accountId: string): Promise<void> {
     console.warn(`account deletion: failed to clear DO sync state for account ${accountId}: ${clearResult.error}`)
   }
 
-  await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId).run()
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM account_visible_calendars WHERE account_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM account_calendar_prefs WHERE account_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId),
+  ])
+}
+
+/**
+ * GET /api/me 用: 指定アカウント群のうち configured (account_calendar_prefs に行がある)
+ * なものだけを対象に、選択中カレンダー id の配列を集約する。集約ロジック本体は
+ * core/visible-calendars.ts の aggregateVisibleCalendars (純関数・テスト済み) に切り出してある。
+ */
+async function loadVisibleCalendars(env: Env, accountIds: string[]): Promise<Record<string, string[]>> {
+  if (accountIds.length === 0) return {}
+
+  const placeholders = accountIds.map(() => '?').join(', ')
+  const prefsResult = await env.DB.prepare(
+    `SELECT account_id FROM account_calendar_prefs WHERE configured = 1 AND account_id IN (${placeholders})`,
+  )
+    .bind(...accountIds)
+    .all<{ account_id: string }>()
+  const visibleResult = await env.DB.prepare(
+    `SELECT account_id, calendar_id FROM account_visible_calendars WHERE account_id IN (${placeholders})`,
+  )
+    .bind(...accountIds)
+    .all<{ account_id: string; calendar_id: string }>()
+
+  return aggregateVisibleCalendars(
+    prefsResult.results.map((row) => row.account_id),
+    visibleResult.results,
+  )
 }
 
 /**
