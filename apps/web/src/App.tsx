@@ -11,6 +11,8 @@ import type {
   EventCreateResponse,
   GitHubActivityDTO,
   GitHubActivityResponse,
+  GitHubCiRunDTO,
+  GitHubCiRunsResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
   GitHubWorkItemDTO,
@@ -294,6 +296,14 @@ function App() {
   const [githubActivity, setGithubActivity] = useState<GitHubActivityDTO[]>([]);
   // ON/OFF トグル(視覚ノイズになり得るため)。既定 ON。OFF のときはレールを出さず取得もしない
   const [activityVisible, setActivityVisible] = useState(true);
+  // GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b「CI/Actions
+  // 実行をタイムラインに薄く重ねる」)。githubActivity と同じくライブなので IndexedDB に
+  // 入れず React state のみで保持する。
+  const [githubCiRuns, setGithubCiRuns] = useState<GitHubCiRunDTO[]>([]);
+  // ON/OFF トグル。実績(commit)と違い CI 実行は自分のトリガー分に限定しないぶん件数が
+  // 膨らみやすい(誰の push でも表示対象)ため、既定は OFF にして明示的なオプトインにする
+  // (activityVisible の既定 ON とは意図的に非対称)。
+  const [ciVisible, setCiVisible] = useState(false);
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
@@ -708,6 +718,59 @@ function App() {
     setActivityVisible((prev) => {
       const next = !prev;
       if (!next) setGithubActivity([]);
+      return next;
+    });
+  }, []);
+
+  // GitHub CI/Actions 実行の取得(フェーズ④b)。GitHub 実績オーバーレイ(直前の effect)と
+  // 完全に同じ流儀: 表示中の時間範囲が変わるたびに取り直し、300ms デバウンス、トグル OFF・
+  // 未連携・月表示では取得しない。401 は同じ githubAuthExpired 経路に合流させる(/api/github/ci
+  // も /api/github/activity と同じ resolveGitHubAccessToken を共有しているため、専用フラグは
+  // 持たない)。409 は空、502・ネットワークエラーは前回表示を維持したまま warn のみ。
+  useEffect(() => {
+    if (!me.github || !ciVisible || view === "month") return;
+    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
+    const sinceIso = new Date(fromMs).toISOString();
+    const untilIso = new Date(toMs).toISOString();
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkedFetch(
+        `/api/github/ci?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
+      )
+        .then(async (res) => {
+          if (res.status === 401) {
+            if (!cancelled) setGithubAuthExpired(true);
+            return;
+          }
+          if (res.status === 409) {
+            if (!cancelled) setGithubCiRuns([]);
+            return;
+          }
+          if (!res.ok) {
+            console.warn(`kichijitsu: GET /api/github/ci failed: ${res.status}`);
+            return;
+          }
+          const data = (await res.json()) as GitHubCiRunsResponse;
+          if (!cancelled) {
+            setGithubAuthExpired(false);
+            setGithubCiRuns(data.items);
+          }
+        })
+        .catch((err) => {
+          console.warn("kichijitsu: GET /api/github/ci failed", err);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [me.github, ciVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
+
+  // CI トグル OFF: 実績トグルと同じく、直前の取得が in-flight でも一瞬残らないよう即座に消す
+  const handleToggleCiVisible = useCallback(() => {
+    setCiVisible((prev) => {
+      const next = !prev;
+      if (!next) setGithubCiRuns([]);
       return next;
     });
   }, []);
@@ -1181,6 +1244,8 @@ function App() {
     setQueueAuthExpired(false);
     // 実績オーバーレイ(フェーズ③Part B)も同じ流儀で畳む
     setGithubActivity([]);
+    // CI/Actions 実行オーバーレイ(フェーズ④b)も同じ流儀で畳む
+    setGithubCiRuns([]);
     if (db) {
       await clearGitHubItems(db);
       await githubStore.batch(async () => {
@@ -2126,6 +2191,22 @@ function App() {
               実績
             </button>
           )}
+          {/*
+           * GitHub CI/Actions 実行オーバーレイの表示 ON/OFF トグル(フェーズ④b)。「実績」
+           * ボタンと同じ流儀(GitHub 未連携では出さない、押すたびに取得/クリアが連動する)。
+           */}
+          {me.github && (
+            <button
+              type="button"
+              className={ciVisible ? "toolbar-activity-btn is-active" : "toolbar-activity-btn"}
+              onClick={handleToggleCiVisible}
+              aria-pressed={ciVisible}
+              aria-label="GitHub CI 表示"
+              title="GitHub CI/Actions 実行表示の切り替え"
+            >
+              CI
+            </button>
+          )}
           {me.github && (
             <button
               type="button"
@@ -2193,6 +2274,7 @@ function App() {
             taskStore={taskStore}
             githubStore={githubStore}
             githubActivity={activityVisible ? githubActivity : []}
+            githubCiRuns={ciVisible ? githubCiRuns : []}
             plannedStore={plannedStore}
             onDropWorkItem={onDropWorkItem}
             onMovePlannedBlock={onMovePlannedBlock}

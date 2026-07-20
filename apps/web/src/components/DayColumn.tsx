@@ -3,6 +3,7 @@ import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } f
 import type { Occurrence, PlannedBlock } from "../model/types";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
+import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
 import {
   computeDropStartMs,
   DEFAULT_PLANNED_DURATION_MS,
@@ -103,6 +104,14 @@ interface DayColumnProps {
    */
   activityClusters: GitHubActivityCluster[];
   /**
+   * GitHub CI/Actions 実行オーバーレイ(docs/github-integration.md フェーズ④b「CI/Actions
+   * 実行をタイムラインに薄く重ねる」、sync/mapCiRuns.ts)。この日ぶんの workflow run
+   * クラスタ配列(空なら何も描画しない)。activityClusters(commit 実績、日列右端の
+   * `.day-activity-rail`)とは分離した、日列左端の `.day-ci-rail` に描画する — 同じ
+   * DAY_COLUMN_INSET_PX ぶんの左右ガターを使うので、こちらも予定カードと絶対に重ならない。
+   */
+  ciClusters: GitHubCiCluster[];
+  /**
    * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)。この日ぶんの
    * PlannedBlock 配列(WeekGrid 側で [dayStartMs, dayEndMs) に絞り込み済み)。
    */
@@ -154,6 +163,7 @@ export function DayColumn({
   onCreateEvent,
   longPressCreate = false,
   activityClusters,
+  ciClusters,
   plannedBlocks,
   onDropWorkItem,
   onMovePlannedBlock,
@@ -497,6 +507,33 @@ export function DayColumn({
                 aria-label={label}
               >
                 {cluster.count > 1 && <span className="day-activity-count">{cluster.count}</span>}
+              </a>
+            );
+          })}
+        </div>
+      )}
+      {ciClusters.length > 0 && (
+        <div className="day-ci-rail">
+          {ciClusters.map((cluster) => {
+            const latest = cluster.items[cluster.items.length - 1];
+            const statusClass = ciMarkerStatusClass(latest);
+            const statusLabel = ciStatusLabel(latest);
+            const label =
+              cluster.count > 1
+                ? `${formatTime(latest.timestampMs, timeZone)} ${latest.name} (${statusLabel}) 他${cluster.count - 1}件`
+                : `${formatTime(latest.timestampMs, timeZone)} ${latest.name} (${statusLabel})`;
+            return (
+              <a
+                key={`${cluster.topPx}-${latest.id}`}
+                href={latest.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`day-ci-mark status-${statusClass}`}
+                style={{ top: cluster.topPx }}
+                title={label}
+                aria-label={label}
+              >
+                {cluster.count > 1 && <span className="day-ci-count">{cluster.count}</span>}
               </a>
             );
           })}

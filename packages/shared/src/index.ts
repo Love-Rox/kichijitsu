@@ -38,6 +38,10 @@ export type {
   GitHubActivityType,
   GitHubActivityDTO,
   GitHubActivityResponse,
+  GitHubCiStatus,
+  GitHubCiConclusion,
+  GitHubCiRunDTO,
+  GitHubCiRunsResponse,
   PullCommitsRequest,
   PullCommitsResponse,
 } from "./protocol";

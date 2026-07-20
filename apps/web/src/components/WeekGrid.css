@@ -1113,6 +1113,101 @@
   pointer-events: none;
 }
 
+/*
+ * GitHub CI/Actions 実行オーバーレイ (フェーズ④b, docs/github-integration.md)。
+ * .day-activity-rail (commit 実績、右端) と対になる左端のレール — 同じ DAY_COLUMN_INSET_PX
+ * ぶんのガターを使うので予定カードと絶対に重ならない。左右に分けているのは、同じ日に
+ * commit と CI 実行の両方がある場合でも視覚的に別系列だと分かるようにするため。
+ */
+.day-ci-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  height: 100%;
+  pointer-events: none;
+}
+
+.day-ci-mark {
+  position: absolute;
+  left: -0.5px;
+  width: 4px;
+  height: 4px;
+  transform: translateY(-2px);
+  border-radius: 50%;
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3; /* .now-line (2) より少し上、day-activity-mark と同じ重なり順 */
+}
+
+/* success = 緑。GitHub Actions のチェックマーク色に合わせる(朱とは無関係の別文脈)。 */
+.day-ci-mark.status-success {
+  background: #1a7f37;
+}
+
+/*
+ * pending (queued/in_progress) と other (cancelled/skipped/neutral/timed_out/
+ * action_required/startup_failure) はどちらも「注目を引く必要が薄い」ものとして同じ薄墨で
+ * 塗る(意味の強さを付けない、点滅なし — brand/README.md の薄墨トーン #8a8478 系)。
+ */
+.day-ci-mark.status-pending,
+.day-ci-mark.status-other {
+  background: rgba(138, 132, 120, 0.55);
+}
+
+/*
+ * failure だけは注意を引く必要があるが、朱 (--logo-aka #d7402e、ブランドの通知アクセント) と
+ * 混同しないよう、色相を変えた控えめな danger (#8b3a3a、くすんだ赤茶) + 小さな✕グリフで
+ * 表現する。ベタ塗りにはしない(枠線+薄い背景のみ)ことで「朱の一点」と区別する。
+ */
+.day-ci-mark.status-failure {
+  background: rgba(139, 58, 58, 0.14);
+  border: 1px solid rgba(139, 58, 58, 0.6);
+}
+
+.day-ci-mark.status-failure::before {
+  content: "×";
+  font-size: 7px;
+  line-height: 1;
+  color: #8b3a3a;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.day-ci-mark:hover,
+.day-ci-mark:focus-visible {
+  outline: 2px solid rgba(138, 132, 120, 0.35);
+  outline-offset: 1px;
+}
+
+.day-ci-mark.status-success:hover,
+.day-ci-mark.status-success:focus-visible {
+  background: #156c2e;
+}
+
+.day-ci-mark.status-failure:hover,
+.day-ci-mark.status-failure:focus-visible {
+  background: rgba(139, 58, 58, 0.28);
+  outline-color: rgba(139, 58, 58, 0.35);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-ci-mark {
+    transition: background-color 120ms ease;
+  }
+}
+
+.day-ci-count {
+  font-size: 7px;
+  line-height: 1;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .now-line-dot {
   position: absolute;
   top: -4px;

@@ -16,6 +16,7 @@ import type {
   EventPatchRequest,
   EventPatchResponse,
   GitHubActivityResponse,
+  GitHubCiRunsResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
   MeResponse,
@@ -36,6 +37,7 @@ import { SESSION_COOKIE_NAME } from "../session";
 import { decryptToken, InvalidCiphertextError } from "../crypto";
 import { revokeToken } from "../google/oauth";
 import { fetchGitHubActivity } from "../core/github-activity";
+import { fetchGitHubCiRuns } from "../core/github-ci";
 import { fetchGitHubItems } from "../core/github-items";
 import { fetchGitHubQueue } from "../core/github-queue";
 import { fetchPullCommitsForItems } from "../core/github-pr-commits";
@@ -172,24 +174,16 @@ apiRoutes.get("/api/github/queue", requireAuth, async (c) => {
 // - 範囲が MAX_ACTIVITY_RANGE_DAYS を超えたら 400 range_too_wide (per-repo 反復が膨らむのを防ぐ)。
 // - エラーマッピングは /api/github/items・/api/github/queue と同じ (resolveGitHubAccessToken
 //   を共有)。
+// since/until の検証自体は /api/github/ci (フェーズ④b) と共通なので parseRequiredRange に
+// 切り出してある (挙動・エラーコードは変えていない)。
 const MAX_ACTIVITY_RANGE_DAYS = 62;
 
 apiRoutes.get("/api/github/activity", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  const sinceIso = c.req.query("since");
-  const untilIso = c.req.query("until");
-  if (!sinceIso || !untilIso) {
-    return c.json<ApiError>({ error: "missing_range" }, 400);
-  }
-  const sinceMs = Date.parse(sinceIso);
-  const untilMs = Date.parse(untilIso);
-  if (Number.isNaN(sinceMs) || Number.isNaN(untilMs)) {
-    return c.json<ApiError>({ error: "missing_range" }, 400);
-  }
-  const rangeDays = (untilMs - sinceMs) / (24 * 60 * 60 * 1000);
-  if (rangeDays > MAX_ACTIVITY_RANGE_DAYS) {
-    return c.json<ApiError>({ error: "range_too_wide" }, 400);
+  const range = parseRequiredRange(c, MAX_ACTIVITY_RANGE_DAYS);
+  if (!range.ok) {
+    return c.json<ApiError>({ error: range.error }, 400);
   }
 
   const resolved = await resolveGitHubAccessToken(c.env, profileId, "github activity");
@@ -202,8 +196,8 @@ apiRoutes.get("/api/github/activity", requireAuth, async (c) => {
       fetch,
       token: resolved.token,
       login: resolved.login,
-      sinceIso,
-      untilIso,
+      sinceIso: range.sinceIso,
+      untilIso: range.untilIso,
     });
     return c.json<GitHubActivityResponse>({ items });
   } catch (err) {
@@ -212,6 +206,45 @@ apiRoutes.get("/api/github/activity", requireAuth, async (c) => {
       return c.json<ApiError>({ error: "github_auth_expired" }, 401);
     }
     console.error(`github activity: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// GitHub CI/Actions 実行取得 (docs/github-integration.md フェーズ④b「CI/Actions 実行を
+// タイムラインに薄く重ねる」、2026-07-20)。インストール先 repo に対して workflow run を
+// since/until (クライアントが渡す表示中の時間帯) で取って DTO で返すだけ (サーバーは
+// 永続化しない)。/api/github/activity (フェーズ③) と同じ流儀だが、③ と違い自分がトリガーした
+// 分に限定しない (誰の push の CI 実行でも見える、core/github-ci.ts 参照)。
+// - since/until の検証は /api/github/activity と共通 (parseRequiredRange)。
+// - エラーマッピングも /api/github/activity と同じ (resolveGitHubAccessToken を共有)。
+const MAX_CI_RANGE_DAYS = 62;
+
+apiRoutes.get("/api/github/ci", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const range = parseRequiredRange(c, MAX_CI_RANGE_DAYS);
+  if (!range.ok) {
+    return c.json<ApiError>({ error: range.error }, 400);
+  }
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github ci");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const items = await fetchGitHubCiRuns(
+      { fetch, token: resolved.token },
+      range.sinceIso,
+      range.untilIso,
+    );
+    return c.json<GitHubCiRunsResponse>({ items });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github ci: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github ci: fetch failed for profile ${profileId}`, err);
     return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
   }
 });
@@ -870,6 +903,34 @@ async function loadVisibleCalendars(
     prefsResult.results.map((row) => row.account_id),
     visibleResult.results,
   );
+}
+
+/**
+ * GET /api/github/activity・/api/github/ci 共通: クエリの since/until を検証する
+ * (docs/github-integration.md フェーズ③④b、2026-07-20 DRY 化)。since/until が無い、または
+ * Date.parse できなければ missing_range、範囲が maxRangeDays を超えれば range_too_wide を
+ * 返す (エラーコード・判定基準は元々2ルートで重複していたコードと同一、挙動は変えていない)。
+ */
+type RangeValidation =
+  | { ok: true; sinceIso: string; untilIso: string }
+  | { ok: false; error: "missing_range" | "range_too_wide" };
+
+function parseRequiredRange(c: Context<AppEnv>, maxRangeDays: number): RangeValidation {
+  const sinceIso = c.req.query("since");
+  const untilIso = c.req.query("until");
+  if (!sinceIso || !untilIso) {
+    return { ok: false, error: "missing_range" };
+  }
+  const sinceMs = Date.parse(sinceIso);
+  const untilMs = Date.parse(untilIso);
+  if (Number.isNaN(sinceMs) || Number.isNaN(untilMs)) {
+    return { ok: false, error: "missing_range" };
+  }
+  const rangeDays = (untilMs - sinceMs) / (24 * 60 * 60 * 1000);
+  if (rangeDays > maxRangeDays) {
+    return { ok: false, error: "range_too_wide" };
+  }
+  return { ok: true, sinceIso, untilIso };
 }
 
 /**

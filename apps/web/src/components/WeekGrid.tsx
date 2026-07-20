@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
-import type { GitHubActivityDTO } from "@kichijitsu/shared";
+import type { GitHubActivityDTO, GitHubCiRunDTO } from "@kichijitsu/shared";
 import type { Occurrence, PlannedBlock, TaskItem } from "../model/types";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
@@ -18,6 +18,7 @@ import type { WriteTargetCandidate } from "../sync/eventCreate";
 import type { DroppedWorkItem } from "../sync/planned";
 import { layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
+import { layoutDayCiRuns } from "../sync/mapCiRuns";
 import { packColumns } from "../layout/packColumns";
 import { packDayBars } from "../layout/packDayBars";
 import {
@@ -66,6 +67,15 @@ interface WeekGridProps {
    * 空配列が渡る想定(その場合レールは自然に何も描画しない)。
    */
   githubActivity: GitHubActivityDTO[];
+  /**
+   * GitHub CI/Actions 実行オーバーレイ(docs/github-integration.md フェーズ④b「CI/Actions
+   * 実行をタイムラインに薄く重ねる」)の生データ。githubActivity(commit 実績)と同じく
+   * ライブ取得のみで IndexedDB にキャッシュしない(App.tsx が表示中の時間範囲ぶんを都度
+   * GET /api/github/ci で取得して渡す)。ここでは受け取って sync/mapCiRuns.ts の
+   * layoutDayCiRuns で日ごとのクラスタへ変換し、DayColumn の左端レールへ渡すだけ。
+   * 未連携・トグル OFF 時は空配列が渡る想定(その場合レールは自然に何も描画しない)。
+   */
+  githubCiRuns: GitHubCiRunDTO[];
   /**
    * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)の読み口。
    * occurrences とは完全に独立したストア(Google 同期には一切触れられない)。
@@ -163,6 +173,7 @@ export function WeekGrid({
   taskStore,
   githubStore,
   githubActivity,
+  githubCiRuns,
   plannedStore,
   onDropWorkItem,
   onMovePlannedBlock,
@@ -473,6 +484,22 @@ export function WeekGrid({
     [weekPanels, githubActivity],
   );
 
+  // ---- GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b) ----
+  // activityPanels と全く同じ形・同じ理由(weekPanels の dayStarts/dayEnds をそのまま使い、
+  // panelStarts 由来で index が揃う)。commit 実績と CI 実行は独立した2系統のデータなので
+  // 別々の state・別々のクラスタ化(layoutDayCiRuns)を経て、DayColumn には別々の prop
+  // (activityClusters は右端レール、ciClusters は左端レール)として渡す。
+  const ciPanels = useMemo(
+    () =>
+      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
+        panelStart,
+        dayClusters: dayStarts.map((dayStart, i) =>
+          layoutDayCiRuns(githubCiRuns, dayStart, dayEnds[i]),
+        ),
+      })),
+    [weekPanels, githubCiRuns],
+  );
+
   // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1) ----
   // 時刻予定と同じ [rangeStartMs, rangeEndMs) を PlannedStore に問い合わせ、weekPanels と
   // 同じ dayStarts/dayEnds(壁時計境界)で日ごとに割り当てる(activityPanels と同じ流儀)。
@@ -676,6 +703,7 @@ export function WeekGrid({
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
                       activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}
+                      ciClusters={ciPanels[panelIndex].dayClusters[dayIndex]}
                       plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
                       onDropWorkItem={onDropWorkItem}
                       onMovePlannedBlock={onMovePlannedBlock}

@@ -150,6 +150,58 @@ export interface GitHubActivityResponse {
 }
 
 /**
+ * GET /api/github/ci が返す workflow run の status (docs/github-integration.md フェーズ④b
+ * 「CI/Actions 実行をタイムラインに薄く重ねる」、2026-07-20)。GitHub Actions API の生文字列。
+ */
+export type GitHubCiStatus = "queued" | "in_progress" | "completed";
+
+/**
+ * workflow run の conclusion。status==='completed' のときのみ意味を持つ (それ以外は null)。
+ * GitHub Actions API の生文字列。
+ */
+export type GitHubCiConclusion =
+  | "success"
+  | "failure"
+  | "cancelled"
+  | "skipped"
+  | "neutral"
+  | "timed_out"
+  | "action_required"
+  | "startup_failure"
+  | null;
+
+/**
+ * CI/Actions 実行オーバーレイの1件 (docs/github-integration.md フェーズ④b、2026-07-20)。
+ * インストール先 repo に対して workflow run を `created` (表示中の時間範囲) で絞って取得した
+ * 結果を DTO 化したもの。フェーズ③の実績オーバーレイ (commit) と違い、自分がトリガーした分に
+ * 限定しない (誰の push の CI 実行でも見える。将来 actor 絞りは拡張)。サーバーは永続化しない
+ * (GitHubActivityDTO 等と同じ思想)。status/conclusion は GitHub の生文字列をそのまま string で
+ * 持てば表示には十分なため、GitHubCiStatus/GitHubCiConclusion という厳密 union はここでは使わない
+ * (クライアント側で必要になったときの参照用にエクスポートのみしておく)。
+ */
+export interface GitHubCiRunDTO {
+  /** 安定 ID: `gci:{owner}/{repo}:{runId}` */
+  id: string;
+  /** "owner/repo" */
+  repo: string;
+  /** workflow 名。 */
+  name: string;
+  /** html_url */
+  url: string;
+  /** GitHub の生文字列そのまま (queued/in_progress/completed)。 */
+  status: string;
+  /** GitHub の生文字列そのまま (success/failure/...) または未完了なら null。 */
+  conclusion: string | null;
+  /** created_at を epoch ms 化。グリッドに時刻配置するのに使う。 */
+  timestampMs: number;
+}
+
+/** GET /api/github/ci のレスポンス。 */
+export interface GitHubCiRunsResponse {
+  items: GitHubCiRunDTO[];
+}
+
+/**
  * POST /api/github/pr-commits のリクエスト (docs/github-integration.md フェーズ③「時間計測」
  * Part A)。予定ブロックに紐づく PR (type: 'pr' に絞るのは呼び出し側の責務) について、
  * 自分の commit 時刻を取得する。
