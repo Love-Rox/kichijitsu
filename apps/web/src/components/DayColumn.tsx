@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Occurrence } from '../model/types'
 import type { WriteTargetCandidate } from '../sync/eventCreate'
@@ -21,6 +21,13 @@ import { EventBlock, type CalendarInfo } from './EventBlock'
 const DEFAULT_CREATE_DURATION_MS = 60 * 60_000
 /** これ未満の移動量はドラッグとみなさず「クリック」扱いにする(EventBlock の CLICK_THRESHOLD_PX と同じ考え方) */
 const CREATE_CLICK_THRESHOLD_PX = 4
+/**
+ * モバイル対応フェーズ2(docs/multiplatform.md): longPressCreate が true のとき、
+ * 空き領域を押してから作成ドラッグを開始するまでの遅延。この間に一定量動いたら
+ * 「スクロールしようとした」とみなして作成をキャンセルする(LONG_PRESS_MOVE_CANCEL_PX)。
+ */
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_CANCEL_PX = 10
 
 interface CreateDragState {
   pointerId: number
@@ -33,6 +40,14 @@ interface CreateDragState {
   pendingStartMs: number
   pendingEndMs: number
   ghostEl: HTMLDivElement
+}
+
+/** 長押し判定待ちの状態(longPressCreate モードのみ使う)。タイマー発火前に一定量動くとキャンセルする */
+interface LongPressPendingState {
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  columnEl: HTMLDivElement
 }
 
 /** pointerup で確定した、タイトル入力待ちの新規予定の時間帯 */
@@ -56,6 +71,12 @@ interface DayColumnProps {
   /** 新規予定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
   writeTarget: WriteTargetCandidate | null
   onCreateEvent: (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => void
+  /**
+   * モバイル対応フェーズ2: true のとき、空き領域からの新規作成トリガーを即時クリックではなく
+   * 長押し(LONG_PRESS_MS)起点にする(タッチのネイティブ縦スクロールと競合しないようにするため)。
+   * 省略時は false(既存のデスクトップ向け即時クリック挙動)
+   */
+  longPressCreate?: boolean
 }
 
 /**
@@ -82,8 +103,11 @@ export function DayColumn({
   calendarLookup,
   writeTarget,
   onCreateEvent,
+  longPressCreate = false,
 }: DayColumnProps) {
   const createDragRef = useRef<CreateDragState | null>(null)
+  const longPressPendingRef = useRef<LongPressPendingState | null>(null)
+  const longPressTimerRef = useRef<number | undefined>(undefined)
   const [draft, setDraft] = useState<DraftRange | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
   const draftRef = useRef<HTMLDivElement>(null)
@@ -119,34 +143,105 @@ export function DayColumn({
 
   useCloseOnOutsideOrEscape(draft !== null, draftRef, cancelDraft)
 
+  // アンマウント時に長押しタイマーが残らないようにする(pointerup/cancel を取りこぼした場合の保険)
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current !== undefined) window.clearTimeout(longPressTimerRef.current)
+    }
+  }, [])
+
+  /**
+   * 実際の作成ドラッグ状態を起こす(desktop の即時クリック起点、longPressCreate の
+   * 長押し確定時起点の両方から呼ばれる)。moved=true で呼ぶと ghost をその場で
+   * 表示する(長押し確定の瞬間に「作成モードに入った」ことを視覚的に示すため)。
+   */
+  function beginCreateDrag(columnEl: HTMLDivElement, pointerId: number, clientY: number, moved: boolean) {
+    const rect = columnEl.getBoundingClientRect()
+    const rawMs = dayStartMs + pxToMinutes(clientY - rect.top) * 60_000
+    const anchorMs = snapStartMs(rawMs, { originalStartMs: rawMs })
+    const ghostEl = document.createElement('div')
+    ghostEl.className = 'day-column-create-ghost'
+    const pendingStartMs = anchorMs
+    const pendingEndMs = anchorMs + DEFAULT_CREATE_DURATION_MS
+    createDragRef.current = {
+      pointerId,
+      moved,
+      startClientY: clientY,
+      columnTop: rect.top,
+      anchorMs,
+      pendingStartMs,
+      pendingEndMs,
+      ghostEl,
+    }
+    if (moved) {
+      columnEl.appendChild(ghostEl)
+      ghostEl.style.top = `${minutesToPx((pendingStartMs - dayStartMs) / 60_000)}px`
+      ghostEl.style.height = `${Math.max(minutesToPx((pendingEndMs - pendingStartMs) / 60_000), 4)}px`
+    }
+  }
+
+  function clearLongPressPending() {
+    if (longPressTimerRef.current !== undefined) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = undefined
+    }
+    longPressPendingRef.current = null
+  }
+
   // 注: この列に touch-action: none は付けない(EventBlock の .event と違い列全体が
   // 縦スクロール領域と重なるため、付けるとタッチでのスクロールを壊してしまう)。
-  // そのためタッチ操作では本作成ドラッグとネイティブスクロールが競合しうるが、
-  // v1 はマウス操作を主眼とするため許容する
+  // longPressCreate===false(デスクトップ想定)では本作成ドラッグとタッチのネイティブ
+  // スクロールが競合しうるが許容する。longPressCreate===true(狭幅モバイル)では
+  // 下記のとおり長押し確定までは何もキャプチャしないことでスクロールを妨げない。
   function handleColumnPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return
     if (e.target !== e.currentTarget) return // 空き領域の背景そのもの以外(イベントカード等)では発火させない
     if (!writeTarget) return // 書き込み先カレンダーが無ければ新規作成不可
-    const el = e.currentTarget
-    el.setPointerCapture(e.pointerId)
-    const rect = el.getBoundingClientRect()
-    const rawMs = dayStartMs + pxToMinutes(e.clientY - rect.top) * 60_000
-    const anchorMs = snapStartMs(rawMs, { originalStartMs: rawMs })
-    const ghostEl = document.createElement('div')
-    ghostEl.className = 'day-column-create-ghost'
-    createDragRef.current = {
-      pointerId: e.pointerId,
-      moved: false,
-      startClientY: e.clientY,
-      columnTop: rect.top,
-      anchorMs,
-      pendingStartMs: anchorMs,
-      pendingEndMs: anchorMs + DEFAULT_CREATE_DURATION_MS,
-      ghostEl,
+
+    if (longPressCreate) {
+      // ここでは setPointerCapture も preventDefault も行わない(縦スクロールを妨げない)。
+      // LONG_PRESS_MS 後、大きく動いていなければ長押し確定として作成ドラッグを開始する
+      // (この時点で setPointerCapture することで、以後の pointermove はスクロールへ流れず
+      // このハンドラへ配送される — ブラウザのポインタキャプチャの標準的な使い方)
+      const columnEl = e.currentTarget
+      const pointerId = e.pointerId
+      longPressPendingRef.current = {
+        pointerId,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        columnEl,
+      }
+      longPressTimerRef.current = window.setTimeout(() => {
+        const pending = longPressPendingRef.current
+        longPressTimerRef.current = undefined
+        if (!pending || pending.pointerId !== pointerId) return
+        longPressPendingRef.current = null
+        try {
+          pending.columnEl.setPointerCapture(pointerId)
+        } catch {
+          /* 既にポインタが離れている等は無視 */
+        }
+        beginCreateDrag(pending.columnEl, pointerId, pending.startClientY, true)
+      }, LONG_PRESS_MS)
+      return
     }
+
+    e.currentTarget.setPointerCapture(e.pointerId)
+    beginCreateDrag(e.currentTarget, e.pointerId, e.clientY, false)
   }
 
   function handleColumnPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const pending = longPressPendingRef.current
+    if (pending && pending.pointerId === e.pointerId) {
+      // 長押し確定前に一定量動いたらスクロール操作とみなし、作成をキャンセルする
+      const dx = e.clientX - pending.startClientX
+      const dy = e.clientY - pending.startClientY
+      if (Math.hypot(dx, dy) >= LONG_PRESS_MOVE_CANCEL_PX) {
+        clearLongPressPending()
+      }
+      return
+    }
+
     const ds = createDragRef.current
     if (!ds || ds.pointerId !== e.pointerId) return
     if (!ds.moved && Math.abs(e.clientY - ds.startClientY) >= CREATE_CLICK_THRESHOLD_PX) {
@@ -167,6 +262,13 @@ export function DayColumn({
   }
 
   function handleColumnPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const pending = longPressPendingRef.current
+    if (pending && pending.pointerId === e.pointerId) {
+      // 長押しが確定する前に指を離した = タップ扱い、何も作成しない
+      clearLongPressPending()
+      return
+    }
+
     const ds = createDragRef.current
     if (!ds || ds.pointerId !== e.pointerId) return
     try {
@@ -186,6 +288,12 @@ export function DayColumn({
   }
 
   function handleColumnPointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
+    const pending = longPressPendingRef.current
+    if (pending && pending.pointerId === e.pointerId) {
+      clearLongPressPending()
+      return
+    }
+
     const ds = createDragRef.current
     if (!ds || ds.pointerId !== e.pointerId) return
     ds.ghostEl.remove()

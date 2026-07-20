@@ -1,6 +1,14 @@
 /*
  * レイアウト定数 (apps/web/src/layout/gridMetrics.ts と一致させること):
  *   HOUR_HEIGHT = 48px, DAY_HEIGHT = 24 * 48 = 1152px
+ *
+ * モバイル対応フェーズ2(docs/multiplatform.md): このグリッドは表示日数 N 可変の
+ * 「N日タイムライン」に一般化されている(WeekGrid.tsx の dayCount prop)。
+ * .week-grid-header-panel / .week-grid-allday-panel / .week-grid-days-panel の
+ * grid-template-columns はここでは repeat(7, 1fr) をフォールバックとして残すのみで、
+ * 実際の列数は常に WeekGrid.tsx 側がインライン style (`repeat(${dayCount}, 1fr)`) で
+ * 上書きする。3週ストリップ相当の「N日×3パネル」構造・横スライドの transform (%)
+ * 自体は dayCount に依存しない(3パネルぶん=300%を三等分する比率は不変)ため変更なし。
  */
 
 .week-grid {
@@ -733,4 +741,43 @@
 
 .event-detail-delete-btn:hover {
   color: #b91c1c;
+}
+
+/*
+ * ---- モバイル対応(フェーズ2、docs/multiplatform.md) ----
+ * 狭幅(~640px 未満、App.tsx の useMediaQuery('(max-width: 640px)') と揃える)では
+ * 時刻ガターを縮め、日付ヘッダーの余白を詰めて画面を有効に使う。横スクロールで
+ * body が溢れないよう、ガター縮小に伴う幅計算はすべて flex-basis の変更のみで完結させる
+ * (グリッド列側は WeekGrid.tsx が dayCount からインラインで repeat(N, 1fr) を与えるため、
+ * ガターが縮んだぶんそのまま日列が広がる)。
+ */
+@media (max-width: 640px) {
+  .week-grid-header-gutter,
+  .week-grid-allday-gutter,
+  .week-grid-gutter {
+    flex-basis: 40px;
+  }
+
+  .hour-label {
+    right: 4px;
+    font-size: 10px;
+  }
+
+  .week-grid-day-header {
+    gap: 3px;
+    font-size: 11px;
+  }
+
+  .week-grid-day-header .weekday {
+    font-size: 10px;
+  }
+
+  .week-grid-day-header .date {
+    font-size: 12px;
+  }
+
+  /* タップ領域の確保(44px 目安): 予定カードは指で押しやすいよう最低限の縦幅を確保する */
+  .event {
+    min-height: 18px;
+  }
 }

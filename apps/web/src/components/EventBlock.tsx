@@ -231,7 +231,9 @@ export function EventBlock({
     hideTooltip() // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
     el.setPointerCapture(e.pointerId)
     const gridRect = gridEl.getBoundingClientRect()
-    const columnWidthPx = gridRect.width / 7
+    // モバイル対応フェーズ2: 列数は固定7ではなく weekDayStarts.length (=dayCount) に従う
+    // (週ビュー=7、day3/day1 ビューではそれぞれ3/1)
+    const columnWidthPx = gridRect.width / weekDayStarts.length
     const grabOffsetMinutes =
       kind === 'move' ? pxToMinutes(e.clientY - gridRect.top) - pxToMinutes(top) : 0
 
@@ -291,7 +293,7 @@ export function EventBlock({
       const targetIndex = clamp(
         Math.floor((e.clientX - ds.gridLeft) / ds.columnWidthPx),
         0,
-        6,
+        ds.weekDayStarts.length - 1,
       )
       const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop)
       const rawStartMinutes = pointerMinutes - ds.grabOffsetMinutes

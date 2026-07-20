@@ -14,6 +14,7 @@ import {
   type OccurrenceGroup,
 } from '../layout/groupDuplicates'
 import { minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { panelAnchors, panelSlideDirection } from '../layout/dayGrid'
 import { type CalendarInfo } from './EventBlock'
 import { AllDayBar } from './AllDayBar'
 import { DayColumn } from './DayColumn'
@@ -34,7 +35,14 @@ interface WeekGridProps {
   store: OccurrenceStore
   /** 終日予定 (フェーズ5) の読み口。時刻予定の store と対になる別ストア */
   allDayStore: AllDayStore
+  /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate
+  /**
+   * 表示日数 N(モバイル対応フェーズ2、docs/multiplatform.md)。7=週ビュー(既定・従来挙動)、
+   * 3/1=モバイルの3日/1日タイムライン。3週ストリップ相当の「N日×3パネル」・ナビ(N日送り)・
+   * ヘッダー/終日レーン/時刻グリッドの列数がすべてこれに追従する
+   */
+  dayCount: number
   timeZone: string
   /**
    * ドラッグ確定時、store.update に加えて呼ばれる永続化フック
@@ -56,6 +64,12 @@ interface WeekGridProps {
   writeTarget: WriteTargetCandidate | null
   /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
   onCreateEvent: (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => void
+  /**
+   * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
+   * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
+   * 省略時は false(既存のデスクトップ向け即時クリック挙動を維持)
+   */
+  longPressCreate?: boolean
 }
 
 type SlidePhase = 'idle' | 'next' | 'prev'
@@ -68,7 +82,7 @@ function transformForPhase(phase: SlidePhase): string {
 }
 
 interface WeekPanelData {
-  weekPanelStart: Temporal.PlainDate
+  panelStart: Temporal.PlainDate
   days: Temporal.PlainDate[]
   dayStarts: number[]
   dayEnds: number[]
@@ -85,6 +99,7 @@ export function WeekGrid({
   store,
   allDayStore,
   weekStart,
+  dayCount,
   timeZone,
   onPersist,
   visibleCalendarKeys,
@@ -92,6 +107,7 @@ export function WeekGrid({
   onDelete,
   writeTarget,
   onCreateEvent,
+  longPressCreate = false,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds)
@@ -117,18 +133,19 @@ export function WeekGrid({
   }, [])
 
   // weekStart (App が持つ状態) が変わったら center に反映する。
-  // ちょうど隣の週への移動ならスライドアニメーションし、それ以外(today ジャンプ等)は瞬時に切り替える。
+  // ちょうど隣パネル(dayCount日ぶん)への移動ならスライドアニメーションし、
+  // それ以外(today ジャンプ・ビュー切替等)は瞬時に切り替える。
   useEffect(() => {
     if (weekStart.equals(center)) return
     if (slideTimeoutRef.current !== undefined) {
       window.clearTimeout(slideTimeoutRef.current)
       slideTimeoutRef.current = undefined
     }
-    const deltaDays = weekStart.since(center, { largestUnit: 'day' }).days
+    const direction = panelSlideDirection(center, weekStart, dayCount)
 
-    if (deltaDays === 7 || deltaDays === -7) {
+    if (direction !== 0) {
       setInstant(false)
-      setPhase(deltaDays === 7 ? 'next' : 'prev')
+      setPhase(direction === 1 ? 'next' : 'prev')
       slideTimeoutRef.current = window.setTimeout(() => {
         setInstant(true)
         setPhase('idle')
@@ -145,7 +162,7 @@ export function WeekGrid({
     }
     // center は effect 内でのみ更新するので依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart])
+  }, [weekStart, dayCount])
 
   useEffect(
     () => () => {
@@ -154,10 +171,9 @@ export function WeekGrid({
     [],
   )
 
-  const weeks = useMemo(
-    () => [center.subtract({ weeks: 1 }), center, center.add({ weeks: 1 })],
-    [center],
-  )
+  // 3パネル(prev/current/next)の先頭日。dayCount=7 なら従来通り「3週」、3/1 なら
+  // 「3×N日」ぶんのストリップになる(panelAnchors、dayGrid.ts)
+  const panelStarts = useMemo(() => panelAnchors(center, dayCount), [center, dayCount])
 
   const todayPlainDate = useMemo(
     () => Temporal.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(timeZone).toPlainDate(),
@@ -165,12 +181,12 @@ export function WeekGrid({
   )
 
   const rangeStartMs = useMemo(
-    () => weeks[0].toZonedDateTime({ timeZone }).epochMilliseconds,
-    [weeks, timeZone],
+    () => panelStarts[0].toZonedDateTime({ timeZone }).epochMilliseconds,
+    [panelStarts, timeZone],
   )
   const rangeEndMs = useMemo(
-    () => weeks[2].add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds,
-    [weeks, timeZone],
+    () => panelStarts[2].add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds,
+    [panelStarts, dayCount, timeZone],
   )
   const occurrences = useOccurrences(store, rangeStartMs, rangeEndMs)
 
@@ -194,10 +210,13 @@ export function WeekGrid({
 
   const weekPanels = useMemo<WeekPanelData[]>(
     () =>
-      weeks.map((weekPanelStart) => {
-        const days = Array.from({ length: 7 }, (_, i) => weekPanelStart.add({ days: i }))
+      panelStarts.map((panelStart) => {
+        const days = Array.from({ length: dayCount }, (_, i) => panelStart.add({ days: i }))
         const dayStarts = days.map((d) => d.toZonedDateTime({ timeZone }).epochMilliseconds)
-        const dayEnds = [...dayStarts.slice(1), weekPanelStart.add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds]
+        const dayEnds = [
+          ...dayStarts.slice(1),
+          panelStart.add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds,
+        ]
         const dayData = days.map((day, i) => {
           const items = groupedOccurrences.filter(
             (g) => g.primary.startMs >= dayStarts[i] && g.primary.startMs < dayEnds[i],
@@ -209,16 +228,19 @@ export function WeekGrid({
           )
           return { day, positioned }
         })
-        return { weekPanelStart, days, dayStarts, dayEnds, dayData }
+        return { panelStart, days, dayStarts, dayEnds, dayData }
       }),
-    [weeks, groupedOccurrences, timeZone],
+    [panelStarts, dayCount, groupedOccurrences, timeZone],
   )
 
   // ---- 終日レーン (フェーズ5) ----
-  // 展開ウィンドウの概念が無い終日予定は、表示中3週ぶんの日付範囲 [fromDate, toDate]
+  // 展開ウィンドウの概念が無い終日予定は、表示中3パネルぶんの日付範囲 [fromDate, toDate]
   // (inclusive) をそのまま AllDayStore に問い合わせる(時刻予定の rangeStartMs/EndMs と対応)
-  const allDayFromDate = useMemo(() => weeks[0].toString(), [weeks])
-  const allDayToDate = useMemo(() => weeks[2].add({ days: 6 }).toString(), [weeks])
+  const allDayFromDate = useMemo(() => panelStarts[0].toString(), [panelStarts])
+  const allDayToDate = useMemo(
+    () => panelStarts[2].add({ days: dayCount - 1 }).toString(),
+    [panelStarts, dayCount],
+  )
   const allDayOccurrencesRaw = useAllDayOccurrences(allDayStore, allDayFromDate, allDayToDate)
 
   // カレンダー選択・同一予定集約は時刻予定と同じ扱い(要望どおり)
@@ -234,32 +256,33 @@ export function WeekGrid({
     [visibleAllDayOccurrences],
   )
 
-  // 週ごとに、その週の日インデックス [0,6] にクリップした区間で packDayBars する。
-  // 行の割り当てはここで確定するが、「何行まで見せるか(sharedVisibleRows)」は
-  // 3週分の最大行数を見てから決めるため、この時点では行を絞り込まない
+  // パネルごとに、その N 日ぶんのインデックス [0, dayCount-1] にクリップした区間で
+  // packDayBars する。行の割り当てはここで確定するが、「何行まで見せるか
+  // (sharedVisibleRows)」は3パネル分の最大行数を見てから決めるため、この時点では
+  // 行を絞り込まない
   const rawAllDayPanels = useMemo(
     () =>
-      weeks.map((weekPanelStart) => {
-        const weekEndDate = weekPanelStart.add({ days: 6 })
+      panelStarts.map((panelStart) => {
+        const panelEndDate = panelStart.add({ days: dayCount - 1 })
         const relevant = groupedAllDayOccurrences.filter((g) => {
           const s = Temporal.PlainDate.from(g.primary.startDate)
           const e = Temporal.PlainDate.from(g.primary.endDate)
-          return Temporal.PlainDate.compare(s, weekEndDate) <= 0 && Temporal.PlainDate.compare(e, weekPanelStart) >= 0
+          return Temporal.PlainDate.compare(s, panelEndDate) <= 0 && Temporal.PlainDate.compare(e, panelStart) >= 0
         })
         const clipped = relevant.map((group) => {
           const s = Temporal.PlainDate.from(group.primary.startDate)
           const e = Temporal.PlainDate.from(group.primary.endDate)
-          const startDayIndex = Math.max(0, weekPanelStart.until(s, { largestUnit: 'day' }).days)
-          const endDayIndex = Math.min(6, weekPanelStart.until(e, { largestUnit: 'day' }).days)
+          const startDayIndex = Math.max(0, panelStart.until(s, { largestUnit: 'day' }).days)
+          const endDayIndex = Math.min(dayCount - 1, panelStart.until(e, { largestUnit: 'day' }).days)
           return { group, startDayIndex, endDayIndex }
         })
         const positioned = packDayBars(clipped, (b) => b.startDayIndex, (b) => b.endDayIndex)
         return {
-          weekPanelStart,
+          panelStart,
           bars: positioned.map((p) => ({ ...p.item, row: p.row })),
         }
       }),
-    [weeks, groupedAllDayOccurrences],
+    [panelStarts, dayCount, groupedAllDayOccurrences],
   )
 
   // 3週(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行までバーを見せ、
@@ -280,9 +303,12 @@ export function WeekGrid({
 
   const allDayPanels = useMemo(
     () =>
-      rawAllDayPanels.map(({ weekPanelStart, bars }) => {
+      rawAllDayPanels.map(({ panelStart, bars }) => {
         const visibleBars = bars.filter((b) => b.row < allDayVisibleRows)
-        const overflowByDay: AllDayOverflowInfo[] = Array.from({ length: 7 }, () => ({ count: 0, titles: [] }))
+        const overflowByDay: AllDayOverflowInfo[] = Array.from({ length: dayCount }, () => ({
+          count: 0,
+          titles: [],
+        }))
         for (const b of bars) {
           if (b.row < allDayVisibleRows) continue
           for (let d = b.startDayIndex; d <= b.endDayIndex; d++) {
@@ -290,9 +316,9 @@ export function WeekGrid({
             overflowByDay[d].titles.push(b.group.primary.title)
           }
         }
-        return { weekPanelStart, visibleBars, overflowByDay }
+        return { panelStart, visibleBars, overflowByDay }
       }),
-    [rawAllDayPanels, allDayVisibleRows],
+    [rawAllDayPanels, allDayVisibleRows, dayCount],
   )
 
   const handleCommit = useCallback(
@@ -312,6 +338,9 @@ export function WeekGrid({
     transform,
     transition: instant ? 'none' : `transform ${SLIDE_MS}ms ease`,
   }
+  // 7列固定だった grid-template-columns を dayCount 列へ一般化する(WeekGrid.css 側は
+  // repeat(7, 1fr) をフォールバック値として残してあるが、常にこのインライン値で上書きする)
+  const panelColumnsStyle = { gridTemplateColumns: `repeat(${dayCount}, 1fr)` }
 
   return (
     <div className="week-grid">
@@ -319,8 +348,8 @@ export function WeekGrid({
         <div className="week-grid-header-gutter" />
         <div className="week-grid-header-viewport">
           <div className="week-grid-header-strip" style={stripStyle}>
-            {weekPanels.map(({ weekPanelStart, days }) => (
-              <div className="week-grid-header-panel" key={weekPanelStart.toString()}>
+            {weekPanels.map(({ panelStart, days }) => (
+              <div className="week-grid-header-panel" key={panelStart.toString()} style={panelColumnsStyle}>
                 {days.map((day) => {
                   const isToday = day.equals(todayPlainDate)
                   return (
@@ -346,11 +375,14 @@ export function WeekGrid({
           <div className="week-grid-allday-gutter">終日</div>
           <div className="week-grid-allday-viewport">
             <div className="week-grid-allday-strip" style={stripStyle}>
-              {allDayPanels.map(({ weekPanelStart, visibleBars, overflowByDay }) => (
+              {allDayPanels.map(({ panelStart, visibleBars, overflowByDay }) => (
                 <div
                   className="week-grid-allday-panel"
-                  key={weekPanelStart.toString()}
-                  style={{ gridTemplateRows: `repeat(${allDayLaneRows}, ${ALLDAY_ROW_HEIGHT}px)` }}
+                  key={panelStart.toString()}
+                  style={{
+                    ...panelColumnsStyle,
+                    gridTemplateRows: `repeat(${allDayLaneRows}, ${ALLDAY_ROW_HEIGHT}px)`,
+                  }}
                 >
                   {visibleBars.map((b) => (
                     <AllDayBar
@@ -394,8 +426,8 @@ export function WeekGrid({
 
           <div className="week-grid-days-viewport">
             <div className="week-grid-days-strip" style={stripStyle}>
-              {weekPanels.map(({ weekPanelStart, dayStarts, dayEnds, dayData }) => (
-                <div className="week-grid-days-panel" key={weekPanelStart.toString()}>
+              {weekPanels.map(({ panelStart, dayStarts, dayEnds, dayData }) => (
+                <div className="week-grid-days-panel" key={panelStart.toString()} style={panelColumnsStyle}>
                   {dayData.map(({ day, positioned }, dayIndex) => (
                     <DayColumn
                       key={day.toString()}
@@ -412,6 +444,7 @@ export function WeekGrid({
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
                       onCreateEvent={onCreateEvent}
+                      longPressCreate={longPressCreate}
                     />
                   ))}
                 </div>

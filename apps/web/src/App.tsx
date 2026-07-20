@@ -26,6 +26,7 @@ import { MasuIndicator } from './components/MasuIndicator'
 import { CalendarSettingsPanel } from './components/CalendarSettingsPanel'
 import type { CalendarInfo } from './components/EventBlock'
 import { useMasuVisible } from './hooks/useMasuVisible'
+import { useMediaQuery } from './hooks/useMediaQuery'
 import { useOffline } from './hooks/useOffline'
 import { useServerEvents } from './hooks/useServerEvents'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
@@ -56,7 +57,69 @@ import {
 import { ensureExpanded } from './expansion/ensureExpanded'
 import { applySyncResponse, deleteGoogleData } from './sync/applySync'
 import { mondayOf, monthGridRangeMs } from './layout/monthGrid'
+import { stepAnchor } from './layout/dayGrid'
 import './App.css'
+
+/**
+ * モバイル対応フェーズ2(docs/multiplatform.md): 週ビュー('week')に加えて、狭幅向けの
+ * N日タイムライン(day3=3日、day1=1日)を追加する。'month' は従来通り別レイアウト。
+ * WeekGrid はこのうち 'month' 以外を dayCount 可変の同一グリッドとして描画する。
+ */
+type View = 'week' | 'month' | 'day3' | 'day1'
+
+/** view ごとの表示日数。'month' は WeekGrid を使わないため呼ばない想定(0を返す) */
+function dayCountForView(view: View): number {
+  switch (view) {
+    case 'week':
+      return 7
+    case 'day3':
+      return 3
+    case 'day1':
+      return 1
+    case 'month':
+      return 0
+  }
+}
+
+const VIEW_STORAGE_KEY = 'kichijitsu:view'
+
+function isView(value: string): value is View {
+  return value === 'week' || value === 'month' || value === 'day3' || value === 'day1'
+}
+
+/** 狭幅/広幅それぞれで toolbar のビュー切替ボタンに出せる(≒意味のある)view かどうか */
+function isViewAllowedForWidth(view: View, narrow: boolean): boolean {
+  if (view === 'month') return true
+  return narrow ? view === 'day3' || view === 'day1' : view === 'week'
+}
+
+/** localStorage に保存された前回選択 view を読む。プライベートモード等で無効なら null */
+function loadStoredView(): View | null {
+  try {
+    const v = window.localStorage.getItem(VIEW_STORAGE_KEY)
+    return v && isView(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** 初回マウント時の view の決め方(localStorage 優先、無ければ画面幅から)。App() の useState 初期化子から呼ぶ */
+function initialView(isNarrow: boolean): View {
+  const stored = loadStoredView()
+  if (stored && isViewAllowedForWidth(stored, isNarrow)) return stored
+  // 初回訪問(保存済み view 無し): 狭幅では Notion Calendar に倣い3日タイムラインを既定にする
+  return isNarrow ? 'day3' : 'week'
+}
+
+/**
+ * 初回マウント時の timelineStart の決め方。week は従来通り「今週の月曜」から始めるが、
+ * day3/day1 は「今日」を先頭日にする(月曜始まりにすると、週の後半に開いたときに
+ * 過去の日しか見えない/今日が画面外になりうるため、3日/1日タイムラインでは意味がない)。
+ */
+function initialTimelineStart(view: View): Temporal.PlainDate {
+  const today = Temporal.Now.plainDateISO()
+  return view === 'week' ? mondayOf(today) : today
+}
 
 /**
  * デモ/シードデータの自動投入を許可するかどうか (2026-07-20、実データ運用への移行)。
@@ -68,10 +131,18 @@ import './App.css'
 const DEMO_SEED_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1'
 
-/** 週 [weekStart, weekStart+7日) の epoch ms 範囲(timeZone の壁時計基準) */
-function weekRangeMs(weekStart: Temporal.PlainDate, timeZone: string): { fromMs: number; toMs: number } {
-  const fromMs = weekStart.toZonedDateTime({ timeZone }).epochMilliseconds
-  const toMs = weekStart.add({ days: 7 }).toZonedDateTime({ timeZone }).epochMilliseconds
+/**
+ * [start, start+dayCount日) の epoch ms 範囲(timeZone の壁時計基準)。
+ * week/day3/day1 のどのタイムラインビューでも共通で使う(モバイル対応フェーズ2で
+ * dayCount=7 固定の weekRangeMs から一般化)。
+ */
+function timelineRangeMs(
+  start: Temporal.PlainDate,
+  dayCount: number,
+  timeZone: string,
+): { fromMs: number; toMs: number } {
+  const fromMs = start.toZonedDateTime({ timeZone }).epochMilliseconds
+  const toMs = start.add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds
   return { fromMs, toMs }
 }
 
@@ -80,12 +151,29 @@ const NAV_LOCK_MS = 220
 
 function App() {
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), [])
-  const [weekStart, setWeekStart] = useState(() => mondayOf(Temporal.Now.plainDateISO()))
-  // 月表示ビュー(フェーズ6)。weekStart とは独立した状態にし、view 切替時に
+  // モバイル対応フェーズ2: 狭幅(~640px 未満)かどうか。既定 view の選択(下)と
+  // ツールバーのビュー切替ボタン構成(1日/3日/月 ⇔ 週/月)の両方に使う
+  const isNarrow = useMediaQuery('(max-width: 640px)')
+  // 月表示ビュー(フェーズ6)。timelineStart とは独立した状態にし、view 切替時に
   // 双方をその場で同期させる(switchView 参照)。常に「月内の1日」を指す
-  const [view, setView] = useState<'week' | 'month'>('week')
+  const [view, setView] = useState<View>(() => initialView(isNarrow))
+  // タイムラインビュー(week/day3/day1)共通の表示開始日。dayCount(view に応じて7/3/1)ぶんの
+  // N日タイムラインとして WeekGrid に渡す(モバイル対応フェーズ2、docs/multiplatform.md)。
+  // 初期値は view に応じる(initialTimelineStart 参照: week=今週の月曜、day3/day1=今日)
+  const [timelineStart, setTimelineStart] = useState<Temporal.PlainDate>(() => initialTimelineStart(view))
   const [monthCursor, setMonthCursor] = useState(() => Temporal.Now.plainDateISO().with({ day: 1 }))
+  const dayCount = dayCountForView(view)
   const navLockRef = useRef(false)
+
+  // ユーザーが明示的に選んだ view を覚えておき、次回訪問時のデフォルトにする(任意機能)。
+  // localStorage が使えない環境(プライベートモード等)では静かに無視する
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, view)
+    } catch {
+      /* ignore */
+    }
+  }, [view])
 
   const store = useMemo(() => new OccurrenceStore(), [])
   const allDayStore = useMemo(() => new AllDayStore(), [])
@@ -227,7 +315,8 @@ function App() {
       }
       if (cancelled) return
 
-      const initialRange = weekRangeMs(weekStart, timeZone)
+      const initialRange =
+        view === 'month' ? monthGridRangeMs(monthCursor, timeZone) : timelineRangeMs(timelineStart, dayCount, timeZone)
       await ensureExpanded(database, store, initialRange.fromMs, initialRange.toMs)
       if (cancelled) return
 
@@ -274,19 +363,20 @@ function App() {
     return () => {
       cancelled = true
     }
-    // 初回マウント時にのみ実行する。weekStart はマウント時点の値で固定してよい
+    // 初回マウント時にのみ実行する。timelineStart/view はマウント時点の値で固定してよい
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 週/月ナビゲーション時: 表示範囲(view に応じて週 or 6週グリッド全体)を賄うのに
-  // 十分な展開が済んでいるか確認する
+  // タイムライン/月ナビゲーション時: 表示範囲(view に応じて N日タイムライン or 6週グリッド全体)を
+  // 賄うのに十分な展開が済んでいるか確認する
   useEffect(() => {
     if (!db) return
-    const { fromMs, toMs } = view === 'week' ? weekRangeMs(weekStart, timeZone) : monthGridRangeMs(monthCursor, timeZone)
+    const { fromMs, toMs } =
+      view === 'month' ? monthGridRangeMs(monthCursor, timeZone) : timelineRangeMs(timelineStart, dayCount, timeZone)
     ensureExpanded(db, store, fromMs, toMs).catch((err) => {
       console.error('kichijitsu: ensureExpanded failed', err)
     })
-  }, [db, view, weekStart, monthCursor, timeZone, store])
+  }, [db, view, timelineStart, dayCount, monthCursor, timeZone, store])
 
   // Google 連携状態を確認する。バックエンド (apps/sync) が起動していない場合の
   // fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)。
@@ -816,49 +906,58 @@ function App() {
     }, NAV_LOCK_MS)
   }, [])
 
-  // ナビゲーション(←/→/今日、フェーズ6で月表示にも対応): view に応じて週送り/月送りを切り替える
+  // ナビゲーション(←/→/今日、フェーズ6で月表示・フェーズ2でday3/day1にも対応):
+  // view に応じて N日送り/月送りを切り替える(N日送りは dayGrid.ts の stepAnchor に集約)
   const goToPrev = useCallback(() => {
     withNavLock(() => {
-      if (view === 'week') setWeekStart((w) => w.subtract({ weeks: 1 }))
-      else setMonthCursor((m) => m.subtract({ months: 1 }))
+      if (view === 'month') setMonthCursor((m) => m.subtract({ months: 1 }))
+      else setTimelineStart((t) => stepAnchor(t, dayCount, -1))
     })
-  }, [view, withNavLock])
+  }, [view, dayCount, withNavLock])
 
   const goToNext = useCallback(() => {
     withNavLock(() => {
-      if (view === 'week') setWeekStart((w) => w.add({ weeks: 1 }))
-      else setMonthCursor((m) => m.add({ months: 1 }))
+      if (view === 'month') setMonthCursor((m) => m.add({ months: 1 }))
+      else setTimelineStart((t) => stepAnchor(t, dayCount, 1))
     })
-  }, [view, withNavLock])
+  }, [view, dayCount, withNavLock])
 
   const goToToday = useCallback(() => {
     withNavLock(() => {
-      if (view === 'week') setWeekStart(mondayOf(Temporal.Now.plainDateISO()))
-      else setMonthCursor(Temporal.Now.plainDateISO().with({ day: 1 }))
+      if (view === 'month') setMonthCursor(Temporal.Now.plainDateISO().with({ day: 1 }))
+      else if (view === 'week') setTimelineStart(mondayOf(Temporal.Now.plainDateISO()))
+      // day3/day1: 今日を先頭日にする(週ビューのように月曜へ揃える概念が無いため)
+      else setTimelineStart(Temporal.Now.plainDateISO())
     })
   }, [view, withNavLock])
 
-  // 週⇔月ビューの切替(フェーズ6)。切替の瞬間、もう一方の状態を今表示中の期間に
-  // 同期させる(week→month: 表示中の週が属する月へ。month→week: 表示中の月の1日を
-  // 含む週へ)ことで、トグルしても「だいたい同じ期間を見ている」体験を保つ
+  // ビュー切替(週/月/3日/1日、フェーズ2でday3/day1を追加)。切替の瞬間、もう一方の状態を
+  // 今表示中の期間に同期させることで、トグルしても「だいたい同じ期間を見ている」体験を保つ:
+  // - タイムライン→month: 表示中の先頭日が属する月へ
+  // - month→タイムライン: 表示中の月の1日へ(week だけは月曜に揃え直す)
+  // - タイムライン同士(week⇔day3⇔day1): 先頭日はそのまま(dayCount の解釈だけ変わる)
   const switchView = useCallback(
-    (next: 'week' | 'month') => {
+    (next: View) => {
       if (view === next) return
       withNavLock(() => {
-        if (next === 'month') setMonthCursor(weekStart.with({ day: 1 }))
-        else setWeekStart(mondayOf(monthCursor))
+        if (next === 'month') {
+          setMonthCursor(timelineStart.with({ day: 1 }))
+        } else if (view === 'month') {
+          setTimelineStart(next === 'week' ? mondayOf(monthCursor) : monthCursor)
+        }
         setView(next)
       })
     },
-    [view, weekStart, monthCursor, withNavLock],
+    [view, timelineStart, monthCursor, withNavLock],
   )
 
-  // 月ビューのセル空き部分・「+N」クリック(フェーズ6): その日を含む週の week ビューへ切り替える
+  // 月ビューのセル空き部分・「+N」クリック(フェーズ6、フェーズ2でday1へ変更):
+  // その日の day1(1日タイムライン)へ切り替える = アジェンダ的動線(docs/multiplatform.md)
   const handleNavigateToDay = useCallback(
     (day: Temporal.PlainDate) => {
       withNavLock(() => {
-        setWeekStart(mondayOf(day))
-        setView('week')
+        setTimelineStart(day)
+        setView('day1')
       })
     },
     [withNavLock],
@@ -929,44 +1028,83 @@ function App() {
           <LogoWordmark />
         </div>
         <div className="toolbar-nav">
-          <button type="button" onClick={goToPrev} aria-label={view === 'week' ? '前週' : '前月'}>
+          <button type="button" onClick={goToPrev} aria-label={view === 'week' ? '前週' : view === 'month' ? '前月' : '前へ'}>
             ←
           </button>
           <button type="button" onClick={goToToday}>
             今日
           </button>
-          <button type="button" onClick={goToNext} aria-label={view === 'week' ? '次週' : '次月'}>
+          <button type="button" onClick={goToNext} aria-label={view === 'week' ? '次週' : view === 'month' ? '次月' : '次へ'}>
             →
           </button>
         </div>
-        {/* ビュー切替(フェーズ6): 週/月の控えめなセグメント */}
+        {/*
+         * ビュー切替(フェーズ6で週/月、フェーズ2でday3/day1を追加、docs/multiplatform.md)。
+         * 狭幅では Notion Calendar に倣い「1日/3日/月」を出し、広幅では従来通り「週/月」のまま
+         * (3日は任意扱いとして広幅ツールバーには出さない)。
+         */}
         <div className="toolbar-view-toggle" role="group" aria-label="表示切替">
-          <button
-            type="button"
-            className={view === 'week' ? 'is-active' : ''}
-            aria-pressed={view === 'week'}
-            onClick={() => switchView('week')}
-          >
-            週
-          </button>
-          <button
-            type="button"
-            className={view === 'month' ? 'is-active' : ''}
-            aria-pressed={view === 'month'}
-            onClick={() => switchView('month')}
-          >
-            月
-          </button>
+          {isNarrow ? (
+            <>
+              <button
+                type="button"
+                className={view === 'day1' ? 'is-active' : ''}
+                aria-pressed={view === 'day1'}
+                onClick={() => switchView('day1')}
+              >
+                1日
+              </button>
+              <button
+                type="button"
+                className={view === 'day3' ? 'is-active' : ''}
+                aria-pressed={view === 'day3'}
+                onClick={() => switchView('day3')}
+              >
+                3日
+              </button>
+              <button
+                type="button"
+                className={view === 'month' ? 'is-active' : ''}
+                aria-pressed={view === 'month'}
+                onClick={() => switchView('month')}
+              >
+                月
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={view === 'week' ? 'is-active' : ''}
+                aria-pressed={view === 'week'}
+                onClick={() => switchView('week')}
+              >
+                週
+              </button>
+              <button
+                type="button"
+                className={view === 'month' ? 'is-active' : ''}
+                aria-pressed={view === 'month'}
+                onClick={() => switchView('month')}
+              >
+                月
+              </button>
+            </>
+          )}
         </div>
         <div className="toolbar-right">
           <span className="month-label">
-            {view === 'week' ? (
+            {view === 'month' ? (
               <>
-                {weekStart.year}年{weekStart.month}月
+                {monthCursor.year}年{monthCursor.month}月
+              </>
+            ) : view === 'day1' ? (
+              <>
+                {timelineStart.year}年{timelineStart.month}月{timelineStart.day}日
               </>
             ) : (
               <>
-                {monthCursor.year}年{monthCursor.month}月
+                {timelineStart.year}年{timelineStart.month}月
               </>
             )}
           </span>
@@ -1039,11 +1177,12 @@ function App() {
         </div>
       </header>
       <main className="app-main">
-        {view === 'week' ? (
+        {view !== 'month' ? (
           <WeekGrid
             store={store}
             allDayStore={allDayStore}
-            weekStart={weekStart}
+            weekStart={timelineStart}
+            dayCount={dayCount}
             timeZone={timeZone}
             onPersist={handlePersist}
             visibleCalendarKeys={visibleCalendarKeys}
@@ -1051,6 +1190,9 @@ function App() {
             onDelete={handleDeleteOccurrence}
             writeTarget={defaultWriteTarget}
             onCreateEvent={handleCreate}
+            // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
+            // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
+            longPressCreate={isNarrow}
           />
         ) : (
           <MonthView

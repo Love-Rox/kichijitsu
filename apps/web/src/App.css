@@ -15,6 +15,41 @@
   box-sizing: border-box;
 }
 
+/*
+ * ---- モバイル対応(フェーズ2、docs/multiplatform.md) ----
+ * 狭幅(~640px 未満)ではツールバーをコンパクト化する: 固定高さをやめて折り返しを許可し、
+ * ロゴ・アカウント表示の優先度を下げて幅を詰める。横スクロールで body が溢れないよう、
+ * 折り返し前提のレイアウトに切り替える(App.tsx useMediaQuery('(max-width: 640px)') と揃える)。
+ */
+@media (max-width: 640px) {
+  .toolbar {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .toolbar-right {
+    gap: 8px;
+  }
+
+  .account-summary-label {
+    max-width: 96px;
+  }
+
+  .toolbar-legal {
+    display: none;
+  }
+
+  /* タップ領域の確保(44px 目安、ユーザー要望): 主要操作ボタンの最小タップ高さを揃える */
+  .toolbar-nav button,
+  .toolbar-view-toggle button,
+  .toolbar-account > button {
+    min-height: 40px;
+    padding: 4px 12px;
+  }
+}
+
 .toolbar .month-label {
   font-size: 13px;
   color: #6b7280;
