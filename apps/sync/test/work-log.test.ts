@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildWorkLogRow, validateWorkLogInput, type WorkLogInput } from "../src/core/work-log";
+import {
+  aggregateWorkLogs,
+  buildWorkLogRow,
+  NO_ISSUE_LABEL,
+  validateWorkLogInput,
+  type WorkLogInput,
+  type WorkLogListRow,
+} from "../src/core/work-log";
 
 const BASE_INPUT: WorkLogInput = {
   startIso: "2026-07-21T10:00:00Z",
@@ -91,5 +98,103 @@ describe("buildWorkLogRow", () => {
     expect(full.branch).toBe("feat/x");
     expect(full.issueRef).toBe("42");
     expect(full.agent).toBe("claude-code");
+  });
+});
+
+function row(overrides: Partial<WorkLogListRow> & { id: string }): WorkLogListRow {
+  return {
+    repo: "Love-Rox/kichijitsu",
+    issue_ref: null,
+    branch: null,
+    agent: null,
+    start_ms: 0,
+    end_ms: 60_000,
+    ...overrides,
+  };
+}
+
+describe("aggregateWorkLogs", () => {
+  it("returns an empty array for no rows", () => {
+    expect(aggregateWorkLogs([])).toEqual([]);
+  });
+
+  it("groups rows by repo + issueRef and sums totalMs/count", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", issue_ref: "42", start_ms: 0, end_ms: 60_000 }),
+      row({ id: "2", issue_ref: "42", start_ms: 100_000, end_ms: 160_000 }),
+    ];
+    const result = aggregateWorkLogs(rows);
+    expect(result).toEqual([
+      { repo: "Love-Rox/kichijitsu", issueRef: "42", totalMs: 120_000, count: 2 },
+    ]);
+  });
+
+  it("keeps rows with different repos/issueRefs in separate groups", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", repo: "Love-Rox/kichijitsu", issue_ref: "1", start_ms: 0, end_ms: 60_000 }),
+      row({
+        id: "2",
+        repo: "Love-Rox/kichijitsu",
+        issue_ref: "2",
+        start_ms: 0,
+        end_ms: 60_000,
+      }),
+      row({ id: "3", repo: "Love-Rox/other", issue_ref: "1", start_ms: 0, end_ms: 60_000 }),
+    ];
+    expect(aggregateWorkLogs(rows)).toHaveLength(3);
+  });
+
+  it("groups rows with a null issue_ref under NO_ISSUE_LABEL", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", issue_ref: null, start_ms: 0, end_ms: 60_000 }),
+      row({ id: "2", issue_ref: null, start_ms: 60_000, end_ms: 120_000 }),
+    ];
+    const result = aggregateWorkLogs(rows);
+    expect(result).toEqual([
+      { repo: "Love-Rox/kichijitsu", issueRef: NO_ISSUE_LABEL, totalMs: 120_000, count: 2 },
+    ]);
+  });
+
+  it("sorts groups by totalMs descending", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", issue_ref: "small", start_ms: 0, end_ms: 60_000 }),
+      row({ id: "2", issue_ref: "big", start_ms: 0, end_ms: 600_000 }),
+      row({ id: "3", issue_ref: "medium", start_ms: 0, end_ms: 300_000 }),
+    ];
+    expect(aggregateWorkLogs(rows).map((item) => item.issueRef)).toEqual([
+      "big",
+      "medium",
+      "small",
+    ]);
+  });
+
+  it("breaks totalMs ties by repo then issueRef ascending", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", repo: "b-repo", issue_ref: "1", start_ms: 0, end_ms: 60_000 }),
+      row({ id: "2", repo: "a-repo", issue_ref: "2", start_ms: 0, end_ms: 60_000 }),
+      row({ id: "3", repo: "a-repo", issue_ref: "1", start_ms: 0, end_ms: 60_000 }),
+    ];
+    const result = aggregateWorkLogs(rows);
+    expect(result.map((item) => `${item.repo}/${item.issueRef}`)).toEqual([
+      "a-repo/1",
+      "a-repo/2",
+      "b-repo/1",
+    ]);
+  });
+
+  it("excludes rows where start_ms >= end_ms from both totalMs and count", () => {
+    const rows: WorkLogListRow[] = [
+      row({ id: "1", issue_ref: "42", start_ms: 0, end_ms: 60_000 }),
+      row({ id: "2", issue_ref: "42", start_ms: 60_000, end_ms: 60_000 }), // start === end
+      row({ id: "3", issue_ref: "42", start_ms: 200_000, end_ms: 100_000 }), // start > end
+    ];
+    expect(aggregateWorkLogs(rows)).toEqual([
+      { repo: "Love-Rox/kichijitsu", issueRef: "42", totalMs: 60_000, count: 1 },
+    ]);
+  });
+
+  it("omits a group entirely when all of its rows are invalid", () => {
+    const rows: WorkLogListRow[] = [row({ id: "1", issue_ref: "42", start_ms: 60_000, end_ms: 0 })];
+    expect(aggregateWorkLogs(rows)).toEqual([]);
   });
 });

@@ -73,6 +73,7 @@ import {
 } from "../core/block-rules";
 import { computeChannelToken } from "../watch-token";
 import { generateMcpToken, hashMcpToken } from "../mcp-token";
+import { listWorkLogsForProfile } from "../core/work-log";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-do";
 import type { RpcResult } from "../rpc-result";
 
@@ -547,35 +548,17 @@ apiRoutes.delete("/api/mcp-tokens", requireAuth, async (c) => {
 // 書き込み (POST /api/work-intervals, routes/work-intervals.ts) は MCP トークンの Bearer 認証だが、
 // こちらは web 用でセッション cookie 認証 (requireAuth) — 認証経路が異なる点に注意。
 // since/until (epoch ms の文字列、任意) で start_ms/end_ms を絞り込める。件数上限は新しい順 500件。
+// SELECT 本体は core/work-log.ts の listWorkLogsForProfile に切り出してある (MCP ツール
+// work_summary と共有するため、2026-07-21) — 挙動 (絞り込み条件・並び・上限) は変えていない。
 apiRoutes.get("/api/work-logs", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  const conditions = ["profile_id = ?"];
-  const params: (string | number)[] = [profileId];
   const since = c.req.query("since");
-  if (since && !Number.isNaN(Number(since))) {
-    conditions.push("start_ms >= ?");
-    params.push(Number(since));
-  }
+  const sinceMs = since && !Number.isNaN(Number(since)) ? Number(since) : undefined;
   const until = c.req.query("until");
-  if (until && !Number.isNaN(Number(until))) {
-    conditions.push("end_ms <= ?");
-    params.push(Number(until));
-  }
+  const untilMs = until && !Number.isNaN(Number(until)) ? Number(until) : undefined;
 
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, repo, issue_ref, branch, agent, start_ms, end_ms FROM work_logs WHERE ${conditions.join(" AND ")} ORDER BY start_ms DESC LIMIT 500`,
-  )
-    .bind(...params)
-    .all<{
-      id: string;
-      repo: string;
-      issue_ref: string | null;
-      branch: string | null;
-      agent: string | null;
-      start_ms: number;
-      end_ms: number;
-    }>();
+  const results = await listWorkLogsForProfile(c.env, profileId, sinceMs, untilMs);
 
   const workLogs: WorkLogDTO[] = results.map((row) => ({
     id: row.id,

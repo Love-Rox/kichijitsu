@@ -37,7 +37,14 @@ import {
   resolveMcpDefaultWriteAccountId,
   resolveMcpReadTargets,
 } from "../mcp-calendars";
-import { buildWorkLogRow, insertWorkLog, validateWorkLogInput } from "../core/work-log";
+import {
+  aggregateWorkLogs,
+  buildWorkLogRow,
+  formatDurationHm,
+  insertWorkLog,
+  listWorkLogsForProfile,
+  validateWorkLogInput,
+} from "../core/work-log";
 
 export interface McpProps extends Record<string, unknown> {
   profileId: string;
@@ -297,6 +304,33 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
         const row = buildWorkLogRow(crypto.randomUUID(), profileId, input, Date.now());
         await insertWorkLog(this.env, row);
         return { content: [{ type: "text", text: JSON.stringify({ id: row.id }) }] };
+      },
+    );
+
+    this.server.registerTool(
+      "work_summary",
+      {
+        description:
+          "hook (log_work_interval) で記録した作業実績を repo/issue 単位で集計して返す " +
+          "(読み取り専用)。予定のタイムブロックや手動タイマーはクライアント側のみのデータであり、" +
+          "ここには含まれない — サーバーが持つのは hook 実績 (work_logs) のみ。" +
+          "since/until (ISO、任意) を指定すると work_logs の start/end で絞り込む。",
+        inputSchema: {
+          since: z.string().optional(),
+          until: z.string().optional(),
+        },
+      },
+      async ({ since, until }) => {
+        const profileId = this.requireProfileId();
+        const sinceMs = since !== undefined ? parseRequiredDate(since, "since") : undefined;
+        const untilMs = until !== undefined ? parseRequiredDate(until, "until") : undefined;
+
+        const rows = await listWorkLogsForProfile(this.env, profileId, sinceMs, untilMs);
+        const items = aggregateWorkLogs(rows).map((item) => ({
+          ...item,
+          totalHm: formatDurationHm(item.totalMs),
+        }));
+        return { content: [{ type: "text", text: JSON.stringify(items) }] };
       },
     );
   }
