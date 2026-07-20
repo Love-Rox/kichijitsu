@@ -14,6 +14,13 @@ export type {
   EventCreateResponse,
   EventDeleteRequest,
   EventDeleteResponse,
+  TaskListDTO,
+  GoogleTaskDTO,
+  TaskListsResponse,
+  TasksSyncRequest,
+  TasksSyncResponse,
+  TaskPatchRequest,
+  TaskPatchResponse,
   WatchRequest,
   SyncResponse,
 } from './protocol'

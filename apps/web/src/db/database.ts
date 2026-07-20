@@ -1,6 +1,6 @@
 import { openDB } from 'idb'
 import type { DBSchema, IDBPDatabase } from 'idb'
-import type { AllDayOccurrence, Occurrence } from '../model/types'
+import type { AllDayOccurrence, Occurrence, TaskItem } from '../model/types'
 import type { EventSeries, InstanceOverride } from '../model/series'
 import type { ExpansionState } from '../expansion/windowPolicy'
 import { DAY_MS } from '../expansion/windowPolicy'
@@ -31,6 +31,15 @@ export interface KichijitsuDB extends DBSchema {
     value: AllDayOccurrence
     indexes: { startDate: string }
   }
+  /**
+   * Google タスク (docs/google-tasks.md、2026-07-20)。allDayOccurrences と同じく
+   * 展開ウィンドウの概念が無いため全件を常時ロードする
+   */
+  tasks: {
+    key: string
+    value: TaskItem
+    indexes: { dueDate: string }
+  }
   series: {
     key: string
     value: EventSeries
@@ -47,7 +56,7 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = 'kichijitsu'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const META_EXPANSION_KEY = 'expansion'
 const META_VISIBLE_CALENDARS_KEY = 'visibleCalendars'
 
@@ -66,6 +75,11 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
           // DB_VERSION 2 (フェーズ5) で追加。既存ユーザーもここを通って新規作成される
           const store = db.createObjectStore('allDayOccurrences', { keyPath: 'id' })
           store.createIndex('startDate', 'startDate')
+        }
+        if (!db.objectStoreNames.contains('tasks')) {
+          // DB_VERSION 3 (Google タスク連携、docs/google-tasks.md) で追加
+          const store = db.createObjectStore('tasks', { keyPath: 'id' })
+          store.createIndex('dueDate', 'dueDate')
         }
         if (!db.objectStoreNames.contains('series')) {
           db.createObjectStore('series', { keyPath: 'id' })
@@ -183,6 +197,31 @@ export async function deleteAllDayOccurrencesByIds(
 ): Promise<void> {
   if (ids.length === 0) return
   const tx = db.transaction('allDayOccurrences', 'readwrite')
+  await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
+}
+
+/** 単一トランザクションでの bulk 書き込み(Google タスク) */
+export async function putTasks(db: IDBPDatabase<KichijitsuDB>, tasks: TaskItem[]): Promise<void> {
+  if (tasks.length === 0) return
+  const tx = db.transaction('tasks', 'readwrite')
+  await Promise.all([...tasks.map((t) => tx.store.put(t)), tx.done])
+}
+
+export async function putTask(db: IDBPDatabase<KichijitsuDB>, task: TaskItem): Promise<void> {
+  await db.put('tasks', task)
+}
+
+/**
+ * タスクも終日予定と同様に展開ウィンドウの概念が無いため全件取得で読み込む
+ * (起動時に丸ごと TaskStore へロードする用途)
+ */
+export async function getAllTasks(db: IDBPDatabase<KichijitsuDB>): Promise<TaskItem[]> {
+  return db.getAll('tasks')
+}
+
+export async function deleteTasksByIds(db: IDBPDatabase<KichijitsuDB>, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const tx = db.transaction('tasks', 'readwrite')
   await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
 }
 

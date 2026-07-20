@@ -31,3 +31,38 @@
 
 日付レーン（AllDayOccurrence の UI 化）→ Tasks 読み取り同期 → 完了の書き戻し → 編集・作成。
 Google 同期（カレンダー）の実 E2E が通ってから着手する。
+
+## バックエンド実装 (2026-07-20、apps/sync)
+
+Google Tasks API v1 との読み書きを既存の層構造 (google/\*.ts → core/\*.ts →
+UserSyncDO の RPC → routes/api.ts) にそのまま合わせて実装した。DTO
+(TaskListDTO/GoogleTaskDTO/TaskListsResponse/TasksSyncRequest/TasksSyncResponse/
+TaskPatchRequest/TaskPatchResponse) は packages/shared/src/protocol.ts に既存。
+
+- **スコープ**: `google/oauth.ts` の `OAUTH_SCOPES` に
+  `https://www.googleapis.com/auth/tasks` を追加済み (`/auth/login` のリダイレクト先
+  URL に `tasks` が含まれることを確認済み)。`hasRequiredScopes` には含めない (tasks は
+  オプション機能)。新設の `hasTasksScope(grantedScope)` は判定ロジックを純関数として
+  持つが、granted scope を D1 に永続化していないため実運用では未使用 — 実際の判定は
+  「Google Tasks API を叩いて 403 が返るか」で行う最小実装。既存ユーザーは再連携
+  (`/auth/login` をもう一度通す) で tasks 権限を得る。
+- **GET /api/tasklists?accountId=**: `google/tasks.ts` の `fetchTaskLists` →
+  `core/tasks.ts` の `listTaskLists` (401 リトライ1回) → `UserSyncDO.listTaskLists` RPC。
+  Google が 403 を返したら `routes/api.ts` がそれを
+  `{ error: 'tasks_scope_missing' }` (403) に変換して返す。ページングは実装していない
+  (tasklists は通常数十件程度、design にもページング要件の記載なし)。
+- **POST /api/tasks/sync**: `fetchTasksPage`
+  (`showCompleted=true&showHidden=true&maxResults=100`) → `core/tasks.ts` の
+  `syncTasks` が nextPageToken が無くなるまでページングして結合。Tasks API に
+  syncToken は無いため常に全件取得 (`updatedMin` による差分ポーリングは未実装、
+  将来やるならここに追加)。
+- **POST /api/task/patch**: `patchTaskStatus` が `{ status }` のみを PATCH で送る。
+  Google 側は completed 化時に `completed` (完了日時) を未指定でも自動補完する想定で
+  実装した (`google/tasks.ts` にコメントで明記)。失敗は既存の書き戻し系
+  (`/api/event/patch` 等) と同じく理由を問わず 409 `{ error: 'patch_failed' }` に一律
+  マップする。
+- テスト: `apps/sync/test/tasks.test.ts` (fetch 注入で tasklists 取得・ページング結合・
+  401 リトライ・patch のリクエスト形状を検証) と `apps/sync/test/oauth.test.ts` の
+  `hasTasksScope`/`OAUTH_SCOPES` ケースを追加。既存分含め 158 件全て pass、
+  `wrangler dev` で3エンドポイントとも未認証 401・`/auth/login` のスコープに tasks
+  が入ることを確認済み。

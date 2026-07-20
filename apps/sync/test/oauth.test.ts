@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { hasRequiredScopes, revokeToken } from '../src/google/oauth'
+import { hasRequiredScopes, hasTasksScope, OAUTH_SCOPES, revokeToken } from '../src/google/oauth'
 
 const EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 const CALENDARLIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
 const FULL_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar'
+const TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks'
 
 describe('hasRequiredScopes', () => {
   it('allows when both required scopes are granted', () => {
@@ -29,6 +30,34 @@ describe('hasRequiredScopes', () => {
   it('allows existing users who granted the old full calendar scope (superset)', () => {
     const scope = ['openid', 'email', FULL_CALENDAR_SCOPE].join(' ')
     expect(hasRequiredScopes(scope)).toBe(true)
+  })
+
+  it('does not require the tasks scope (tasks is optional)', () => {
+    const scope = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_SCOPE].join(' ')
+    expect(hasRequiredScopes(scope)).toBe(true)
+  })
+})
+
+describe('OAUTH_SCOPES', () => {
+  it('requests the tasks scope alongside the calendar scopes', () => {
+    expect(OAUTH_SCOPES.split(' ')).toContain(TASKS_SCOPE)
+  })
+})
+
+describe('hasTasksScope', () => {
+  it('returns true when the tasks scope is granted', () => {
+    const scope = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_SCOPE, TASKS_SCOPE].join(' ')
+    expect(hasTasksScope(scope)).toBe(true)
+  })
+
+  it('returns false when the tasks scope is missing (existing user who has not re-consented)', () => {
+    const scope = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_SCOPE].join(' ')
+    expect(hasTasksScope(scope)).toBe(false)
+  })
+
+  it('returns false for an empty or undefined scope', () => {
+    expect(hasTasksScope('')).toBe(false)
+    expect(hasTasksScope(undefined)).toBe(false)
   })
 })
 

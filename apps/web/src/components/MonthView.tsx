@@ -63,6 +63,9 @@ function isTimedChip(chip: MonthChip): chip is MonthChip & { kind: 'timed'; star
  *
  * WeekGrid と違いドラッグ移動・空き領域からの新規作成は持たない(表示 + 詳細ポップオーバー
  * + 「その日の week ビューへ」導線のみ)。作成・移動は week ビューに一本化する設計。
+ *
+ * TODO(docs/google-tasks.md): Google タスクは v1 では WeekGrid の日付レーンにのみ表示する
+ * (月表示セルへの小さなタスク行の表示は未対応)。
  */
 export function MonthView({
   store,

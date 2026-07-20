@@ -5,11 +5,16 @@ const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke'
 const FULL_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar'
 const EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 const CALENDARLIST_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
+// Google タスク連携 (docs/google-tasks.md、2026-07-20)。sensitive スコープなので
+// 「使っていないスコープは要求しない」審査ポリシー上、タスク機能の実装が入った今回の
+// リリースから要求を開始する。
+const TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks'
 
 // Google OAuth 審査を通しやすくするため、書き込み権限を含むフル `calendar` スコープではなく
 // 予定の読み書き (calendar.events) とカレンダー一覧の読み取り (calendarlist.readonly) だけを
-// 要求する (最小権限)。
-export const OAUTH_SCOPES = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_READONLY_SCOPE].join(' ')
+// 要求する (最小権限)。tasks はオプション機能 (無くてもカレンダーは動く) なので
+// hasRequiredScopes には含めない — 個別に hasTasksScope で判定する。
+export const OAUTH_SCOPES = ['openid', 'email', EVENTS_SCOPE, CALENDARLIST_READONLY_SCOPE, TASKS_SCOPE].join(' ')
 
 /**
  * granular consent (Google がスコープを個別に同意/拒否させる機能) では、要求した
@@ -29,6 +34,25 @@ export function hasRequiredScopes(grantedScope: string | undefined): boolean {
   const hasEvents = granted.has(EVENTS_SCOPE) || granted.has(FULL_CALENDAR_SCOPE)
   const hasCalendarList = granted.has(CALENDARLIST_READONLY_SCOPE) || granted.has(FULL_CALENDAR_SCOPE)
   return hasEvents && hasCalendarList
+}
+
+/**
+ * tasks はオプション機能なので hasRequiredScopes とは独立に判定する。granted は
+ * OAuth トークン交換時点の scope 文字列 (ExchangedTokens.scope) を想定しているが、
+ * これは現状 D1 に永続化していない (accounts テーブルに scope 列が無い) ため、
+ * 最小実装では実際の判定は「Google Tasks API を叩いて 403 が返るか」で行う
+ * (routes/api.ts の GET /api/tasklists 参照)。この関数はその判定ロジックを純関数として
+ * テストできるようにするため、また将来 /api/me 等でスコープの有無をクライアントへ
+ * 返す (accounts テーブルに scope を保存する) ようになった時にそのまま使えるように
+ * 用意してある。
+ *
+ * 既存ユーザー (tasks 追加前に連携済み) はこの関数が false を返す状態のままであり、
+ * タスク機能を使うには再連携 (OAuth 同意のやり直し) が必要 — 新しい OAUTH_SCOPES で
+ * 再度 /auth/login を通すことで tasks 権限も得られる。
+ */
+export function hasTasksScope(grantedScope: string | undefined): boolean {
+  const granted = new Set((grantedScope ?? '').split(' ').filter(Boolean))
+  return granted.has(TASKS_SCOPE)
 }
 
 export interface GoogleOAuthConfig {

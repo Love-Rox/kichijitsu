@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { CalendarListEntryDTO, SyncResponse } from '@kichijitsu/shared'
+import type { CalendarListEntryDTO, GoogleTaskDTO, SyncResponse, TaskListDTO } from '@kichijitsu/shared'
 import { fetchCalendarList } from '../google/calendar-list'
 import { refreshAccessToken } from '../google/oauth'
 import { hasUpdatesSince } from '../google/poll-check'
@@ -7,6 +7,12 @@ import { syncCalendar, type SyncCoreDeps } from '../core/sync'
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from '../core/patch-event'
 import { createEventWithRetry, type CreateEventCoreDeps } from '../core/create-event'
 import { deleteEventWithRetry, type DeleteEventCoreDeps } from '../core/delete-event'
+import {
+  listTaskLists as listTaskListsCore,
+  patchTaskStatusWithRetry,
+  syncTasks as syncTasksCore,
+  type TasksCoreDeps,
+} from '../core/tasks'
 import { NotConnectedError } from '../core/errors'
 import { runRpc, type RpcResult } from '../rpc-result'
 import { decryptToken, InvalidCiphertextError } from '../crypto'
@@ -157,6 +163,39 @@ export class UserSyncDO extends DurableObject<Env> {
     return runRpc(() => deleteEventWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId }))
   }
 
+  /**
+   * GET /api/tasklists (Google タスク連携、docs/google-tasks.md): アカウントのタスク
+   * リスト一覧を取得する。tasks スコープ未付与は Google が 403 を返し、runRpc が
+   * GoogleApiError としてそのまま status=403 で RpcResult に載せる — route 側でこれを
+   * tasks_scope_missing に変換する。
+   */
+  async listTaskLists(accountId: string): Promise<RpcResult<TaskListDTO[]>> {
+    return runRpc(() => listTaskListsCore(this.buildTasksDeps(accountId)))
+  }
+
+  /**
+   * POST /api/tasks/sync (Google タスク連携): 指定タスクリストの全タスクを取得する
+   * (ページング込み)。Tasks API に syncToken は無いため常に全件取得。
+   */
+  async syncTasks(accountId: string, taskListId: string): Promise<RpcResult<GoogleTaskDTO[]>> {
+    return runRpc(() => syncTasksCore(this.buildTasksDeps(accountId), taskListId))
+  }
+
+  /**
+   * POST /api/task/patch (Google タスク連携): タスクの完了状態を Google へ書き戻す。
+   * 戻り値は無い (void) — 正本は次の /api/tasks/sync 再取得で還流する設計 (core/tasks.ts
+   * のコメント参照)。403/404 等や 401 リトライ後もなお失敗する場合は GoogleApiError の
+   * まま RpcResult に載る — route 側でこれを 409 patch_failed 等にマップする。
+   */
+  async patchTask(
+    accountId: string,
+    taskListId: string,
+    taskId: string,
+    status: 'needsAction' | 'completed',
+  ): Promise<RpcResult<void>> {
+    return runRpc(() => patchTaskStatusWithRetry(this.buildTasksDeps(accountId), { taskListId, taskId, status }))
+  }
+
   /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ・ポーリング状態) を全消去する。 */
   async clearSyncState(): Promise<RpcResult<void>> {
     return runRpc(async () => {
@@ -298,6 +337,15 @@ export class UserSyncDO extends DurableObject<Env> {
    * 同一なので、1つの実装を全員に渡す。
    */
   private buildEventWriteDeps(accountId: string): PatchEventCoreDeps & CreateEventCoreDeps & DeleteEventCoreDeps {
+    return {
+      fetch,
+      getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
+      forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
+    }
+  }
+
+  /** listTaskLists/syncTasks/patchTask 共通の依存先。buildEventWriteDeps と同じ考え方。 */
+  private buildTasksDeps(accountId: string): TasksCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),

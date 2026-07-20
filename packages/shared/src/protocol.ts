@@ -168,3 +168,50 @@ export interface EventDeleteRequest {
 export interface EventDeleteResponse {
   ok: boolean
 }
+
+/**
+ * Google タスク連携 (docs/google-tasks.md、2026-07-20)。タスクは due が日付精度のみ
+ * (時刻は Google API が捨てる) なので日付レーンに表示する。追加スコープ tasks が必要。
+ */
+export interface TaskListDTO {
+  id: string
+  title: string
+}
+
+/** Google Tasks の task リソースから必要部分を写した DTO */
+export interface GoogleTaskDTO {
+  id: string
+  title: string
+  status: 'needsAction' | 'completed'
+  /** RFC3339 だが日付精度のみ有効 (例 "2026-07-20T00:00:00.000Z")。無ければ due 無し */
+  due?: string
+  notes?: string
+  updated?: string
+  /** 親タスク (サブタスク) の id */
+  parent?: string
+}
+
+/** GET /api/tasklists?accountId=... — アカウントのタスクリスト一覧 */
+export interface TaskListsResponse {
+  taskLists: TaskListDTO[]
+}
+
+/** POST /api/tasks/sync — 指定タスクリストの全タスクを取得 (updatedMin ポーリングの初回は全件) */
+export interface TasksSyncRequest {
+  accountId: string
+  taskListId: string
+}
+export interface TasksSyncResponse {
+  tasks: GoogleTaskDTO[]
+}
+
+/** POST /api/task/patch — タスクの完了状態変更 (完了=枡チェック)。将来 due 変更等も */
+export interface TaskPatchRequest {
+  accountId: string
+  taskListId: string
+  taskId: string
+  status: 'needsAction' | 'completed'
+}
+export interface TaskPatchResponse {
+  ok: boolean
+}

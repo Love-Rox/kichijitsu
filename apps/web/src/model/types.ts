@@ -73,3 +73,24 @@ export interface AllDayOccurrence {
   location?: string
   description?: string
 }
+
+/**
+ * Google タスク (docs/google-tasks.md、2026-07-20)。due は日付精度のみ有効
+ * (時刻は Google API 側で捨てられる) なので、AllDayOccurrence と同様に
+ * 日付レーンに表示する — が、タスクは繰り返し・複数日にまたがることがなく
+ * 完了状態を持つ点が終日予定と違うため、別の軽量な型として持つ。
+ *
+ * id 規則: `t:<accountId>:<taskListId>:<taskId>` (mapGoogle 系の `g:...` と同じ思想)。
+ * accountId/taskListId は id から再パースせず、フィールドとしてそのまま持つ
+ * (書き戻し・表示トグルの両方でそのまま使えるようにするため)。
+ */
+export interface TaskItem {
+  id: string
+  accountId: string
+  taskListId: string
+  title: string
+  /** ISO 8601 calendar date (YYYY-MM-DD)。due 無しタスクは null (v1 は日付レーンに表示しない) */
+  dueDate: string | null
+  status: 'needsAction' | 'completed'
+  notes?: string
+}

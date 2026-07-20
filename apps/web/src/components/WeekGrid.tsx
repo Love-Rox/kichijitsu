@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Temporal } from '@js-temporal/polyfill'
-import type { Occurrence } from '../model/types'
+import type { Occurrence, TaskItem } from '../model/types'
 import type { OccurrenceStore } from '../store/occurrenceStore'
 import { useOccurrences } from '../store/occurrenceStore'
 import type { AllDayStore } from '../store/allDayStore'
 import { useAllDayOccurrences } from '../store/allDayStore'
+import type { TaskStore } from '../store/taskStore'
+import { useTasks } from '../store/taskStore'
 import type { WriteTargetCandidate } from '../sync/eventCreate'
 import { packColumns } from '../layout/packColumns'
 import { packDayBars } from '../layout/packDayBars'
@@ -18,6 +20,7 @@ import { panelAnchors, panelSlideDirection } from '../layout/dayGrid'
 import { type CalendarInfo } from './EventBlock'
 import { AllDayBar } from './AllDayBar'
 import { DayColumn } from './DayColumn'
+import { TaskRow } from './TaskRow'
 import './WeekGrid.css'
 
 const INITIAL_SCROLL_HOUR = 8
@@ -35,6 +38,8 @@ interface WeekGridProps {
   store: OccurrenceStore
   /** 終日予定 (フェーズ5) の読み口。時刻予定の store と対になる別ストア */
   allDayStore: AllDayStore
+  /** Google タスク (docs/google-tasks.md) の読み口。due 付きタスクを日付レーンに表示する */
+  taskStore: TaskStore
   /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate
   /**
@@ -64,6 +69,8 @@ interface WeekGridProps {
   writeTarget: WriteTargetCandidate | null
   /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
   onCreateEvent: (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => void
+  /** タスク行の枡チェックボックスのタップで呼ぶ(完了⇔未完了トグル、docs/google-tasks.md) */
+  onToggleTask: (task: TaskItem) => void
   /**
    * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
    * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
@@ -98,6 +105,7 @@ interface AllDayOverflowInfo {
 export function WeekGrid({
   store,
   allDayStore,
+  taskStore,
   weekStart,
   dayCount,
   timeZone,
@@ -107,6 +115,7 @@ export function WeekGrid({
   onDelete,
   writeTarget,
   onCreateEvent,
+  onToggleTask,
   longPressCreate = false,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -321,6 +330,27 @@ export function WeekGrid({
     [rawAllDayPanels, allDayVisibleRows, dayCount],
   )
 
+  // ---- タスクレーン (docs/google-tasks.md) ----
+  // 終日レーンと同じ日付範囲([fromDate, toDate] inclusive、表示中3パネルぶん)を TaskStore に
+  // 問い合わせる。タスクは複数日にまたがらない(due は単一の日付)ため、終日バーのような
+  // packDayBars は不要 — 日ごとに単純にリストアップするだけでよい。
+  // v1 はタスクリストの表示 ON/OFF が無いため取得済み全タスクを表示する(TODO: カレンダーと同様のトグル対応)
+  const tasksRaw = useTasks(taskStore, allDayFromDate, allDayToDate)
+
+  const taskPanels = useMemo(
+    () =>
+      panelStarts.map((panelStart) => {
+        const dayTasks = Array.from({ length: dayCount }, (_, i) => {
+          const dateStr = panelStart.add({ days: i }).toString()
+          return tasksRaw.filter((t) => t.dueDate === dateStr)
+        })
+        return { panelStart, dayTasks }
+      }),
+    [panelStarts, dayCount, tasksRaw],
+  )
+  // 表示中3パネルのどこかにタスクが1件でもあればレーンごと表示する(終日レーンと同じ流儀)
+  const taskLaneHasContent = tasksRaw.length > 0
+
   const handleCommit = useCallback(
     (updated: Occurrence) => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
@@ -407,6 +437,28 @@ export function WeekGrid({
                       </div>
                     ) : null,
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {taskLaneHasContent && (
+        <div className="week-grid-tasks">
+          <div className="week-grid-tasks-gutter">タスク</div>
+          <div className="week-grid-tasks-viewport">
+            <div className="week-grid-tasks-strip" style={stripStyle}>
+              {taskPanels.map(({ panelStart, dayTasks }) => (
+                <div className="week-grid-tasks-panel" key={panelStart.toString()} style={panelColumnsStyle}>
+                  {dayTasks.map((tasksOfDay, dayIndex) => (
+                    // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス)
+                    <div className="task-lane-day" key={dayIndex}>
+                      {tasksOfDay.map((task) => (
+                        <TaskRow key={task.id} task={task} onToggle={onToggleTask} />
+                      ))}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>

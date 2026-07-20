@@ -9,6 +9,10 @@ import type {
   MeResponse,
   SyncRequest,
   SyncResponse,
+  TaskListDTO,
+  TaskListsResponse,
+  TasksSyncRequest,
+  TasksSyncResponse,
   WatchRequest,
 } from '@kichijitsu/shared'
 import { buildEventDeleteRequest, buildEventPatchRequest } from './sync/eventPatch'
@@ -19,6 +23,8 @@ import {
   resolveDefaultWriteTarget,
   type WriteTargetCandidate,
 } from './sync/eventCreate'
+import { buildTaskPatchRequest } from './sync/mapTasks'
+import { applyTasksSyncResponse, deleteTasksForAccount } from './sync/applyTasksSync'
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from './sync/visibleCalendars'
 import { WeekGrid } from './components/WeekGrid'
 import { MonthView } from './components/MonthView'
@@ -35,9 +41,10 @@ import { useOffline } from './hooks/useOffline'
 import { useServerEvents } from './hooks/useServerEvents'
 import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries } from './model/dummy'
 import { instanceId } from './model/series'
-import type { Occurrence } from './model/types'
+import type { Occurrence, TaskItem } from './model/types'
 import { OccurrenceStore } from './store/occurrenceStore'
 import { AllDayStore } from './store/allDayStore'
+import { TaskStore } from './store/taskStore'
 import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
@@ -45,6 +52,7 @@ import {
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   getAllAllDayOccurrences,
+  getAllTasks,
   getExpansionState,
   getOccurrencesBetween,
   getOverride,
@@ -54,6 +62,7 @@ import {
   putOccurrences,
   putOverride,
   putSeries,
+  putTask,
   setVisibleCalendars,
   type KichijitsuDB,
   type VisibleCalendarsMap,
@@ -85,6 +94,12 @@ function dayCountForView(view: View): number {
     case 'month':
       return 0
   }
+}
+
+/** 同期対象の (accountId, taskListId) ペア(docs/google-tasks.md)。selectedTargets のタスク版 */
+interface TaskListTarget {
+  accountId: string
+  taskListId: string
 }
 
 const VIEW_STORAGE_KEY = 'kichijitsu:view'
@@ -177,6 +192,8 @@ function App() {
 
   const store = useMemo(() => new OccurrenceStore(), [])
   const allDayStore = useMemo(() => new AllDayStore(), [])
+  // Google タスク (docs/google-tasks.md) の読み口。AllDayStore と対になる別ストア
+  const taskStore = useMemo(() => new TaskStore(), [])
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null)
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
@@ -184,6 +201,10 @@ function App() {
   const [me, setMe] = useState<MeResponse>({ connected: false, accounts: [], visibleCalendars: {} })
   const [calendarsByAccount, setCalendarsByAccount] = useState<Record<string, CalendarListEntryDTO[]>>({})
   const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({})
+  // アカウントごとのタスクリスト一覧(docs/google-tasks.md)。tasks スコープ未付与(403)の
+  // アカウントはエントリが付かないまま = タスク機能オフとして扱う(v1: 表示 ON/OFF トグル無し、
+  // 取得できた全タスクリストを常時表示する。TODO: カレンダー同様の選択 UI)
+  const [taskListsByAccount, setTaskListsByAccount] = useState<Record<string, TaskListDTO[]>>({})
   const [panelOpen, setPanelOpen] = useState(false)
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -204,6 +225,11 @@ function App() {
   // 同一アカウントへの並行フェッチ防止(初回フェッチとパネルオープン時のリトライが
   // 同時に走るケースがあるため)
   const fetchInFlightRef = useRef(new Set<string>())
+  // 「このアカウントのタスクリスト一覧は初回フェッチ済み/フェッチ中」フラグ(fetchedAccountsRef のタスク版)
+  const fetchedTaskAccountsRef = useRef(new Set<string>())
+  // 新規に見つかった (accountId, taskListId) を一度だけ自動同期するための既知集合
+  // (`${accountId}:${taskListId}` キー、runSync の手動同期とは別に初回表示を早める用途)
+  const autoSyncedTaskListsRef = useRef(new Set<string>())
   // getVisibleCalendars(db) での初回ロードが終わるまでは、下の永続化 effect を
   // 発火させない({} で上書きしてしまわないためのガード)
   const visibleCalendarsLoadedRef = useRef(false)
@@ -356,13 +382,18 @@ function App() {
 
       // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
       const allDays = await getAllAllDayOccurrences(database)
+      // Google タスク (docs/google-tasks.md): 終日予定と同じく全件を丸ごとロードする
+      const allTasks = await getAllTasks(database)
 
-      // occurrences と終日予定の初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
+      // occurrences・終日予定・タスクの初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
       if (!cancelled) {
         await store.batch(async () => {
           await allDayStore.batch(async () => {
-            if (all) store.load(all)
-            allDayStore.load(allDays)
+            await taskStore.batch(async () => {
+              if (all) store.load(all)
+              allDayStore.load(allDays)
+              taskStore.load(allTasks)
+            })
           })
         })
       }
@@ -503,6 +534,46 @@ function App() {
     }
   }, [me.accounts, fetchCalendarsFor])
 
+  // アカウント一覧ぶんのタスクリスト一覧を取得する(docs/google-tasks.md)。fetchCalendarsFor と
+  // 対になる処理だが、タスクは v1 でトグル UI が無いためデフォルト選択・watch 登録の類は無く、
+  // 単純に一覧を state へ反映するだけでよい。tasks スコープ未付与のアカウントは
+  // GET /api/tasklists が 403 を返す想定 — その場合はタスク機能オフとして静かにスキップする
+  // (審査ポリシー上、未使用スコープは要求しないため実装済みでもユーザーが同意していなければ 403 になる)。
+  // バックエンド不在(502 相当)やその他のネットワークエラーもコンソールを汚さないよう warn 止まりにする。
+  const fetchTaskListsFor = useCallback(
+    async (accounts: AccountDTO[], isCancelled: () => boolean) => {
+      for (const account of accounts) {
+        try {
+          const res = await checkedFetch(`/api/tasklists?accountId=${encodeURIComponent(account.id)}`)
+          if (res.status === 403) continue // tasks スコープ未付与: 静かにスキップ
+          if (!res.ok) {
+            console.warn(`kichijitsu: GET /api/tasklists failed (${account.id}): ${res.status}`)
+            continue
+          }
+          const data = (await res.json()) as TaskListsResponse
+          if (isCancelled()) return
+          setTaskListsByAccount((prev) => ({ ...prev, [account.id]: data.taskLists }))
+        } catch (err) {
+          console.warn('kichijitsu: failed to load task lists', err)
+        }
+      }
+    },
+    [checkedFetch],
+  )
+
+  // me.accounts が増えるたびに、まだ取得していないアカウントのタスクリスト一覧を取りに行く(初回のみ)
+  useEffect(() => {
+    const toFetch = me.accounts.filter((a) => !fetchedTaskAccountsRef.current.has(a.id))
+    if (toFetch.length === 0) return
+    for (const account of toFetch) fetchedTaskAccountsRef.current.add(account.id)
+
+    let cancelled = false
+    fetchTaskListsFor(toFetch, () => cancelled)
+    return () => {
+      cancelled = true
+    }
+  }, [me.accounts, fetchTaskListsFor])
+
   // 設定パネルを開いたとき、カレンダー一覧がまだ無いアカウント(未取得中、または
   // 初回フェッチが失敗して calendarsByAccount に一度もエントリが入らなかったもの)を
   // 再フェッチする。panelOpen が true になった瞬間にのみ試みる(閉じている間や、
@@ -538,6 +609,25 @@ function App() {
     [db, store, allDayStore, checkedFetch],
   )
 
+  // 1つの (accountId, taskListId) を同期する共通処理(docs/google-tasks.md、syncCalendar のタスク版)。
+  // Tasks API には syncToken が無く、応答は常にそのタスクリストの全件 (protocol.ts 参照)。
+  const syncTaskList = useCallback(
+    async (accountId: string, taskListId: string) => {
+      if (!db) return
+      const res = await checkedFetch('/api/tasks/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId, taskListId } satisfies TasksSyncRequest),
+      })
+      if (!res.ok) {
+        throw new Error(`POST /api/tasks/sync failed (${accountId}/${taskListId}): ${res.status}`)
+      }
+      const data = (await res.json()) as TasksSyncResponse
+      await applyTasksSyncResponse(db, taskStore, data, { accountId, taskListId })
+    },
+    [db, taskStore, checkedFetch],
+  )
+
   // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色・primary か)。
   // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする。
   // primary フラグは新規予定の書き込み先決定 (defaultWriteTarget、フェーズ5) にも使う
@@ -553,6 +643,18 @@ function App() {
     return targets
   }, [me.accounts, calendarsByAccount, visibleCalendars])
 
+  // 取得済みの全 (accountId, taskListId) ペア一覧。v1 はタスクリストの表示 ON/OFF が無いため
+  // (docs/google-tasks.md の TODO)、fetchTaskListsFor で取れたものは無条件に同期対象にする
+  const selectedTaskListTargets = useCallback((): TaskListTarget[] => {
+    const targets: TaskListTarget[] = []
+    for (const account of me.accounts) {
+      for (const taskList of taskListsByAccount[account.id] ?? []) {
+        targets.push({ accountId: account.id, taskListId: taskList.id })
+      }
+    }
+    return targets
+  }, [me.accounts, taskListsByAccount])
+
   // 新規予定 (フェーズ5) のデフォルトの書き込み先: 選択中カレンダーのうち primary が
   // あればそれ、無ければ先頭 (resolveDefaultWriteTarget、規則は eventCreate.ts 参照)。
   // null なら空き領域クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
@@ -561,16 +663,19 @@ function App() {
     [selectedTargets],
   )
 
-  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペアを並行に同期する
+  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペア +
+  // 取得済みの全 (accountId, taskListId) ペアを並行に同期する(docs/google-tasks.md でタスクも合流)
   const runSync = useCallback(async () => {
     if (!db) return
     const targets = selectedTargets()
-    if (targets.length === 0) return
+    const taskTargets = selectedTaskListTargets()
+    if (targets.length === 0 && taskTargets.length === 0) return
 
     setSyncStatus('syncing')
-    const results = await Promise.allSettled(
-      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor)),
-    )
+    const results = await Promise.allSettled([
+      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor)),
+      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
+    ])
     let hadError = false
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -579,7 +684,7 @@ function App() {
       }
     }
     setSyncStatus(hadError ? 'error' : 'idle')
-  }, [db, selectedTargets, syncCalendar])
+  }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList])
 
   // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
   // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
@@ -638,6 +743,27 @@ function App() {
     autoSyncedRef.current = true
     runSync()
   }, [db, me.accounts, visibleCalendars, runSync])
+
+  // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
+  // (docs/google-tasks.md)。fetchTaskListsFor の完了タイミングは calendarsByAccount/visibleCalendars の
+  // 準備完了と揃わないことがあるため、上の「起動時1回だけ」の autoSyncedRef とは別に、
+  // タスクリスト単位で「初めて見つかった」ことを autoSyncedTaskListsRef で判定する。
+  // Tasks API には push 通知が無い (docs/google-tasks.md) ため、以降の更新反映は「同期」ボタン
+  // (runSync) 頼みになる — TODO: 定期ポーリングでの自動更新
+  useEffect(() => {
+    if (!db) return
+    const targets = selectedTaskListTargets()
+    const toSync = targets.filter((t) => !autoSyncedTaskListsRef.current.has(`${t.accountId}:${t.taskListId}`))
+    if (toSync.length === 0) return
+    for (const t of toSync) autoSyncedTaskListsRef.current.add(`${t.accountId}:${t.taskListId}`)
+    Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId))).then((results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.error('kichijitsu: initial task list sync failed', result.reason)
+        }
+      }
+    })
+  }, [db, taskListsByAccount, selectedTaskListTargets, syncTaskList])
 
   // カレンダー設定パネルでのチェックボックス操作。選択時は即座にそのカレンダーだけ同期し、
   // 選択解除時はその (accountId, calendarId) のローカルデータを削除して store から取り除く
@@ -702,13 +828,24 @@ function App() {
       })
       fetchedAccountsRef.current.delete(accountId)
 
+      // タスク側の状態も畳む(docs/google-tasks.md)。カレンダーと同じ流儀
+      setTaskListsByAccount((prev) => {
+        const { [accountId]: _removed, ...rest } = prev
+        return rest
+      })
+      fetchedTaskAccountsRef.current.delete(accountId)
+      for (const key of [...autoSyncedTaskListsRef.current]) {
+        if (key.startsWith(`${accountId}:`)) autoSyncedTaskListsRef.current.delete(key)
+      }
+
       if (db) {
         const { deletedOccurrenceIds, deletedAllDayIds } = await deleteGoogleData(db, (k) => k.accountId === accountId)
         store.remove(deletedOccurrenceIds)
         allDayStore.remove(deletedAllDayIds)
+        await deleteTasksForAccount(db, taskStore, accountId)
       }
     },
-    [db, store, allDayStore, checkedFetch],
+    [db, store, allDayStore, taskStore, checkedFetch],
   )
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
@@ -933,6 +1070,59 @@ function App() {
       })
     },
     [db, store, checkedFetch, flashSaveError],
+  )
+
+  // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
+  // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
+  // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
+  // 既存の saveError 通知を再利用する。正本は次の「同期」で還流する想定
+  // (Tasks API には push 通知が無いため、SSE 経由の即時還流は無い)。
+  const handleToggleTask = useCallback(
+    (task: TaskItem) => {
+      if (!db) return
+      const nextStatus: TaskItem['status'] = task.status === 'completed' ? 'needsAction' : 'completed'
+      const previous = task
+      const updated: TaskItem = { ...task, status: nextStatus }
+      // 楽観的更新: 応答を待たずに即座に見た目(枡の押印)へ反映する
+      taskStore.update(updated)
+      async function run() {
+        if (!db) return
+        await putTask(db, updated)
+
+        const patchReq = buildTaskPatchRequest(updated, nextStatus)
+        let ok = false
+        if (patchReq) {
+          try {
+            const res = await checkedFetch('/api/task/patch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patchReq),
+            })
+            // レスポンス (TaskPatchResponse) は ok フラグのみで、正本は次回「同期」で還流する想定
+            // (buildEventPatchRequest 経由の handlePersist と同じ流儀。ボディは読み捨てる)
+            ok = res.ok
+            if (!ok) {
+              console.error(`kichijitsu: POST /api/task/patch failed (${updated.id}): ${res.status}`)
+            }
+          } catch (err) {
+            console.error('kichijitsu: POST /api/task/patch failed', err)
+          }
+        } else {
+          console.error('kichijitsu: could not build TaskPatchRequest, skipping write-back', updated.id)
+        }
+
+        if (ok) return
+
+        // ロールバック: taskStore・IndexedDB を変更前の状態に戻す
+        taskStore.update(previous)
+        await putTask(db, previous)
+        flashSaveError()
+      }
+      run().catch((err) => {
+        console.error('kichijitsu: failed to persist task update', err)
+      })
+    },
+    [db, taskStore, checkedFetch, flashSaveError],
   )
 
   const withNavLock = useCallback((run: () => void) => {
@@ -1333,6 +1523,7 @@ function App() {
           <WeekGrid
             store={store}
             allDayStore={allDayStore}
+            taskStore={taskStore}
             weekStart={timelineStart}
             dayCount={dayCount}
             timeZone={timeZone}
@@ -1342,6 +1533,7 @@ function App() {
             onDelete={handleDeleteOccurrence}
             writeTarget={defaultWriteTarget}
             onCreateEvent={handleCreate}
+            onToggleTask={handleToggleTask}
             // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
             // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
             longPressCreate={isNarrow}
