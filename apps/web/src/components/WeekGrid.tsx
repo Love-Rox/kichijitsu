@@ -12,7 +12,8 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from '../layout/groupDuplicates'
-import { isBusyPlaceholder, minutesToPx, overlapsBusy, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { busyOverlapColors, isBusyPlaceholder, minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { resolveDisplayColor } from '../layout/eventColors'
 import { EventBlock, type CalendarInfo } from './EventBlock'
 import { AllDayBar } from './AllDayBar'
 import './WeekGrid.css'
@@ -423,13 +424,18 @@ export function WeekGrid({
                       })
                       .forEach((occ, rank) => stackZ.set(occ.id, rank))
 
-                    // 「予定あり」バッジ(2026-07-20): この日の Busy 区間を集め、非 Busy の
-                    // 各カードがどれかと重なっていれば blockedByBusy を立てる。Busy は
-                    // 最背面のまま動かさず、実予定側にバッジを出すことで隠れた Busy に気付けるようにする
+                    // 「予定あり」バッジ(2026-07-20): この日の Busy 区間を色付きで集め、
+                    // 非 Busy の各カードが重なる Busy のカレンダー色をバッジに出す。Busy は
+                    // 最背面のまま動かさず、実予定側にバッジを出すことで隠れた Busy に気付けるようにする。
+                    // 色は resolveDisplayColor で解決(表示色と一致させる)
                     const busyIntervals = positioned
                       .map((p) => p.item.primary)
                       .filter((occ) => isBusyPlaceholder(occ.title))
-                      .map((occ) => ({ startMs: occ.startMs, endMs: occ.endMs }))
+                      .map((occ) => ({
+                        startMs: occ.startMs,
+                        endMs: occ.endMs,
+                        color: resolveDisplayColor(occ, calendarLookup),
+                      }))
 
                     return (
                       <div
@@ -448,8 +454,10 @@ export function WeekGrid({
                           const leftPct = column * step * 100
                           const widthPct = 100 - leftPct
                           const stackIndex = stackZ.get(occurrence.id) ?? column
-                          const blockedByBusy =
-                            !isBusyPlaceholder(occurrence.title) && overlapsBusy(occurrence, busyIntervals)
+                          // 重なる Busy のカレンダー色一覧(重複排除、最大3色)。空なら重なりなし
+                          const blockedByBusyColors = isBusyPlaceholder(occurrence.title)
+                            ? []
+                            : busyOverlapColors(occurrence, busyIntervals)
 
                           return (
                             <EventBlock
@@ -462,7 +470,7 @@ export function WeekGrid({
                               leftPct={leftPct}
                               widthPct={widthPct}
                               isCompact={isCompact}
-                              blockedByBusy={blockedByBusy}
+                              blockedByBusyColors={blockedByBusyColors}
                               timeZone={timeZone}
                               dayIndex={dayIndex}
                               dayStartMs={dayStartMs}

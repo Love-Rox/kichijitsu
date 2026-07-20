@@ -47,12 +47,12 @@ interface EventBlockProps {
   stackIndex: number
   isCompact: boolean
   /**
-   * この occurrence (非 Busy) が、同じ日の Busy 区間のいずれかと時間的に重なっているか
-   * (WeekGrid 側で overlapsBusy により算出済み)。true ならカード端に「予定あり」の
-   * 斜線バッジを重ねて、Busy に隠れて見えない予定があることを示す(ユーザー決定 2026-07-20:
-   * Busy は最背面のまま、実予定側にバッジを出す方式)。
+   * この occurrence (非 Busy) が重なっている Busy のカレンダー色一覧(WeekGrid 側で
+   * busyOverlapColors により算出済み、重複排除・最大3色)。空でなければカード端に
+   * 「予定あり」バッジを出し、どのカレンダーの Busy にブロックされているかを色で示す
+   * (ユーザー決定 2026-07-20: Busy は最背面のまま、実予定側にバッジを出す方式)。
    */
-  blockedByBusy?: boolean
+  blockedByBusyColors?: string[]
   timeZone: string
   /** このブロックが今属している日の週内インデックス (0=月 .. 6=日) */
   dayIndex: number
@@ -116,7 +116,7 @@ export function EventBlock({
   widthPct,
   stackIndex,
   isCompact,
-  blockedByBusy,
+  blockedByBusyColors,
   timeZone,
   dayIndex,
   dayStartMs,
@@ -447,11 +447,22 @@ export function EventBlock({
             ))}
           </span>
         )}
-        {!isBusy && blockedByBusy && (
+        {!isBusy && blockedByBusyColors && blockedByBusyColors.length > 0 && (
           // 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、
-          // Busy の時間帯と重なる実予定側に小さな斜線バッジを出して「他の予定に隠れている
-          // Busy がある」ことを示す。ドラッグ/クリックを奪わないよう pointer-events:none(CSS 側)
-          <span className="event-busy-badge" aria-hidden="true" />
+          // Busy の時間帯と重なる実予定側にバッジを出して「他の予定に隠れている Busy がある」
+          // ことを示す。ブロック元 Busy のカレンダー色を斜線に反映(複数色は横に並べる)。
+          // ドラッグ/クリックを奪わないよう pointer-events:none(CSS 側)
+          <span className="event-busy-badge" aria-hidden="true">
+            {blockedByBusyColors.map((c, i) => (
+              <span
+                key={i}
+                className="event-busy-badge-stripe"
+                style={{
+                  backgroundImage: `repeating-linear-gradient(-45deg, transparent, transparent 2px, ${c} 2px, ${c} 4px)`,
+                }}
+              />
+            ))}
+          </span>
         )}
         {isCompact ? (
           <span className="event-line">

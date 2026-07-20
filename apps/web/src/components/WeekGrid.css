@@ -379,23 +379,28 @@
  * Busy に気付けるようにする。.event--busy の斜線ハッチと同じ模様の縮小版、色は控えめな
  * グレー(アプリの薄墨トーンに合わせる)。ドラッグ/クリックを奪わないよう pointer-events:none。
  */
+/*
+ * 「予定あり」バッジ (2026-07-20): Busy に隠れている時間帯を示す。ブロック元 Busy の
+ * カレンダー色を斜線ストライプで反映(複数色は横に並べる)。少し大きめでどのカレンダーの
+ * Busy か色で分かるようにする(ユーザー指摘 2026-07-20)。
+ */
 .event-busy-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  height: 16px;
+  border-radius: 3px;
+  overflow: hidden;
   pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
-  background-color: rgba(138, 132, 120, 0.18);
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent,
-    transparent 2px,
-    rgba(138, 132, 120, 0.6) 2px,
-    rgba(138, 132, 120, 0.6) 3px
-  );
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  background-color: #f4f1ea;
+}
+
+.event-busy-badge-stripe {
+  width: 10px;
+  height: 100%;
+  background-color: transparent;
 }
 
 /*

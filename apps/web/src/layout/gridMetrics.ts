@@ -91,3 +91,27 @@ export function overlapsBusy(
 ): boolean {
   return busyIntervals.some((b) => occ.startMs < b.endMs && occ.endMs > b.startMs)
 }
+
+/** 色付き Busy 区間 */
+export interface BusyInterval extends TimeInterval {
+  color: string
+}
+
+/**
+ * occ と時間的に重なる Busy 区間のカレンダー色一覧(重複排除・最大3色)。
+ * 実予定カードのバッジに「どのカレンダーの Busy にブロックされているか」を色で示す。
+ */
+export function busyOverlapColors(
+  occ: { startMs: number; endMs: number },
+  busyIntervals: readonly BusyInterval[],
+  max = 3,
+): string[] {
+  const colors: string[] = []
+  for (const b of busyIntervals) {
+    if (occ.startMs < b.endMs && occ.endMs > b.startMs && !colors.includes(b.color)) {
+      colors.push(b.color)
+      if (colors.length >= max) break
+    }
+  }
+  return colors
+}
