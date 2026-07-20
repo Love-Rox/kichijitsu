@@ -21,6 +21,11 @@ export type {
   TasksSyncResponse,
   TaskPatchRequest,
   TaskPatchResponse,
+  BlockMode,
+  BlockRuleDTO,
+  BlockRulesResponse,
+  BlockRuleUpsertRequest,
+  BlockRuleDeleteRequest,
   WatchRequest,
   SyncResponse,
 } from './protocol'

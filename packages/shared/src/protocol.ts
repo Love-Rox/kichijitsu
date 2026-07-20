@@ -215,3 +215,35 @@ export interface TaskPatchRequest {
 export interface TaskPatchResponse {
   ok: boolean
 }
+
+/**
+ * カレンダーブロック (docs/blocking.md、2026-07-20)。source カレンダー群の予定を
+ * target カレンダーに Busy/不在として自動複製する。時間帯のみ複製し内容は写さない。
+ */
+export type BlockMode = 'busy' | 'outOfOffice'
+
+export interface BlockRuleDTO {
+  id: string
+  /** 複製元の (accountId, calendarId) 群 */
+  sources: { accountId: string; calendarId: string }[]
+  /** 複製先。1つ。outOfOffice は Workspace primary 限定 (非対応時は busy にフォールバック) */
+  target: { accountId: string; calendarId: string }
+  mode: BlockMode
+}
+
+export interface BlockRulesResponse {
+  rules: BlockRuleDTO[]
+}
+
+/** POST /api/block-rules — ルール作成/更新 (id 無しで新規、有りで更新) */
+export interface BlockRuleUpsertRequest {
+  id?: string
+  sources: { accountId: string; calendarId: string }[]
+  target: { accountId: string; calendarId: string }
+  mode: BlockMode
+}
+
+/** DELETE /api/block-rules body */
+export interface BlockRuleDeleteRequest {
+  id: string
+}
