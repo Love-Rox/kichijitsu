@@ -1,19 +1,19 @@
-import type { GoogleTaskDTO, TaskListDTO } from '@kichijitsu/shared'
+import type { GoogleTaskDTO, TaskListDTO } from "@kichijitsu/shared";
 
-const TASKS_BASE = 'https://tasks.googleapis.com/tasks/v1'
+const TASKS_BASE = "https://tasks.googleapis.com/tasks/v1";
 
 /** Google Tasks API の tasklist リソースから必要部分だけを写した型。 */
 interface RawTaskList {
-  id: string
-  title: string
+  id: string;
+  title: string;
 }
 
 interface RawTaskListsResponse {
-  items?: RawTaskList[]
+  items?: RawTaskList[];
 }
 
 export function toTaskListDTO(raw: RawTaskList): TaskListDTO {
-  return { id: raw.id, title: raw.title }
+  return { id: raw.id, title: raw.title };
 }
 
 /**
@@ -25,32 +25,35 @@ export function toTaskListDTO(raw: RawTaskList): TaskListDTO {
  * もページングに触れていないため、ここでは maxResults のデフォルト (20) をそのまま使い
  * ページングは実装しない。
  */
-export async function fetchTaskLists(fetchFn: typeof fetch, accessToken: string): Promise<Response> {
+export async function fetchTaskLists(
+  fetchFn: typeof fetch,
+  accessToken: string,
+): Promise<Response> {
   return fetchFn(`${TASKS_BASE}/users/@me/lists`, {
     headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  });
 }
 
 export async function parseTaskListsResponse(response: Response): Promise<RawTaskListsResponse> {
-  return (await response.json()) as RawTaskListsResponse
+  return (await response.json()) as RawTaskListsResponse;
 }
 
 /** Google Tasks API の task リソースから必要部分だけを写した型。 */
 interface RawGoogleTask {
-  id: string
-  title: string
-  status: 'needsAction' | 'completed'
+  id: string;
+  title: string;
+  status: "needsAction" | "completed";
   /** RFC3339 だが日付精度のみ有効 (時刻は Google API が捨てる)。 */
-  due?: string
-  notes?: string
-  updated?: string
+  due?: string;
+  notes?: string;
+  updated?: string;
   /** 親タスク (サブタスク) の id */
-  parent?: string
+  parent?: string;
 }
 
 interface RawTasksListResponse {
-  items?: RawGoogleTask[]
-  nextPageToken?: string
+  items?: RawGoogleTask[];
+  nextPageToken?: string;
 }
 
 export function toGoogleTaskDTO(raw: RawGoogleTask): GoogleTaskDTO {
@@ -62,7 +65,7 @@ export function toGoogleTaskDTO(raw: RawGoogleTask): GoogleTaskDTO {
     notes: raw.notes,
     updated: raw.updated,
     parent: raw.parent,
-  }
+  };
 }
 
 /**
@@ -75,14 +78,14 @@ export function toGoogleTaskDTO(raw: RawGoogleTask): GoogleTaskDTO {
  * nextPageToken が無くなるまでページングする (呼び出し元 core/tasks.ts)。
  */
 export function buildTasksListUrl(taskListId: string, pageToken?: string): string {
-  const url = new URL(`${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks`)
-  url.searchParams.set('showCompleted', 'true')
-  url.searchParams.set('showHidden', 'true')
-  url.searchParams.set('maxResults', '100')
+  const url = new URL(`${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks`);
+  url.searchParams.set("showCompleted", "true");
+  url.searchParams.set("showHidden", "true");
+  url.searchParams.set("maxResults", "100");
   if (pageToken) {
-    url.searchParams.set('pageToken', pageToken)
+    url.searchParams.set("pageToken", pageToken);
   }
-  return url.toString()
+  return url.toString();
 }
 
 export async function fetchTasksPage(
@@ -93,17 +96,17 @@ export async function fetchTasksPage(
 ): Promise<Response> {
   return fetchFn(buildTasksListUrl(taskListId, pageToken), {
     headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  });
 }
 
 export async function parseTasksListResponse(response: Response): Promise<RawTasksListResponse> {
-  return (await response.json()) as RawTasksListResponse
+  return (await response.json()) as RawTasksListResponse;
 }
 
 export interface PatchTaskStatusParams {
-  taskListId: string
-  taskId: string
-  status: 'needsAction' | 'completed'
+  taskListId: string;
+  taskId: string;
+  status: "needsAction" | "completed";
 }
 
 /**
@@ -120,10 +123,10 @@ export async function patchTaskStatus(
   accessToken: string,
   params: PatchTaskStatusParams,
 ): Promise<Response> {
-  const url = `${TASKS_BASE}/lists/${encodeURIComponent(params.taskListId)}/tasks/${encodeURIComponent(params.taskId)}`
+  const url = `${TASKS_BASE}/lists/${encodeURIComponent(params.taskListId)}/tasks/${encodeURIComponent(params.taskId)}`;
   return fetchFn(url, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({ status: params.status }),
-  })
+  });
 }

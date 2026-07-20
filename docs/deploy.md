@@ -49,7 +49,7 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
 
 - `0001_init.sql` — `users` テーブル (廃止済み。0002 で `accounts` に置き換わる)
 - `0002_accounts.sql` — マルチアカウント対応。`accounts(id, profile_id, email,
-  refresh_token, created_at)` を作り、既存の `users` 行を `profile_id = id` として
+refresh_token, created_at)` を作り、既存の `users` 行を `profile_id = id` として
   そのままコピーしたうえで `users` を DROP する (「1 ユーザー = 1 プロファイル」という
   前提での素朴な移行で十分と判断した理由は migration ファイル内のコメント参照)。
   ローカルで `wrangler d1 migrations apply kichijitsu-sync --local` を先に試して、
@@ -57,8 +57,8 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
   で移行結果を確認しておくと安心。
 - `0003_watches.sql` — リアルタイム反映 (フェーズ4) 用。Google Calendar の push 通知
   (watch channel) の登録状態を持つ `watches(channel_id PK, resource_id, account_id,
-  calendar_id, profile_id, expiration_ms, created_at)` を作る。`(account_id,
-  calendar_id)` にユニークインデックスがあり、1 アカウント×1 カレンダーにつき watch は
+calendar_id, profile_id, expiration_ms, created_at)` を作る。`(account_id,
+calendar_id)` にユニークインデックスがあり、1 アカウント×1 カレンダーにつき watch は
   常に高々1つ。データを持たない新規テーブルの追加のみで、既存データの移行は無い。
 - `0004_owner.sql` — **アカウント設計の分離** (下記参照)。`accounts` に
   `is_owner INTEGER NOT NULL DEFAULT 0` を追加し、既存の束 (同じ `profile_id` を持つ
@@ -70,7 +70,7 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
   「どのカレンダーを表示するか」の選択がこれまで端末ローカル (IndexedDB) のみで、
   端末間で揃わなかった (別端末で一部カレンダーが出ない原因) 問題を解消する。
   選択の実体を持つ `account_visible_calendars(account_id, calendar_id, created_at,
-  PRIMARY KEY(account_id, calendar_id))` と、そのアカウントが選択を設定済みかを持つ
+PRIMARY KEY(account_id, calendar_id))` と、そのアカウントが選択を設定済みかを持つ
   `account_calendar_prefs(account_id PRIMARY KEY, configured, updated_at)` の2テーブルを
   新規作成するのみで、既存データの移行は無い。2テーブルに分けているのは「未設定
   (行が無い＝クライアントが primary をデフォルト選択)」と「空選択 (全部外した、という
@@ -98,7 +98,7 @@ mise exec -- pnpm --filter sync exec wrangler d1 migrations apply kichijitsu-syn
 ### アカウント設計の分離 (2026-07-20)
 
 **背景のバグ**: 「プロファイル (=セッション) = 複数 Google アカウントの束」という設計で、
-束に属する *どのアカウントでログインしても束全体が復活* していた。スマホで片方の
+束に属する _どのアカウントでログインしても束全体が復活_ していた。スマホで片方の
 アカウントでログインすると、PC で `?add=1` で追加しただけの別アカウントまで一緒に
 同期されてしまう (プライバシー/取り違えのリスク)。
 

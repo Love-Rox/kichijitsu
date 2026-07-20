@@ -339,7 +339,9 @@
   .block-rules-save-btn,
   .block-rules-rule-delete,
   .block-rules-close {
-    transition: background-color 120ms ease, color 120ms ease;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
   }
 }
 

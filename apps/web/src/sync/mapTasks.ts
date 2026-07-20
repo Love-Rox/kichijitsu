@@ -1,6 +1,6 @@
-import { Temporal } from '@js-temporal/polyfill'
-import type { GoogleTaskDTO, TaskPatchRequest } from '@kichijitsu/shared'
-import type { TaskItem } from '../model/types'
+import { Temporal } from "@js-temporal/polyfill";
+import type { GoogleTaskDTO, TaskPatchRequest } from "@kichijitsu/shared";
+import type { TaskItem } from "../model/types";
 
 /**
  * Google Tasks の task DTO を kichijitsu のローカルモデルへ変換する純関数層
@@ -11,13 +11,13 @@ import type { TaskItem } from '../model/types'
  * そのまま持つため、逆変換は prefix を剥がすだけで安全に行える — rawGoogleTaskId 参照)。
  */
 export interface MapTasksContext {
-  accountId: string
-  taskListId: string
+  accountId: string;
+  taskListId: string;
 }
 
 /** id 規則: `t:<accountId>:<taskListId>:<taskId>` */
 function taskKey(ctx: MapTasksContext, taskId: string): string {
-  return `t:${ctx.accountId}:${ctx.taskListId}:${taskId}`
+  return `t:${ctx.accountId}:${ctx.taskListId}:${taskId}`;
 }
 
 /**
@@ -27,18 +27,18 @@ function taskKey(ctx: MapTasksContext, taskId: string): string {
  * due が無い/パースできない場合は null (v1 では日付レーンに表示しないタスク扱い)。
  */
 export function parseDueDate(due: string | undefined): string | null {
-  if (!due) return null
+  if (!due) return null;
   try {
-    return Temporal.Instant.from(due).toZonedDateTimeISO('UTC').toPlainDate().toString()
+    return Temporal.Instant.from(due).toZonedDateTimeISO("UTC").toPlainDate().toString();
   } catch (err) {
-    console.warn(`mapGoogleTasks: failed to parse due date "${due}"`, err)
-    return null
+    console.warn(`mapGoogleTasks: failed to parse due date "${due}"`, err);
+    return null;
   }
 }
 
 /** GoogleTaskDTO[] → TaskItem[]。1件の変換失敗は同期全体を巻き込まないよう warn してスキップする */
 export function mapGoogleTasks(tasks: GoogleTaskDTO[], ctx: MapTasksContext): TaskItem[] {
-  const items: TaskItem[] = []
+  const items: TaskItem[] = [];
   for (const task of tasks) {
     try {
       items.push({
@@ -49,12 +49,12 @@ export function mapGoogleTasks(tasks: GoogleTaskDTO[], ctx: MapTasksContext): Ta
         dueDate: parseDueDate(task.due),
         status: task.status,
         ...(task.notes !== undefined ? { notes: task.notes } : {}),
-      })
+      });
     } catch (err) {
-      console.warn(`mapGoogleTasks: failed to convert task ${task.id}, skipping`, err)
+      console.warn(`mapGoogleTasks: failed to convert task ${task.id}, skipping`, err);
     }
   }
-  return items
+  return items;
 }
 
 /**
@@ -63,11 +63,11 @@ export function mapGoogleTasks(tasks: GoogleTaskDTO[], ctx: MapTasksContext): Ta
  * コロンが含まれていても安全に復元できる (mapGoogle.ts の rawGoogleEventId と同じ思想)。
  */
 export function rawGoogleTaskId(id: string, accountId: string, taskListId: string): string {
-  const prefix = `t:${accountId}:${taskListId}:`
+  const prefix = `t:${accountId}:${taskListId}:`;
   if (!id.startsWith(prefix)) {
-    throw new Error(`kichijitsu: not a matching task id: "${id}" (expected prefix "${prefix}")`)
+    throw new Error(`kichijitsu: not a matching task id: "${id}" (expected prefix "${prefix}")`);
   }
-  return id.slice(prefix.length)
+  return id.slice(prefix.length);
 }
 
 /**
@@ -76,18 +76,18 @@ export function rawGoogleTaskId(id: string, accountId: string, taskListId: strin
  */
 export function buildTaskPatchRequest(
   task: TaskItem,
-  nextStatus: TaskItem['status'],
+  nextStatus: TaskItem["status"],
 ): TaskPatchRequest | null {
   try {
-    const taskId = rawGoogleTaskId(task.id, task.accountId, task.taskListId)
+    const taskId = rawGoogleTaskId(task.id, task.accountId, task.taskListId);
     return {
       accountId: task.accountId,
       taskListId: task.taskListId,
       taskId,
       status: nextStatus,
-    }
+    };
   } catch (err) {
-    console.error('kichijitsu: failed to build TaskPatchRequest', err)
-    return null
+    console.error("kichijitsu: failed to build TaskPatchRequest", err);
+    return null;
   }
 }

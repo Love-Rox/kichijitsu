@@ -1,16 +1,16 @@
-import './MasuIndicator.css'
+import "./MasuIndicator.css";
 
 interface MasuIndicatorProps {
   /** sm = ボタン内用(高さ約14px)、md = 標準(高さ約48px) */
-  size?: 'sm' | 'md'
-  className?: string
+  size?: "sm" | "md";
+  className?: string;
 }
 
 interface Cell {
-  x: number
+  x: number;
   /** brand/README.md: 枡の登場ずれ 130ms */
-  delayMs: number
-  kichi?: true
+  delayMs: number;
+  kichi?: true;
 }
 
 // ロゴ mark-week (brand/mark-week.svg, Logo.tsx の <LogoMark>) と同一ジオメトリ。
@@ -23,7 +23,7 @@ const CELLS: readonly Cell[] = [
   { x: 116.5, delayMs: 520, kichi: true },
   { x: 144, delayMs: 650 },
   { x: 170, delayMs: 780 },
-]
+];
 
 /**
  * 枡インジケーター(brand/README.md「モーション」節)。同期中・展開中などの
@@ -32,8 +32,10 @@ const CELLS: readonly Cell[] = [
  * (scale 1.45→1→1.06→1、常に rotate(-8deg))、他は scale .55→1 で静かに登場する。
  * `prefers-reduced-motion: reduce` では MasuIndicator.css 側で静止した完成形マークに切り替わる。
  */
-export function MasuIndicator({ size = 'md', className }: MasuIndicatorProps) {
-  const classes = ['masu-indicator', `masu-indicator--${size}`, className].filter(Boolean).join(' ')
+export function MasuIndicator({ size = "md", className }: MasuIndicatorProps) {
+  const classes = ["masu-indicator", `masu-indicator--${size}`, className]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <svg viewBox="0 0 200 56" className={classes} role="img" aria-label="読み込み中">
@@ -63,5 +65,5 @@ export function MasuIndicator({ size = 'md', className }: MasuIndicatorProps) {
         ),
       )}
     </svg>
-  )
+  );
 }

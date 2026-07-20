@@ -1,23 +1,23 @@
-import { useEffect, useRef } from 'react'
-import type { ServerEvent } from '@kichijitsu/shared'
+import { useEffect, useRef } from "react";
+import type { ServerEvent } from "@kichijitsu/shared";
 
 /** changed イベントのバースト対策: 同じ (accountId, calendarId) の連続 changed をまとめる待ち時間 */
-const CHANGED_DEBOUNCE_MS = 2000
+const CHANGED_DEBOUNCE_MS = 2000;
 
 export interface ServerEventHandlers {
   /** SSE 接続時/再接続時に1回発火。取りこぼしがあり得るため選択中カレンダーを一巡 sync すること */
-  onHello: () => void
+  onHello: () => void;
   /** 該当 (accountId, calendarId) の変更通知。選択中なら sync すること(ペイロード自体は信用しない) */
-  onChanged: (accountId: string, calendarId: string) => void
+  onChanged: (accountId: string, calendarId: string) => void;
 }
 
 export interface UseServerEventsOptions extends ServerEventHandlers {
   /** 接続条件(App.tsx: アカウントが1つ以上連携済み)。false の間は EventSource を張らない */
-  enabled: boolean
+  enabled: boolean;
   /** EventSource の 'open' (接続成功/再接続成功) で呼ぶ。useOffline の markOnline 相当を渡す想定 */
-  onOpen?: () => void
+  onOpen?: () => void;
   /** EventSource の 'error' で呼ぶ。useOffline の markOffline 相当を渡す想定 */
-  onError?: () => void
+  onError?: () => void;
 }
 
 /**
@@ -32,25 +32,25 @@ export function createChangedDebouncer(
   dispatch: (accountId: string, calendarId: string) => void,
   delayMs = CHANGED_DEBOUNCE_MS,
 ): { schedule: (accountId: string, calendarId: string) => void; clear: () => void } {
-  const timers = new Map<string, ReturnType<typeof setTimeout>>()
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function schedule(accountId: string, calendarId: string): void {
-    const key = `${accountId}:${calendarId}`
-    const existing = timers.get(key)
-    if (existing !== undefined) clearTimeout(existing)
+    const key = `${accountId}:${calendarId}`;
+    const existing = timers.get(key);
+    if (existing !== undefined) clearTimeout(existing);
     const timer = setTimeout(() => {
-      timers.delete(key)
-      dispatch(accountId, calendarId)
-    }, delayMs)
-    timers.set(key, timer)
+      timers.delete(key);
+      dispatch(accountId, calendarId);
+    }, delayMs);
+    timers.set(key, timer);
   }
 
   function clear(): void {
-    for (const timer of timers.values()) clearTimeout(timer)
-    timers.clear()
+    for (const timer of timers.values()) clearTimeout(timer);
+    timers.clear();
   }
 
-  return { schedule, clear }
+  return { schedule, clear };
 }
 
 /**
@@ -60,22 +60,26 @@ export function createChangedDebouncer(
  */
 export function parseServerEvent(raw: string): ServerEvent | null {
   try {
-    const data = JSON.parse(raw) as Record<string, unknown> | null
-    if (!data || typeof data !== 'object') return null
-    if (data.type === 'hello') return { type: 'hello' }
-    if (data.type === 'changed' && typeof data.accountId === 'string' && typeof data.calendarId === 'string') {
-      return { type: 'changed', accountId: data.accountId, calendarId: data.calendarId }
+    const data = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!data || typeof data !== "object") return null;
+    if (data.type === "hello") return { type: "hello" };
+    if (
+      data.type === "changed" &&
+      typeof data.accountId === "string" &&
+      typeof data.calendarId === "string"
+    ) {
+      return { type: "changed", accountId: data.accountId, calendarId: data.calendarId };
     }
-    return null
+    return null;
   } catch {
-    return null
+    return null;
   }
 }
 
 /** EventSource 本体・テスト用フェイクの双方が満たせる最小限のインターフェース */
 export interface EventSourceLike {
-  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void
-  removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void
+  addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
+  removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
 }
 
 /**
@@ -84,25 +88,28 @@ export interface EventSourceLike {
  * 戻り値の関数はリスナー解除 + デバウンスタイマーの掃除を行う(呼び出し側は接続を
  * 閉じる直前に呼ぶこと)。
  */
-export function attachServerEventListeners(es: EventSourceLike, handlers: ServerEventHandlers): () => void {
-  const debouncer = createChangedDebouncer(handlers.onChanged)
+export function attachServerEventListeners(
+  es: EventSourceLike,
+  handlers: ServerEventHandlers,
+): () => void {
+  const debouncer = createChangedDebouncer(handlers.onChanged);
 
   function onMessage(event: MessageEvent): void {
-    const parsed = parseServerEvent(event.data as string)
-    if (!parsed) return
-    if (parsed.type === 'hello') {
-      handlers.onHello()
+    const parsed = parseServerEvent(event.data as string);
+    if (!parsed) return;
+    if (parsed.type === "hello") {
+      handlers.onHello();
     } else {
-      debouncer.schedule(parsed.accountId, parsed.calendarId)
+      debouncer.schedule(parsed.accountId, parsed.calendarId);
     }
   }
 
-  es.addEventListener('message', onMessage)
+  es.addEventListener("message", onMessage);
 
   return () => {
-    es.removeEventListener('message', onMessage)
-    debouncer.clear()
-  }
+    es.removeEventListener("message", onMessage);
+    debouncer.clear();
+  };
 }
 
 /**
@@ -115,44 +122,44 @@ export function attachServerEventListeners(es: EventSourceLike, handlers: Server
  *   ログし、open で再び接続できたらログ状態をリセットする(以後の失敗はまた1回だけ出す)
  */
 export function useServerEvents(options: UseServerEventsOptions): void {
-  const { enabled, onHello, onChanged, onOpen, onError } = options
+  const { enabled, onHello, onChanged, onOpen, onError } = options;
   // イベントハンドラを ref に逃がし、effect の再実行(= EventSource の張り直し)を
   // enabled の変化だけに絞る(onHello 等はレンダーごとに新しい参照になり得るため)
-  const handlersRef = useRef({ onHello, onChanged, onOpen, onError })
-  handlersRef.current = { onHello, onChanged, onOpen, onError }
+  const handlersRef = useRef({ onHello, onChanged, onOpen, onError });
+  handlersRef.current = { onHello, onChanged, onOpen, onError };
 
   useEffect(() => {
-    if (!enabled) return
-    if (typeof EventSource === 'undefined') return
+    if (!enabled) return;
+    if (typeof EventSource === "undefined") return;
 
-    const es = new EventSource('/api/events')
-    let loggedError = false
+    const es = new EventSource("/api/events");
+    let loggedError = false;
 
     function handleOpen(): void {
-      loggedError = false
-      handlersRef.current.onOpen?.()
+      loggedError = false;
+      handlersRef.current.onOpen?.();
     }
 
     function handleError(): void {
       if (!loggedError) {
-        loggedError = true
-        console.error('kichijitsu: SSE /api/events connection error (auto-retrying)')
+        loggedError = true;
+        console.error("kichijitsu: SSE /api/events connection error (auto-retrying)");
       }
-      handlersRef.current.onError?.()
+      handlersRef.current.onError?.();
     }
 
-    es.addEventListener('open', handleOpen)
-    es.addEventListener('error', handleError)
+    es.addEventListener("open", handleOpen);
+    es.addEventListener("error", handleError);
     const detach = attachServerEventListeners(es, {
       onHello: () => handlersRef.current.onHello(),
       onChanged: (accountId, calendarId) => handlersRef.current.onChanged(accountId, calendarId),
-    })
+    });
 
     return () => {
-      es.removeEventListener('open', handleOpen)
-      es.removeEventListener('error', handleError)
-      detach()
-      es.close()
-    }
-  }, [enabled])
+      es.removeEventListener("open", handleOpen);
+      es.removeEventListener("error", handleError);
+      detach();
+      es.close();
+    };
+  }, [enabled]);
 }

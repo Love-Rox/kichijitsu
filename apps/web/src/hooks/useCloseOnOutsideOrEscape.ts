@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import type { RefObject } from 'react'
+import { useEffect } from "react";
+import type { RefObject } from "react";
 
 /**
  * ポップオーバー/カード系 UI の共通の「開いている間: 外側クリック・Escape で閉じる」挙動。
@@ -14,22 +14,22 @@ export function useCloseOnOutsideOrEscape(
   onClose: () => void,
 ): void {
   useEffect(() => {
-    if (!active) return
+    if (!active) return;
     function onPointerDownOutside(e: PointerEvent) {
-      const card = cardRef.current
+      const card = cardRef.current;
       if (card && !card.contains(e.target as Node)) {
-        onClose()
+        onClose();
       }
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === "Escape") onClose();
     }
-    document.addEventListener('pointerdown', onPointerDownOutside)
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener("pointerdown", onPointerDownOutside);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', onPointerDownOutside)
-      document.removeEventListener('keydown', onKeyDown)
-    }
+      document.removeEventListener("pointerdown", onPointerDownOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active])
+  }, [active]);
 }

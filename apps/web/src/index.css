@@ -1,4 +1,4 @@
-@import './masu.css';
+@import "./masu.css";
 
 * {
   box-sizing: border-box;
@@ -13,7 +13,7 @@ body,
 }
 
 body {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
   color: #111827;
   background: #fff;
 }

@@ -1,6 +1,6 @@
-import type { IDBPDatabase } from 'idb'
-import type { SyncResponse } from '@kichijitsu/shared'
-import type { KichijitsuDB } from '../db/database'
+import type { IDBPDatabase } from "idb";
+import type { SyncResponse } from "@kichijitsu/shared";
+import type { KichijitsuDB } from "../db/database";
 import {
   deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
@@ -16,16 +16,16 @@ import {
   putOccurrences,
   putOverride,
   putSeries,
-} from '../db/database'
-import { reexpandCurrentWindow } from '../expansion/ensureExpanded'
-import type { OccurrenceStore } from '../store/occurrenceStore'
-import type { AllDayStore } from '../store/allDayStore'
-import { mapGoogleEvents, type MapGoogleContext } from './mapGoogle'
+} from "../db/database";
+import { reexpandCurrentWindow } from "../expansion/ensureExpanded";
+import type { OccurrenceStore } from "../store/occurrenceStore";
+import type { AllDayStore } from "../store/allDayStore";
+import { mapGoogleEvents, type MapGoogleContext } from "./mapGoogle";
 
 /** deleteGoogleData のフィルタに渡す、削除対象を絞り込むための occurrence/series のキー */
 export interface GoogleDataKey {
-  accountId?: string
-  calendarId?: string
+  accountId?: string;
+  calendarId?: string;
 }
 
 /**
@@ -46,38 +46,39 @@ export async function deleteGoogleData(
   db: IDBPDatabase<KichijitsuDB>,
   filter?: (key: GoogleDataKey) => boolean,
 ): Promise<{ deletedOccurrenceIds: string[]; deletedAllDayIds: string[] }> {
-  const [existingSeries, existingOverrides, existingOccurrences, existingAllDays] = await Promise.all([
-    getAllSeries(db),
-    getAllOverrides(db),
-    getAllOccurrences(db),
-    getAllAllDayOccurrences(db),
-  ])
+  const [existingSeries, existingOverrides, existingOccurrences, existingAllDays] =
+    await Promise.all([
+      getAllSeries(db),
+      getAllOverrides(db),
+      getAllOccurrences(db),
+      getAllAllDayOccurrences(db),
+    ]);
   const matches = (accountId?: string, calendarId?: string): boolean =>
-    filter ? filter({ accountId, calendarId }) : true
+    filter ? filter({ accountId, calendarId }) : true;
 
   const googleSeriesIds = new Set(
     existingSeries
-      .filter((s) => s.source === 'google' && matches(s.accountId, s.calendarId))
+      .filter((s) => s.source === "google" && matches(s.accountId, s.calendarId))
       .map((s) => s.id),
-  )
+  );
   const googleOverrideIds = existingOverrides
     .filter((o) => googleSeriesIds.has(o.seriesId))
-    .map((o) => o.id)
+    .map((o) => o.id);
   const googleOccurrenceIds = existingOccurrences
-    .filter((o) => o.source === 'google' && matches(o.accountId, o.calendarId))
-    .map((o) => o.id)
+    .filter((o) => o.source === "google" && matches(o.accountId, o.calendarId))
+    .map((o) => o.id);
   const googleAllDayIds = existingAllDays
-    .filter((o) => o.source === 'google' && matches(o.accountId, o.calendarId))
-    .map((o) => o.id)
+    .filter((o) => o.source === "google" && matches(o.accountId, o.calendarId))
+    .map((o) => o.id);
 
   await Promise.all([
     deleteSeriesByIds(db, [...googleSeriesIds]),
     deleteOverridesByIds(db, googleOverrideIds),
     deleteOccurrencesByIds(db, googleOccurrenceIds),
     deleteAllDayOccurrencesByIds(db, googleAllDayIds),
-  ])
+  ]);
 
-  return { deletedOccurrenceIds: googleOccurrenceIds, deletedAllDayIds: googleAllDayIds }
+  return { deletedOccurrenceIds: googleOccurrenceIds, deletedAllDayIds: googleAllDayIds };
 }
 
 /**
@@ -107,33 +108,33 @@ export async function applySyncResponse(
         const { deletedOccurrenceIds, deletedAllDayIds } = await deleteGoogleData(
           db,
           (k) => k.accountId === ctx.accountId && k.calendarId === ctx.calendarId,
-        )
-        store.remove(deletedOccurrenceIds)
-        allDayStore.remove(deletedAllDayIds)
+        );
+        store.remove(deletedOccurrenceIds);
+        allDayStore.remove(deletedAllDayIds);
       }
 
-      const mapped = mapGoogleEvents(res.events, ctx)
+      const mapped = mapGoogleEvents(res.events, ctx);
 
-      await putSeries(db, mapped.series)
-      await Promise.all(mapped.overrides.map((o) => putOverride(db, o)))
-      await putOccurrences(db, mapped.singles)
-      await deleteOccurrencesByIds(db, mapped.deletedSingleIds)
-      store.remove(mapped.deletedSingleIds)
+      await putSeries(db, mapped.series);
+      await Promise.all(mapped.overrides.map((o) => putOverride(db, o)));
+      await putOccurrences(db, mapped.singles);
+      await deleteOccurrencesByIds(db, mapped.deletedSingleIds);
+      store.remove(mapped.deletedSingleIds);
 
       // 終日予定 (フェーズ5): 展開ウィンドウが無いため単純に put/delete して store に反映するだけでよい
-      await putAllDayOccurrences(db, mapped.allDays)
-      await deleteAllDayOccurrencesByIds(db, mapped.deletedAllDayIds)
-      allDayStore.remove(mapped.deletedAllDayIds)
-      allDayStore.load(mapped.allDays)
+      await putAllDayOccurrences(db, mapped.allDays);
+      await deleteAllDayOccurrencesByIds(db, mapped.deletedAllDayIds);
+      allDayStore.remove(mapped.deletedAllDayIds);
+      allDayStore.load(mapped.allDays);
 
       // series 定義そのものが変わっている可能性があるため、展開済み範囲を無条件に作り直す
-      await reexpandCurrentWindow(db, store)
+      await reexpandCurrentWindow(db, store);
 
-      const state = await getExpansionState(db)
+      const state = await getExpansionState(db);
       if (state) {
-        const all = await getOccurrencesBetween(db, state.expandedFromMs, state.expandedToMs)
-        store.load(all)
+        const all = await getOccurrencesBetween(db, state.expandedFromMs, state.expandedToMs);
+        store.load(all);
       }
-    })
-  })
+    });
+  });
 }

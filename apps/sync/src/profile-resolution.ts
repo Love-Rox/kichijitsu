@@ -22,26 +22,26 @@
  * ランダム性に依存しない純関数のまま保つため。
  */
 export interface ExistingAccountOwnership {
-  profileId: string
-  isOwner: boolean
+  profileId: string;
+  isOwner: boolean;
 }
 
 export type LoginProfileResolution =
-  | { kind: 'restore-owner-profile'; profileId: string }
-  | { kind: 'new-profile'; profileId: string }
+  | { kind: "restore-owner-profile"; profileId: string }
+  | { kind: "new-profile"; profileId: string };
 
 export function resolveLoginProfile(
   existing: ExistingAccountOwnership | null,
   newProfileId: string,
 ): LoginProfileResolution {
   if (existing?.isOwner) {
-    return { kind: 'restore-owner-profile', profileId: existing.profileId }
+    return { kind: "restore-owner-profile", profileId: existing.profileId };
   }
   // existing === null (初めて連携する Google アカウント) と
   // existing.isOwner === false (どこかの接続でしかない) をどちらも「新規プロファイル」に
   // まとめる — login モードでは「オーナーかどうか」だけが分岐条件であり、
   // 「接続として既知かどうか」はプロファイル解決に影響しない。
-  return { kind: 'new-profile', profileId: newProfileId }
+  return { kind: "new-profile", profileId: newProfileId };
 }
 
 /**
@@ -52,15 +52,15 @@ export function resolveLoginProfile(
  * (SQL 側のロジックと乖離しないよう、変更時は両方を見直すこと)。
  */
 export interface OwnerCandidate {
-  id: string
-  createdAt: number
+  id: string;
+  createdAt: number;
 }
 
 export function selectOwnerAccountId(accounts: readonly OwnerCandidate[]): string | null {
-  if (accounts.length === 0) return null
+  if (accounts.length === 0) return null;
   return accounts.reduce((owner, candidate) => {
-    if (candidate.createdAt < owner.createdAt) return candidate
-    if (candidate.createdAt === owner.createdAt && candidate.id < owner.id) return candidate
-    return owner
-  }).id
+    if (candidate.createdAt < owner.createdAt) return candidate;
+    if (candidate.createdAt === owner.createdAt && candidate.id < owner.id) return candidate;
+    return owner;
+  }).id;
 }

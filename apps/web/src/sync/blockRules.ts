@@ -4,7 +4,7 @@ import type {
   BlockRuleDTO,
   BlockRuleUpsertRequest,
   CalendarListEntryDTO,
-} from '@kichijitsu/shared'
+} from "@kichijitsu/shared";
 
 /**
  * カレンダーブロック (docs/blocking.md、2026-07-20) の設定 UI 用ヘルパー。
@@ -20,22 +20,22 @@ export function buildBlockRuleUpsertRequest(
   mode: BlockMode,
   id?: string,
 ): BlockRuleUpsertRequest {
-  return { id, sources, target, mode }
+  return { id, sources, target, mode };
 }
 
 /** DELETE /api/block-rules のリクエストボディを組み立てる */
 export function buildBlockRuleDeleteRequest(id: string): BlockRuleDeleteRequest {
-  return { id }
+  return { id };
 }
 
 /** mode の表示名 (バッジに使う) */
 const MODE_LABELS: Record<BlockMode, string> = {
-  busy: '予定あり',
-  outOfOffice: '不在',
-}
+  busy: "予定あり",
+  outOfOffice: "不在",
+};
 
 export function blockModeLabel(mode: BlockMode): string {
-  return MODE_LABELS[mode]
+  return MODE_LABELS[mode];
 }
 
 /**
@@ -48,17 +48,17 @@ export function resolveCalendarName(
   accountId: string,
   calendarId: string,
 ): string {
-  const calendar = calendarsByAccount[accountId]?.find((c) => c.id === calendarId)
-  return calendar?.summary ?? calendarId
+  const calendar = calendarsByAccount[accountId]?.find((c) => c.id === calendarId);
+  return calendar?.summary ?? calendarId;
 }
 
 /** BlockRuleDTO を一覧行の表示に必要な形へ整形したもの */
 export interface BlockRuleDisplay {
-  id: string
+  id: string;
   /** source カレンダー名の配列(複数はカンマ区切り表示を呼び出し側に委ねるため配列のまま渡す) */
-  sourceNames: string[]
-  targetName: string
-  modeLabel: string
+  sourceNames: string[];
+  targetName: string;
+  modeLabel: string;
 }
 
 /** ルール一覧表示用に DTO を整形する(カレンダー名解決込み) */
@@ -68,8 +68,14 @@ export function describeBlockRule(
 ): BlockRuleDisplay {
   return {
     id: rule.id,
-    sourceNames: rule.sources.map((s) => resolveCalendarName(calendarsByAccount, s.accountId, s.calendarId)),
-    targetName: resolveCalendarName(calendarsByAccount, rule.target.accountId, rule.target.calendarId),
+    sourceNames: rule.sources.map((s) =>
+      resolveCalendarName(calendarsByAccount, s.accountId, s.calendarId),
+    ),
+    targetName: resolveCalendarName(
+      calendarsByAccount,
+      rule.target.accountId,
+      rule.target.calendarId,
+    ),
     modeLabel: blockModeLabel(rule.mode),
-  }
+  };
 }

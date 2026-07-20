@@ -1,4 +1,4 @@
-import { Temporal } from '@js-temporal/polyfill'
+import { Temporal } from "@js-temporal/polyfill";
 
 /**
  * 週グリッドの座標系（px⇔分）と時刻フォーマットを1箇所にまとめる。
@@ -6,9 +6,9 @@ import { Temporal } from '@js-temporal/polyfill'
  * ためだけに独立したモジュールにしてある。
  */
 
-export const HOUR_HEIGHT = 48
-export const DAY_HEIGHT = HOUR_HEIGHT * 24
-export const PX_PER_MINUTE = HOUR_HEIGHT / 60
+export const HOUR_HEIGHT = 48;
+export const DAY_HEIGHT = HOUR_HEIGHT * 24;
+export const PX_PER_MINUTE = HOUR_HEIGHT / 60;
 
 /**
  * 日列内のイベント配置(カスケード表示、フェーズ5)の左右ガター。
@@ -16,37 +16,37 @@ export const PX_PER_MINUTE = HOUR_HEIGHT / 60
  * (WeekGrid のカスケード列計算は 0-100% の「使用可能幅」基準で行い、
  * EventBlock 側でこの px インセットと組み合わせて calc() する)
  */
-export const DAY_COLUMN_INSET_PX = 3
+export const DAY_COLUMN_INSET_PX = 3;
 
 /** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */
-export const COMPACT_THRESHOLD_MIN = 40
+export const COMPACT_THRESHOLD_MIN = 40;
 
 export function minutesToPx(minutes: number): number {
-  return minutes * PX_PER_MINUTE
+  return minutes * PX_PER_MINUTE;
 }
 
 export function pxToMinutes(px: number): number {
-  return px / PX_PER_MINUTE
+  return px / PX_PER_MINUTE;
 }
 
 export function formatTime(ms: number, timeZone: string): string {
-  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone)
-  return `${zdt.hour}:${String(zdt.minute).padStart(2, '0')}`
+  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone);
+  return `${zdt.hour}:${String(zdt.minute).padStart(2, "0")}`;
 }
 
 /** ドラッグ中のフローティングバッジ用: 「14:00 – 15:00」形式 */
 export function formatRange(startMs: number, endMs: number, timeZone: string): string {
-  return `${formatTime(startMs, timeZone)} – ${formatTime(endMs, timeZone)}`
+  return `${formatTime(startMs, timeZone)} – ${formatTime(endMs, timeZone)}`;
 }
 
 /** WeekGrid の曜日ヘッダーと EventBlock の詳細ポップオーバーで共有する曜日ラベル */
-export const WEEKDAY_LABELS = ['月', '火', '水', '木', '金', '土', '日'] as const
+export const WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 
 /** 詳細ポップオーバー用: 「7月20日(月) 10:00 – 11:00」形式 (曜日込み) */
 export function formatDetailDateTime(startMs: number, endMs: number, timeZone: string): string {
-  const start = Temporal.Instant.fromEpochMilliseconds(startMs).toZonedDateTimeISO(timeZone)
-  const dateLabel = `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`
-  return `${dateLabel} ${formatRange(startMs, endMs, timeZone)}`
+  const start = Temporal.Instant.fromEpochMilliseconds(startMs).toZonedDateTimeISO(timeZone);
+  const dateLabel = `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`;
+  return `${dateLabel} ${formatRange(startMs, endMs, timeZone)}`;
 }
 
 /**
@@ -57,12 +57,12 @@ export function formatDetailDateTime(startMs: number, endMs: number, timeZone: s
  * (終日予定は壁時計の日付そのものを表す)。
  */
 export function formatAllDayDateRange(startDate: string, endDate: string): string {
-  const start = Temporal.PlainDate.from(startDate)
-  const end = Temporal.PlainDate.from(endDate)
+  const start = Temporal.PlainDate.from(startDate);
+  const end = Temporal.PlainDate.from(endDate);
   if (start.equals(end)) {
-    return `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`
+    return `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`;
   }
-  return `${start.month}月${start.day}日〜${end.month}月${end.day}日`
+  return `${start.month}月${start.day}日〜${end.month}月${end.day}日`;
 }
 
 /**
@@ -71,14 +71,14 @@ export function formatAllDayDateRange(startDate: string, endDate: string): strin
  * カスケードでは実予定を覆わないよう無条件に最背面へ回す (ユーザー決定 2026-07-20)。
  */
 export function isBusyPlaceholder(title: string): boolean {
-  const t = title.trim()
-  return t === 'Busy' || t === '予定あり'
+  const t = title.trim();
+  return t === "Busy" || t === "予定あり";
 }
 
 /** [startMs, endMs) の半開区間。overlapsBusy の busyIntervals 引数の要素型 */
 export interface TimeInterval {
-  startMs: number
-  endMs: number
+  startMs: number;
+  endMs: number;
 }
 
 /**
@@ -92,12 +92,12 @@ export function overlapsBusy(
   occ: { startMs: number; endMs: number },
   busyIntervals: readonly TimeInterval[],
 ): boolean {
-  return busyIntervals.some((b) => occ.startMs < b.endMs && occ.endMs > b.startMs)
+  return busyIntervals.some((b) => occ.startMs < b.endMs && occ.endMs > b.startMs);
 }
 
 /** 色付き Busy 区間 */
 export interface BusyInterval extends TimeInterval {
-  color: string
+  color: string;
 }
 
 /**
@@ -109,14 +109,14 @@ export function busyOverlapColors(
   busyIntervals: readonly BusyInterval[],
   max = 3,
 ): string[] {
-  const colors: string[] = []
+  const colors: string[] = [];
   for (const b of busyIntervals) {
     if (occ.startMs < b.endMs && occ.endMs > b.startMs && !colors.includes(b.color)) {
-      colors.push(b.color)
-      if (colors.length >= max) break
+      colors.push(b.color);
+      if (colors.length >= max) break;
     }
   }
-  return colors
+  return colors;
 }
 
 /**
@@ -128,10 +128,10 @@ export function busyOverlapColors(
  * WeekGrid.tsx (通常の予定描画) と DayColumn.tsx (新規作成ドラフトの見た目合わせ) の
  * 両方から使うため、循環 import 回避のためだけの本モジュールに置く。
  */
-const CASCADE_STEP_FRAC = 0.14
-const CASCADE_MIN_CARD_FRAC = 0.32
+const CASCADE_STEP_FRAC = 0.14;
+const CASCADE_MIN_CARD_FRAC = 0.32;
 
 export function cascadeStepFrac(columnCount: number): number {
-  if (columnCount <= 1) return 0
-  return Math.min(CASCADE_STEP_FRAC, (1 - CASCADE_MIN_CARD_FRAC) / (columnCount - 1))
+  if (columnCount <= 1) return 0;
+  return Math.min(CASCADE_STEP_FRAC, (1 - CASCADE_MIN_CARD_FRAC) / (columnCount - 1));
 }

@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react'
-import type { Occurrence, OccurrenceLink } from '../model/types'
-import { snapEndMs, snapStartMs } from '../layout/snap'
-import { useCloseOnOutsideOrEscape } from '../hooks/useCloseOnOutsideOrEscape'
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from "react";
+import type { Occurrence, OccurrenceLink } from "../model/types";
+import { snapEndMs, snapStartMs } from "../layout/snap";
+import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import {
   clampPopoverPosition,
   fillTooltipContent,
   getSharedTooltipEl,
   positionTooltip,
   stripHtmlToPlainText,
-} from './eventPopoverShared'
+} from "./eventPopoverShared";
 import {
   DAY_COLUMN_INSET_PX,
   formatDetailDateTime,
@@ -19,83 +19,87 @@ import {
   isBusyPlaceholder,
   minutesToPx,
   pxToMinutes,
-} from '../layout/gridMetrics'
-import { buildCalendarStripeColors, resolveBusyColor, resolveDisplayColor } from '../layout/eventColors'
+} from "../layout/gridMetrics";
+import {
+  buildCalendarStripeColors,
+  resolveBusyColor,
+  resolveDisplayColor,
+} from "../layout/eventColors";
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
-  summary: string
-  backgroundColor?: string
+  summary: string;
+  backgroundColor?: string;
 }
 
 interface EventBlockProps {
   /** カード上で実際に操作対象になる代表 occurrence(集約グループの主コピー) */
-  occurrence: Occurrence
+  occurrence: Occurrence;
   /**
    * この occurrence が属す集約グループの全メンバー(フェーズ5の同一予定集約)。
    * 1件なら occurrence 自身のみを含む配列。2件以上でカード上に色ドットを表示し、
    * 詳細ポップオーバーで全所属を列挙する
    */
-  groupMembers: Occurrence[]
+  groupMembers: Occurrence[];
   /** その日の 0:00 からの px オフセット（親が packColumns の結果から計算済み） */
-  top: number
-  height: number
+  top: number;
+  height: number;
   /** 使用可能幅(日列の左右インセットを除いた内側)に対する % (0-100)。カスケード表示の座標 */
-  leftPct: number
-  widthPct: number
+  leftPct: number;
+  widthPct: number;
   /** カスケード表示の重なり順(0-based 列番号)。z-index の基準にする */
-  stackIndex: number
-  isCompact: boolean
+  stackIndex: number;
+  isCompact: boolean;
   /**
    * この occurrence (非 Busy) が重なっている Busy のカレンダー色一覧(WeekGrid 側で
    * busyOverlapColors により算出済み、重複排除・最大3色)。空でなければカード端に
    * 「予定あり」バッジを出し、どのカレンダーの Busy にブロックされているかを色で示す
    * (ユーザー決定 2026-07-20: Busy は最背面のまま、実予定側にバッジを出す方式)。
    */
-  blockedByBusyColors?: string[]
-  timeZone: string
+  blockedByBusyColors?: string[];
+  timeZone: string;
   /** このブロックが今属している日の週内インデックス (0=月 .. 6=日) */
-  dayIndex: number
+  dayIndex: number;
   /** このブロックが今属している日の 0:00 (epoch ms) */
-  dayStartMs: number
+  dayStartMs: number;
   /** このブロックが属する週の7日ぶんの 0:00 (epoch ms)。日をまたぐ移動の着地点計算に使う */
-  weekDayStarts: readonly number[]
-  onCommit: (updated: Occurrence) => void
+  weekDayStarts: readonly number[];
+  onCommit: (updated: Occurrence) => void;
   /** `${accountId}:${calendarId}` → カレンダー名/色。詳細ポップオーバーの「どのカレンダーか」表示用 */
-  calendarLookup: Map<string, CalendarInfo>
+  calendarLookup: Map<string, CalendarInfo>;
   /**
    * 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5)。source==='google' の
    * ときだけ EventDetailCard に削除ボタンを渡す(呼び出しは常にこの occurrence 自身)。
    * ローカル予定は当面削除 UI を出さない(将来対応)。
    */
-  onDelete: (occurrence: Occurrence) => void
+  onDelete: (occurrence: Occurrence) => void;
 }
 
 interface DragState {
-  kind: 'move' | 'resize'
-  pointerId: number
-  moved: boolean
-  startClientX: number
-  startClientY: number
+  kind: "move" | "resize";
+  pointerId: number;
+  moved: boolean;
+  startClientX: number;
+  startClientY: number;
   /** ドラッグ開始時に測った、週7列グリッドの左端・上端・列幅 (px, viewport 座標) */
-  gridLeft: number
-  gridTop: number
-  columnWidthPx: number
+  gridLeft: number;
+  gridTop: number;
+  columnWidthPx: number;
   /** 移動ドラッグ用: 掴んだ位置とブロック上端との差（分） */
-  grabOffsetMinutes: number
-  originalStartMs: number
-  originalEndMs: number
-  originalTopPx: number
-  originalHeightPx: number
-  weekDayStarts: readonly number[]
-  dayStartMs: number
-  pendingStartMs: number
-  pendingEndMs: number
-  badgeEl: HTMLDivElement
+  grabOffsetMinutes: number;
+  originalStartMs: number;
+  originalEndMs: number;
+  originalTopPx: number;
+  originalHeightPx: number;
+  weekDayStarts: readonly number[];
+  dayStartMs: number;
+  pendingStartMs: number;
+  pendingEndMs: number;
+  badgeEl: HTMLDivElement;
 }
 
-const CLICK_THRESHOLD_PX = 4
-const HOVER_DELAY_MS = 400
+const CLICK_THRESHOLD_PX = 4;
+const HOVER_DELAY_MS = 400;
 
 /**
  * 週7列グリッドの左端からのドラッグ着地列を [0,6] に収めるためだけの、
@@ -103,7 +107,7 @@ const HOVER_DELAY_MS = 400
  * clampPopoverPosition が内部で使っている別インスタンス)。
  */
 function clamp(value: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, value))
+  return Math.min(hi, Math.max(lo, value));
 }
 
 /**
@@ -131,111 +135,113 @@ export function EventBlock({
   calendarLookup,
   onDelete,
 }: EventBlockProps) {
-  const elRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<DragState | null>(null)
-  const hoverTimeoutRef = useRef<number | undefined>(undefined)
-  const tooltipShownRef = useRef(false)
-  const detailCardRef = useRef<HTMLDivElement>(null)
+  const elRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const hoverTimeoutRef = useRef<number | undefined>(undefined);
+  const tooltipShownRef = useRef(false);
+  const detailCardRef = useRef<HTMLDivElement>(null);
   // クリック(≒詳細ポップオーバーを開く座標)。null の間は非表示
-  const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null)
+  const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleKeyDown = useRef((e: KeyboardEvent) => {
-    if (e.key === 'Escape') cancelDrag()
-  }).current
+    if (e.key === "Escape") cancelDrag();
+  }).current;
 
   function createBadge(): HTMLDivElement {
-    const badge = document.createElement('div')
-    badge.className = 'drag-badge'
-    return badge
+    const badge = document.createElement("div");
+    badge.className = "drag-badge";
+    return badge;
   }
 
   function hideTooltip() {
     if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current)
-      hoverTimeoutRef.current = undefined
+      window.clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = undefined;
     }
     if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = 'none'
-      tooltipShownRef.current = false
+      getSharedTooltipEl().style.display = "none";
+      tooltipShownRef.current = false;
     }
   }
 
   function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl()
-    fillTooltipContent(el, occurrence.title, formatRange(occurrence.startMs, occurrence.endMs, timeZone), occurrence.location)
-    el.style.display = 'block'
-    positionTooltip(el, clientX, clientY)
-    tooltipShownRef.current = true
+    const el = getSharedTooltipEl();
+    fillTooltipContent(
+      el,
+      occurrence.title,
+      formatRange(occurrence.startMs, occurrence.endMs, timeZone),
+      occurrence.location,
+    );
+    el.style.display = "block";
+    positionTooltip(el, clientX, clientY);
+    tooltipShownRef.current = true;
   }
 
   function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current) return
-    const clientX = e.clientX
-    const clientY = e.clientY
+    if (dragRef.current) return;
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined
-      if (dragRef.current) return // タイマー発火までにドラッグが始まっていたら出さない
-      showTooltip(clientX, clientY)
-    }, HOVER_DELAY_MS)
+      hoverTimeoutRef.current = undefined;
+      if (dragRef.current) return; // タイマー発火までにドラッグが始まっていたら出さない
+      showTooltip(clientX, clientY);
+    }, HOVER_DELAY_MS);
   }
 
   function handlePointerLeave() {
-    hideTooltip()
+    hideTooltip();
   }
 
   function cancelDrag() {
-    const ds = dragRef.current
-    const el = elRef.current
-    if (!ds || !el) return
-    window.removeEventListener('keydown', handleKeyDown)
+    const ds = dragRef.current;
+    const el = elRef.current;
+    if (!ds || !el) return;
+    window.removeEventListener("keydown", handleKeyDown);
     try {
-      el.releasePointerCapture(ds.pointerId)
+      el.releasePointerCapture(ds.pointerId);
     } catch {
       /* すでに解放済みなら無視 */
     }
-    el.classList.remove('event--dragging')
-    el.style.transform = ''
-    if (ds.kind === 'resize') {
-      el.style.height = `${ds.originalHeightPx}px`
+    el.classList.remove("event--dragging");
+    el.style.transform = "";
+    if (ds.kind === "resize") {
+      el.style.height = `${ds.originalHeightPx}px`;
     }
-    ds.badgeEl.remove()
-    dragRef.current = null
+    ds.badgeEl.remove();
+    dragRef.current = null;
   }
 
   // アンマウント時にドラッグ中なら後始末（バッジ・リスナーの残留防止）。
   // ホバー中のツールチップ(共有 DOM ノード)もこのブロック宛のままにしない
   useEffect(() => {
     return () => {
-      hideTooltip()
-      const ds = dragRef.current
-      if (!ds) return
-      window.removeEventListener('keydown', handleKeyDown)
-      ds.badgeEl.remove()
-      dragRef.current = null
-    }
+      hideTooltip();
+      const ds = dragRef.current;
+      if (!ds) return;
+      window.removeEventListener("keydown", handleKeyDown);
+      ds.badgeEl.remove();
+      dragRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
   // 詳細ポップオーバーが開いている間: 外側クリック・Escape で閉じる(AllDayBar と共通の hook)
-  useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null))
+  useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null));
 
-  function beginDrag(
-    e: ReactPointerEvent<HTMLDivElement>,
-    kind: DragState['kind'],
-  ) {
-    if (e.button !== 0) return
-    const el = elRef.current
-    const gridEl = el?.parentElement?.parentElement
-    if (!el || !gridEl) return
-    hideTooltip() // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
-    el.setPointerCapture(e.pointerId)
-    const gridRect = gridEl.getBoundingClientRect()
+  function beginDrag(e: ReactPointerEvent<HTMLDivElement>, kind: DragState["kind"]) {
+    if (e.button !== 0) return;
+    const el = elRef.current;
+    const gridEl = el?.parentElement?.parentElement;
+    if (!el || !gridEl) return;
+    hideTooltip(); // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
+    el.setPointerCapture(e.pointerId);
+    const gridRect = gridEl.getBoundingClientRect();
     // モバイル対応フェーズ2: 列数は固定7ではなく weekDayStarts.length (=dayCount) に従う
     // (週ビュー=7、day3/day1 ビューではそれぞれ3/1)
-    const columnWidthPx = gridRect.width / weekDayStarts.length
+    const columnWidthPx = gridRect.width / weekDayStarts.length;
     const grabOffsetMinutes =
-      kind === 'move' ? pxToMinutes(e.clientY - gridRect.top) - pxToMinutes(top) : 0
+      kind === "move" ? pxToMinutes(e.clientY - gridRect.top) - pxToMinutes(top) : 0;
 
     dragRef.current = {
       kind,
@@ -256,118 +262,118 @@ export function EventBlock({
       pendingStartMs: occurrence.startMs,
       pendingEndMs: occurrence.endMs,
       badgeEl: createBadge(),
-    }
-    window.addEventListener('keydown', handleKeyDown)
+    };
+    window.addEventListener("keydown", handleKeyDown);
   }
 
   function handlePointerDownMove(e: ReactPointerEvent<HTMLDivElement>) {
-    beginDrag(e, 'move')
+    beginDrag(e, "move");
   }
 
   function handlePointerDownResize(e: ReactPointerEvent<HTMLDivElement>) {
-    e.stopPropagation()
-    beginDrag(e, 'resize')
+    e.stopPropagation();
+    beginDrag(e, "resize");
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    const ds = dragRef.current
-    const el = elRef.current
+    const ds = dragRef.current;
+    const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) {
       // ドラッグ中でなければ、表示中のツールチップをポインタに追従させる(DOM 直書き、state 更新なし)
       if (!ds && tooltipShownRef.current) {
-        positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY)
+        positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
       }
-      return
+      return;
     }
 
-    const dx = e.clientX - ds.startClientX
-    const dy = e.clientY - ds.startClientY
+    const dx = e.clientX - ds.startClientX;
+    const dy = e.clientY - ds.startClientY;
     if (!ds.moved && Math.hypot(dx, dy) >= CLICK_THRESHOLD_PX) {
-      ds.moved = true
-      el.classList.add('event--dragging')
-      document.body.appendChild(ds.badgeEl)
+      ds.moved = true;
+      el.classList.add("event--dragging");
+      document.body.appendChild(ds.badgeEl);
     }
-    if (!ds.moved) return
+    if (!ds.moved) return;
 
-    if (ds.kind === 'move') {
+    if (ds.kind === "move") {
       const targetIndex = clamp(
         Math.floor((e.clientX - ds.gridLeft) / ds.columnWidthPx),
         0,
         ds.weekDayStarts.length - 1,
-      )
-      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop)
-      const rawStartMinutes = pointerMinutes - ds.grabOffsetMinutes
-      const targetDayStartMs = ds.weekDayStarts[targetIndex]
-      const rawStartMs = targetDayStartMs + rawStartMinutes * 60_000
+      );
+      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop);
+      const rawStartMinutes = pointerMinutes - ds.grabOffsetMinutes;
+      const targetDayStartMs = ds.weekDayStarts[targetIndex];
+      const rawStartMs = targetDayStartMs + rawStartMinutes * 60_000;
       const snappedStart = snapStartMs(rawStartMs, {
         originalStartMs: ds.originalStartMs,
         disableSnap: e.altKey,
-      })
-      const durationMs = ds.originalEndMs - ds.originalStartMs
-      const snappedEnd = snappedStart + durationMs
+      });
+      const durationMs = ds.originalEndMs - ds.originalStartMs;
+      const snappedEnd = snappedStart + durationMs;
 
-      const newTopPx = minutesToPx((snappedStart - targetDayStartMs) / 60_000)
-      const dxPx = (targetIndex - dayIndex) * ds.columnWidthPx
-      const dyPx = newTopPx - ds.originalTopPx
-      el.style.transform = `translate(${dxPx}px, ${dyPx}px)`
+      const newTopPx = minutesToPx((snappedStart - targetDayStartMs) / 60_000);
+      const dxPx = (targetIndex - dayIndex) * ds.columnWidthPx;
+      const dyPx = newTopPx - ds.originalTopPx;
+      el.style.transform = `translate(${dxPx}px, ${dyPx}px)`;
 
-      ds.pendingStartMs = snappedStart
-      ds.pendingEndMs = snappedEnd
-      ds.badgeEl.textContent = formatRange(snappedStart, snappedEnd, timeZone)
+      ds.pendingStartMs = snappedStart;
+      ds.pendingEndMs = snappedEnd;
+      ds.badgeEl.textContent = formatRange(snappedStart, snappedEnd, timeZone);
     } else {
-      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop)
-      const rawEndMs = ds.dayStartMs + pointerMinutes * 60_000
+      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop);
+      const rawEndMs = ds.dayStartMs + pointerMinutes * 60_000;
       const snappedEnd = snapEndMs(rawEndMs, ds.originalStartMs, {
         originalStartMs: ds.originalStartMs,
         disableSnap: e.altKey,
-      })
+      });
       const newHeightPx = Math.max(
         minutesToPx((snappedEnd - ds.dayStartMs) / 60_000) - ds.originalTopPx,
         4,
-      )
-      el.style.height = `${newHeightPx}px`
+      );
+      el.style.height = `${newHeightPx}px`;
 
-      ds.pendingEndMs = snappedEnd
-      ds.badgeEl.textContent = formatRange(ds.originalStartMs, snappedEnd, timeZone)
+      ds.pendingEndMs = snappedEnd;
+      ds.badgeEl.textContent = formatRange(ds.originalStartMs, snappedEnd, timeZone);
     }
 
-    ds.badgeEl.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`
+    ds.badgeEl.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
   }
 
   function handlePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
-    const ds = dragRef.current
-    const el = elRef.current
-    if (!ds || !el || ds.pointerId !== e.pointerId) return
-    window.removeEventListener('keydown', handleKeyDown)
+    const ds = dragRef.current;
+    const el = elRef.current;
+    if (!ds || !el || ds.pointerId !== e.pointerId) return;
+    window.removeEventListener("keydown", handleKeyDown);
     try {
-      el.releasePointerCapture(e.pointerId)
+      el.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
-    ds.badgeEl.remove()
+    ds.badgeEl.remove();
 
     if (!ds.moved) {
       // 移動閾値未満はクリック扱い: 詳細ポップオーバーを開く
-      dragRef.current = null
-      hideTooltip()
-      setDetailPos({ x: e.clientX, y: e.clientY })
-      return
+      dragRef.current = null;
+      hideTooltip();
+      setDetailPos({ x: e.clientX, y: e.clientY });
+      return;
     }
 
-    el.classList.remove('event--dragging')
-    el.style.transform = ''
+    el.classList.remove("event--dragging");
+    el.style.transform = "";
 
-    if (ds.kind === 'move') {
-      onCommit({ ...occurrence, startMs: ds.pendingStartMs, endMs: ds.pendingEndMs })
+    if (ds.kind === "move") {
+      onCommit({ ...occurrence, startMs: ds.pendingStartMs, endMs: ds.pendingEndMs });
     } else {
-      onCommit({ ...occurrence, endMs: ds.pendingEndMs })
+      onCommit({ ...occurrence, endMs: ds.pendingEndMs });
     }
-    dragRef.current = null
+    dragRef.current = null;
   }
 
   function handlePointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== e.pointerId) return
-    cancelDrag()
+    if (dragRef.current?.pointerId !== e.pointerId) return;
+    cancelDrag();
   }
 
   // リサイズ中は height への React 再レンダーの上書きを止める。move 中に
@@ -375,7 +381,7 @@ export function EventBlock({
   // 手動で書き込んだ el.style.height をこの effect 外の再レンダーで
   // 巻き戻されないようにするためのガード。top/left/width は自前で
   // 直接書き換えることがないので毎回 props の値をそのまま使ってよい。
-  const isResizing = dragRef.current?.kind === 'resize'
+  const isResizing = dragRef.current?.kind === "resize";
   // カスケード表示(フェーズ5): leftPct/widthPct は「日列の左右インセットを除いた
   // 使用可能幅」に対する % (WeekGrid 側で計算済み)。px のインセットと % を
   // calc() で組み合わせ、予定が日の仕切り線に密着しないようにする
@@ -385,22 +391,23 @@ export function EventBlock({
   // 両方に使う色を --busy-color として CSS へ渡し、.event--busy 側の
   // repeating-linear-gradient がそれを参照する。色が解決できない/不正なら
   // resolveBusyColor が従来のグレーにフォールバックする。
-  const isBusy = isBusyPlaceholder(occurrence.title)
-  const busyColor = isBusy ? resolveBusyColor(occurrence, calendarLookup) : undefined
+  const isBusy = isBusyPlaceholder(occurrence.title);
+  const busyColor = isBusy ? resolveBusyColor(occurrence, calendarLookup) : undefined;
   // 表示色バグ修正 (2026-07-20): 生の occurrence.color を直接使わず、常に
   // resolveDisplayColor 経由で解決する。hasCustomColor が無ければ calendarLookup の
   // カレンダー色を優先するため、初回同期時に defaultColor が未定義だった occurrence でも
   // パネルの色と一致する(再同期不要)。イベント個別色 (hasCustomColor) は尊重される。
-  const displayColor = isBusy ? undefined : resolveDisplayColor(occurrence, calendarLookup)
-  const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`
+  const displayColor = isBusy ? undefined : resolveDisplayColor(occurrence, calendarLookup);
+  const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`;
 
   // 同一予定の集約(フェーズ5〜6): 2件以上の複製がある場合、左端に所属カレンダー
   // ぶんの色ストライプを並べて「複数カレンダーにまたがっている」ことを一目で
   // 分かるようにする(単一メンバー時は従来通り単色の左ボーダーのまま)。
-  const stripeColors = groupMembers.length > 1 ? buildCalendarStripeColors(groupMembers, calendarLookup) : []
-  const hasStripes = stripeColors.length > 0
-  const STRIPE_WIDTH_PX = 3
-  const STRIPE_CONTENT_GAP_PX = 4 // .event の既定 padding-left (4px) と揃える
+  const stripeColors =
+    groupMembers.length > 1 ? buildCalendarStripeColors(groupMembers, calendarLookup) : [];
+  const hasStripes = stripeColors.length > 0;
+  const STRIPE_WIDTH_PX = 3;
+  const STRIPE_CONTENT_GAP_PX = 4; // .event の既定 padding-left (4px) と揃える
 
   const style: CSSProperties = {
     top,
@@ -411,7 +418,7 @@ export function EventBlock({
     // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
     // Busy は背景を独自指定せず、色付きハッチ(CSS 側 .event--busy + --busy-color)に任せる。
     ...(isBusy
-      ? ({ borderLeftColor: busyColor, '--busy-color': busyColor } as CSSProperties)
+      ? ({ borderLeftColor: busyColor, "--busy-color": busyColor } as CSSProperties)
       : {
           backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
           borderLeftColor: displayColor,
@@ -419,26 +426,22 @@ export function EventBlock({
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
     ...(hasStripes
       ? {
-          borderLeft: 'none',
+          borderLeft: "none",
           paddingLeft: `${stripeColors.length * STRIPE_WIDTH_PX + STRIPE_CONTENT_GAP_PX}px`,
         }
       : {}),
-  }
+  };
   if (!isResizing) {
-    style.height = height
+    style.height = height;
   }
 
   return (
     <>
       <div
         ref={elRef}
-        className={[
-          'event',
-          isCompact ? 'event--compact' : '',
-          isBusy ? 'event--busy' : '',
-        ]
+        className={["event", isCompact ? "event--compact" : "", isBusy ? "event--busy" : ""]
           .filter(Boolean)
-          .join(' ')}
+          .join(" ")}
         style={style}
         onPointerDown={handlePointerDownMove}
         onPointerMove={handlePointerMove}
@@ -456,23 +459,25 @@ export function EventBlock({
             ))}
           </span>
         )}
-        {!isBusy && blockedByBusyColors && blockedByBusyColors.length > 0 && (
-          // 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、
-          // Busy の時間帯と重なる実予定側にバッジを出して「他の予定に隠れている Busy がある」
-          // ことを示す。ブロック元 Busy のカレンダー色を斜線に反映(複数色は横に並べる)。
-          // ドラッグ/クリックを奪わないよう pointer-events:none(CSS 側)
-          <span className="event-busy-badge" aria-hidden="true">
-            {blockedByBusyColors.map((c, i) => (
-              <span
-                key={i}
-                className="event-busy-badge-stripe"
-                style={{
-                  backgroundImage: `repeating-linear-gradient(-45deg, transparent, transparent 2px, ${c} 2px, ${c} 4px)`,
-                }}
-              />
-            ))}
-          </span>
-        )}
+        {!isBusy &&
+          blockedByBusyColors &&
+          blockedByBusyColors.length > 0 && (
+            // 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、
+            // Busy の時間帯と重なる実予定側にバッジを出して「他の予定に隠れている Busy がある」
+            // ことを示す。ブロック元 Busy のカレンダー色を斜線に反映(複数色は横に並べる)。
+            // ドラッグ/クリックを奪わないよう pointer-events:none(CSS 側)
+            <span className="event-busy-badge" aria-hidden="true">
+              {blockedByBusyColors.map((c, i) => (
+                <span
+                  key={i}
+                  className="event-busy-badge-stripe"
+                  style={{
+                    backgroundImage: `repeating-linear-gradient(-45deg, transparent, transparent 2px, ${c} 2px, ${c} 4px)`,
+                  }}
+                />
+              ))}
+            </span>
+          )}
         {isCompact ? (
           <span className="event-line">
             <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
@@ -498,12 +503,12 @@ export function EventBlock({
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
-            onDelete={occurrence.source === 'google' ? () => onDelete(occurrence) : undefined}
+            onDelete={occurrence.source === "google" ? () => onDelete(occurrence) : undefined}
           />,
           document.body,
         )}
     </>
-  )
+  );
 }
 
 /**
@@ -512,26 +517,26 @@ export function EventBlock({
  * subject/groupMembers に渡せる(AllDayBar.tsx から再利用する狙い)。
  */
 export interface EventDetailSubject {
-  id: string
-  title: string
-  location?: string
-  description?: string
-  link?: OccurrenceLink
-  accountId?: string
-  calendarId?: string
+  id: string;
+  title: string;
+  location?: string;
+  description?: string;
+  link?: OccurrenceLink;
+  accountId?: string;
+  calendarId?: string;
 }
 
 export interface EventDetailCardProps {
-  subject: EventDetailSubject
+  subject: EventDetailSubject;
   /** 表示済みの日時ラベル。時刻予定は「7月20日(月) 10:00 – 11:00」、終日予定は
    * 「7月20日〜7月22日」のように呼び出し側でフォーマットしてから渡す */
-  dateTimeLabel: string
-  position: { x: number; y: number }
+  dateTimeLabel: string;
+  position: { x: number; y: number };
   /** 集約グループの全メンバー(フェーズ5)。1件なら subject 自身のみ */
-  groupMembers: EventDetailSubject[]
+  groupMembers: EventDetailSubject[];
   /** `${accountId}:${calendarId}` → カレンダー名/色。全所属の列挙に使う */
-  calendarLookup: Map<string, CalendarInfo>
-  onClose: () => void
+  calendarLookup: Map<string, CalendarInfo>;
+  onClose: () => void;
   /**
    * 指定されていれば「削除」ボタン(インライン2段階確認)を表示する(フェーズ5)。
    * EventBlock は source==='google' のときだけこれを渡す(AllDayBar は渡さない=削除 UI 無し)。
@@ -539,9 +544,9 @@ export interface EventDetailCardProps {
    * 閉じる — 削除は楽観的なので occurrence はすぐ画面から消え、失敗時の通知は
    * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
    */
-  onDelete?: () => void
+  onDelete?: () => void;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
-  ref?: Ref<HTMLDivElement>
+  ref?: Ref<HTMLDivElement>;
 }
 
 /**
@@ -566,14 +571,19 @@ export function EventDetailCard({
   onDelete,
   ref,
 }: EventDetailCardProps) {
-  const { left, top } = clampPopoverPosition(position.x, position.y)
-  const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : ''
+  const { left, top } = clampPopoverPosition(position.x, position.y);
+  const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : "";
   const memberCalendars = groupMembers
     .map((m) => {
-      const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
-      return info ? { key: m.id, color: info.backgroundColor ?? '#9ca3af', summary: info.summary } : null
+      const info =
+        m.accountId && m.calendarId
+          ? calendarLookup.get(`${m.accountId}:${m.calendarId}`)
+          : undefined;
+      return info
+        ? { key: m.id, color: info.backgroundColor ?? "#9ca3af", summary: info.summary }
+        : null;
     })
-    .filter((info) => info !== null)
+    .filter((info) => info !== null);
 
   return (
     <div
@@ -591,7 +601,12 @@ export function EventDetailCard({
       {subject.location && <div className="event-detail-location">{subject.location}</div>}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
       {subject.link?.url && (
-        <a className="event-detail-link" href={subject.link.url} target="_blank" rel="noopener noreferrer">
+        <a
+          className="event-detail-link"
+          href={subject.link.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Google で開く
         </a>
       )}
@@ -615,10 +630,10 @@ export function EventDetailCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
-type DeleteControlState = 'idle' | 'confirming'
+type DeleteControlState = "idle" | "confirming";
 
 /**
  * 詳細ポップオーバーの「削除」導線。window.confirm を使わないインライン2段階確認
@@ -627,10 +642,16 @@ type DeleteControlState = 'idle' | 'confirming'
  * このコンポーネントは非同期の完了を待たない — 確定操作で onDelete() を呼んだら
  * そのままポップオーバーを閉じる (onDeleted、失敗時の通知は App.tsx の saveError トースト)。
  */
-function EventDeleteControl({ onDelete, onDeleted }: { onDelete: () => void; onDeleted: () => void }) {
-  const [state, setState] = useState<DeleteControlState>('idle')
+function EventDeleteControl({
+  onDelete,
+  onDeleted,
+}: {
+  onDelete: () => void;
+  onDeleted: () => void;
+}) {
+  const [state, setState] = useState<DeleteControlState>("idle");
 
-  if (state === 'confirming') {
+  if (state === "confirming") {
     return (
       <span className="event-detail-delete-confirm">
         削除しますか？
@@ -638,26 +659,26 @@ function EventDeleteControl({ onDelete, onDeleted }: { onDelete: () => void; onD
           type="button"
           className="event-detail-text-btn"
           onClick={() => {
-            onDelete()
-            onDeleted()
+            onDelete();
+            onDeleted();
           }}
         >
           削除する
         </button>
-        <button type="button" className="event-detail-text-btn" onClick={() => setState('idle')}>
+        <button type="button" className="event-detail-text-btn" onClick={() => setState("idle")}>
           やめる
         </button>
       </span>
-    )
+    );
   }
 
   return (
     <button
       type="button"
       className="event-detail-text-btn event-detail-delete-btn"
-      onClick={() => setState('confirming')}
+      onClick={() => setState("confirming")}
     >
       削除
     </button>
-  )
+  );
 }

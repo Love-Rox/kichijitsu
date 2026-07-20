@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from "react";
 
 /**
  * window.matchMedia が返す MediaQueryList のうち、このフックが使う最小限の形
@@ -6,9 +6,9 @@ import { useEffect, useState } from 'react'
  * ユニットテストできるようにするための最小インターフェース)。
  */
 export interface MediaQueryListLike {
-  matches: boolean
-  addEventListener(type: 'change', listener: (event: { matches: boolean }) => void): void
-  removeEventListener(type: 'change', listener: (event: { matches: boolean }) => void): void
+  matches: boolean;
+  addEventListener(type: "change", listener: (event: { matches: boolean }) => void): void;
+  removeEventListener(type: "change", listener: (event: { matches: boolean }) => void): void;
 }
 
 /**
@@ -21,12 +21,12 @@ export function subscribeMediaQuery(
   mql: MediaQueryListLike,
   setMatches: (matches: boolean) => void,
 ): () => void {
-  setMatches(mql.matches)
+  setMatches(mql.matches);
   function handleChange(event: { matches: boolean }): void {
-    setMatches(event.matches)
+    setMatches(event.matches);
   }
-  mql.addEventListener('change', handleChange)
-  return () => mql.removeEventListener('change', handleChange)
+  mql.addEventListener("change", handleChange);
+  return () => mql.removeEventListener("change", handleChange);
 }
 
 /**
@@ -35,9 +35,9 @@ export function subscribeMediaQuery(
  * `(max-width: 640px)` を判定し、狭幅では既定ビューを day3(3日タイムライン)にする。
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
 
-  useEffect(() => subscribeMediaQuery(window.matchMedia(query), setMatches), [query])
+  useEffect(() => subscribeMediaQuery(window.matchMedia(query), setMatches), [query]);
 
-  return matches
+  return matches;
 }

@@ -1,6 +1,6 @@
-import { Hono } from 'hono'
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import type { AppEnv } from '../types'
+import { Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { AppEnv } from "../types";
 import {
   STATE_COOKIE_MAX_AGE,
   STATE_COOKIE_NAME,
@@ -8,15 +8,20 @@ import {
   SESSION_COOKIE_NAME,
   createSessionCookieValue,
   verifySessionCookieValue,
-} from '../session'
-import { buildAuthorizationUrl, decodeIdToken, exchangeCodeForTokens, hasRequiredScopes } from '../google/oauth'
-import { isHttpsRequest } from '../http'
-import { isEmailAllowed } from '../allowlist'
-import { encryptToken } from '../crypto'
-import { encodeOAuthState, decodeOAuthState } from '../oauth-state'
-import { resolveLoginProfile } from '../profile-resolution'
+} from "../session";
+import {
+  buildAuthorizationUrl,
+  decodeIdToken,
+  exchangeCodeForTokens,
+  hasRequiredScopes,
+} from "../google/oauth";
+import { isHttpsRequest } from "../http";
+import { isEmailAllowed } from "../allowlist";
+import { encryptToken } from "../crypto";
+import { encodeOAuthState, decodeOAuthState } from "../oauth-state";
+import { resolveLoginProfile } from "../profile-resolution";
 
-export const authRoutes = new Hono<AppEnv>()
+export const authRoutes = new Hono<AppEnv>();
 
 function redirectUriFor(env: { OAUTH_REDIRECT_URL?: string }, requestUrl: string): string {
   // 通常はリクエスト URL から導出する (本番では https://kichijitsu.love-rox.cc/auth/callback)。
@@ -24,26 +29,28 @@ function redirectUriFor(env: { OAUTH_REDIRECT_URL?: string }, requestUrl: string
   // ホスト (http://kichijitsu.love-rox.cc/...) でシミュレートするため、そのまま使うと
   // redirect_uri_mismatch になる。ローカルでは .dev.vars の OAUTH_REDIRECT_URL
   // (http://localhost:8787/auth/callback) で明示上書きする。空文字は未設定扱い。
-  if (env.OAUTH_REDIRECT_URL) return env.OAUTH_REDIRECT_URL
-  return new URL('/auth/callback', requestUrl).toString()
+  if (env.OAUTH_REDIRECT_URL) return env.OAUTH_REDIRECT_URL;
+  return new URL("/auth/callback", requestUrl).toString();
 }
 
-authRoutes.get('/auth/login', async (c) => {
+authRoutes.get("/auth/login", async (c) => {
   // ?add=1 は「今のセッション (プロファイル) にアカウントを追加する」モード。
   // 有効なセッションが無ければ通常ログインにフォールバックする (新規プロファイルを作る)。
-  const wantsAddMode = c.req.query('add') === '1'
-  let addModeProfileId: string | null = null
+  const wantsAddMode = c.req.query("add") === "1";
+  let addModeProfileId: string | null = null;
   if (wantsAddMode) {
-    const sid = getCookie(c, SESSION_COOKIE_NAME)
+    const sid = getCookie(c, SESSION_COOKIE_NAME);
     if (sid) {
-      addModeProfileId = await verifySessionCookieValue(c.env.SESSION_SECRET, sid)
+      addModeProfileId = await verifySessionCookieValue(c.env.SESSION_SECRET, sid);
     }
   }
 
-  const nonce = crypto.randomUUID()
+  const nonce = crypto.randomUUID();
   const state = encodeOAuthState(
-    addModeProfileId ? { nonce, mode: 'add', profileId: addModeProfileId } : { nonce, mode: 'login' },
-  )
+    addModeProfileId
+      ? { nonce, mode: "add", profileId: addModeProfileId }
+      : { nonce, mode: "login" },
+  );
 
   // 本番 (https://kichijitsu.love-rox.cc) では Secure を付け、ローカル `wrangler dev`
   // (素の http://localhost) では付けない。Secure な Cookie は非 HTTPS ではブラウザに
@@ -51,10 +58,10 @@ authRoutes.get('/auth/login', async (c) => {
   setCookie(c, STATE_COOKIE_NAME, state, {
     httpOnly: true,
     secure: isHttpsRequest(c.req.url),
-    sameSite: 'Lax',
-    path: '/',
+    sameSite: "Lax",
+    path: "/",
     maxAge: STATE_COOKIE_MAX_AGE,
-  })
+  });
 
   const authorizationUrl = buildAuthorizationUrl(
     {
@@ -63,27 +70,27 @@ authRoutes.get('/auth/login', async (c) => {
       redirectUri: redirectUriFor(c.env, c.req.url),
     },
     state,
-  )
+  );
 
-  return c.redirect(authorizationUrl, 302)
-})
+  return c.redirect(authorizationUrl, 302);
+});
 
-authRoutes.get('/auth/callback', async (c) => {
-  const code = c.req.query('code')
-  const returnedState = c.req.query('state')
-  const oauthError = c.req.query('error')
-  const cookieState = getCookie(c, STATE_COOKIE_NAME)
-  deleteCookie(c, STATE_COOKIE_NAME, { path: '/' })
+authRoutes.get("/auth/callback", async (c) => {
+  const code = c.req.query("code");
+  const returnedState = c.req.query("state");
+  const oauthError = c.req.query("error");
+  const cookieState = getCookie(c, STATE_COOKIE_NAME);
+  deleteCookie(c, STATE_COOKIE_NAME, { path: "/" });
 
   if (oauthError) {
-    return c.json({ error: `google_oauth_error: ${oauthError}` }, 400)
+    return c.json({ error: `google_oauth_error: ${oauthError}` }, 400);
   }
   if (!code || !returnedState || !cookieState || returnedState !== cookieState) {
-    return c.json({ error: 'invalid_oauth_state' }, 400)
+    return c.json({ error: "invalid_oauth_state" }, 400);
   }
-  const state = decodeOAuthState(cookieState)
+  const state = decodeOAuthState(cookieState);
   if (!state) {
-    return c.json({ error: 'invalid_oauth_state' }, 400)
+    return c.json({ error: "invalid_oauth_state" }, 400);
   }
 
   const tokens = await exchangeCodeForTokens(
@@ -94,9 +101,9 @@ authRoutes.get('/auth/callback', async (c) => {
       redirectUri: redirectUriFor(c.env, c.req.url),
     },
     code,
-  )
+  );
   if (!tokens.idToken) {
-    return c.json({ error: 'missing_id_token' }, 502)
+    return c.json({ error: "missing_id_token" }, 502);
   }
 
   if (!hasRequiredScopes(tokens.scope)) {
@@ -104,27 +111,29 @@ authRoutes.get('/auth/callback', async (c) => {
     // accountId/email 抜きで判定できるので decodeIdToken より前でチェックし、accounts への
     // 保存 (refresh_token を含む) は一切行わずに弾く。allowlist / scope 検査はアカウント
     // 単位で行う (login/add どちらのモードでも同じ)。
-    const deniedUrl = new URL(c.env.APP_URL)
-    deniedUrl.searchParams.set('auth_error', 'insufficient_scope')
-    return c.redirect(deniedUrl.toString(), 302)
+    const deniedUrl = new URL(c.env.APP_URL);
+    deniedUrl.searchParams.set("auth_error", "insufficient_scope");
+    return c.redirect(deniedUrl.toString(), 302);
   }
 
-  const { sub: accountId, email } = decodeIdToken(tokens.idToken)
+  const { sub: accountId, email } = decodeIdToken(tokens.idToken);
 
   if (!isEmailAllowed(c.env.ALLOWED_EMAILS, email)) {
     // 招待制 allowlist に無いメールアドレス。accounts への保存 (特に refresh_token) を
     // 一切行わずに弾く — 未招待ユーザーの Google トークンをサーバーに残さないため。
-    const deniedUrl = new URL(c.env.APP_URL)
-    deniedUrl.searchParams.set('auth_error', 'not_invited')
-    return c.redirect(deniedUrl.toString(), 302)
+    const deniedUrl = new URL(c.env.APP_URL);
+    deniedUrl.searchParams.set("auth_error", "not_invited");
+    return c.redirect(deniedUrl.toString(), 302);
   }
 
   // 再連携で Google が refresh_token を返さないことがある (通常は最初の同意時のみ発行)。
   // その場合は既存の (暗号化済み) refresh_token をそのまま再利用する。is_owner も
   // 「このアカウントが既にどこかのプロファイルのオーナーか」の判定に使う。
-  const existing = await c.env.DB.prepare('SELECT profile_id, refresh_token, is_owner FROM accounts WHERE id = ?')
+  const existing = await c.env.DB.prepare(
+    "SELECT profile_id, refresh_token, is_owner FROM accounts WHERE id = ?",
+  )
     .bind(accountId)
-    .first<{ profile_id: string; refresh_token: string; is_owner: number }>()
+    .first<{ profile_id: string; refresh_token: string; is_owner: number }>();
 
   // プロファイルの決め方 (2026-07-20, アカウント設計の分離: 身元(オーナー) と 同期アカウント
   // (接続) を分ける。詳細は src/profile-resolution.ts のコメント参照):
@@ -151,29 +160,29 @@ authRoutes.get('/auth/callback', async (c) => {
   //   `existing?.profile_id` をそのまま採用していたため、スマホで接続アカウントとして
   //   ログインすると、そのアカウントが足された先のプロファイル (= 他の Google アカウントも
   //   含む束) が丸ごと復活してしまっていた (今回のバグの本体)。
-  let profileId: string
-  if (state.mode === 'add') {
-    profileId = state.profileId
+  let profileId: string;
+  if (state.mode === "add") {
+    profileId = state.profileId;
   } else {
     const resolution = resolveLoginProfile(
       existing ? { profileId: existing.profile_id, isOwner: existing.is_owner === 1 } : null,
       crypto.randomUUID(),
-    )
-    profileId = resolution.profileId
+    );
+    profileId = resolution.profileId;
   }
   // login モードでは、ログインに使ったアカウント自身が常にそのプロファイルのオーナー
   // (既存のオーナー行を維持する場合も、新規プロファイルを作る場合も is_owner=1)。
   // add モードで追加されるアカウントは常に「接続」(is_owner=0)。
-  const isOwner = state.mode === 'add' ? 0 : 1
+  const isOwner = state.mode === "add" ? 0 : 1;
 
   // Google から新しい平文 refresh_token を受け取った時だけ暗号化する。既存行を使い回す
   // 場合は D1 に入っている値 (= 既に v1 暗号文、または移行対象外の旧平文) をそのまま書き戻す
   // だけなので、ここで復号する必要はない。
   const refreshTokenToStore = tokens.refreshToken
     ? await encryptToken(c.env.TOKEN_ENC_KEY, tokens.refreshToken)
-    : existing?.refresh_token
+    : existing?.refresh_token;
   if (!refreshTokenToStore) {
-    return c.json({ error: 'missing_refresh_token' }, 502)
+    return c.json({ error: "missing_refresh_token" }, 502);
   }
 
   await c.env.DB.prepare(
@@ -181,23 +190,23 @@ authRoutes.get('/auth/callback', async (c) => {
      ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token, is_owner = excluded.is_owner`,
   )
     .bind(accountId, profileId, email, refreshTokenToStore, isOwner, Date.now())
-    .run()
+    .run();
 
-  if (state.mode !== 'add') {
+  if (state.mode !== "add") {
     // add モードでは既存セッションをそのまま使うので、新しい sid は発行しない
     // (「新セッションを作らない」)。
-    const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, profileId)
+    const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, profileId);
     setCookie(c, SESSION_COOKIE_NAME, sessionValue, {
       httpOnly: true,
       secure: isHttpsRequest(c.req.url),
-      sameSite: 'Lax',
-      path: '/',
+      sameSite: "Lax",
+      path: "/",
       maxAge: SESSION_COOKIE_MAX_AGE,
-    })
+    });
   }
 
-  return c.redirect(c.env.APP_URL, 302)
-})
+  return c.redirect(c.env.APP_URL, 302);
+});
 
 // 認証不要 (sid が無くても/無効でも成功扱い): ログアウトは「もう sid を持っていない状態」が
 // ゴールなので、既に未認証でも 204 を返してよい。
@@ -207,7 +216,7 @@ authRoutes.get('/auth/callback', async (c) => {
 // フォーム/fetch からこのエンドポイントを叩いても sid が付与されず、ログアウトはできても
 // 「他人を強制ログアウトさせる」以上の実害 (なりすまし等) が起きない。GET にしないのは
 // ブラウザのプリフェッチや <img src> のような偶発的な GET でログアウトが誘発されるのを防ぐため。
-authRoutes.post('/auth/logout', (c) => {
-  deleteCookie(c, SESSION_COOKIE_NAME, { path: '/' })
-  return c.body(null, 204)
-})
+authRoutes.post("/auth/logout", (c) => {
+  deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
+  return c.body(null, 204);
+});

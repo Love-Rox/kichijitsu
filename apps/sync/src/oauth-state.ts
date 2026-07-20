@@ -11,41 +11,46 @@
 // 判別可能なユニオンにしているのは、`state.mode === 'add'` で分岐した先で
 // `state.profileId` が確実に string だと TypeScript に narrowing させるため
 // (フラットな `profileId?: string` だと呼び出し側で毎回 non-null assertion が要る)。
-export type OAuthState = { nonce: string; mode: 'login' } | { nonce: string; mode: 'add'; profileId: string }
+export type OAuthState =
+  | { nonce: string; mode: "login" }
+  | { nonce: string; mode: "add"; profileId: string };
 
 export function encodeOAuthState(state: OAuthState): string {
-  return base64UrlEncode(new TextEncoder().encode(JSON.stringify(state)))
+  return base64UrlEncode(new TextEncoder().encode(JSON.stringify(state)));
 }
 
 /** 壊れている/改ざんされている/形が不正な値は null。 */
 export function decodeOAuthState(value: string): OAuthState | null {
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder().decode(base64UrlDecode(value)))
+    parsed = JSON.parse(new TextDecoder().decode(base64UrlDecode(value)));
   } catch {
-    return null
+    return null;
   }
-  if (typeof parsed !== 'object' || parsed === null) return null
-  const { nonce, mode, profileId } = parsed as Record<string, unknown>
-  if (typeof nonce !== 'string' || !nonce) return null
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const { nonce, mode, profileId } = parsed as Record<string, unknown>;
+  if (typeof nonce !== "string" || !nonce) return null;
 
-  if (mode === 'add') {
-    if (typeof profileId !== 'string' || !profileId) return null
-    return { nonce, mode: 'add', profileId }
+  if (mode === "add") {
+    if (typeof profileId !== "string" || !profileId) return null;
+    return { nonce, mode: "add", profileId };
   }
-  if (mode === 'login') {
-    return { nonce, mode: 'login' }
+  if (mode === "login") {
+    return { nonce, mode: "login" };
   }
-  return null
+  return null;
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
-  const binary = String.fromCharCode(...bytes)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function base64UrlDecode(value: string): Uint8Array {
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
-  const binary = atob(base64)
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  const base64 = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }

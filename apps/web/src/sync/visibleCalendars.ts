@@ -1,5 +1,5 @@
-import type { VisibleCalendarsRequest } from '@kichijitsu/shared'
-import type { VisibleCalendarsMap } from '../db/database'
+import type { VisibleCalendarsRequest } from "@kichijitsu/shared";
+import type { VisibleCalendarsMap } from "../db/database";
 
 /**
  * カレンダー選択のサーバー同期 (2026-07-20)。GET /api/me が返す visibleCalendars
@@ -25,10 +25,13 @@ export function mergeServerVisibleCalendars(
   local: VisibleCalendarsMap,
   server: Record<string, string[]>,
 ): VisibleCalendarsMap {
-  return { ...local, ...server }
+  return { ...local, ...server };
 }
 
 /** PUT /api/visible-calendars のリクエストボディを組み立てる */
-export function buildVisibleCalendarsRequest(accountId: string, calendarIds: string[]): VisibleCalendarsRequest {
-  return { accountId, calendarIds }
+export function buildVisibleCalendarsRequest(
+  accountId: string,
+  calendarIds: string[],
+): VisibleCalendarsRequest {
+  return { accountId, calendarIds };
 }

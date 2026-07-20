@@ -1,9 +1,9 @@
-import type { TaskItem } from '../model/types'
+import type { TaskItem } from "../model/types";
 
 interface TaskRowProps {
-  task: TaskItem
+  task: TaskItem;
   /** 枡チェックボックスのクリックで呼ぶ(完了⇔未完了のトグル、App.tsx が楽観的更新 + 書き戻しを担う) */
-  onToggle: (task: TaskItem) => void
+  onToggle: (task: TaskItem) => void;
 }
 
 /**
@@ -12,7 +12,7 @@ interface TaskRowProps {
  * ドラッグ・詳細ポップオーバーは v1 では対象外(枡タップで完了トグルのみ)。
  */
 export function TaskRow({ task, onToggle }: TaskRowProps) {
-  const completed = task.status === 'completed'
+  const completed = task.status === "completed";
   return (
     <div className="task-row">
       <button
@@ -22,9 +22,9 @@ export function TaskRow({ task, onToggle }: TaskRowProps) {
         aria-label={completed ? `${task.title} を未完了に戻す` : `${task.title} を完了にする`}
         onClick={() => onToggle(task)}
       >
-        <span className={completed ? 'masu masu--kichi' : 'masu masu--empty'} aria-hidden="true" />
+        <span className={completed ? "masu masu--kichi" : "masu masu--empty"} aria-hidden="true" />
       </button>
-      <span className={completed ? 'task-title task-title--done' : 'task-title'}>{task.title}</span>
+      <span className={completed ? "task-title task-title--done" : "task-title"}>{task.title}</span>
     </div>
-  )
+  );
 }

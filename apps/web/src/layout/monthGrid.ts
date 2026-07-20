@@ -1,5 +1,5 @@
-import { Temporal } from '@js-temporal/polyfill'
-import type { AllDayOccurrenceGroup, OccurrenceGroup } from './groupDuplicates'
+import { Temporal } from "@js-temporal/polyfill";
+import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
 
 /**
  * 月表示ビュー(フェーズ6)の日付グリッド生成とセルごとのチップ割り当てを担う
@@ -10,17 +10,17 @@ import type { AllDayOccurrenceGroup, OccurrenceGroup } from './groupDuplicates'
 
 /** 指定日を含む週の月曜日。App.tsx の同名ローカル関数と同じ規則(週開始=月曜) */
 export function mondayOf(date: Temporal.PlainDate): Temporal.PlainDate {
-  return date.subtract({ days: date.dayOfWeek - 1 })
+  return date.subtract({ days: date.dayOfWeek - 1 });
 }
 
 export interface MonthGridDay {
-  date: Temporal.PlainDate
+  date: Temporal.PlainDate;
   /** monthAnchor の月に属する日かどうか(false = 前後月の埋め、淡色表示用) */
-  inMonth: boolean
+  inMonth: boolean;
 }
 
-const MONTH_GRID_WEEKS = 6
-const MONTH_GRID_DAYS = MONTH_GRID_WEEKS * 7
+const MONTH_GRID_WEEKS = 6;
+const MONTH_GRID_DAYS = MONTH_GRID_WEEKS * 7;
 
 /**
  * monthAnchor(月内の任意の日、通常は1日)を含む月を表示する 6週×7列 = 42日ぶんの
@@ -29,22 +29,22 @@ const MONTH_GRID_DAYS = MONTH_GRID_WEEKS * 7
  * ちょうど6週ぶんで当月全体を覆う。
  */
 export function monthGridDays(monthAnchor: Temporal.PlainDate): MonthGridDay[] {
-  const firstOfMonth = monthAnchor.with({ day: 1 })
-  const gridStart = mondayOf(firstOfMonth)
+  const firstOfMonth = monthAnchor.with({ day: 1 });
+  const gridStart = mondayOf(firstOfMonth);
   return Array.from({ length: MONTH_GRID_DAYS }, (_, i) => {
-    const date = gridStart.add({ days: i })
-    return { date, inMonth: date.month === firstOfMonth.month && date.year === firstOfMonth.year }
-  })
+    const date = gridStart.add({ days: i });
+    return { date, inMonth: date.month === firstOfMonth.month && date.year === firstOfMonth.year };
+  });
 }
 
 /** monthGridDays を週(7日)ごとに分割したもの。MonthView の行描画に使う */
 export function monthGridWeeks(monthAnchor: Temporal.PlainDate): MonthGridDay[][] {
-  const days = monthGridDays(monthAnchor)
-  const weeks: MonthGridDay[][] = []
+  const days = monthGridDays(monthAnchor);
+  const weeks: MonthGridDay[][] = [];
   for (let i = 0; i < MONTH_GRID_WEEKS; i++) {
-    weeks.push(days.slice(i * 7, i * 7 + 7))
+    weeks.push(days.slice(i * 7, i * 7 + 7));
   }
-  return weeks
+  return weeks;
 }
 
 /**
@@ -56,33 +56,35 @@ export function monthGridRangeMs(
   monthAnchor: Temporal.PlainDate,
   timeZone: string,
 ): { fromMs: number; toMs: number } {
-  const days = monthGridDays(monthAnchor)
-  const fromMs = days[0].date.toZonedDateTime({ timeZone }).epochMilliseconds
-  const toMs = days[days.length - 1].date.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds
-  return { fromMs, toMs }
+  const days = monthGridDays(monthAnchor);
+  const fromMs = days[0].date.toZonedDateTime({ timeZone }).epochMilliseconds;
+  const toMs = days[days.length - 1].date
+    .add({ days: 1 })
+    .toZonedDateTime({ timeZone }).epochMilliseconds;
+  return { fromMs, toMs };
 }
 
-export type MonthChipKind = 'allday' | 'timed'
+export type MonthChipKind = "allday" | "timed";
 
 /** セル内の1チップ。group は EventDetailCard に渡す subject/groupMembers の元になる */
 export interface MonthChip {
-  key: string
-  kind: MonthChipKind
-  title: string
+  key: string;
+  kind: MonthChipKind;
+  title: string;
   /** 時刻予定のみ: 「HH:mm タイトル」表示用。終日は undefined */
-  startMs?: number
-  group: OccurrenceGroup | AllDayOccurrenceGroup
+  startMs?: number;
+  group: OccurrenceGroup | AllDayOccurrenceGroup;
 }
 
 export interface MonthCellChips {
-  date: Temporal.PlainDate
+  date: Temporal.PlainDate;
   /** 表示するチップ(最大 maxChipsPerCell 件、終日→時刻順)  */
-  visible: MonthChip[]
+  visible: MonthChip[];
   /** 溢れて表示しきれなかった件数(0 なら「+N」を出さない) */
-  overflowCount: number
+  overflowCount: number;
 }
 
-const DEFAULT_MAX_CHIPS_PER_CELL = 4
+const DEFAULT_MAX_CHIPS_PER_CELL = 4;
 
 /**
  * days の各日について、その日に属するチップ(終日予定 + 時刻予定)を
@@ -105,34 +107,34 @@ export function bucketMonthChips(
   maxChipsPerCell: number = DEFAULT_MAX_CHIPS_PER_CELL,
 ): MonthCellChips[] {
   return days.map(({ date }) => {
-    const dateStr = date.toString()
-    const dayStartMs = date.toZonedDateTime({ timeZone }).epochMilliseconds
-    const dayEndMs = date.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds
+    const dateStr = date.toString();
+    const dayStartMs = date.toZonedDateTime({ timeZone }).epochMilliseconds;
+    const dayEndMs = date.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds;
 
     const allDayChips: MonthChip[] = allDayGroups
       .filter((g) => g.primary.startDate <= dateStr && g.primary.endDate >= dateStr)
       .map((g) => ({
         key: `allday:${g.primary.id}`,
-        kind: 'allday' as const,
+        kind: "allday" as const,
         title: g.primary.title,
         group: g,
-      }))
+      }));
 
     const timedChips: MonthChip[] = timedGroups
       .filter((g) => g.primary.startMs >= dayStartMs && g.primary.startMs < dayEndMs)
       .sort((a, b) => a.primary.startMs - b.primary.startMs)
       .map((g) => ({
         key: `timed:${g.primary.id}`,
-        kind: 'timed' as const,
+        kind: "timed" as const,
         title: g.primary.title,
         startMs: g.primary.startMs,
         group: g,
-      }))
+      }));
 
-    const all = [...allDayChips, ...timedChips]
-    const visible = all.slice(0, maxChipsPerCell)
-    const overflowCount = all.length - visible.length
+    const all = [...allDayChips, ...timedChips];
+    const visible = all.slice(0, maxChipsPerCell);
+    const overflowCount = all.length - visible.length;
 
-    return { date, visible, overflowCount }
-  })
+    return { date, visible, overflowCount };
+  });
 }

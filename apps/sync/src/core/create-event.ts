@@ -1,21 +1,21 @@
-import { GoogleApiError } from './errors'
-import { createEvent, type CreateEventParams } from '../google/create-event'
+import { GoogleApiError } from "./errors";
+import { createEvent, type CreateEventParams } from "../google/create-event";
 
 /**
  * UserSyncDO.createEvent が実装すべき依存先。core/patch-event.ts の PatchEventCoreDeps と
  * 同じ考え方で、DO storage / 実際の fetch を注入してロジックだけを単体テストできるようにする。
  */
 export interface CreateEventCoreDeps {
-  fetch: typeof fetch
+  fetch: typeof fetch;
   /** キャッシュがあれば使い、無ければ (または期限切れなら) refresh_token から取り直す。 */
-  getAccessToken: () => Promise<string>
+  getAccessToken: () => Promise<string>;
   /** キャッシュを無視して強制的にリフレッシュする (401 リトライ用)。 */
-  forceRefreshAccessToken: () => Promise<string>
+  forceRefreshAccessToken: () => Promise<string>;
 }
 
 /** `events.insert` の応答から必要なフィールドだけを写した型。 */
 interface RawCreatedEvent {
-  id: string
+  id: string;
 }
 
 /**
@@ -29,24 +29,27 @@ interface RawCreatedEvent {
  * それ以外の作成結果 (実際の start/end 等) を正本として扱うことはしない — 正本は次の同期
  * (Google からの webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する。
  */
-export async function createEventWithRetry(deps: CreateEventCoreDeps, params: CreateEventParams): Promise<string> {
-  let accessToken = await deps.getAccessToken()
-  let retriedAuth = false
+export async function createEventWithRetry(
+  deps: CreateEventCoreDeps,
+  params: CreateEventParams,
+): Promise<string> {
+  let accessToken = await deps.getAccessToken();
+  let retriedAuth = false;
 
   for (;;) {
-    const response = await createEvent(deps.fetch, accessToken, params)
+    const response = await createEvent(deps.fetch, accessToken, params);
 
     if (response.status === 401 && !retriedAuth) {
-      retriedAuth = true
-      accessToken = await deps.forceRefreshAccessToken()
-      continue
+      retriedAuth = true;
+      accessToken = await deps.forceRefreshAccessToken();
+      continue;
     }
 
     if (!response.ok) {
-      throw new GoogleApiError(response.status, await response.text())
+      throw new GoogleApiError(response.status, await response.text());
     }
 
-    const created = (await response.json()) as RawCreatedEvent
-    return created.id
+    const created = (await response.json()) as RawCreatedEvent;
+    return created.id;
   }
 }

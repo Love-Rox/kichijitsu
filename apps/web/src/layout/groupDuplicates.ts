@@ -1,4 +1,4 @@
-import type { AllDayOccurrence, Occurrence } from '../model/types'
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 
 /**
  * 同一予定(共有・複数アカウントへの招待コピー)の集約 (フェーズ5)。
@@ -16,18 +16,24 @@ import type { AllDayOccurrence, Occurrence } from '../model/types'
  * カード上の色ドット表示・詳細ポップオーバーの「全所属」列挙に使う。
  */
 export interface OccurrenceGroup {
-  primary: Occurrence
-  members: Occurrence[]
+  primary: Occurrence;
+  members: Occurrence[];
 }
 
 export interface AllDayOccurrenceGroup {
-  primary: AllDayOccurrence
-  members: AllDayOccurrence[]
+  primary: AllDayOccurrence;
+  members: AllDayOccurrence[];
 }
 
 /** accountId→calendarId 昇順の比較関数。両方の型で共通(構造的に同じフィールドを持つ) */
-function compareByAccountThenCalendar(a: { accountId?: string; calendarId?: string }, b: typeof a): number {
-  return (a.accountId ?? '').localeCompare(b.accountId ?? '') || (a.calendarId ?? '').localeCompare(b.calendarId ?? '')
+function compareByAccountThenCalendar(
+  a: { accountId?: string; calendarId?: string },
+  b: typeof a,
+): number {
+  return (
+    (a.accountId ?? "").localeCompare(b.accountId ?? "") ||
+    (a.calendarId ?? "").localeCompare(b.calendarId ?? "")
+  );
 }
 
 /**
@@ -40,25 +46,25 @@ function groupByKey<T extends { accountId?: string; calendarId?: string }>(
   keyOf: (item: T) => string | undefined,
   fallbackKeyOf: (item: T) => string,
 ): { primary: T; members: T[] }[] {
-  const groups = new Map<string, T[]>()
+  const groups = new Map<string, T[]>();
 
   for (const item of items) {
-    const uidKey = keyOf(item)
-    const key = uidKey !== undefined ? `uid:${uidKey}` : `single:${fallbackKeyOf(item)}`
-    const members = groups.get(key)
+    const uidKey = keyOf(item);
+    const key = uidKey !== undefined ? `uid:${uidKey}` : `single:${fallbackKeyOf(item)}`;
+    const members = groups.get(key);
     if (members) {
-      members.push(item)
+      members.push(item);
     } else {
-      groups.set(key, [item])
+      groups.set(key, [item]);
     }
   }
 
-  const result: { primary: T; members: T[] }[] = []
+  const result: { primary: T; members: T[] }[] = [];
   for (const members of groups.values()) {
-    const sorted = members.length > 1 ? [...members].sort(compareByAccountThenCalendar) : members
-    result.push({ primary: sorted[0], members: sorted })
+    const sorted = members.length > 1 ? [...members].sort(compareByAccountThenCalendar) : members;
+    result.push({ primary: sorted[0], members: sorted });
   }
-  return result
+  return result;
 }
 
 /**
@@ -71,7 +77,7 @@ export function groupDuplicateOccurrences(occurrences: readonly Occurrence[]): O
     occurrences,
     (o) => (o.iCalUID ? `${o.iCalUID}:${o.startMs}:${o.endMs}` : undefined),
     (o) => o.id,
-  )
+  );
 }
 
 /**
@@ -85,5 +91,5 @@ export function groupDuplicateAllDayOccurrences(
     items,
     (o) => (o.iCalUID ? `${o.iCalUID}:${o.startDate}:${o.endDate}` : undefined),
     (o) => o.id,
-  )
+  );
 }

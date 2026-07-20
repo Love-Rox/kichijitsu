@@ -1,16 +1,16 @@
-import { GoogleApiError } from './errors'
-import { patchEventTime, type PatchEventTimeParams } from '../google/patch-event'
+import { GoogleApiError } from "./errors";
+import { patchEventTime, type PatchEventTimeParams } from "../google/patch-event";
 
 /**
  * UserSyncDO.patchEvent が実装すべき依存先。sync.ts の SyncCoreDeps と同じ考え方で、
  * DO storage / 実際の fetch を注入してロジックだけを単体テストできるようにする。
  */
 export interface PatchEventCoreDeps {
-  fetch: typeof fetch
+  fetch: typeof fetch;
   /** キャッシュがあれば使い、無ければ (または期限切れなら) refresh_token から取り直す。 */
-  getAccessToken: () => Promise<string>
+  getAccessToken: () => Promise<string>;
   /** キャッシュを無視して強制的にリフレッシュする (401 リトライ用)。 */
-  forceRefreshAccessToken: () => Promise<string>
+  forceRefreshAccessToken: () => Promise<string>;
 }
 
 /**
@@ -24,23 +24,26 @@ export interface PatchEventCoreDeps {
  * webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する設計であり、
  * ここで Google の応答ボディを整形してクライアントへ返すことはしない。
  */
-export async function patchEventTimeWithRetry(deps: PatchEventCoreDeps, params: PatchEventTimeParams): Promise<void> {
-  let accessToken = await deps.getAccessToken()
-  let retriedAuth = false
+export async function patchEventTimeWithRetry(
+  deps: PatchEventCoreDeps,
+  params: PatchEventTimeParams,
+): Promise<void> {
+  let accessToken = await deps.getAccessToken();
+  let retriedAuth = false;
 
   for (;;) {
-    const response = await patchEventTime(deps.fetch, accessToken, params)
+    const response = await patchEventTime(deps.fetch, accessToken, params);
 
     if (response.status === 401 && !retriedAuth) {
-      retriedAuth = true
-      accessToken = await deps.forceRefreshAccessToken()
-      continue
+      retriedAuth = true;
+      accessToken = await deps.forceRefreshAccessToken();
+      continue;
     }
 
     if (!response.ok) {
-      throw new GoogleApiError(response.status, await response.text())
+      throw new GoogleApiError(response.status, await response.text());
     }
 
-    return
+    return;
   }
 }

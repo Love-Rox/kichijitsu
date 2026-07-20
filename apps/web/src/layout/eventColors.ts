@@ -8,33 +8,33 @@
  */
 
 export interface ColorLookupTarget {
-  accountId?: string
-  calendarId?: string
-  color: string
+  accountId?: string;
+  calendarId?: string;
+  color: string;
   /**
    * true ならこの color はイベント個別色 (Google colorId 由来) なので表示時も
    * そのまま尊重する。false/undefined なら color は同期時点のフォールバック
    * 焼き込み値に過ぎないため、resolveDisplayColor は calendarLookup のカレンダー色を
    * 優先する(Occurrence.hasCustomColor / AllDayOccurrence.hasCustomColor 参照)。
    */
-  hasCustomColor?: boolean
+  hasCustomColor?: boolean;
 }
 
 export interface CalendarColorInfo {
-  backgroundColor?: string
+  backgroundColor?: string;
 }
 
 /** Busy プレースホルダの色が解決できない/不正なときのフォールバック(従来の一律グレー) */
-export const BUSY_FALLBACK_COLOR = '#c9c2b4'
+export const BUSY_FALLBACK_COLOR = "#c9c2b4";
 
 /** カレンダー色が未解決/不正なときの中立フォールバック(EventDetailCard の既存デフォルトと揃える) */
-export const UNKNOWN_CALENDAR_COLOR = '#9ca3af'
+export const UNKNOWN_CALENDAR_COLOR = "#9ca3af";
 
 /** 集約ストライプの既定上限本数。超過分は最後の1本にまとめる */
-const DEFAULT_MAX_STRIPES = 5
+const DEFAULT_MAX_STRIPES = 5;
 
-const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
-const CSS_COLOR_FUNCTION_RE = /^(rgb|rgba|hsl|hsla)\(/i
+const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const CSS_COLOR_FUNCTION_RE = /^(rgb|rgba|hsl|hsla)\(/i;
 
 /**
  * occurrence.color / calendarLookup 由来の色が実際に CSS へそのまま渡せる形式か。
@@ -42,10 +42,10 @@ const CSS_COLOR_FUNCTION_RE = /^(rgb|rgba|hsl|hsla)\(/i
  * (このアプリで実際に使われる色はこのどちらか)。空文字・undefined・不明な文字列は不正。
  */
 export function isValidCssColor(color: string | undefined | null): color is string {
-  if (!color) return false
-  const trimmed = color.trim()
-  if (trimmed.length === 0) return false
-  return HEX_COLOR_RE.test(trimmed) || CSS_COLOR_FUNCTION_RE.test(trimmed)
+  if (!color) return false;
+  const trimmed = color.trim();
+  if (trimmed.length === 0) return false;
+  return HEX_COLOR_RE.test(trimmed) || CSS_COLOR_FUNCTION_RE.test(trimmed);
 }
 
 /**
@@ -57,8 +57,10 @@ export function resolveEventColor(
   calendarLookup: Map<string, CalendarColorInfo>,
 ): string {
   const info =
-    target.accountId && target.calendarId ? calendarLookup.get(`${target.accountId}:${target.calendarId}`) : undefined
-  return info?.backgroundColor ?? target.color
+    target.accountId && target.calendarId
+      ? calendarLookup.get(`${target.accountId}:${target.calendarId}`)
+      : undefined;
+  return info?.backgroundColor ?? target.color;
 }
 
 /**
@@ -77,17 +79,20 @@ export function resolveDisplayColor(
   target: ColorLookupTarget,
   calendarLookup: Map<string, CalendarColorInfo>,
 ): string {
-  if (target.hasCustomColor) return target.color
-  return resolveEventColor(target, calendarLookup)
+  if (target.hasCustomColor) return target.color;
+  return resolveEventColor(target, calendarLookup);
 }
 
 /**
  * Busy プレースホルダの左ボーダー/ハッチ色。resolveDisplayColor で解決した色が不正
  * (未設定・空・想定外のフォーマット)なら従来のグレーにフォールバックする。
  */
-export function resolveBusyColor(target: ColorLookupTarget, calendarLookup: Map<string, CalendarColorInfo>): string {
-  const resolved = resolveDisplayColor(target, calendarLookup)
-  return isValidCssColor(resolved) ? resolved : BUSY_FALLBACK_COLOR
+export function resolveBusyColor(
+  target: ColorLookupTarget,
+  calendarLookup: Map<string, CalendarColorInfo>,
+): string {
+  const resolved = resolveDisplayColor(target, calendarLookup);
+  return isValidCssColor(resolved) ? resolved : BUSY_FALLBACK_COLOR;
 }
 
 /**
@@ -102,9 +107,9 @@ export function buildCalendarStripeColors(
   maxStripes: number = DEFAULT_MAX_STRIPES,
 ): string[] {
   const colors = members.map((member) => {
-    const resolved = resolveDisplayColor(member, calendarLookup)
-    return isValidCssColor(resolved) ? resolved : UNKNOWN_CALENDAR_COLOR
-  })
-  if (colors.length <= maxStripes) return colors
-  return [...colors.slice(0, maxStripes - 1), UNKNOWN_CALENDAR_COLOR]
+    const resolved = resolveDisplayColor(member, calendarLookup);
+    return isValidCssColor(resolved) ? resolved : UNKNOWN_CALENDAR_COLOR;
+  });
+  if (colors.length <= maxStripes) return colors;
+  return [...colors.slice(0, maxStripes - 1), UNKNOWN_CALENDAR_COLOR];
 }

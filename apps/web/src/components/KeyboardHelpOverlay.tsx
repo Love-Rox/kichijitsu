@@ -1,24 +1,24 @@
-import './KeyboardHelpOverlay.css'
+import "./KeyboardHelpOverlay.css";
 
 interface ShortcutRow {
-  keys: string[]
-  label: string
+  keys: string[];
+  label: string;
 }
 
 const ROWS: ShortcutRow[] = [
-  { keys: ['←', '→'], label: '前へ / 次へ' },
-  { keys: ['t'], label: '今日' },
-  { keys: ['w'], label: '週表示' },
-  { keys: ['m'], label: '月表示' },
-  { keys: ['d', '3'], label: '3日表示' },
-  { keys: ['1'], label: '1日表示' },
-  { keys: ['n'], label: '新規予定' },
-  { keys: ['?'], label: 'このヘルプ' },
-  { keys: ['Esc'], label: '閉じる' },
-]
+  { keys: ["←", "→"], label: "前へ / 次へ" },
+  { keys: ["t"], label: "今日" },
+  { keys: ["w"], label: "週表示" },
+  { keys: ["m"], label: "月表示" },
+  { keys: ["d", "3"], label: "3日表示" },
+  { keys: ["1"], label: "1日表示" },
+  { keys: ["n"], label: "新規予定" },
+  { keys: ["?"], label: "このヘルプ" },
+  { keys: ["Esc"], label: "閉じる" },
+];
 
 interface KeyboardHelpOverlayProps {
-  onClose: () => void
+  onClose: () => void;
 }
 
 /**
@@ -38,7 +38,12 @@ export function KeyboardHelpOverlay({ onClose }: KeyboardHelpOverlayProps) {
       >
         <div className="keyboard-help-header">
           <span className="keyboard-help-title">キーボードショートカット</span>
-          <button type="button" className="keyboard-help-close" onClick={onClose} aria-label="閉じる">
+          <button
+            type="button"
+            className="keyboard-help-close"
+            onClick={onClose}
+            aria-label="閉じる"
+          >
             ×
           </button>
         </div>
@@ -59,5 +64,5 @@ export function KeyboardHelpOverlay({ onClose }: KeyboardHelpOverlayProps) {
         </ul>
       </div>
     </div>
-  )
+  );
 }

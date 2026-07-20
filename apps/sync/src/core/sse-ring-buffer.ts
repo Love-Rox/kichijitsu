@@ -1,12 +1,12 @@
-import type { ServerEvent } from '@kichijitsu/shared'
+import type { ServerEvent } from "@kichijitsu/shared";
 
 export interface BufferedEvent {
   /** 単調増加する SSE の id フィールド。DO インスタンス生存中のみ有効 (再起動でリセットされる)。 */
-  id: number
-  event: ServerEvent
+  id: number;
+  event: ServerEvent;
 }
 
-const DEFAULT_CAPACITY = 200
+const DEFAULT_CAPACITY = 200;
 
 /**
  * ProfileHubDO が保持する直近イベントのリングバッファ。DO storage ではなくメモリで
@@ -16,22 +16,22 @@ const DEFAULT_CAPACITY = 200
  * バッファはあくまで「hello を待たずに済む」高速パスの最適化。
  */
 export class SseRingBuffer {
-  private readonly items: BufferedEvent[] = []
-  private nextId = 1
-  private readonly capacity: number
+  private readonly items: BufferedEvent[] = [];
+  private nextId = 1;
+  private readonly capacity: number;
 
   constructor(capacity: number = DEFAULT_CAPACITY) {
-    this.capacity = capacity
+    this.capacity = capacity;
   }
 
   push(event: ServerEvent): BufferedEvent {
-    const buffered: BufferedEvent = { id: this.nextId, event }
-    this.nextId += 1
-    this.items.push(buffered)
+    const buffered: BufferedEvent = { id: this.nextId, event };
+    this.nextId += 1;
+    this.items.push(buffered);
     if (this.items.length > this.capacity) {
-      this.items.shift()
+      this.items.shift();
     }
-    return buffered
+    return buffered;
   }
 
   /**
@@ -41,6 +41,6 @@ export class SseRingBuffer {
    * クライアント側が回復する前提なので、ここでは何も特別扱いしない。
    */
   since(lastEventId: number): BufferedEvent[] {
-    return this.items.filter((item) => item.id > lastEventId)
+    return this.items.filter((item) => item.id > lastEventId);
   }
 }

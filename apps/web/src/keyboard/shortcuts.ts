@@ -6,23 +6,23 @@
  */
 
 /** App.tsx の View と同じもの(循環 import を避けるためここが正とし、App.tsx から参照する) */
-export type View = 'week' | 'month' | 'day3' | 'day1'
+export type View = "week" | "month" | "day3" | "day1";
 
 export type ShortcutAction =
-  | { kind: 'prev' }
-  | { kind: 'next' }
-  | { kind: 'today' }
-  | { kind: 'switchView'; view: View }
-  | { kind: 'newEvent' }
-  | { kind: 'toggleHelp' }
-  | { kind: 'escape' }
+  | { kind: "prev" }
+  | { kind: "next" }
+  | { kind: "today" }
+  | { kind: "switchView"; view: View }
+  | { kind: "newEvent" }
+  | { kind: "toggleHelp" }
+  | { kind: "escape" };
 
 /** KeyboardEvent から必要な部分だけを抜き出した最小限の形(テストでは実 DOM Event を作らずに済む) */
 export interface KeyLike {
-  key: string
-  ctrlKey: boolean
-  metaKey: boolean
-  altKey: boolean
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
 }
 
 /**
@@ -30,8 +30,11 @@ export interface KeyLike {
  * どれかにフォーカスがある間はショートカットを一切発火させない(App.tsx の keydown ハンドラが
  * このガードを最初に見る)。tagName は大文字("INPUT" 等)を想定(HTMLElement.tagName の仕様どおり)。
  */
-export function isEditableTarget(tagName: string | null | undefined, isContentEditable: boolean): boolean {
-  return tagName === 'INPUT' || tagName === 'TEXTAREA' || isContentEditable
+export function isEditableTarget(
+  tagName: string | null | undefined,
+  isContentEditable: boolean,
+): boolean {
+  return tagName === "INPUT" || tagName === "TEXTAREA" || isContentEditable;
 }
 
 /**
@@ -40,12 +43,12 @@ export function isEditableTarget(tagName: string | null | undefined, isContentEd
  * 二重定義によるドリフトを避けるため単一の実装元にしてある)。
  */
 export function isViewAllowedForWidth(view: View, narrow: boolean): boolean {
-  if (view === 'month') return true
-  return narrow ? view === 'day3' || view === 'day1' : view === 'week'
+  if (view === "month") return true;
+  return narrow ? view === "day3" || view === "day1" : view === "week";
 }
 
 function switchViewIfAllowed(view: View, isNarrow: boolean): ShortcutAction | null {
-  return isViewAllowedForWidth(view, isNarrow) ? { kind: 'switchView', view } : null
+  return isViewAllowedForWidth(view, isNarrow) ? { kind: "switchView", view } : null;
 }
 
 /**
@@ -56,36 +59,36 @@ function switchViewIfAllowed(view: View, isNarrow: boolean): ShortcutAction | nu
  * - 入力中かどうか・オーバーレイが開いているかどうかの判定はこの関数の外(呼び出し側)で行う
  */
 export function resolveShortcut(e: KeyLike, isNarrow: boolean): ShortcutAction | null {
-  if (e.ctrlKey || e.metaKey || e.altKey) return null
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
   switch (e.key) {
-    case 'ArrowLeft':
-      return { kind: 'prev' }
-    case 'ArrowRight':
-      return { kind: 'next' }
-    case 't':
-    case 'T':
-      return { kind: 'today' }
-    case 'w':
-    case 'W':
-      return switchViewIfAllowed('week', isNarrow)
-    case 'm':
-    case 'M':
-      return switchViewIfAllowed('month', isNarrow)
-    case 'd':
-    case 'D':
-      return switchViewIfAllowed('day3', isNarrow)
-    case '1':
-      return switchViewIfAllowed('day1', isNarrow)
-    case '3':
-      return switchViewIfAllowed('day3', isNarrow)
-    case 'n':
-    case 'N':
-      return { kind: 'newEvent' }
-    case '?':
-      return { kind: 'toggleHelp' }
-    case 'Escape':
-      return { kind: 'escape' }
+    case "ArrowLeft":
+      return { kind: "prev" };
+    case "ArrowRight":
+      return { kind: "next" };
+    case "t":
+    case "T":
+      return { kind: "today" };
+    case "w":
+    case "W":
+      return switchViewIfAllowed("week", isNarrow);
+    case "m":
+    case "M":
+      return switchViewIfAllowed("month", isNarrow);
+    case "d":
+    case "D":
+      return switchViewIfAllowed("day3", isNarrow);
+    case "1":
+      return switchViewIfAllowed("day1", isNarrow);
+    case "3":
+      return switchViewIfAllowed("day3", isNarrow);
+    case "n":
+    case "N":
+      return { kind: "newEvent" };
+    case "?":
+      return { kind: "toggleHelp" };
+    case "Escape":
+      return { kind: "escape" };
     default:
-      return null
+      return null;
   }
 }

@@ -4,12 +4,12 @@
 
 ## API の性質（カレンダーとの違い）
 
-| | Calendar | Tasks |
-|---|---|---|
-| 差分同期 | syncToken | `updatedMin` + `showDeleted=true` のポーリング（syncToken なし） |
-| push 通知 | watch channel | **なし** — 定期ポーリング or 手動更新のみ |
-| 期限の精度 | 日時 | **日付のみ**（`due` は RFC3339 形式だが時刻は API に捨てられる） |
-| スコープ | calendar.events 等 | `https://www.googleapis.com/auth/tasks`（sensitive） |
+|            | Calendar           | Tasks                                                            |
+| ---------- | ------------------ | ---------------------------------------------------------------- |
+| 差分同期   | syncToken          | `updatedMin` + `showDeleted=true` のポーリング（syncToken なし） |
+| push 通知  | watch channel      | **なし** — 定期ポーリング or 手動更新のみ                        |
+| 期限の精度 | 日時               | **日付のみ**（`due` は RFC3339 形式だが時刻は API に捨てられる） |
+| スコープ   | calendar.events 等 | `https://www.googleapis.com/auth/tasks`（sensitive）             |
 
 ## 設計方針
 

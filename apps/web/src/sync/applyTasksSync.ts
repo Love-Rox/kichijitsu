@@ -1,9 +1,9 @@
-import type { IDBPDatabase } from 'idb'
-import type { TasksSyncResponse } from '@kichijitsu/shared'
-import type { KichijitsuDB } from '../db/database'
-import { deleteTasksByIds, getAllTasks, putTasks } from '../db/database'
-import type { TaskStore } from '../store/taskStore'
-import { mapGoogleTasks, type MapTasksContext } from './mapTasks'
+import type { IDBPDatabase } from "idb";
+import type { TasksSyncResponse } from "@kichijitsu/shared";
+import type { KichijitsuDB } from "../db/database";
+import { deleteTasksByIds, getAllTasks, putTasks } from "../db/database";
+import type { TaskStore } from "../store/taskStore";
+import { mapGoogleTasks, type MapTasksContext } from "./mapTasks";
 
 /**
  * apps/sync から受け取った TasksSyncResponse (1つの (accountId, taskListId) ぶん) を
@@ -20,22 +20,25 @@ export async function applyTasksSyncResponse(
   res: TasksSyncResponse,
   ctx: MapTasksContext,
 ): Promise<void> {
-  const mapped = mapGoogleTasks(res.tasks, ctx)
-  const mappedIds = new Set(mapped.map((t) => t.id))
+  const mapped = mapGoogleTasks(res.tasks, ctx);
+  const mappedIds = new Set(mapped.map((t) => t.id));
 
-  const existing = await getAllTasks(db)
+  const existing = await getAllTasks(db);
   const staleIds = existing
-    .filter((t) => t.accountId === ctx.accountId && t.taskListId === ctx.taskListId && !mappedIds.has(t.id))
-    .map((t) => t.id)
+    .filter(
+      (t) =>
+        t.accountId === ctx.accountId && t.taskListId === ctx.taskListId && !mappedIds.has(t.id),
+    )
+    .map((t) => t.id);
 
   await taskStore.batch(async () => {
     if (staleIds.length > 0) {
-      await deleteTasksByIds(db, staleIds)
-      taskStore.remove(staleIds)
+      await deleteTasksByIds(db, staleIds);
+      taskStore.remove(staleIds);
     }
-    await putTasks(db, mapped)
-    taskStore.load(mapped)
-  })
+    await putTasks(db, mapped);
+    taskStore.load(mapped);
+  });
 }
 
 /**
@@ -47,9 +50,9 @@ export async function deleteTasksForAccount(
   taskStore: TaskStore,
   accountId: string,
 ): Promise<void> {
-  const existing = await getAllTasks(db)
-  const ids = existing.filter((t) => t.accountId === accountId).map((t) => t.id)
-  if (ids.length === 0) return
-  await deleteTasksByIds(db, ids)
-  taskStore.remove(ids)
+  const existing = await getAllTasks(db);
+  const ids = existing.filter((t) => t.accountId === accountId).map((t) => t.id);
+  if (ids.length === 0) return;
+  await deleteTasksByIds(db, ids);
+  taskStore.remove(ids);
 }

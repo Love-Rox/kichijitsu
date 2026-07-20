@@ -1,12 +1,12 @@
-const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 export interface PatchEventTimeParams {
-  calendarId: string
-  eventId: string
-  startMs: number
-  endMs: number
+  calendarId: string;
+  eventId: string;
+  startMs: number;
+  endMs: number;
   /** クライアントの IANA タイムゾーン。dateTime と併記して Google に渡す。 */
-  timeZone: string
+  timeZone: string;
 }
 
 /**
@@ -18,7 +18,7 @@ export interface PatchEventTimeParams {
  * (`Date#toISOString()`) で送って問題ない。
  */
 export function toRfc3339Utc(ms: number): string {
-  return new Date(ms).toISOString()
+  return new Date(ms).toISOString();
 }
 
 /**
@@ -32,13 +32,13 @@ export async function patchEventTime(
   accessToken: string,
   params: PatchEventTimeParams,
 ): Promise<Response> {
-  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`
+  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`;
   return fetchFn(url, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       start: { dateTime: toRfc3339Utc(params.startMs), timeZone: params.timeZone },
       end: { dateTime: toRfc3339Utc(params.endMs), timeZone: params.timeZone },
     }),
-  })
+  });
 }

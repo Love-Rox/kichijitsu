@@ -1,18 +1,18 @@
 {
   "name": "web",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "test": "vitest run",
-    "preview": "vite preview"
+    "dev": "vp dev",
+    "build": "tsc -b && vp build",
+    "lint": "vp lint",
+    "test": "vp test run",
+    "preview": "vp preview"
   },
   "dependencies": {
-    "@kichijitsu/shared": "workspace:*",
     "@js-temporal/polyfill": "^0.5.1",
+    "@kichijitsu/shared": "workspace:*",
     "idb": "^8.0.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
@@ -22,9 +22,8 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1",
-    "vitest": "^4.1.10"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

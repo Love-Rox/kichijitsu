@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-19",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   // APP_URL は本番値をデフォルトにしている。理由: このプロジェクトはステージング等を持たず
   // 常に同じ D1/Durable Object/secrets を使う単一デプロイ先なので、wrangler の named
@@ -32,7 +32,7 @@
   "vars": {
     "APP_URL": "https://kichijitsu.love-rox.cc",
     "OAUTH_REDIRECT_URL": "",
-    "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc"
+    "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc",
   },
   // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。
   // 同一ホストの他のパスは apps/web (kichijitsu-web) の Custom Domain が受ける。
@@ -40,7 +40,7 @@
   // 経路は確実に分離される。
   "routes": [
     { "pattern": "kichijitsu.love-rox.cc/api/*", "zone_name": "love-rox.cc" },
-    { "pattern": "kichijitsu.love-rox.cc/auth/*", "zone_name": "love-rox.cc" }
+    { "pattern": "kichijitsu.love-rox.cc/auth/*", "zone_name": "love-rox.cc" },
   ],
   "d1_databases": [
     {
@@ -49,35 +49,35 @@
       // placeholder: ローカル開発 (wrangler dev) では未使用。
       // 本番 D1 (BKTSK アカウント、2026-07-20 作成)
       "database_id": "11adc667-f11a-47ac-8379-f22759d38005",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "USER_SYNC",
-        "class_name": "UserSyncDO"
+        "class_name": "UserSyncDO",
       },
       {
         "name": "PROFILE_HUB",
-        "class_name": "ProfileHubDO"
-      }
-    ]
+        "class_name": "ProfileHubDO",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["UserSyncDO"]
+      "new_sqlite_classes": ["UserSyncDO"],
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["ProfileHubDO"]
-    }
+      "new_sqlite_classes": ["ProfileHubDO"],
+    },
   ],
   // watch channel の期限 (Google Calendar は最大 1 週間) が切れる前に再登録する。
   // 6時間おきなら「期限が24時間以内に迫った watch を更新する」ロジックと組み合わせて
   // 取りこぼしなく更新できる (詳細は scheduled ハンドラ / core/watch-service.ts 参照)。
   "triggers": {
-    "crons": ["0 */6 * * *"]
-  }
+    "crons": ["0 */6 * * *"],
+  },
 }

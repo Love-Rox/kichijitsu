@@ -1,8 +1,8 @@
-const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 export interface DeleteEventParams {
-  calendarId: string
-  eventId: string
+  calendarId: string;
+  eventId: string;
 }
 
 /**
@@ -10,10 +10,14 @@ export interface DeleteEventParams {
  * 401 リトライ判定・404 冪等成功・エラー変換を行うため、ここでは response をそのまま
  * 返し throw しない (patchEventTime と同じ層分担)。
  */
-export async function deleteEvent(fetchFn: typeof fetch, accessToken: string, params: DeleteEventParams): Promise<Response> {
-  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`
+export async function deleteEvent(
+  fetchFn: typeof fetch,
+  accessToken: string,
+  params: DeleteEventParams,
+): Promise<Response> {
+  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`;
   return fetchFn(url, {
-    method: 'DELETE',
+    method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  });
 }

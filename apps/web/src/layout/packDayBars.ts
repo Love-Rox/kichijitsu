@@ -9,9 +9,9 @@
  */
 
 export interface DayBarPosition<T> {
-  item: T
+  item: T;
   /** 0-based 行番号。値が大きいほど下の行 */
-  row: number
+  row: number;
 }
 
 /**
@@ -31,26 +31,26 @@ export function packDayBars<T>(
 ): DayBarPosition<T>[] {
   const sorted = [...items].sort(
     (a, b) => getStartDayIndex(a) - getStartDayIndex(b) || getEndDayIndex(b) - getEndDayIndex(a),
-  )
+  );
 
-  const rowEnds: number[] = []
-  const result: DayBarPosition<T>[] = []
+  const rowEnds: number[] = [];
+  const result: DayBarPosition<T>[] = [];
   for (const item of sorted) {
-    const start = getStartDayIndex(item)
-    const end = getEndDayIndex(item)
-    let placed = false
+    const start = getStartDayIndex(item);
+    const end = getEndDayIndex(item);
+    let placed = false;
     for (let row = 0; row < rowEnds.length; row++) {
       if (rowEnds[row] < start) {
-        rowEnds[row] = end
-        result.push({ item, row })
-        placed = true
-        break
+        rowEnds[row] = end;
+        result.push({ item, row });
+        placed = true;
+        break;
       }
     }
     if (!placed) {
-      rowEnds.push(end)
-      result.push({ item, row: rowEnds.length - 1 })
+      rowEnds.push(end);
+      result.push({ item, row: rowEnds.length - 1 });
     }
   }
-  return result
+  return result;
 }

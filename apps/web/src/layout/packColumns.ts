@@ -8,11 +8,11 @@
  */
 
 export interface Positioned<T> {
-  item: T
+  item: T;
   /** 0-based 列番号 */
-  column: number
+  column: number;
   /** このクラスタの総列数（幅 = 100% / columnCount） */
-  columnCount: number
+  columnCount: number;
 }
 
 export function packColumns<T>(
@@ -20,31 +20,29 @@ export function packColumns<T>(
   getStart: (t: T) => number,
   getEnd: (t: T) => number,
 ): Positioned<T>[] {
-  const sorted = [...items].sort(
-    (a, b) => getStart(a) - getStart(b) || getEnd(b) - getEnd(a),
-  )
+  const sorted = [...items].sort((a, b) => getStart(a) - getStart(b) || getEnd(b) - getEnd(a));
 
   // 推移的な重なりでクラスタ分割: 走査中の最大 end を跨いだら新クラスタ
-  const clusters: T[][] = []
-  let clusterEnd = -Infinity
+  const clusters: T[][] = [];
+  let clusterEnd = -Infinity;
   for (const item of sorted) {
     if (getStart(item) >= clusterEnd || clusters.length === 0) {
-      clusters.push([])
-      clusterEnd = -Infinity
+      clusters.push([]);
+      clusterEnd = -Infinity;
     }
-    clusters[clusters.length - 1].push(item)
-    clusterEnd = Math.max(clusterEnd, getEnd(item))
+    clusters[clusters.length - 1].push(item);
+    clusterEnd = Math.max(clusterEnd, getEnd(item));
   }
 
-  const out: Positioned<T>[] = []
+  const out: Positioned<T>[] = [];
   for (const cluster of clusters) {
-    const columns = assignColumns(cluster, getStart, getEnd)
-    const columnCount = Math.max(...columns) + 1
+    const columns = assignColumns(cluster, getStart, getEnd);
+    const columnCount = Math.max(...columns) + 1;
     cluster.forEach((item, i) => {
-      out.push({ item, column: columns[i], columnCount })
-    })
+      out.push({ item, column: columns[i], columnCount });
+    });
   }
-  return out
+  return out;
 }
 
 /**
@@ -60,23 +58,23 @@ function assignColumns<T>(
   getStart: (t: T) => number,
   getEnd: (t: T) => number,
 ): number[] {
-  const columnEnds: number[] = []
-  const result: number[] = []
+  const columnEnds: number[] = [];
+  const result: number[] = [];
   for (const item of cluster) {
-    const start = getStart(item)
-    let placed = false
+    const start = getStart(item);
+    let placed = false;
     for (let col = 0; col < columnEnds.length; col++) {
       if (columnEnds[col] <= start) {
-        columnEnds[col] = getEnd(item)
-        result.push(col)
-        placed = true
-        break
+        columnEnds[col] = getEnd(item);
+        result.push(col);
+        placed = true;
+        break;
       }
     }
     if (!placed) {
-      columnEnds.push(getEnd(item))
-      result.push(columnEnds.length - 1)
+      columnEnds.push(getEnd(item));
+      result.push(columnEnds.length - 1);
     }
   }
-  return result
+  return result;
 }

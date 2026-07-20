@@ -40,17 +40,20 @@
 ## 確定設計（2026-07-20 ユーザー決定: サーバー主導 + 不在モードも）
 
 ### ブロックルール（プロファイル単位、D1 保存）
+
 - `block_rules(id, profile_id, source_account_id, source_calendar_id, target_account_id, target_calendar_id, mode, created_at)`
   - source は複数可（rule を複数行 or source を別テーブル）。target は1つ
   - `mode`: `'busy'` | `'outOfOffice'`
 - 設定 API: `GET/POST/DELETE /api/block-rules`（requireAuth + source/target 双方の所属検証）
 
 ### 対応表（内容は保存しない原則を維持: ID と時刻のみ）
+
 - `block_mirrors(rule_id, source_event_id, mirror_event_id, source_updated, created_at)`
   - ソース予定1件 → 生成した Busy/不在ブロック1件の対応。タイトルは固定「予定あり」、
     詳細・場所・参加者は写さない
 
 ### サーバー主導の追従
+
 - **トリガー**: 既存の webhook 受信（/api/webhook/google）とポーリング（UserSyncDO alarm）。
   source カレンダーの changed を検知したら、その (account, calendar) を source に持つ
   block_rules を D1 で引き、**リコンサイル**を回す
@@ -68,6 +71,7 @@
   「このアカウントは不在に非対応のため予定ありにしました」を表示）
 
 ### 段階実装
+
 1. block_rules の CRUD + 設定 UI（どの source をどの target に、busy/不在）
 2. リコンサイル・ロジック（純関数: 現予定集合 × mirror → create/patch/delete 差分）+ テスト
 3. webhook/alarm からリコンサイル起動、mirror の除外・ループ防止

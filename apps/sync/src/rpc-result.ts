@@ -1,4 +1,4 @@
-import { GoogleApiError, NotConnectedError } from './core/errors'
+import { GoogleApiError, NotConnectedError } from "./core/errors";
 
 /**
  * Durable Object の RPC メソッドは、カスタム Error サブクラスをそのまま throw しても
@@ -6,19 +6,19 @@ import { GoogleApiError, NotConnectedError } from './core/errors'
  * 再構築されるため)。そのため呼び出し元 (Hono ルート) が確実に分岐できるよう、
  * 判別可能なプレーンオブジェクトとして結果を返す。
  */
-export type RpcResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string }
+export type RpcResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
 
 export async function runRpc<T>(fn: () => Promise<T>): Promise<RpcResult<T>> {
   try {
-    return { ok: true, data: await fn() }
+    return { ok: true, data: await fn() };
   } catch (err) {
     if (err instanceof NotConnectedError) {
-      return { ok: false, status: 401, error: 'not_connected' }
+      return { ok: false, status: 401, error: "not_connected" };
     }
     if (err instanceof GoogleApiError) {
-      return { ok: false, status: err.status, error: err.message }
+      return { ok: false, status: err.status, error: err.message };
     }
-    console.error('UserSyncDO RPC error', err)
-    return { ok: false, status: 500, error: 'internal_error' }
+    console.error("UserSyncDO RPC error", err);
+    return { ok: false, status: 500, error: "internal_error" };
   }
 }

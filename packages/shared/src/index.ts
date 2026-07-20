@@ -28,4 +28,4 @@ export type {
   BlockRuleDeleteRequest,
   WatchRequest,
   SyncResponse,
-} from './protocol'
+} from "./protocol";

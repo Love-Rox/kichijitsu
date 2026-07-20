@@ -1,32 +1,32 @@
-import type { CalendarListEntryDTO } from '@kichijitsu/shared'
-import { GoogleApiError } from '../core/errors'
+import type { CalendarListEntryDTO } from "@kichijitsu/shared";
+import { GoogleApiError } from "../core/errors";
 
 interface RawCalendarListEntry {
-  id: string
-  summary: string
-  primary?: boolean
-  backgroundColor?: string
+  id: string;
+  summary: string;
+  primary?: boolean;
+  backgroundColor?: string;
 }
 
 interface RawCalendarListResponse {
-  items: RawCalendarListEntry[]
+  items: RawCalendarListEntry[];
 }
 
 export async function fetchCalendarList(
   fetchFn: typeof fetch,
   accessToken: string,
 ): Promise<CalendarListEntryDTO[]> {
-  const response = await fetchFn('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+  const response = await fetchFn("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
     headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  });
   if (!response.ok) {
-    throw new GoogleApiError(response.status, await response.text())
+    throw new GoogleApiError(response.status, await response.text());
   }
-  const data = (await response.json()) as RawCalendarListResponse
+  const data = (await response.json()) as RawCalendarListResponse;
   return data.items.map((item) => ({
     id: item.id,
     summary: item.summary,
     primary: item.primary,
     backgroundColor: item.backgroundColor,
-  }))
+  }));
 }

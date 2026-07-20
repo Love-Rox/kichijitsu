@@ -1,6 +1,6 @@
-import { GoogleApiError } from '../core/errors'
+import { GoogleApiError } from "../core/errors";
 
-const EVENTS_LIST_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
+const EVENTS_LIST_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 /**
  * ポーリングフォールバック (UserSyncDO の alarm) 用の軽量な「変化があったか」チェック。
@@ -18,12 +18,12 @@ const EVENTS_LIST_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
  * 実際に1件でも当たれば十分 (中身は見ない)。
  */
 export function buildPollCheckUrl(calendarId: string, updatedMinIso: string): string {
-  const url = new URL(`${EVENTS_LIST_BASE}/${encodeURIComponent(calendarId)}/events`)
-  url.searchParams.set('updatedMin', updatedMinIso)
-  url.searchParams.set('maxResults', '1')
-  url.searchParams.set('showDeleted', 'true') // 削除も「変化」として検知する
-  url.searchParams.set('fields', 'items(id)')
-  return url.toString()
+  const url = new URL(`${EVENTS_LIST_BASE}/${encodeURIComponent(calendarId)}/events`);
+  url.searchParams.set("updatedMin", updatedMinIso);
+  url.searchParams.set("maxResults", "1");
+  url.searchParams.set("showDeleted", "true"); // 削除も「変化」として検知する
+  url.searchParams.set("fields", "items(id)");
+  return url.toString();
 }
 
 export async function hasUpdatesSince(
@@ -34,10 +34,10 @@ export async function hasUpdatesSince(
 ): Promise<boolean> {
   const response = await fetchFn(buildPollCheckUrl(calendarId, updatedMinIso), {
     headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  });
   if (!response.ok) {
-    throw new GoogleApiError(response.status, await response.text())
+    throw new GoogleApiError(response.status, await response.text());
   }
-  const data = (await response.json()) as { items?: Array<{ id: string }> }
-  return (data.items?.length ?? 0) > 0
+  const data = (await response.json()) as { items?: Array<{ id: string }> };
+  return (data.items?.length ?? 0) > 0;
 }

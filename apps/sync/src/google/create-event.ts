@@ -1,14 +1,14 @@
-import { toRfc3339Utc } from './patch-event'
+import { toRfc3339Utc } from "./patch-event";
 
-const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 export interface CreateEventParams {
-  calendarId: string
-  title: string
-  startMs: number
-  endMs: number
+  calendarId: string;
+  title: string;
+  startMs: number;
+  endMs: number;
   /** クライアントの IANA タイムゾーン。dateTime と併記して Google に渡す。 */
-  timeZone: string
+  timeZone: string;
 }
 
 /**
@@ -18,15 +18,19 @@ export interface CreateEventParams {
  * 401 リトライ判定とエラー変換を行うため、ここでは response をそのまま返し throw しない
  * (patchEventTime と同じ層分担)。
  */
-export async function createEvent(fetchFn: typeof fetch, accessToken: string, params: CreateEventParams): Promise<Response> {
-  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events`
+export async function createEvent(
+  fetchFn: typeof fetch,
+  accessToken: string,
+  params: CreateEventParams,
+): Promise<Response> {
+  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events`;
   return fetchFn(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       summary: params.title,
       start: { dateTime: toRfc3339Utc(params.startMs), timeZone: params.timeZone },
       end: { dateTime: toRfc3339Utc(params.endMs), timeZone: params.timeZone },
     }),
-  })
+  });
 }

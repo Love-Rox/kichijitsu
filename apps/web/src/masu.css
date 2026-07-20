@@ -55,7 +55,7 @@ ul.masu-list li {
 }
 
 ul.masu-list li::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 0.1em;
   top: 0.72em;

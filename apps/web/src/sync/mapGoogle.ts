@@ -1,8 +1,8 @@
-import { Temporal } from '@js-temporal/polyfill'
-import type { GoogleEventDTO } from '@kichijitsu/shared'
-import type { EventSeries, InstanceOverride } from '../model/series'
-import { instanceId } from '../model/series'
-import type { AllDayOccurrence, Occurrence } from '../model/types'
+import { Temporal } from "@js-temporal/polyfill";
+import type { GoogleEventDTO } from "@kichijitsu/shared";
+import type { EventSeries, InstanceOverride } from "../model/series";
+import { instanceId } from "../model/series";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 
 /**
  * Google Calendar の event DTO を kichijitsu のローカルモデルへ変換する純関数層。
@@ -22,34 +22,34 @@ import type { AllDayOccurrence, Occurrence } from '../model/types'
  * 巻き込まないよう、失敗したイベント/行は console.warn してスキップする。
  */
 export interface MappedSync {
-  series: EventSeries[]
-  overrides: InstanceOverride[]
-  singles: Occurrence[]
+  series: EventSeries[];
+  overrides: InstanceOverride[];
+  singles: Occurrence[];
   /** 単発イベントが cancelled になった場合の occurrence id */
-  deletedSingleIds: string[]
+  deletedSingleIds: string[];
   /** 終日の単発イベント (start.date のみ、繰り返しではない) */
-  allDays: AllDayOccurrence[]
+  allDays: AllDayOccurrence[];
   /** 終日イベントが cancelled になった場合の AllDayOccurrence id */
-  deletedAllDayIds: string[]
+  deletedAllDayIds: string[];
   /**
    * 終日の繰り返し(親 + その例外インスタンス)でスキップした件数。
    * 終日の繰り返し展開は初版未対応なため(通常の単発終日イベントは
    * allDays に変換されるので、この件数には含まれない)
    */
-  skippedAllDayRecurring: number
+  skippedAllDayRecurring: number;
 }
 
 /** mapGoogleEvents の呼び出しごとのコンテキスト: どのアカウント・どのカレンダーの同期か */
 export interface MapGoogleContext {
-  accountId: string
-  calendarId: string
+  accountId: string;
+  calendarId: string;
   /** カレンダー自体の色 (Google の backgroundColor)。イベント個別 colorId が無いときのフォールバック */
-  defaultColor?: string
+  defaultColor?: string;
 }
 
 /** id 規則: `g:<accountId>:<calendarId>:<eventId>` */
 function eventKey(ctx: MapGoogleContext, eventId: string): string {
-  return `g:${ctx.accountId}:${ctx.calendarId}:${eventId}`
+  return `g:${ctx.accountId}:${ctx.calendarId}:${eventId}`;
 }
 
 /**
@@ -57,19 +57,19 @@ function eventKey(ctx: MapGoogleContext, eventId: string): string {
  * 値は Google Calendar の公式パレットに準拠 (アプリの既存 COLORS 系統に近い色相)。
  */
 const GOOGLE_COLOR_MAP: Record<string, string> = {
-  '1': '#7986cb', // Lavender
-  '2': '#33b679', // Sage
-  '3': '#8e24aa', // Grape
-  '4': '#e67c73', // Flamingo
-  '5': '#f6bf26', // Banana
-  '6': '#f4511e', // Tangerine
-  '7': '#039be5', // Peacock
-  '8': '#616161', // Graphite
-  '9': '#3f51b5', // Blueberry
-  '10': '#0b8043', // Basil
-  '11': '#d50000', // Tomato
-}
-const DEFAULT_COLOR = '#3b82f6'
+  "1": "#7986cb", // Lavender
+  "2": "#33b679", // Sage
+  "3": "#8e24aa", // Grape
+  "4": "#e67c73", // Flamingo
+  "5": "#f6bf26", // Banana
+  "6": "#f4511e", // Tangerine
+  "7": "#039be5", // Peacock
+  "8": "#616161", // Graphite
+  "9": "#3f51b5", // Blueberry
+  "10": "#0b8043", // Basil
+  "11": "#d50000", // Tomato
+};
+const DEFAULT_COLOR = "#3b82f6";
 
 /**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
@@ -86,27 +86,30 @@ const DEFAULT_COLOR = '#3b82f6'
  * colorId が未知の値のときも false のままにする(その場合の color は個別色ではなく
  * カレンダー色/デフォルトのフォールバックなので、表示側で再解決させたほうが正しい)。
  */
-function colorFor(colorId: string | undefined, ctx: MapGoogleContext): { color: string; hasCustomColor: boolean } {
+function colorFor(
+  colorId: string | undefined,
+  ctx: MapGoogleContext,
+): { color: string; hasCustomColor: boolean } {
   if (colorId) {
-    const mapped = GOOGLE_COLOR_MAP[colorId]
-    if (mapped) return { color: mapped, hasCustomColor: true }
+    const mapped = GOOGLE_COLOR_MAP[colorId];
+    if (mapped) return { color: mapped, hasCustomColor: true };
   }
-  return { color: ctx.defaultColor ?? DEFAULT_COLOR, hasCustomColor: false }
+  return { color: ctx.defaultColor ?? DEFAULT_COLOR, hasCustomColor: false };
 }
 
 function durationMinutesBetween(startIso: string, endIso: string): number {
-  const startMs = Temporal.Instant.from(startIso).epochMilliseconds
-  const endMs = Temporal.Instant.from(endIso).epochMilliseconds
-  return (endMs - startMs) / 60_000
+  const startMs = Temporal.Instant.from(startIso).epochMilliseconds;
+  const endMs = Temporal.Instant.from(endIso).epochMilliseconds;
+  return (endMs - startMs) / 60_000;
 }
 
 /** "20260720T100000Z" (UTC) または "20260720T100000" (timeZone のローカル壁時計) を epoch ms に */
 function parseExdateValue(value: string, timeZone: string): number {
-  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/.exec(value)
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/.exec(value);
   if (!m) {
-    throw new Error(`unrecognized EXDATE value: "${value}"`)
+    throw new Error(`unrecognized EXDATE value: "${value}"`);
   }
-  const [, y, mo, d, h, mi, s, z] = m
+  const [, y, mo, d, h, mi, s, z] = m;
   const fields = {
     year: Number(y),
     month: Number(mo),
@@ -114,11 +117,12 @@ function parseExdateValue(value: string, timeZone: string): number {
     hour: Number(h),
     minute: Number(mi),
     second: Number(s),
-  }
+  };
   if (z) {
-    return Temporal.ZonedDateTime.from({ timeZone: 'UTC', ...fields }).toInstant().epochMilliseconds
+    return Temporal.ZonedDateTime.from({ timeZone: "UTC", ...fields }).toInstant()
+      .epochMilliseconds;
   }
-  return Temporal.PlainDateTime.from(fields).toZonedDateTime(timeZone).epochMilliseconds
+  return Temporal.PlainDateTime.from(fields).toZonedDateTime(timeZone).epochMilliseconds;
 }
 
 /**
@@ -126,85 +130,92 @@ function parseExdateValue(value: string, timeZone: string): number {
  * カンマ区切りの複数値に対応する。
  */
 function parseExdateLine(line: string, defaultTimeZone: string): number[] {
-  const colonIdx = line.indexOf(':')
+  const colonIdx = line.indexOf(":");
   if (colonIdx === -1) {
-    throw new Error(`no ':' in EXDATE line: "${line}"`)
+    throw new Error(`no ':' in EXDATE line: "${line}"`);
   }
-  const header = line.slice(0, colonIdx)
-  const valuesRaw = line.slice(colonIdx + 1)
-  const tzidMatch = /;TZID=([^;]+)/.exec(header)
-  const timeZone = tzidMatch ? tzidMatch[1] : defaultTimeZone
+  const header = line.slice(0, colonIdx);
+  const valuesRaw = line.slice(colonIdx + 1);
+  const tzidMatch = /;TZID=([^;]+)/.exec(header);
+  const timeZone = tzidMatch ? tzidMatch[1] : defaultTimeZone;
 
   const values = valuesRaw
-    .split(',')
+    .split(",")
     .map((v) => v.trim())
-    .filter((v) => v.length > 0)
+    .filter((v) => v.length > 0);
   if (values.length === 0) {
-    throw new Error(`EXDATE line has no values: "${line}"`)
+    throw new Error(`EXDATE line has no values: "${line}"`);
   }
-  return values.map((v) => parseExdateValue(v, timeZone))
+  return values.map((v) => parseExdateValue(v, timeZone));
 }
 
 function originalStartMsOf(event: GoogleEventDTO): number {
-  const ost = event.originalStartTime
+  const ost = event.originalStartTime;
   if (!ost) {
-    throw new Error(`event ${event.id} is an exception instance but has no originalStartTime`)
+    throw new Error(`event ${event.id} is an exception instance but has no originalStartTime`);
   }
   if (ost.dateTime) {
-    return Temporal.Instant.from(ost.dateTime).epochMilliseconds
+    return Temporal.Instant.from(ost.dateTime).epochMilliseconds;
   }
   if (ost.date) {
-    const timeZone = ost.timeZone ?? 'UTC'
-    return Temporal.PlainDate.from(ost.date).toZonedDateTime(timeZone).epochMilliseconds
+    const timeZone = ost.timeZone ?? "UTC";
+    return Temporal.PlainDate.from(ost.date).toZonedDateTime(timeZone).epochMilliseconds;
   }
-  throw new Error(`event ${event.id} originalStartTime has neither dateTime nor date`)
+  throw new Error(`event ${event.id} originalStartTime has neither dateTime nor date`);
 }
 
 /** 繰り返しの親イベント → EventSeries。RRULE 行が見つからなければ null (呼び出し側で warn 済み) */
 function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries | null {
   if (!event.start?.dateTime || !event.end?.dateTime) {
-    throw new Error(`series event ${event.id} missing start/end dateTime`)
+    throw new Error(`series event ${event.id} missing start/end dateTime`);
   }
-  const timeZone = event.start.timeZone ?? 'UTC'
-  const dtstartIso = event.start.dateTime.slice(0, 16)
-  const durationMin = durationMinutesBetween(event.start.dateTime, event.end.dateTime)
+  const timeZone = event.start.timeZone ?? "UTC";
+  const dtstartIso = event.start.dateTime.slice(0, 16);
+  const durationMin = durationMinutesBetween(event.start.dateTime, event.end.dateTime);
 
-  let rruleLine: string | undefined
-  const exdatesMs: number[] = []
+  let rruleLine: string | undefined;
+  const exdatesMs: number[] = [];
 
   for (const line of event.recurrence ?? []) {
-    if (line.startsWith('RRULE:')) {
+    if (line.startsWith("RRULE:")) {
       if (rruleLine !== undefined) {
         console.warn(
           `mapGoogleEvents: event ${event.id} has multiple RRULE lines, ignoring extra: "${line}"`,
-        )
-        continue
+        );
+        continue;
       }
-      rruleLine = line.slice('RRULE:'.length)
-    } else if (line.startsWith('EXDATE')) {
+      rruleLine = line.slice("RRULE:".length);
+    } else if (line.startsWith("EXDATE")) {
       try {
-        exdatesMs.push(...parseExdateLine(line, timeZone))
+        exdatesMs.push(...parseExdateLine(line, timeZone));
       } catch (err) {
-        console.warn(`mapGoogleEvents: event ${event.id} failed to parse EXDATE line "${line}"`, err)
+        console.warn(
+          `mapGoogleEvents: event ${event.id} failed to parse EXDATE line "${line}"`,
+          err,
+        );
       }
     } else {
-      console.warn(`mapGoogleEvents: event ${event.id} has unsupported recurrence line, skipping: "${line}"`)
+      console.warn(
+        `mapGoogleEvents: event ${event.id} has unsupported recurrence line, skipping: "${line}"`,
+      );
     }
   }
 
   if (rruleLine === undefined) {
-    console.warn(`mapGoogleEvents: event ${event.id} has recurrence but no RRULE line, skipping series`)
-    return null
+    console.warn(
+      `mapGoogleEvents: event ${event.id} has recurrence but no RRULE line, skipping series`,
+    );
+    return null;
   }
 
-  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx);
 
   return {
     id: eventKey(ctx, event.id),
-    title: event.summary ?? '(無題)',
+    title: event.summary ?? "(無題)",
     color,
     hasCustomColor,
-    source: 'google',
+    source: "google",
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,
     iCalUID: event.iCalUID,
@@ -216,40 +227,40 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     durationMin,
     rrule: rruleLine,
     exdatesMs,
-  }
+  };
 }
 
 /** 例外インスタンス (recurringEventId あり) → InstanceOverride */
 function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOverride {
   if (!event.recurringEventId) {
-    throw new Error(`override event ${event.id} missing recurringEventId`)
+    throw new Error(`override event ${event.id} missing recurringEventId`);
   }
-  const seriesId = eventKey(ctx, event.recurringEventId)
-  const originalStartMs = originalStartMsOf(event)
+  const seriesId = eventKey(ctx, event.recurringEventId);
+  const originalStartMs = originalStartMsOf(event);
 
-  if (event.status === 'cancelled') {
-    return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch: null }
+  if (event.status === "cancelled") {
+    return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch: null };
   }
 
   if (!event.start?.dateTime || !event.end?.dateTime) {
-    throw new Error(`override event ${event.id} missing start/end dateTime`)
+    throw new Error(`override event ${event.id} missing start/end dateTime`);
   }
 
-  const patch: NonNullable<InstanceOverride['patch']> = {
+  const patch: NonNullable<InstanceOverride["patch"]> = {
     startMs: Temporal.Instant.from(event.start.dateTime).epochMilliseconds,
     endMs: Temporal.Instant.from(event.end.dateTime).epochMilliseconds,
-  }
+  };
   if (event.summary !== undefined) {
-    patch.title = event.summary
+    patch.title = event.summary;
   }
   if (event.location !== undefined) {
-    patch.location = event.location
+    patch.location = event.location;
   }
   if (event.description !== undefined) {
-    patch.description = event.description
+    patch.description = event.description;
   }
 
-  return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch }
+  return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch };
 }
 
 /**
@@ -261,33 +272,33 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
  */
 function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurrence {
   if (!event.start?.date || !event.end?.date) {
-    throw new Error(`all-day event ${event.id} missing start/end date`)
+    throw new Error(`all-day event ${event.id} missing start/end date`);
   }
-  const startDate = event.start.date
-  const endDateExclusive = Temporal.PlainDate.from(event.end.date)
-  let endDate = endDateExclusive.subtract({ days: 1 }).toString()
+  const startDate = event.start.date;
+  const endDateExclusive = Temporal.PlainDate.from(event.end.date);
+  let endDate = endDateExclusive.subtract({ days: 1 }).toString();
   if (Temporal.PlainDate.compare(endDate, startDate) < 0) {
-    endDate = startDate
+    endDate = startDate;
   }
 
-  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx);
 
   return {
     id: eventKey(ctx, event.id),
     seriesId: null,
-    title: event.summary ?? '(無題)',
+    title: event.summary ?? "(無題)",
     startDate,
     endDate,
     color,
     hasCustomColor,
-    source: 'google',
+    source: "google",
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,
     iCalUID: event.iCalUID,
     location: event.location,
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
-  }
+  };
 }
 
 /** 単発イベント → Occurrence。start/end.dateTime は呼び出し側で存在確認済み */
@@ -297,85 +308,93 @@ function buildSingle(
   endDateTime: string,
   ctx: MapGoogleContext,
 ): Occurrence {
-  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx);
 
   return {
     id: eventKey(ctx, event.id),
     seriesId: null,
-    title: event.summary ?? '(無題)',
+    title: event.summary ?? "(無題)",
     startMs: Temporal.Instant.from(startDateTime).epochMilliseconds,
     endMs: Temporal.Instant.from(endDateTime).epochMilliseconds,
     color,
     hasCustomColor,
-    source: 'google',
+    source: "google",
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,
     iCalUID: event.iCalUID,
     location: event.location,
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
-  }
+  };
 }
 
 export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext): MappedSync {
-  const series: EventSeries[] = []
-  const overrides: InstanceOverride[] = []
-  const singles: Occurrence[] = []
-  const deletedSingleIds: string[] = []
-  const allDays: AllDayOccurrence[] = []
-  const deletedAllDayIds: string[] = []
-  let skippedAllDayRecurring = 0
+  const series: EventSeries[] = [];
+  const overrides: InstanceOverride[] = [];
+  const singles: Occurrence[] = [];
+  const deletedSingleIds: string[] = [];
+  const allDays: AllDayOccurrence[] = [];
+  const deletedAllDayIds: string[] = [];
+  let skippedAllDayRecurring = 0;
 
   for (const event of events) {
     try {
       // 終日 (date のみ、dateTime なし)
-      const isAllDay = !!event.start?.date && !event.start?.dateTime
+      const isAllDay = !!event.start?.date && !event.start?.dateTime;
       if (isAllDay) {
         // 終日の繰り返し(親 + その例外インスタンス)は初版未対応のためスキップする。
         // 親を作らない以上、例外インスタンス側も対応する親を持てないため一緒に数える
         if ((event.recurrence && event.recurrence.length > 0) || event.recurringEventId) {
-          skippedAllDayRecurring++
-          continue
+          skippedAllDayRecurring++;
+          continue;
         }
-        if (event.status === 'cancelled') {
-          deletedAllDayIds.push(eventKey(ctx, event.id))
-          continue
+        if (event.status === "cancelled") {
+          deletedAllDayIds.push(eventKey(ctx, event.id));
+          continue;
         }
-        allDays.push(buildAllDay(event, ctx))
-        continue
+        allDays.push(buildAllDay(event, ctx));
+        continue;
       }
 
       if (event.recurrence && event.recurrence.length > 0) {
-        const built = buildSeries(event, ctx)
-        if (built) series.push(built)
-        continue
+        const built = buildSeries(event, ctx);
+        if (built) series.push(built);
+        continue;
       }
 
       if (event.recurringEventId) {
-        overrides.push(buildOverride(event, ctx))
-        continue
+        overrides.push(buildOverride(event, ctx));
+        continue;
       }
 
       // 単発
       if (!event.start?.dateTime || !event.end?.dateTime) {
-        console.warn(`mapGoogleEvents: event ${event.id} has no usable start/end, skipping`, event)
-        continue
+        console.warn(`mapGoogleEvents: event ${event.id} has no usable start/end, skipping`, event);
+        continue;
       }
-      if (event.status === 'cancelled') {
-        deletedSingleIds.push(eventKey(ctx, event.id))
-        continue
+      if (event.status === "cancelled") {
+        deletedSingleIds.push(eventKey(ctx, event.id));
+        continue;
       }
-      singles.push(buildSingle(event, event.start.dateTime, event.end.dateTime, ctx))
+      singles.push(buildSingle(event, event.start.dateTime, event.end.dateTime, ctx));
     } catch (err) {
-      console.warn(`mapGoogleEvents: failed to convert event ${event.id}, skipping`, err)
+      console.warn(`mapGoogleEvents: failed to convert event ${event.id}, skipping`, err);
     }
   }
 
   if (skippedAllDayRecurring > 0) {
     console.info(
       `mapGoogleEvents: skipped ${skippedAllDayRecurring} recurring all-day event(s) (not supported yet)`,
-    )
+    );
   }
 
-  return { series, overrides, singles, deletedSingleIds, allDays, deletedAllDayIds, skippedAllDayRecurring }
+  return {
+    series,
+    overrides,
+    singles,
+    deletedSingleIds,
+    allDays,
+    deletedAllDayIds,
+    skippedAllDayRecurring,
+  };
 }

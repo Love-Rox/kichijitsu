@@ -43,11 +43,11 @@ pnpm install
 
 以下の3箇所を自分の値に書き換えます:
 
-| ファイル | 書き換える箇所 |
-|---------|----------------|
-| `apps/web/wrangler.jsonc` | `name`（任意）、`routes[0].pattern` → あなたのドメイン |
+| ファイル                   | 書き換える箇所                                                            |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `apps/web/wrangler.jsonc`  | `name`（任意）、`routes[0].pattern` → あなたのドメイン                    |
 | `apps/sync/wrangler.jsonc` | `name`（任意）、`routes` の 2 つの pattern と `zone_name`、`vars.APP_URL` |
-| `apps/sync/wrangler.jsonc` | `d1_databases[0].database_id` → 手順4で作る実 ID |
+| `apps/sync/wrangler.jsonc` | `d1_databases[0].database_id` → 手順4で作る実 ID                          |
 
 ## 4. デプロイ
 

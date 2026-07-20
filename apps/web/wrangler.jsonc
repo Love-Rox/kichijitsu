@@ -6,13 +6,13 @@
   "name": "kichijitsu-web",
   "compatibility_date": "2026-07-19",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "assets": {
     "directory": "./dist",
     // SPA: 静的ファイルに一致しないパスは index.html にフォールバックさせる
     // (クライアントサイドルーティングのため)。
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
   },
   // Custom Domain: kichijitsu.love-rox.cc の DNS レコードは Cloudflare が自動管理する。
   // 同一ホスト上の /api/* と /auth/* は apps/sync (kichijitsu-sync) の zone route が
@@ -20,7 +20,7 @@
   "routes": [
     {
       "pattern": "kichijitsu.love-rox.cc",
-      "custom_domain": true
-    }
-  ]
+      "custom_domain": true,
+    },
+  ],
 }

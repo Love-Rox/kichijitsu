@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
 
 export interface MasuVisibleState {
   /** true の間だけ呼び出し側は MasuIndicator を描画してよい */
-  visible: boolean
+  visible: boolean;
   /** true の間、呼び出し側は fade-out 用の CSS クラス(.masu-indicator--fading)を添えるとよい */
-  fading: boolean
+  fading: boolean;
 }
 
-const FADE_MS = 200
+const FADE_MS = 200;
 
 /**
  * MasuIndicator の「止め方」を扱う小さなフック。
@@ -23,24 +23,24 @@ const FADE_MS = 200
  * fading=true にし、FADE_MS 後に visible=false にする(=呼び出し側がアンマウントしてよい)。
  */
 export function useMasuVisible(active: boolean): MasuVisibleState {
-  const [visible, setVisible] = useState(active)
-  const [fading, setFading] = useState(false)
-  const activeRef = useRef(active)
-  activeRef.current = active
+  const [visible, setVisible] = useState(active);
+  const [fading, setFading] = useState(false);
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   useEffect(() => {
     if (active) {
-      setVisible(true)
-      setFading(false)
-      return
+      setVisible(true);
+      setFading(false);
+      return;
     }
-    setFading(true)
+    setFading(true);
     const timeoutId = window.setTimeout(() => {
       // タイムアウト発火までの間に再び active に戻っていたら消さない
-      if (!activeRef.current) setVisible(false)
-    }, FADE_MS)
-    return () => window.clearTimeout(timeoutId)
-  }, [active])
+      if (!activeRef.current) setVisible(false);
+    }, FADE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [active]);
 
-  return { visible, fading }
+  return { visible, fading };
 }

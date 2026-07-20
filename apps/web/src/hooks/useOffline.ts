@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from "react";
 
 export interface OfflineState {
   /** true の間、ツールバーに空枡+「オフライン」を出す(brand/README.md「枡オーナメント」節) */
-  offline: boolean
+  offline: boolean;
   /** API fetch がネットワーク失敗/502 を返したときに呼ぶ */
-  markOffline: () => void
+  markOffline: () => void;
   /** API fetch が(502 以外で)応答したときに呼ぶ */
-  markOnline: () => void
+  markOnline: () => void;
 }
 
 /**
@@ -22,25 +22,25 @@ export interface OfflineState {
  * markOffline/markOnline を薄く差し込んで使う。
  */
 export function useOffline(): OfflineState {
-  const [offline, setOffline] = useState(() => !navigator.onLine)
+  const [offline, setOffline] = useState(() => !navigator.onLine);
 
   useEffect(() => {
     function handleOnline() {
-      setOffline(false)
+      setOffline(false);
     }
     function handleOffline() {
-      setOffline(true)
+      setOffline(true);
     }
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
-  const markOffline = useCallback(() => setOffline(true), [])
-  const markOnline = useCallback(() => setOffline(false), [])
+  const markOffline = useCallback(() => setOffline(true), []);
+  const markOnline = useCallback(() => setOffline(false), []);
 
-  return { offline, markOffline, markOnline }
+  return { offline, markOffline, markOnline };
 }

@@ -1,21 +1,21 @@
-import { GoogleApiError } from '../core/errors'
+import { GoogleApiError } from "../core/errors";
 
-const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars'
-const CHANNELS_STOP_URL = 'https://www.googleapis.com/calendar/v3/channels/stop'
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
+const CHANNELS_STOP_URL = "https://www.googleapis.com/calendar/v3/channels/stop";
 
 export interface RegisterWatchParams {
-  calendarId: string
-  channelId: string
+  calendarId: string;
+  channelId: string;
   /** webhook が届く先。 `${WEBHOOK_BASE_URL}/api/webhook/google` */
-  address: string
+  address: string;
   /** X-Goog-Channel-Token として送り返される値 (watch-token.ts で計算する)。 */
-  token: string
+  token: string;
 }
 
 export interface RegisteredWatch {
-  resourceId: string
+  resourceId: string;
   /** Google はミリ秒 epoch を文字列で返す。無ければ null (安全側に倒し Cron 更新の対象外にする)。 */
-  expiration: number | null
+  expiration: number | null;
 }
 
 /**
@@ -27,29 +27,32 @@ export async function registerWatch(
   accessToken: string,
   params: RegisterWatchParams,
 ): Promise<RegisteredWatch> {
-  const response = await fetchFn(`${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/watch`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: params.channelId,
-      type: 'web_hook',
-      address: params.address,
-      token: params.token,
-    }),
-  })
+  const response = await fetchFn(
+    `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/watch`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: params.channelId,
+        type: "web_hook",
+        address: params.address,
+        token: params.token,
+      }),
+    },
+  );
   if (!response.ok) {
-    throw new GoogleApiError(response.status, await response.text())
+    throw new GoogleApiError(response.status, await response.text());
   }
-  const data = (await response.json()) as { resourceId: string; expiration?: string }
+  const data = (await response.json()) as { resourceId: string; expiration?: string };
   return {
     resourceId: data.resourceId,
     expiration: data.expiration ? Number(data.expiration) : null,
-  }
+  };
 }
 
 export interface StopWatchParams {
-  channelId: string
-  resourceId: string
+  channelId: string;
+  resourceId: string;
 }
 
 /**
@@ -57,19 +60,23 @@ export interface StopWatchParams {
  * 呼び出し元 (連携解除・enabled=false・Cron 更新での旧チャネル破棄) は、成否に関わらず
  * ローカルの後続処理 (D1 行削除など) を続行してよい設計のため、ここでは throw しない。
  */
-export async function stopWatch(fetchFn: typeof fetch, accessToken: string, params: StopWatchParams): Promise<boolean> {
+export async function stopWatch(
+  fetchFn: typeof fetch,
+  accessToken: string,
+  params: StopWatchParams,
+): Promise<boolean> {
   try {
     const response = await fetchFn(CHANNELS_STOP_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ id: params.channelId, resourceId: params.resourceId }),
-    })
-    return response.ok
+    });
+    return response.ok;
   } catch {
-    return false
+    return false;
   }
 }
 
 export function buildWebhookAddress(webhookBaseUrl: string): string {
-  return `${webhookBaseUrl}/api/webhook/google`
+  return `${webhookBaseUrl}/api/webhook/google`;
 }

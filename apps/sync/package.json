@@ -1,12 +1,12 @@
 {
   "name": "sync",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
+    "test": "vp test run",
     "typecheck": "wrangler types && tsc --noEmit"
   },
   "dependencies": {
@@ -16,7 +16,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260719.1",
     "typescript": "~6.0.2",
-    "vitest": "^4.1.10",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
     "wrangler": "^4.112.0"
   }
 }

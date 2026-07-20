@@ -1,16 +1,16 @@
-import { GoogleApiError } from './errors'
-import { deleteEvent, type DeleteEventParams } from '../google/delete-event'
+import { GoogleApiError } from "./errors";
+import { deleteEvent, type DeleteEventParams } from "../google/delete-event";
 
 /**
  * UserSyncDO.deleteEvent が実装すべき依存先。core/patch-event.ts の PatchEventCoreDeps と
  * 同じ考え方で、DO storage / 実際の fetch を注入してロジックだけを単体テストできるようにする。
  */
 export interface DeleteEventCoreDeps {
-  fetch: typeof fetch
+  fetch: typeof fetch;
   /** キャッシュがあれば使い、無ければ (または期限切れなら) refresh_token から取り直す。 */
-  getAccessToken: () => Promise<string>
+  getAccessToken: () => Promise<string>;
   /** キャッシュを無視して強制的にリフレッシュする (401 リトライ用)。 */
-  forceRefreshAccessToken: () => Promise<string>
+  forceRefreshAccessToken: () => Promise<string>;
 }
 
 /**
@@ -27,27 +27,30 @@ export interface DeleteEventCoreDeps {
  * クライアントの /api/sync) で還流する設計であり、ここで Google の応答を整形して
  * クライアントへ返すことはしない。
  */
-export async function deleteEventWithRetry(deps: DeleteEventCoreDeps, params: DeleteEventParams): Promise<void> {
-  let accessToken = await deps.getAccessToken()
-  let retriedAuth = false
+export async function deleteEventWithRetry(
+  deps: DeleteEventCoreDeps,
+  params: DeleteEventParams,
+): Promise<void> {
+  let accessToken = await deps.getAccessToken();
+  let retriedAuth = false;
 
   for (;;) {
-    const response = await deleteEvent(deps.fetch, accessToken, params)
+    const response = await deleteEvent(deps.fetch, accessToken, params);
 
     if (response.status === 401 && !retriedAuth) {
-      retriedAuth = true
-      accessToken = await deps.forceRefreshAccessToken()
-      continue
+      retriedAuth = true;
+      accessToken = await deps.forceRefreshAccessToken();
+      continue;
     }
 
     if (response.status === 404) {
-      return
+      return;
     }
 
     if (!response.ok) {
-      throw new GoogleApiError(response.status, await response.text())
+      throw new GoogleApiError(response.status, await response.text());
     }
 
-    return
+    return;
   }
 }

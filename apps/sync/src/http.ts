@@ -8,5 +8,5 @@
  * 判定すれば dev/prod を自動で切り替えられる。
  */
 export function isHttpsRequest(requestUrl: string): boolean {
-  return new URL(requestUrl).protocol === 'https:'
+  return new URL(requestUrl).protocol === "https:";
 }

@@ -6,57 +6,66 @@
  * 新旧フォーマットを区別できるようにするためのもの。
  */
 
-const FORMAT_VERSION = 'v1'
-const IV_BYTES = 12
+const FORMAT_VERSION = "v1";
+const IV_BYTES = 12;
 
 /** `v1:` プレフィックスが無い、または壊れた/改ざんされた/別鍵で書かれた値。 */
 export class InvalidCiphertextError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = 'InvalidCiphertextError'
+    super(message);
+    this.name = "InvalidCiphertextError";
   }
 }
 
 // TOKEN_ENC_KEY (base64) ごとに import 済み CryptoKey をメモ化する。実運用では鍵は常に
 // 1 種類だが、Map にしておくことでテストで複数の鍵を扱っても取り違えが起きない。
-const keyCache = new Map<string, Promise<CryptoKey>>()
+const keyCache = new Map<string, Promise<CryptoKey>>();
 
 function importKey(base64Key: string): Promise<CryptoKey> {
-  const cached = keyCache.get(base64Key)
-  if (cached) return cached
+  const cached = keyCache.get(base64Key);
+  if (cached) return cached;
 
   const promise = (async () => {
-    const raw = standardBase64ToBytes(base64Key)
+    const raw = standardBase64ToBytes(base64Key);
     if (raw.length !== 32) {
-      throw new Error(`TOKEN_ENC_KEY must decode to exactly 32 bytes for AES-256-GCM (got ${raw.length})`)
+      throw new Error(
+        `TOKEN_ENC_KEY must decode to exactly 32 bytes for AES-256-GCM (got ${raw.length})`,
+      );
     }
-    return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
-  })()
-  keyCache.set(base64Key, promise)
-  return promise
+    return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  })();
+  keyCache.set(base64Key, promise);
+  return promise;
 }
 
 function standardBase64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64)
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
 
 function base64UrlEncode(bytes: Uint8Array | ArrayBuffer): string {
-  const array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
-  const binary = String.fromCharCode(...array)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const binary = String.fromCharCode(...array);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function base64UrlDecode(value: string): Uint8Array {
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
-  return standardBase64ToBytes(base64)
+  const base64 = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return standardBase64ToBytes(base64);
 }
 
 export async function encryptToken(base64Key: string, plaintext: string): Promise<string> {
-  const key = await importKey(base64Key)
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext))
-  return `${FORMAT_VERSION}:${base64UrlEncode(iv)}:${base64UrlEncode(ciphertext)}`
+  const key = await importKey(base64Key);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plaintext),
+  );
+  return `${FORMAT_VERSION}:${base64UrlEncode(iv)}:${base64UrlEncode(ciphertext)}`;
 }
 
 /**
@@ -65,22 +74,24 @@ export async function encryptToken(base64Key: string, plaintext: string): Promis
  * (401 相当) として扱うこと。
  */
 export async function decryptToken(base64Key: string, stored: string): Promise<string> {
-  const parts = stored.split(':')
+  const parts = stored.split(":");
   if (parts.length !== 3 || parts[0] !== FORMAT_VERSION) {
-    throw new InvalidCiphertextError('refresh_token is not in the expected v1 ciphertext format')
+    throw new InvalidCiphertextError("refresh_token is not in the expected v1 ciphertext format");
   }
-  const [, ivPart, ciphertextPart] = parts
+  const [, ivPart, ciphertextPart] = parts;
 
-  const key = await importKey(base64Key)
-  const iv = base64UrlDecode(ivPart)
-  const ciphertext = base64UrlDecode(ciphertextPart)
+  const key = await importKey(base64Key);
+  const iv = base64UrlDecode(ivPart);
+  const ciphertext = base64UrlDecode(ciphertextPart);
 
   try {
-    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
-    return new TextDecoder().decode(plaintext)
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    return new TextDecoder().decode(plaintext);
   } catch {
     // GCM の認証タグ検証失敗 (改ざん、または別の鍵で暗号化されたもの) は DOMException。
     // 統一したエラー型に包んで呼び出し側の分岐を単純にする。
-    throw new InvalidCiphertextError('failed to decrypt refresh_token (tampered ciphertext or wrong key)')
+    throw new InvalidCiphertextError(
+      "failed to decrypt refresh_token (tampered ciphertext or wrong key)",
+    );
   }
 }

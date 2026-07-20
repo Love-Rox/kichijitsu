@@ -1,4 +1,4 @@
-import './Logo.css'
+import "./Logo.css";
 
 /**
  * kichijitsu ロゴ。ジオメトリ・トークンの正は /brand/ (変更禁止)。
@@ -14,7 +14,7 @@ export function LogoMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 200 56"
-      className={className ? `logo-mark ${className}` : 'logo-mark'}
+      className={className ? `logo-mark ${className}` : "logo-mark"}
       role="img"
       aria-label="kichijitsu"
     >
@@ -36,11 +36,11 @@ export function LogoMark({ className }: { className?: string }) {
         transform="rotate(-8 123.5 28)"
       />
     </svg>
-  )
+  );
 }
 
 interface LogoWordmarkProps {
-  className?: string
+  className?: string;
 }
 
 /**
@@ -59,7 +59,7 @@ interface LogoWordmarkProps {
  *   j の枡は常にマーク併用時も朱のまま)
  */
 export function LogoWordmark({ className }: LogoWordmarkProps) {
-  const classes = ['logo-wordmark', className].filter(Boolean).join(' ')
+  const classes = ["logo-wordmark", className].filter(Boolean).join(" ");
 
   return (
     <svg viewBox="2.47 12.47 423.29 111.13" className={classes} role="img" aria-label="kichijitsu">
@@ -80,5 +80,5 @@ export function LogoWordmark({ className }: LogoWordmarkProps) {
         transform="rotate(-8 239.37 32.92)"
       />
     </svg>
-  )
+  );
 }

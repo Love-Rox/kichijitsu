@@ -1,4 +1,4 @@
-import type { DisconnectRequest } from '@kichijitsu/shared'
+import type { DisconnectRequest } from "@kichijitsu/shared";
 
 /**
  * 指定した account 行 (D1 から引いた profile_id だけを持つ行) が、そのプロファイルに
@@ -8,14 +8,17 @@ import type { DisconnectRequest } from '@kichijitsu/shared'
  * 判定する。呼び出し側は D1 で `SELECT profile_id FROM accounts WHERE id = ?` した
  * 結果をそのまま渡すだけでよい。
  */
-export function isAccountInProfile(account: { profile_id: string } | null, profileId: string): boolean {
-  return account !== null && account.profile_id === profileId
+export function isAccountInProfile(
+  account: { profile_id: string } | null,
+  profileId: string,
+): boolean {
+  return account !== null && account.profile_id === profileId;
 }
 
 /** DELETE /api/account の対象決定に使う、プロファイル内アカウントの最小情報。 */
 export interface AccountMembership {
-  id: string
-  isOwner: boolean
+  id: string;
+  isOwner: boolean;
 }
 
 /**
@@ -30,19 +33,22 @@ export interface AccountMembership {
  *   - 対象が接続アカウント (isOwner=false) ならそのアカウントだけ (従来どおり)
  * - body.accountId 省略: プロファイル内の全アカウント (従来どおり)
  */
-export function resolveDisconnectTargets(request: DisconnectRequest, profileAccounts: AccountMembership[]): string[] | null {
+export function resolveDisconnectTargets(
+  request: DisconnectRequest,
+  profileAccounts: AccountMembership[],
+): string[] | null {
   if (request.accountId) {
-    const target = profileAccounts.find((account) => account.id === request.accountId)
-    if (!target) return null
+    const target = profileAccounts.find((account) => account.id === request.accountId);
+    if (!target) return null;
     if (target.isOwner) {
-      return profileAccounts.map((account) => account.id)
+      return profileAccounts.map((account) => account.id);
     }
-    return [request.accountId]
+    return [request.accountId];
   }
-  return profileAccounts.map((account) => account.id)
+  return profileAccounts.map((account) => account.id);
 }
 
 /** 削除後にプロファイルへ紐づくアカウントが0件になるならセッションも破棄する。 */
 export function shouldClearSessionAfterDisconnect(remainingAccountCount: number): boolean {
-  return remainingAccountCount === 0
+  return remainingAccountCount === 0;
 }

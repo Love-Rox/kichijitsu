@@ -1,4 +1,4 @@
-import { Temporal } from '@js-temporal/polyfill'
+import { Temporal } from "@js-temporal/polyfill";
 
 /**
  * 週グリッド(WeekGrid.tsx)を「表示日数 N 可変の N 日タイムライン」として扱うための
@@ -10,7 +10,7 @@ import { Temporal } from '@js-temporal/polyfill'
 
 /** anchor を含む N 日ぶんの日付を先頭から並べて返す(anchor が先頭日) */
 export function daysFrom(anchor: Temporal.PlainDate, dayCount: number): Temporal.PlainDate[] {
-  return Array.from({ length: dayCount }, (_, i) => anchor.add({ days: i }))
+  return Array.from({ length: dayCount }, (_, i) => anchor.add({ days: i }));
 }
 
 /**
@@ -18,7 +18,7 @@ export function daysFrom(anchor: Temporal.PlainDate, dayCount: number): Temporal
  * 中央(index 1)が現在表示中のパネルの先頭日。
  */
 export function panelAnchors(center: Temporal.PlainDate, dayCount: number): Temporal.PlainDate[] {
-  return [center.subtract({ days: dayCount }), center, center.add({ days: dayCount })]
+  return [center.subtract({ days: dayCount }), center, center.add({ days: dayCount })];
 }
 
 /** N 日送り/戻し。方向は +1(次) / -1(前) */
@@ -27,7 +27,7 @@ export function stepAnchor(
   dayCount: number,
   direction: 1 | -1,
 ): Temporal.PlainDate {
-  return direction === 1 ? anchor.add({ days: dayCount }) : anchor.subtract({ days: dayCount })
+  return direction === 1 ? anchor.add({ days: dayCount }) : anchor.subtract({ days: dayCount });
 }
 
 /**
@@ -40,8 +40,8 @@ export function panelSlideDirection(
   to: Temporal.PlainDate,
   dayCount: number,
 ): 1 | -1 | 0 {
-  const deltaDays = to.since(from, { largestUnit: 'day' }).days
-  if (deltaDays === dayCount) return 1
-  if (deltaDays === -dayCount) return -1
-  return 0
+  const deltaDays = to.since(from, { largestUnit: "day" }).days;
+  if (deltaDays === dayCount) return 1;
+  if (deltaDays === -dayCount) return -1;
+  return 0;
 }

@@ -1,28 +1,32 @@
-import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import type { AllDayOccurrence } from '../model/types'
-import { useCloseOnOutsideOrEscape } from '../hooks/useCloseOnOutsideOrEscape'
-import { formatAllDayDateRange } from '../layout/gridMetrics'
-import { EventDetailCard, type CalendarInfo } from './EventBlock'
-import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from './eventPopoverShared'
-import { resolveDisplayColor } from '../layout/eventColors'
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import type { AllDayOccurrence } from "../model/types";
+import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { formatAllDayDateRange } from "../layout/gridMetrics";
+import { EventDetailCard, type CalendarInfo } from "./EventBlock";
+import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
+import { resolveDisplayColor } from "../layout/eventColors";
 
-const HOVER_DELAY_MS = 400
+const HOVER_DELAY_MS = 400;
 
 interface AllDayBarProps {
   /** カード上で実際に表示される代表 occurrence(集約グループの主コピー、EventBlock と同じ考え方) */
-  occurrence: AllDayOccurrence
+  occurrence: AllDayOccurrence;
   /** この occurrence が属す集約グループの全メンバー(1件なら occurrence 自身のみ) */
-  groupMembers: AllDayOccurrence[]
+  groupMembers: AllDayOccurrence[];
   /** grid-row (1-based)。packDayBars の row + 1 */
-  row: number
+  row: number;
   /** grid-column の開始 (1-based、週内 0=月なので startDayIndex+1) */
-  colStart: number
+  colStart: number;
   /** grid-column の終了 (exclusive、CSS Grid の line 番号なので endDayIndex+2) */
-  colEnd: number
+  colEnd: number;
   /** `${accountId}:${calendarId}` → カレンダー名/色。ツールチップ・詳細ポップオーバーで使う */
-  calendarLookup: Map<string, CalendarInfo>
+  calendarLookup: Map<string, CalendarInfo>;
 }
 
 /**
@@ -31,74 +35,83 @@ interface AllDayBarProps {
  * ホバーのツールチップとクリックの詳細ポップオーバーは EventBlock 側の実装
  * (共有ツールチップ DOM ノード・EventDetailCard コンポーネント)をそのまま再利用する。
  */
-export function AllDayBar({ occurrence, groupMembers, row, colStart, colEnd, calendarLookup }: AllDayBarProps) {
-  const hoverTimeoutRef = useRef<number | undefined>(undefined)
-  const tooltipShownRef = useRef(false)
-  const detailCardRef = useRef<HTMLDivElement>(null)
-  const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null)
+export function AllDayBar({
+  occurrence,
+  groupMembers,
+  row,
+  colStart,
+  colEnd,
+  calendarLookup,
+}: AllDayBarProps) {
+  const hoverTimeoutRef = useRef<number | undefined>(undefined);
+  const tooltipShownRef = useRef(false);
+  const detailCardRef = useRef<HTMLDivElement>(null);
+  const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
   function hideTooltip() {
     if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current)
-      hoverTimeoutRef.current = undefined
+      window.clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = undefined;
     }
     if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = 'none'
-      tooltipShownRef.current = false
+      getSharedTooltipEl().style.display = "none";
+      tooltipShownRef.current = false;
     }
   }
 
   function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl()
+    const el = getSharedTooltipEl();
     fillTooltipContent(
       el,
       occurrence.title,
       formatAllDayDateRange(occurrence.startDate, occurrence.endDate),
       occurrence.location,
-    )
-    el.style.display = 'block'
-    positionTooltip(el, clientX, clientY)
-    tooltipShownRef.current = true
+    );
+    el.style.display = "block";
+    positionTooltip(el, clientX, clientY);
+    tooltipShownRef.current = true;
   }
 
   function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    const clientX = e.clientX
-    const clientY = e.clientY
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined
-      showTooltip(clientX, clientY)
-    }, HOVER_DELAY_MS)
+      hoverTimeoutRef.current = undefined;
+      showTooltip(clientX, clientY);
+    }, HOVER_DELAY_MS);
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     if (tooltipShownRef.current) {
-      positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY)
+      positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
     }
   }
 
   function handlePointerLeave() {
-    hideTooltip()
+    hideTooltip();
   }
 
   function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
-    hideTooltip()
-    setDetailPos({ x: e.clientX, y: e.clientY })
+    hideTooltip();
+    setDetailPos({ x: e.clientX, y: e.clientY });
   }
 
-  useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null))
+  useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null));
 
-  const showGroupDots = groupMembers.length > 1
-  const dotColors = showGroupDots ? groupMembers.map((m) => resolveDisplayColor(m, calendarLookup)) : []
+  const showGroupDots = groupMembers.length > 1;
+  const dotColors = showGroupDots
+    ? groupMembers.map((m) => resolveDisplayColor(m, calendarLookup))
+    : [];
 
   // 表示色バグ修正 (2026-07-20): EventBlock と同様、生の occurrence.color ではなく
   // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)
-  const displayColor = resolveDisplayColor(occurrence, calendarLookup)
+  const displayColor = resolveDisplayColor(occurrence, calendarLookup);
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
     backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
     borderLeftColor: displayColor,
-  }
+  };
 
   return (
     <>
@@ -133,5 +146,5 @@ export function AllDayBar({ occurrence, groupMembers, row, colStart, colEnd, cal
           document.body,
         )}
     </>
-  )
+  );
 }

@@ -45,6 +45,7 @@
 ## 審査提出時の説明文（下書き）
 
 > kichijitsu is a calendar client application. It requests:
+>
 > - `calendar.events` — to read the user's calendar events for display in the app,
 >   and to create/update events when the user edits them in the app.
 > - `calendar.calendarlist.readonly` — to list the user's calendars so they can

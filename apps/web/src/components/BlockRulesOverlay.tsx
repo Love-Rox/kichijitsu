@@ -1,22 +1,28 @@
-import { useRef, useState } from 'react'
-import type { AccountDTO, BlockMode, BlockRuleDTO, BlockRuleUpsertRequest, CalendarListEntryDTO } from '@kichijitsu/shared'
-import { buildBlockRuleUpsertRequest, describeBlockRule } from '../sync/blockRules'
-import { useCloseOnOutsideOrEscape } from '../hooks/useCloseOnOutsideOrEscape'
-import './BlockRulesOverlay.css'
+import { useRef, useState } from "react";
+import type {
+  AccountDTO,
+  BlockMode,
+  BlockRuleDTO,
+  BlockRuleUpsertRequest,
+  CalendarListEntryDTO,
+} from "@kichijitsu/shared";
+import { buildBlockRuleUpsertRequest, describeBlockRule } from "../sync/blockRules";
+import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import "./BlockRulesOverlay.css";
 
 export interface BlockRulesOverlayProps {
-  accounts: AccountDTO[]
-  calendarsByAccount: Record<string, CalendarListEntryDTO[]>
-  rules: BlockRuleDTO[]
+  accounts: AccountDTO[];
+  calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
+  rules: BlockRuleDTO[];
   /** 成功で解決/失敗で reject する。エラー表示はこのコンポーネントが持つ */
-  onCreate: (req: BlockRuleUpsertRequest) => Promise<void>
-  onDelete: (id: string) => Promise<void>
-  onClose: () => void
+  onCreate: (req: BlockRuleUpsertRequest) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onClose: () => void;
 }
 
 /** (accountId, calendarId) を選択 state のキーにする(Set/単一値の比較を文字列で扱うため) */
 function calendarKey(accountId: string, calendarId: string): string {
-  return `${accountId}:${calendarId}`
+  return `${accountId}:${calendarId}`;
 }
 
 /**
@@ -35,8 +41,8 @@ export function BlockRulesOverlay({
   onDelete,
   onClose,
 }: BlockRulesOverlayProps) {
-  const cardRef = useRef<HTMLDivElement>(null)
-  useCloseOnOutsideOrEscape(true, cardRef, onClose)
+  const cardRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideOrEscape(true, cardRef, onClose);
 
   return (
     <div className="block-rules-backdrop">
@@ -58,80 +64,90 @@ export function BlockRulesOverlay({
 
         <section className="block-rules-section">
           <h3 className="block-rules-section-title">ルールを追加</h3>
-          <NewRuleForm accounts={accounts} calendarsByAccount={calendarsByAccount} onCreate={onCreate} />
+          <NewRuleForm
+            accounts={accounts}
+            calendarsByAccount={calendarsByAccount}
+            onCreate={onCreate}
+          />
         </section>
       </div>
     </div>
-  )
+  );
 }
 
 interface RuleListProps {
-  rules: BlockRuleDTO[]
-  calendarsByAccount: Record<string, CalendarListEntryDTO[]>
-  onDelete: (id: string) => Promise<void>
+  rules: BlockRuleDTO[];
+  calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
+  onDelete: (id: string) => Promise<void>;
 }
 
 function RuleList({ rules, calendarsByAccount, onDelete }: RuleListProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [errorId, setErrorId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
 
   if (rules.length === 0) {
-    return <p className="block-rules-empty">まだブロックルールはありません</p>
+    return <p className="block-rules-empty">まだブロックルールはありません</p>;
   }
 
   return (
     <ul className="block-rules-list">
       {rules.map((rule) => {
-        const info = describeBlockRule(rule, calendarsByAccount)
+        const info = describeBlockRule(rule, calendarsByAccount);
         return (
           <li className="block-rules-rule" key={rule.id}>
             <span className="block-rules-rule-summary">
-              <span className="block-rules-rule-sources">{info.sourceNames.join('、')}</span>
+              <span className="block-rules-rule-sources">{info.sourceNames.join("、")}</span>
               <span className="block-rules-rule-arrow" aria-hidden="true">
                 →
               </span>
               <span className="block-rules-rule-target">{info.targetName}</span>
             </span>
-            <span className={rule.mode === 'outOfOffice' ? 'block-rules-badge block-rules-badge--ooo' : 'block-rules-badge'}>
+            <span
+              className={
+                rule.mode === "outOfOffice"
+                  ? "block-rules-badge block-rules-badge--ooo"
+                  : "block-rules-badge"
+              }
+            >
               {info.modeLabel}
             </span>
             <button
               type="button"
               className="block-rules-rule-delete"
-              aria-label={`${info.sourceNames.join('、')}から${info.targetName}へのルールを削除`}
+              aria-label={`${info.sourceNames.join("、")}から${info.targetName}へのルールを削除`}
               disabled={deletingId === rule.id}
               onClick={() => {
-                setDeletingId(rule.id)
-                setErrorId(null)
+                setDeletingId(rule.id);
+                setErrorId(null);
                 onDelete(rule.id)
                   .catch((err) => {
-                    console.error('kichijitsu: block rule delete failed', err)
-                    setErrorId(rule.id)
+                    console.error("kichijitsu: block rule delete failed", err);
+                    setErrorId(rule.id);
                   })
-                  .finally(() => setDeletingId(null))
+                  .finally(() => setDeletingId(null));
               }}
             >
               ×
             </button>
             {errorId === rule.id && <span className="block-rules-error">削除に失敗しました</span>}
           </li>
-        )
+        );
       })}
     </ul>
-  )
+  );
 }
 
 interface CalendarOption {
-  key: string
-  accountId: string
-  calendarId: string
-  name: string
-  color?: string
+  key: string;
+  accountId: string;
+  calendarId: string;
+  name: string;
+  color?: string;
 }
 
 interface AccountGroup {
-  account: AccountDTO
-  options: CalendarOption[]
+  account: AccountDTO;
+  options: CalendarOption[];
 }
 
 function buildGroups(
@@ -147,78 +163,82 @@ function buildGroups(
       name: cal.summary,
       color: cal.backgroundColor,
     })),
-  }))
+  }));
 }
 
 interface NewRuleFormProps {
-  accounts: AccountDTO[]
-  calendarsByAccount: Record<string, CalendarListEntryDTO[]>
-  onCreate: (req: BlockRuleUpsertRequest) => Promise<void>
+  accounts: AccountDTO[];
+  calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
+  onCreate: (req: BlockRuleUpsertRequest) => Promise<void>;
 }
 
 function NewRuleForm({ accounts, calendarsByAccount, onCreate }: NewRuleFormProps) {
-  const [sourceKeys, setSourceKeys] = useState<Set<string>>(new Set())
-  const [targetKey, setTargetKey] = useState<string | null>(null)
-  const [mode, setMode] = useState<BlockMode>('busy')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [sourceKeys, setSourceKeys] = useState<Set<string>>(new Set());
+  const [targetKey, setTargetKey] = useState<string | null>(null);
+  const [mode, setMode] = useState<BlockMode>("busy");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const groups = buildGroups(accounts, calendarsByAccount)
-  const hasAnyCalendar = groups.some((g) => g.options.length > 0)
+  const groups = buildGroups(accounts, calendarsByAccount);
+  const hasAnyCalendar = groups.some((g) => g.options.length > 0);
 
   function toggleSource(key: string) {
     setSourceKeys((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev);
       if (next.has(key)) {
-        next.delete(key)
+        next.delete(key);
       } else {
-        next.add(key)
+        next.add(key);
       }
-      return next
-    })
+      return next;
+    });
     // source として選んだカレンダーは target から外す(同一カレンダーを両方にできない制約)
-    if (targetKey === key) setTargetKey(null)
+    if (targetKey === key) setTargetKey(null);
   }
 
   function selectTarget(key: string) {
-    setTargetKey(key)
+    setTargetKey(key);
     // target として選んだカレンダーは source から外す
     setSourceKeys((prev) => {
-      if (!prev.has(key)) return prev
-      const next = new Set(prev)
-      next.delete(key)
-      return next
-    })
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
   }
 
-  const canSave = sourceKeys.size > 0 && targetKey !== null
+  const canSave = sourceKeys.size > 0 && targetKey !== null;
 
   function handleSave() {
-    if (!canSave || !targetKey) return
+    if (!canSave || !targetKey) return;
     const sources = [...sourceKeys].map((key) => {
-      const [accountId, calendarId] = splitKey(key)
-      return { accountId, calendarId }
-    })
-    const [targetAccountId, targetCalendarId] = splitKey(targetKey)
-    const req = buildBlockRuleUpsertRequest(sources, { accountId: targetAccountId, calendarId: targetCalendarId }, mode)
+      const [accountId, calendarId] = splitKey(key);
+      return { accountId, calendarId };
+    });
+    const [targetAccountId, targetCalendarId] = splitKey(targetKey);
+    const req = buildBlockRuleUpsertRequest(
+      sources,
+      { accountId: targetAccountId, calendarId: targetCalendarId },
+      mode,
+    );
 
-    setSubmitting(true)
-    setError(null)
+    setSubmitting(true);
+    setError(null);
     onCreate(req)
       .then(() => {
-        setSourceKeys(new Set())
-        setTargetKey(null)
-        setMode('busy')
+        setSourceKeys(new Set());
+        setTargetKey(null);
+        setMode("busy");
       })
       .catch((err) => {
-        console.error('kichijitsu: block rule create failed', err)
-        setError('保存に失敗しました。しばらくしてから試してください')
+        console.error("kichijitsu: block rule create failed", err);
+        setError("保存に失敗しました。しばらくしてから試してください");
       })
-      .finally(() => setSubmitting(false))
+      .finally(() => setSubmitting(false));
   }
 
   if (!hasAnyCalendar) {
-    return <p className="block-rules-empty">カレンダーを読み込み中、または取得できませんでした</p>
+    return <p className="block-rules-empty">カレンダーを読み込み中、または取得できませんでした</p>;
   }
 
   return (
@@ -259,50 +279,60 @@ function NewRuleForm({ accounts, calendarsByAccount, onCreate }: NewRuleFormProp
           <button
             type="button"
             role="radio"
-            aria-checked={mode === 'busy'}
-            className={mode === 'busy' ? 'block-rules-mode-btn is-selected' : 'block-rules-mode-btn'}
-            onClick={() => setMode('busy')}
+            aria-checked={mode === "busy"}
+            className={
+              mode === "busy" ? "block-rules-mode-btn is-selected" : "block-rules-mode-btn"
+            }
+            onClick={() => setMode("busy")}
           >
             予定あり
           </button>
           <button
             type="button"
             role="radio"
-            aria-checked={mode === 'outOfOffice'}
-            className={mode === 'outOfOffice' ? 'block-rules-mode-btn is-selected' : 'block-rules-mode-btn'}
-            onClick={() => setMode('outOfOffice')}
+            aria-checked={mode === "outOfOffice"}
+            className={
+              mode === "outOfOffice" ? "block-rules-mode-btn is-selected" : "block-rules-mode-btn"
+            }
+            onClick={() => setMode("outOfOffice")}
           >
             不在
           </button>
         </div>
-        {mode === 'outOfOffice' && (
+        {mode === "outOfOffice" && (
           <p className="block-rules-mode-note">
-            不在は Google Workspace アカウントのメインカレンダーでのみ利用できます。使えない場合は自動的に「予定あり」になります。
+            不在は Google Workspace
+            アカウントのメインカレンダーでのみ利用できます。使えない場合は自動的に「予定あり」になります。
           </p>
         )}
       </div>
 
       <div className="block-rules-submit-row">
-        <button type="button" className="block-rules-save-btn" disabled={!canSave || submitting} onClick={handleSave}>
-          {submitting ? '保存中…' : 'ルールを保存'}
+        <button
+          type="button"
+          className="block-rules-save-btn"
+          disabled={!canSave || submitting}
+          onClick={handleSave}
+        >
+          {submitting ? "保存中…" : "ルールを保存"}
         </button>
         {error && <span className="block-rules-error">{error}</span>}
       </div>
     </div>
-  )
+  );
 }
 
 function splitKey(key: string): [string, string] {
-  const idx = key.indexOf(':')
-  return [key.slice(0, idx), key.slice(idx + 1)]
+  const idx = key.indexOf(":");
+  return [key.slice(0, idx), key.slice(idx + 1)];
 }
 
 interface CalendarGroupProps {
-  group: AccountGroup
-  selectionKind: 'checkbox' | 'radio'
-  isSelected: (key: string) => boolean
-  isDisabled: (key: string) => boolean
-  onSelect: (key: string) => void
+  group: AccountGroup;
+  selectionKind: "checkbox" | "radio";
+  isSelected: (key: string) => boolean;
+  isDisabled: (key: string) => boolean;
+  onSelect: (key: string) => void;
 }
 
 /**
@@ -310,39 +340,45 @@ interface CalendarGroupProps {
  * 「ネイティブ枠を消した button + .masu」実装を踏襲する(checkbox/radio 共通、見た目は同じ
  * 枡オーナメントで表現し、意味の違いは onSelect 側の選択ロジックが持つ)。
  */
-function CalendarGroup({ group, selectionKind, isSelected, isDisabled, onSelect }: CalendarGroupProps) {
+function CalendarGroup({
+  group,
+  selectionKind,
+  isSelected,
+  isDisabled,
+  onSelect,
+}: CalendarGroupProps) {
   if (group.options.length === 0) {
-    return null
+    return null;
   }
   return (
     <div className="block-rules-account-group">
       <div className="block-rules-account-header">{group.account.email}</div>
       <ul className="block-rules-cal-list">
         {group.options.map((option) => {
-          const selected = isSelected(option.key)
-          const disabled = isDisabled(option.key)
+          const selected = isSelected(option.key);
+          const disabled = isDisabled(option.key);
           return (
             <li className="block-rules-cal-item" key={option.key}>
               <button
                 type="button"
                 className="block-rules-cal-checkbox"
-                role={selectionKind === 'radio' ? 'radio' : undefined}
-                aria-checked={selectionKind === 'radio' ? selected : undefined}
-                aria-pressed={selectionKind === 'checkbox' ? selected : undefined}
-                aria-label={`${option.name}を${selectionKind === 'radio' ? 'コピー先に' : selected ? 'コピー元から外す' : 'コピー元に追加'}`}
+                role={selectionKind === "radio" ? "radio" : undefined}
+                aria-checked={selectionKind === "radio" ? selected : undefined}
+                aria-pressed={selectionKind === "checkbox" ? selected : undefined}
+                aria-label={`${option.name}を${selectionKind === "radio" ? "コピー先に" : selected ? "コピー元から外す" : "コピー元に追加"}`}
                 disabled={disabled}
                 onClick={() => onSelect(option.key)}
               >
                 <span
-                  className={selected ? 'masu masu--kichi' : 'masu masu--empty'}
+                  className={selected ? "masu masu--kichi" : "masu masu--empty"}
                   style={selected && option.color ? { background: option.color } : undefined}
                 />
               </button>
               <span className="block-rules-cal-name">{option.name}</span>
             </li>
-          )
+          );
         })}
       </ul>
     </div>
-  )
+  );
 }

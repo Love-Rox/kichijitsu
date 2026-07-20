@@ -1,6 +1,6 @@
-import { Temporal } from '@js-temporal/polyfill'
-import type { EventDeleteRequest, EventPatchRequest } from '@kichijitsu/shared'
-import type { Occurrence } from '../model/types'
+import { Temporal } from "@js-temporal/polyfill";
+import type { EventDeleteRequest, EventPatchRequest } from "@kichijitsu/shared";
+import type { Occurrence } from "../model/types";
 
 /**
  * ドラッグ確定を Google へ書き戻す (フェーズ5) ための、EventPatchRequest 組み立て純関数群。
@@ -14,11 +14,11 @@ import type { Occurrence } from '../model/types'
  * 再結合して安全に取り出す (mapGoogle.ts の eventKey() の逆変換)。
  */
 export function rawGoogleEventId(id: string): string {
-  const parts = id.split(':')
-  if (parts.length < 4 || parts[0] !== 'g') {
-    throw new Error(`kichijitsu: not a google-scoped occurrence/series id: "${id}"`)
+  const parts = id.split(":");
+  if (parts.length < 4 || parts[0] !== "g") {
+    throw new Error(`kichijitsu: not a google-scoped occurrence/series id: "${id}"`);
   }
-  return parts.slice(3).join(':')
+  return parts.slice(3).join(":");
 }
 
 /**
@@ -27,9 +27,9 @@ export function rawGoogleEventId(id: string): string {
  * サフィックスに使う形式。
  */
 export function utcBasicFromEpochMs(ms: number): string {
-  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO('UTC')
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${zdt.year}${pad(zdt.month)}${pad(zdt.day)}T${pad(zdt.hour)}${pad(zdt.minute)}${pad(zdt.second)}Z`
+  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO("UTC");
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${zdt.year}${pad(zdt.month)}${pad(zdt.day)}T${pad(zdt.hour)}${pad(zdt.minute)}${pad(zdt.second)}Z`;
 }
 
 /**
@@ -37,7 +37,7 @@ export function utcBasicFromEpochMs(ms: number): string {
  * `<親の生 event id>_<originalStartMs の UTC basic 形式>` (protocol.ts の EventPatchRequest コメント参照)
  */
 export function seriesInstanceEventId(seriesId: string, originalStartMs: number): string {
-  return `${rawGoogleEventId(seriesId)}_${utcBasicFromEpochMs(originalStartMs)}`
+  return `${rawGoogleEventId(seriesId)}_${utcBasicFromEpochMs(originalStartMs)}`;
 }
 
 /**
@@ -45,15 +45,18 @@ export function seriesInstanceEventId(seriesId: string, originalStartMs: number)
  * source !== 'google' や accountId/calendarId 欠落 (本来あり得ないが型上は optional) の場合は null。
  * id のパースに失敗した場合も null (呼び出し側で warn する)。
  */
-export function buildEventPatchRequest(occurrence: Occurrence, timeZone: string): EventPatchRequest | null {
-  if (occurrence.source !== 'google' || !occurrence.accountId || !occurrence.calendarId) {
-    return null
+export function buildEventPatchRequest(
+  occurrence: Occurrence,
+  timeZone: string,
+): EventPatchRequest | null {
+  if (occurrence.source !== "google" || !occurrence.accountId || !occurrence.calendarId) {
+    return null;
   }
   try {
     const eventId =
       occurrence.seriesId && occurrence.originalStartMs !== undefined
         ? seriesInstanceEventId(occurrence.seriesId, occurrence.originalStartMs)
-        : rawGoogleEventId(occurrence.id)
+        : rawGoogleEventId(occurrence.id);
     return {
       accountId: occurrence.accountId,
       calendarId: occurrence.calendarId,
@@ -61,10 +64,10 @@ export function buildEventPatchRequest(occurrence: Occurrence, timeZone: string)
       startMs: occurrence.startMs,
       endMs: occurrence.endMs,
       timeZone,
-    }
+    };
   } catch (err) {
-    console.error('kichijitsu: failed to build EventPatchRequest', err)
-    return null
+    console.error("kichijitsu: failed to build EventPatchRequest", err);
+    return null;
   }
 }
 
@@ -75,21 +78,21 @@ export function buildEventPatchRequest(occurrence: Occurrence, timeZone: string)
  * id のパース失敗時は null (呼び出し側で warn する)。
  */
 export function buildEventDeleteRequest(occurrence: Occurrence): EventDeleteRequest | null {
-  if (occurrence.source !== 'google' || !occurrence.accountId || !occurrence.calendarId) {
-    return null
+  if (occurrence.source !== "google" || !occurrence.accountId || !occurrence.calendarId) {
+    return null;
   }
   try {
     const eventId =
       occurrence.seriesId && occurrence.originalStartMs !== undefined
         ? seriesInstanceEventId(occurrence.seriesId, occurrence.originalStartMs)
-        : rawGoogleEventId(occurrence.id)
+        : rawGoogleEventId(occurrence.id);
     return {
       accountId: occurrence.accountId,
       calendarId: occurrence.calendarId,
       eventId,
-    }
+    };
   } catch (err) {
-    console.error('kichijitsu: failed to build EventDeleteRequest', err)
-    return null
+    console.error("kichijitsu: failed to build EventDeleteRequest", err);
+    return null;
   }
 }
