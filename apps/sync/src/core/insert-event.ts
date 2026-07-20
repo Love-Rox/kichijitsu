@@ -1,5 +1,4 @@
 import { GoogleApiError } from "./errors";
-import type { MirrorEventBody } from "./block-reconcile";
 import { insertEvent } from "../google/insert-event";
 
 /**
@@ -21,11 +20,13 @@ interface RawInsertedEvent {
 }
 
 /**
- * カレンダーブロック機能 (docs/blocking.md 第4段階) の mirror イベントを Google に
- * 作成する。core/create-event.ts の createEventWithRetry と同様、401 のみ 1 回だけ
- * 強制リフレッシュして同じリクエストを再試行する (この 401 リトライは OOO フォールバックと
- * 独立した関心事であり、フォールバック試行そのものには重ねて適用しない — フォールバック
- * リクエストが 401 になるのは稀な edge case であり、その場合は素直に GoogleApiError にする)。
+ * カレンダーブロック機能 (docs/blocking.md 第4段階) の mirror イベント作成、および
+ * 作業実績記録機能 (docs/mcp.md「エージェントの作業時間記録」) の実績イベント作成の両方が
+ * 使う汎用 `events.insert` 実行部。core/create-event.ts の createEventWithRetry と同様、
+ * 401 のみ 1 回だけ強制リフレッシュして同じリクエストを再試行する (この 401 リトライは OOO
+ * フォールバックと独立した関心事であり、フォールバック試行そのものには重ねて適用しない —
+ * フォールバックリクエストが 401 になるのは稀な edge case であり、その場合は素直に
+ * GoogleApiError にする)。
  *
  * 加えて第4段階として: body が `eventType: 'outOfOffice'` を含み、(401 リトライ後の)
  * 応答が 400 か 403 (Workspace 非対応でこの eventType を拒否された場合等) のときに限り、
@@ -33,13 +34,17 @@ interface RawInsertedEvent {
  * 成功すれば `{ id, oooFallback: true }` を返す。フォールバック再試行自体が失敗した場合は
  * 握りつぶさず GoogleApiError を投げる。OOO 以外の body の失敗や、OOO body でも 400/403
  * 以外の失敗 (例: 429) は今まで通りフォールバックせず即座に GoogleApiError を投げる。
+ * この 401 リトライ/OOO フォールバックの挙動は body の型に依らず共通なので、body は
+ * `eventType` フィールドのみを制約するジェネリクスにしてある (MirrorEventBody /
+ * WorkLogEventBody など呼び出し元ごとの型をそのまま受け取れる)。
  *
- * 作成された mirror event の id を返す (block_mirrors への保存に使う)。
+ * 作成された event の id を返す (mirror なら block_mirrors への保存、work-log なら
+ * 呼び出し元へそのまま返す、という具合に用途は呼び出し元次第)。
  */
-export async function insertEventWithRetry(
+export async function insertEventWithRetry<TBody extends { eventType?: "outOfOffice" }>(
   deps: InsertEventCoreDeps,
   calendarId: string,
-  body: MirrorEventBody,
+  body: TBody,
 ): Promise<{ id: string; oooFallback: boolean }> {
   let accessToken = await deps.getAccessToken();
   let retriedAuth = false;

@@ -42,6 +42,33 @@ Claude Code 等の **hooks から作業セッションを記録する**ことで
 - 予定（作業キューからのタイムブロック）と実績（hook 記録）を issueRef で
   突き合わせて item 単位のレポートにする
 
+### hook からの記録方法 (実装後、2026-07-21)
+
+Claude Code の SessionStart/Stop hook 等、非対話のシェルから `curl` 一発で記録できる。
+認証は MCP トークンの Bearer (`/api/mcp-tokens` で発行したもの)。トークンは環境変数から
+読む (設定ファイルに直書きしない)。
+
+```sh
+curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals \
+  -H "Authorization: Bearer ${KICHIJITSU_MCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start": "'"$SESSION_START_ISO"'",
+    "end": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+    "repo": "Love-Rox/kichijitsu",
+    "branch": "'"$(git branch --show-current)"'",
+    "agent": "claude-code"
+  }'
+```
+
+成功すると `{ calendarId, eventId }` を 200 で返す。認証失敗は 401、入力不正
+(start>=end・repo 欠落など) は 400、Google 側の失敗は 502。issueRef はブランチ名や
+commit message から推定して渡す (推定ロジック自体は hook 側の責務、今回のサーバー実装
+スコープ外)。
+
+対象アカウントは常にプロファイルの owner アカウント (`accounts.is_owner = 1`) — 呼び出し元が
+accountId を指定する余地は無い (MCP ツール `log_work_interval` も REST 経路と同じ解決を使う)。
+
 ## 実装タイミング
 
 Google 同期の実 E2E → 書き戻し（フェーズ5）が動いてから。

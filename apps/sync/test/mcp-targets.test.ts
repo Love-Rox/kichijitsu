@@ -4,6 +4,7 @@ import {
   flattenVisibleCalendarTargets,
   resolveDefaultWriteAccountId,
   resolveFallbackTarget,
+  resolveOwnerAccountId,
   resolveReadTargets,
 } from "../src/core/mcp-targets";
 
@@ -214,5 +215,28 @@ describe("resolveDefaultWriteAccountId", () => {
       { id: "acc-2", isOwner: false },
     ];
     expect(resolveDefaultWriteAccountId(accounts)).toBe("acc-1");
+  });
+});
+
+describe("resolveOwnerAccountId", () => {
+  it("returns null for an empty accounts list", () => {
+    expect(resolveOwnerAccountId([])).toBeNull();
+  });
+
+  it("returns the owner's id when one account among several has isOwner=true", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: true },
+      { id: "acc-3", isOwner: false },
+    ];
+    expect(resolveOwnerAccountId(accounts)).toBe("acc-2");
+  });
+
+  it("returns null when no account has isOwner=true (does NOT fall back to accounts[0])", () => {
+    const accounts = [
+      { id: "acc-1", isOwner: false },
+      { id: "acc-2", isOwner: false },
+    ];
+    expect(resolveOwnerAccountId(accounts)).toBeNull();
   });
 });

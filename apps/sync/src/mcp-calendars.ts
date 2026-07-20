@@ -10,6 +10,7 @@ import { isAccountInProfile } from "./accounts";
 import { aggregateVisibleCalendars } from "./core/visible-calendars";
 import {
   resolveDefaultWriteAccountId,
+  resolveOwnerAccountId,
   resolveReadTargets,
   type McpAccountRow,
   type McpCalendarTarget,
@@ -78,6 +79,19 @@ export async function resolveMcpDefaultWriteAccountId(
 ): Promise<string | null> {
   const accounts = await loadMcpProfileAccounts(env, profileId);
   return resolveDefaultWriteAccountId(accounts);
+}
+
+/**
+ * 作業実績記録 (docs/mcp.md「エージェントの作業時間記録」) の対象アカウントを解決する:
+ * プロファイルの owner アカウントのみ (resolveMcpDefaultWriteAccountId と違い先頭アカウントへの
+ * フォールバックはしない — core/mcp-targets.ts の resolveOwnerAccountId 参照)。
+ */
+export async function resolveMcpOwnerAccountId(
+  env: Env,
+  profileId: string,
+): Promise<string | null> {
+  const accounts = await loadMcpProfileAccounts(env, profileId);
+  return resolveOwnerAccountId(accounts);
 }
 
 /** 書き込み系ツールのテナント境界: 呼び出し元が指定した accountId がこのプロファイルに属するか。 */

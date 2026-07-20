@@ -106,3 +106,15 @@ export function resolveDefaultWriteAccountId(accounts: McpAccountRow[]): string 
   const owner = accounts.find((account) => account.isOwner) ?? accounts[0];
   return owner.id;
 }
+
+/**
+ * プロファイルの owner アカウント (is_owner=1) の id を返す。無ければ null (通常は必ず1件
+ * あるはず — migration 0004_owner.sql 参照 — だが防御的に扱う、docs/mcp.md「エージェントの
+ * 作業時間記録」の対象アカウント)。resolveDefaultWriteAccountId と違い先頭アカウントへの
+ * フォールバックはしない: 作業実績記録の対象アカウントは仕様上 owner のみに固定するため、
+ * owner が見つからない異常系では黙って別アカウントに書き込むのではなく呼び出し元に
+ * null を伝えてエラーにさせる。
+ */
+export function resolveOwnerAccountId(accounts: McpAccountRow[]): string | null {
+  return accounts.find((account) => account.isOwner)?.id ?? null;
+}

@@ -49,4 +49,6 @@ export type {
   McpTokenCreateRequest,
   McpTokenCreateResponse,
   McpTokenDeleteRequest,
+  WorkIntervalRequest,
+  WorkIntervalResponse,
 } from "./protocol";

@@ -21,6 +21,7 @@ import {
 import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
 import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
 import type { MirrorEventBody } from "../core/block-reconcile";
+import { logWorkInterval as logWorkIntervalCore, type WorkLogInput } from "../core/work-log";
 import type { RawEventTimeField } from "../google/patch-event-raw";
 import {
   listTaskLists as listTaskListsCore,
@@ -230,6 +231,19 @@ export class UserSyncDO extends DurableObject<Env> {
     return runRpc(() =>
       insertEventWithRetry(this.buildEventWriteDeps(accountId), calendarId, body),
     );
+  }
+
+  /**
+   * POST /api/work-intervals・MCP log_work_interval ツール共通の書き戻し RPC
+   * (docs/mcp.md「エージェントの作業時間記録」)。「kichijitsu 実績」カレンダーへの
+   * find-or-create + events.insert を core/work-log.ts の logWorkInterval に委譲する。
+   * buildEventWriteDeps を createMirrorEvent 等と共有する (同じ形の deps で足りるため)。
+   */
+  async logWorkInterval(
+    accountId: string,
+    input: WorkLogInput,
+  ): Promise<RpcResult<{ calendarId: string; eventId: string }>> {
+    return runRpc(() => logWorkIntervalCore(this.buildEventWriteDeps(accountId), input));
   }
 
   /**

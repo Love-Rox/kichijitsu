@@ -35,6 +35,7 @@ import type { McpCalendarTarget } from "../core/mcp-targets";
 import {
   isMcpAccountOwnedByProfile,
   resolveMcpDefaultWriteAccountId,
+  resolveMcpOwnerAccountId,
   resolveMcpReadTargets,
 } from "../mcp-calendars";
 
@@ -264,6 +265,46 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
           throw new Error(`delete_event failed: ${result.error} (status ${result.status})`);
         }
         return { content: [{ type: "text", text: "ok" }] };
+      },
+    );
+
+    this.server.registerTool(
+      "log_work_interval",
+      {
+        description:
+          "作業実績を Google カレンダーの「kichijitsu 実績」に記録する（カレンダーに書き込む）。" +
+          "無ければカレンダーを自動作成する。Claude Code 等の hook から呼ぶことを想定 (docs/mcp.md)。",
+        inputSchema: {
+          start: z.string(),
+          end: z.string(),
+          repo: z.string(),
+          branch: z.string().optional(),
+          issueRef: z.string().optional(),
+          agent: z.string().optional(),
+          timeZone: z.string().optional(),
+        },
+      },
+      async ({ start, end, repo, branch, issueRef, agent, timeZone }) => {
+        const profileId = this.requireProfileId();
+        const accountId = await resolveMcpOwnerAccountId(this.env, profileId);
+        if (!accountId) {
+          throw new Error("mcp: profile has no owner account to log work intervals against");
+        }
+
+        const stub = this.env.USER_SYNC.getByName(accountId);
+        const result = await stub.logWorkInterval(accountId, {
+          startIso: start,
+          endIso: end,
+          repo,
+          branch,
+          issueRef,
+          agent,
+          timeZone,
+        });
+        if (!result.ok) {
+          throw new Error(`log_work_interval failed: ${result.error} (status ${result.status})`);
+        }
+        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
       },
     );
   }

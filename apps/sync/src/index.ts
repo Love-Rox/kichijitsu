@@ -5,6 +5,7 @@ import { githubAuthRoutes } from "./routes/github-auth";
 import { apiRoutes } from "./routes/api";
 import { webhookRoutes } from "./routes/webhook";
 import { mcpRoutes } from "./routes/mcp";
+import { workIntervalsRoutes } from "./routes/work-intervals";
 import { registerWatch, stopWatch, buildWebhookAddress } from "./google/watch";
 import {
   buildRenewedWatchRow,
@@ -24,6 +25,7 @@ app.route("/", githubAuthRoutes);
 app.route("/", apiRoutes);
 app.route("/", webhookRoutes);
 app.route("/", mcpRoutes);
+app.route("/", workIntervalsRoutes);
 
 app.onError((err, c) => {
   console.error("Unhandled error", err);

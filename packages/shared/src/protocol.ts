@@ -459,3 +459,22 @@ export interface McpTokenCreateResponse {
 export interface McpTokenDeleteRequest {
   id: string;
 }
+
+/**
+ * POST /api/work-intervals (docs/mcp.md「エージェントの作業時間記録」) — hook から作業実績を
+ * 記録する REST 経路。認証は MCP トークンの Bearer (セッション cookie ではない、非対話利用のため)。
+ * MCP ツール log_work_interval と同じ core (logWorkInterval) を呼ぶ。
+ */
+export interface WorkIntervalRequest {
+  start: string;
+  end: string;
+  repo: string;
+  branch?: string;
+  issueRef?: string;
+  agent?: string;
+  timeZone?: string;
+}
+export interface WorkIntervalResponse {
+  calendarId: string;
+  eventId: string;
+}
