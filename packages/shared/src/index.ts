@@ -44,4 +44,9 @@ export type {
   GitHubCiRunsResponse,
   PullCommitsRequest,
   PullCommitsResponse,
+  McpTokenDTO,
+  McpTokensResponse,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenDeleteRequest,
 } from "./protocol";

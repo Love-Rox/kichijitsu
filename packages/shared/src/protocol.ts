@@ -431,3 +431,31 @@ export interface BlockRuleUpsertRequest {
 export interface BlockRuleDeleteRequest {
   id: string;
 }
+
+/**
+ * kichijitsu 発行の MCP トークン (docs/mcp.md、2026-07-20)。Part A (このフェーズ) は
+ * トークンのライフサイクル管理 (発行/一覧/失効) のみ — `/mcp` エンドポイント自体は Part B。
+ * サーバーは生トークンをハッシュのみで保存するため、DTO にも生値は含まれない
+ * (生値が乗るのは McpTokenCreateResponse の `token` フィールドのみ、発行直後の一度きり)。
+ */
+export interface McpTokenDTO {
+  id: string;
+  label: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+export interface McpTokensResponse {
+  tokens: McpTokenDTO[];
+}
+export interface McpTokenCreateRequest {
+  label?: string;
+}
+export interface McpTokenCreateResponse {
+  token: string; // raw value — returned only this once, never again
+  id: string;
+  label: string | null;
+  createdAt: number;
+}
+export interface McpTokenDeleteRequest {
+  id: string;
+}

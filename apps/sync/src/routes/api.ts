@@ -19,6 +19,11 @@ import type {
   GitHubCiRunsResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenDeleteRequest,
+  McpTokenDTO,
+  McpTokensResponse,
   MeResponse,
   PullCommitsRequest,
   PullCommitsResponse,
@@ -65,6 +70,7 @@ import {
   type BlockRuleRow,
 } from "../core/block-rules";
 import { computeChannelToken } from "../watch-token";
+import { generateMcpToken, hashMcpToken } from "../mcp-token";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-do";
 import type { RpcResult } from "../rpc-result";
 
@@ -462,6 +468,79 @@ apiRoutes.delete("/api/block-rules", requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
+// MCP トークン管理 (docs/mcp.md Part A、2026-07-20)。`/mcp` エンドポイント自体 (Part B) は
+// このフェーズのスコープ外 — ここではトークンのライフサイクル (発行/一覧/失効) だけを扱う。
+// 生トークンは POST のレスポンスでのみ一度だけ返り、DB には SHA-256 ハッシュしか保存しない
+// (mcp-token.ts 参照)。/mcp 側の認証は Part B が mcp-auth.ts の resolveProfileFromMcpToken を
+// 使って実装する想定。
+apiRoutes.get("/api/mcp-tokens", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, label, created_at, last_used_at FROM mcp_tokens WHERE profile_id = ? ORDER BY created_at ASC",
+  )
+    .bind(profileId)
+    .all<{ id: string; label: string | null; created_at: number; last_used_at: number | null }>();
+  const tokens: McpTokenDTO[] = results.map((row) => ({
+    id: row.id,
+    label: row.label,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+  }));
+  return c.json<McpTokensResponse>({ tokens });
+});
+
+apiRoutes.post("/api/mcp-tokens", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  let body: McpTokenCreateRequest;
+  try {
+    body = await c.req.json<McpTokenCreateRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+
+  // 空文字ラベルは「未指定」と同じ扱いにする (DB 上は NULL に正規化、一覧表示側の
+  // 「(無題)」プレースホルダ判定を label === null だけで済ませるため)。
+  const label = body.label?.trim() ? body.label.trim() : null;
+
+  const { raw } = generateMcpToken();
+  const tokenHash = await hashMcpToken(raw);
+  const id = crypto.randomUUID();
+  const createdAt = Date.now();
+
+  await c.env.DB.prepare(
+    "INSERT INTO mcp_tokens (id, profile_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+    .bind(id, profileId, tokenHash, label, createdAt, null)
+    .run();
+
+  // raw はここでのみ返す — レスポンスボディ以外(ログ含む)には一切出さない。
+  return c.json<McpTokenCreateResponse>({ token: raw, id, label, createdAt });
+});
+
+apiRoutes.delete("/api/mcp-tokens", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  let body: McpTokenDeleteRequest;
+  try {
+    body = await c.req.json<McpTokenDeleteRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (!body.id) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const existing = await c.env.DB.prepare("SELECT profile_id FROM mcp_tokens WHERE id = ?")
+    .bind(body.id)
+    .first<{ profile_id: string }>();
+  if (!isAccountInProfile(existing, profileId)) {
+    // 存在しない id と「他人のプロファイルの id」を区別せず 403 にする (block-rules と同じ方針)。
+    return c.json<ApiError>({ error: "token_not_found" }, 403);
+  }
+
+  await c.env.DB.prepare("DELETE FROM mcp_tokens WHERE id = ?").bind(body.id).run();
+  return c.body(null, 204);
+});
+
 apiRoutes.get("/api/calendars", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   const accountId = c.req.query("accountId");
@@ -825,10 +904,12 @@ apiRoutes.delete("/api/account", requireAuth, async (c) => {
   const remaining = profileAccounts.length - targets.length;
   if (shouldClearSessionAfterDisconnect(remaining)) {
     // プロファイルに Google アカウントが1つも残らない = プロファイル自体が実質消える
-    // ので、ぶら下がっている GitHub 連携 (docs/github-oauth.md) も一緒に掃除する。
+    // ので、ぶら下がっている GitHub 連携 (docs/github-oauth.md) と MCP トークン
+    // (docs/mcp.md、2026-07-20) も一緒に掃除する。
     await c.env.DB.prepare("DELETE FROM github_connections WHERE profile_id = ?")
       .bind(profileId)
       .run();
+    await c.env.DB.prepare("DELETE FROM mcp_tokens WHERE profile_id = ?").bind(profileId).run();
     deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
   }
 

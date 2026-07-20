@@ -16,6 +16,11 @@ import type {
   GitHubItemsResponse,
   GitHubQueueResponse,
   GitHubWorkItemDTO,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenDeleteRequest,
+  McpTokenDTO,
+  McpTokensResponse,
   MeResponse,
   PullCommitsRequest,
   PullCommitsResponse,
@@ -312,6 +317,10 @@ function App() {
   // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
   // effect 参照)。手動タイマー実績(TimeEntry)とは別立てのデータなので専用 state で持つ
   const [prCommitEstimates, setPrCommitEstimates] = useState<Record<string, number>>({});
+  // MCP トークン一覧 (docs/mcp.md Part A、2026-07-20)。サーバーが正 (IndexedDB には入れない、
+  // GitHub 連携メタと同じくエフェメラルな設定パネル用 state)。設定パネルを開いたときに取得する
+  // (下の panelOpen effect、カレンダー再フェッチと同じ流儀)
+  const [mcpTokens, setMcpTokens] = useState<McpTokenDTO[]>([]);
   const [prCommitEstimatesLoading, setPrCommitEstimatesLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
@@ -946,6 +955,29 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelOpen]);
 
+  // MCP トークン一覧の取得 (docs/mcp.md Part A、2026-07-20)。サーバーが正なので、設定パネルを
+  // 開いたときに毎回取り直す(カレンダー再フェッチの effect と同じ「panelOpen が true になった
+  // 瞬間にのみ」流儀)。失敗しても致命的ではないので warn のみに留める(block-rules と同じ)
+  useEffect(() => {
+    if (!panelOpen) return;
+    let cancelled = false;
+    checkedFetch("/api/mcp-tokens")
+      .then(async (res) => {
+        if (!res.ok) {
+          console.warn(`kichijitsu: GET /api/mcp-tokens failed: ${res.status}`);
+          return;
+        }
+        const data = (await res.json()) as McpTokensResponse;
+        if (!cancelled) setMcpTokens(data.tokens);
+      })
+      .catch((err) => {
+        console.warn("kichijitsu: GET /api/mcp-tokens failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [panelOpen, checkedFetch]);
+
   // 1つの (accountId, calendarId) を同期する共通処理。runSync のループと、
   // カレンダーを新規選択した直後の即時同期の両方から使う
   const syncCalendar = useCallback(
@@ -1253,6 +1285,48 @@ function App() {
       });
     }
   }, [db, githubStore, checkedFetch]);
+
+  // MCP トークン発行 (docs/mcp.md Part A、2026-07-20)。設定パネルの「トークンを発行」から呼ぶ。
+  // レスポンスに生トークンが乗るのはこの一度きり — ここでは McpTokenDTO 相当分だけを
+  // mcpTokens state に積み、生値はそのまま呼び出し元(設定パネル)へ返して表示を委ねる
+  // (パネル側がローカル state として持ち、「閉じる」でのみ消える)。失敗時は throw する。
+  const handleCreateMcpToken = useCallback(
+    async (label: string | undefined): Promise<McpTokenCreateResponse> => {
+      const res = await checkedFetch("/api/mcp-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label } satisfies McpTokenCreateRequest),
+      });
+      if (!res.ok) {
+        throw new Error(`POST /api/mcp-tokens failed: ${res.status}`);
+      }
+      const created = (await res.json()) as McpTokenCreateResponse;
+      setMcpTokens((prev) => [
+        ...prev,
+        { id: created.id, label: created.label, createdAt: created.createdAt, lastUsedAt: null },
+      ]);
+      return created;
+    },
+    [checkedFetch],
+  );
+
+  // MCP トークン失効 (docs/mcp.md Part A、2026-07-20)。設定パネルの行ごとの「失効」確定から呼ぶ。
+  // 204 で成功、失敗時は throw してパネル側の行ごとの確認 UI にエラー表示を委ねる
+  // (handleDeleteBlockRule と同じ流儀)
+  const handleDeleteMcpToken = useCallback(
+    async (id: string) => {
+      const res = await checkedFetch("/api/mcp-tokens", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id } satisfies McpTokenDeleteRequest),
+      });
+      if (!res.ok) {
+        throw new Error(`DELETE /api/mcp-tokens failed: ${res.status}`);
+      }
+      setMcpTokens((prev) => prev.filter((t) => t.id !== id));
+    },
+    [checkedFetch],
+  );
 
   // BlockRulesOverlay の作成フォームから呼ぶ。id 無し=新規作成、有り=更新(今回の UI からは
   // 常に新規作成のみ使うが、将来の編集導線のためリクエストは仕様通り両対応で扱う)。
@@ -2153,6 +2227,9 @@ function App() {
                       window.location.href = "/auth/github/login";
                     }}
                     onDisconnectGitHub={handleDisconnectGitHub}
+                    mcpTokens={mcpTokens}
+                    onCreateMcpToken={handleCreateMcpToken}
+                    onDeleteMcpToken={handleDeleteMcpToken}
                   />
                 )}
               </>

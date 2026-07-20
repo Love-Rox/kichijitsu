@@ -203,6 +203,118 @@
 }
 
 /*
+ * MCP トークン (docs/mcp.md Part A、2026-07-20)。GitHub セクション (.calendar-panel-github) と
+ * 同じ区切り(上ボーダー)の独立セクションだが、複数トークンを持ち得るためリスト構成にする。
+ */
+.calendar-panel-mcp {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f0ece3;
+}
+
+.calendar-panel-mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.calendar-panel-mcp-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.calendar-panel-mcp-item + .calendar-panel-mcp-item {
+  border-top: 1px solid #f7f4ee;
+}
+
+.calendar-panel-mcp-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.calendar-panel-mcp-item-label {
+  font-size: 13px;
+  color: #24211e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-panel-mcp-item-meta {
+  font-size: 11px;
+  color: #8a8478;
+}
+
+.calendar-panel-mcp-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.calendar-panel-mcp-label-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #24211e;
+}
+
+.calendar-panel-mcp-created {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #f0ece3;
+  border-radius: 6px;
+  background: #fbfaf7;
+}
+
+.calendar-panel-mcp-warning {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #d7402e;
+}
+
+.calendar-panel-mcp-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.calendar-panel-mcp-token-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #24211e;
+  background: #f0ece3;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.calendar-panel-mcp-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #8a8478;
+  line-height: 1.5;
+}
+
+.calendar-panel-mcp-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+/*
  * プライバシー/規約リンク(App.tsx の .toolbar-legal と同内容)。狭幅ヘッダーから
  * 隠した分をここに集約するフッター(スマホ対応、docs/multiplatform.md)。
  */
