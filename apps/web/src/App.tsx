@@ -13,6 +13,7 @@ import type {
   GitHubActivityResponse,
   GitHubCiRunDTO,
   GitHubCiRunsResponse,
+  GitHubItemDTO,
   GitHubItemsResponse,
   GitHubQueueResponse,
   GitHubWorkItemDTO,
@@ -48,7 +49,14 @@ import {
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
 import { mapGitHubItems } from "./sync/mapGitHub";
-import { isTauri, fetchWorkQueueViaGh } from "./sync/githubProvider";
+import {
+  isTauri,
+  fetchWorkQueueViaGh,
+  fetchGitHubItemsViaGh,
+  fetchGitHubActivityViaGh,
+  fetchGitHubCiRunsViaGh,
+  fetchPullCommitsViaGh,
+} from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
@@ -694,6 +702,35 @@ function App() {
   useEffect(() => {
     if (!db || !me.github) return;
     let cancelled = false;
+
+    // 取得できた GitHubItemDTO[] を IndexedDB/store に反映する共通処理 (gh 経路・Worker 経路で
+    // 収束させる、docs/github-integration.md「認証プロバイダの抽象化」)。
+    const apply = async (items: GitHubItemDTO[]) => {
+      const mapped = mapGitHubItems(items);
+      if (cancelled || !db) return;
+      setGithubAuthExpired(false);
+      await clearGitHubItems(db);
+      await putGitHubItems(db, mapped);
+      await githubStore.batch(async () => {
+        githubStore.clear();
+        githubStore.load(mapped);
+      });
+    };
+
+    // プロバイダ分岐 (fetchGithubQueue と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
+    // gh CLI 認証でアイテムを直接取得する。ブラウザ/PWA では isTauri() が常に false のため
+    // 以降の従来コードは不変。
+    if (isTauri()) {
+      fetchGitHubItemsViaGh()
+        .then((items) => apply(items))
+        .catch((err) => {
+          console.warn("kichijitsu: gh 経由の GitHub アイテム取得に失敗", err);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     checkedFetch("/api/github/items")
       .then(async (res) => {
         if (res.status === 401) {
@@ -706,15 +743,7 @@ function App() {
           return;
         }
         const data = (await res.json()) as GitHubItemsResponse;
-        const mapped = mapGitHubItems(data.items);
-        if (cancelled || !db) return;
-        setGithubAuthExpired(false);
-        await clearGitHubItems(db);
-        await putGitHubItems(db, mapped);
-        await githubStore.batch(async () => {
-          githubStore.clear();
-          githubStore.load(mapped);
-        });
+        await apply(data.items);
       })
       .catch((err) => {
         console.warn("kichijitsu: GET /api/github/items failed", err);
@@ -737,6 +766,24 @@ function App() {
     const untilIso = new Date(toMs).toISOString();
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
+      // gh CLI 認証で実績オーバーレイを直接取得する。ブラウザ/PWA では isTauri() が常に
+      // false のため以降の従来コードは不変。
+      if (isTauri()) {
+        fetchGitHubActivityViaGh(sinceIso, untilIso)
+          .then((items) => {
+            if (!cancelled) {
+              setGithubAuthExpired(false);
+              setGithubActivity(items);
+            }
+          })
+          .catch((err) => {
+            console.warn("kichijitsu: gh 経由の GitHub 実績取得に失敗", err);
+            if (!cancelled) setGithubActivity([]);
+          });
+        return;
+      }
+
       checkedFetch(
         `/api/github/activity?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
       )
@@ -791,6 +838,24 @@ function App() {
     const untilIso = new Date(toMs).toISOString();
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
+      // gh CLI 認証で CI/Actions 実行を直接取得する。ブラウザ/PWA では isTauri() が常に
+      // false のため以降の従来コードは不変。
+      if (isTauri()) {
+        fetchGitHubCiRunsViaGh(sinceIso, untilIso)
+          .then((items) => {
+            if (!cancelled) {
+              setGithubAuthExpired(false);
+              setGithubCiRuns(items);
+            }
+          })
+          .catch((err) => {
+            console.warn("kichijitsu: gh 経由の GitHub CI 実行取得に失敗", err);
+            if (!cancelled) setGithubCiRuns([]);
+          });
+        return;
+      }
+
       checkedFetch(
         `/api/github/ci?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
       )
@@ -1851,6 +1916,30 @@ function App() {
     }
     let cancelled = false;
     setPrCommitEstimatesLoading(true);
+
+    // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
+    // gh CLI 認証で PR commit を直接取得する。ブラウザ/PWA では isTauri() が常に false
+    // のため以降の従来コードは不変。
+    if (isTauri()) {
+      fetchPullCommitsViaGh(prItems)
+        .then((commitsByItem) => {
+          if (!cancelled) {
+            setGithubAuthExpired(false);
+            setPrCommitEstimates(estimateByItemKey(commitsByItem));
+          }
+        })
+        .catch((err) => {
+          console.warn("kichijitsu: gh 経由の PR commit 取得に失敗", err);
+          if (!cancelled) setPrCommitEstimates({});
+        })
+        .finally(() => {
+          if (!cancelled) setPrCommitEstimatesLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     checkedFetch("/api/github/pr-commits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

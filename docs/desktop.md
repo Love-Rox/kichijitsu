@@ -165,15 +165,147 @@ pnpm --filter desktop build   # リリースビルド（= pnpm build:desktop）
   表示）は `cargo check` の範囲外のため未実施。`tauri dev` での実機確認は
   ユーザー側で行ってほしい
 
+## 増分2b: gh プロバイダ（薄い実証 = 作業キューのみ、2026-07-21）
+
+認証が取りづらい org 対策として、Tauri デスクトップ実行時だけ手元の `gh` CLI
+認証で GitHub データを取れるようにした（ブラウザ/PWA は従来どおり Worker
+OAuth 経由、docs/github-integration.md「認証プロバイダの抽象化」）。
+
+- `src-tauri/src/lib.rs` に `#[tauri::command] gh_api(endpoint: String)` を
+  追加。`std::process::Command::new("gh").arg("api").arg(&endpoint)` の
+  **非シェル実行**（シェル (`sh -c`) を介さないため endpoint に何が来ても
+  シェルインジェクションは起きない）
+- `tauri.conf.json` に `app.withGlobalTauri=true` を設定し、webview に
+  `window.__TAURI__` を注入。リモート URL 方式（増分1）は不変のまま、
+  web 側が `invoke('gh_api', …)` を呼べるようにするだけ
+- web 側 `apps/web/src/sync/githubProvider.ts` に `isTauri()`（
+  `window.__TAURI__` の有無で判定）、`fetchWorkQueueViaGh()`（作業キューの
+  3 search クエリを `gh api` で叩く）、`mapGhSearchToWorkItems()`（gh の
+  search レスポンス → `GitHubWorkItemDTO[]` への純関数マッピング、sync 側
+  `core/github-queue.ts` 相当のロジックを web 側に再実装）を追加
+- `App.tsx` の作業キュー取得 (`fetchGithubQueue`) を `isTauri()` で分岐。
+  ブラウザ/PWA では `isTauri()` が常に false になるため、既存の
+  `checkedFetch('/api/github/queue')` 経路は無変更で残る（早期 return で
+  以降のコードに到達しない設計）
+
+この時点では items/activity/ci/pr-commits は未対応（下記増分2cで対応）。
+
+## 増分2c: gh プロバイダのセキュリティ硬化 + items/activity/ci/pr-commits 拡張（2026-07-21）
+
+### (A) セキュリティ硬化: `gh_api` へのエンドポイント・アローリスト
+
+**背景**: このデスクトップアプリの webview はローカルファイルではなく
+**リモート URL** (`https://kichijitsu.love-rox.cc`) を読む（増分1参照）。
+増分2b時点の `gh_api(endpoint)` はエンドポイント文字列を検証せずそのまま
+`gh api <endpoint>` に渡していたため、そのリモートサイトに何らかの XSS が
+刺さると `window.__TAURI__` 経由で `invoke('gh_api', { endpoint })` を
+**任意の endpoint** で呼べてしまい、手元の `gh` CLI 認証を使って任意の
+GitHub REST エンドポイント（プライベート repo の内容など）を読めてしまう —
+攻撃対象領域の拡大になる、というバックグラウンドのセキュリティレビュー
+指摘への対応。
+
+`gh api` はデフォルトが GET のためこのコマンド単体に書き込みの実害は薄いが、
+「web 側が今使っている形だけを許可し、それ以外は理由を問わず拒否する」設計
+にすることで攻撃対象領域をアプリが実際に必要とする範囲に絞った:
+
+- `src-tauri/src/lib.rs` に純粋関数 `is_allowed_gh_endpoint(endpoint: &str)
+-> bool` を追加し、`gh_api` はプロセス起動前にこれを通す。拒否時は
+  `Command::new("gh")` を一切呼ばずに `Err` を返す
+- 許可する9形状のみ（`endpoint` を `?` の前後で path/query に分けて判定、
+  余分なパスセグメントは不可）:
+  `search/issues`（query は省略可、あれば `q=` 始まりのみ）、`user/repos`、
+  `user`（query 無し、login 解決用）、
+  `repos/{owner}/{repo}/milestones`、`.../issues`、`.../releases`、
+  `.../commits`、`.../actions/runs`、`.../pulls/{number}/commits`
+  （いずれも query 任意）。`{owner}`/`{repo}` は `[A-Za-z0-9._-]`、
+  `{number}` は数字のみに制限
+- 追加の防御: **先頭が `-` の endpoint は拒否**（`gh` の clap ベース引数
+  パーサがオプション/フラグとして解釈しうる flag-injection 対策。例:
+  `--hostname=evil.example.com`）。**制御文字（`\r`/`\n` 等）を含む
+  endpoint も拒否**（`gh` が path+query から HTTP リクエストを組み立てる
+  際のヘッダ/行インジェクション対策）
+- `#[cfg(test)] mod tests` に `#[test]` 15件（許可9形状それぞれ・不正文字の
+  owner/repo・非数字の number・先頭 `-`・制御文字混入・9形状外の
+  エンドポイント・`search/issues` の非 `q=` クエリ、をそれぞれ受理/拒否
+  で検証）。`cargo check`/`cargo test` とも通過確認済み
+
+### (B) gh プロバイダの拡張: items / activity / ci / pr-commits
+
+増分2bで作業キューのみだった gh 化を、GitHub ペインが使う残り4本
+（`GET /api/github/items|activity|ci`、`POST /api/github/pr-commits` の
+gh 版）に広げた。返す DTO は Worker 版と完全に同一（`GitHubItemDTO` /
+`GitHubActivityDTO` / `GitHubCiRunDTO` / commit タイムスタンプ配列）なので
+UI・ストアは無変更で差し替わる。`apps/web/src/sync/githubProvider.ts` に
+sync 側 `core/github-items.ts` 等と同じマッピング仕様の**純関数**
+（`mapGhRepoItemsToDTO` / `mapGhCommitsToActivity` / `mapGhWorkflowRunsToCi`
+/ `mapGhPullCommitsToTimestamps`）+ それぞれの薄い非同期オーケストレーター
+（`fetchGitHubItemsViaGh` / `fetchGitHubActivityViaGh` /
+`fetchGitHubCiRunsViaGh` / `fetchPullCommitsViaGh`）を追加し、`App.tsx` の
+対応する4つの effect を `isTauri()` で分岐（作業キューの
+`fetchGithubQueue` と同じ「早期 return でブラウザ/PWA の既存コードには
+到達しない」設計。ブラウザ側の挙動・コードパスは無変更）。
+
+gh 版と Worker 版で構造的に異なる点（`gh` CLI には GitHub App の
+installation という概念が無いため）:
+
+- **リポジトリ範囲**: Worker 版は GitHub App のインストール先
+  (`listInstallationRepos`) に限定するが、gh 版は `GET /user/repos` で
+  認証ユーザーが見えるリポジトリを列挙する (`discoverRepos`)。安全上限
+  **50件**で打ち切り、上限ちょうどに達したら「本当はもっとあるかもしれない」
+  ことを `console.warn` する（2回目の呼び出し無しに真の総数は分からない
+  ため）。リポジトリ選択 UI は無く、見える範囲を丸ごと対象にする
+- **ページング**: Worker 版は GitHub の `Link: rel="next"` ヘッダーを辿るが、
+  `gh_api` (Tauri コマンド) は stdout の JSON 文字列しか返さずレスポンス
+  ヘッダーは見えない。代わりに `page=N` クエリを自前で足しながら `gh_api`
+  を複数回呼ぶ `paginateGhApi` ヘルパーを実装（`--paginate` は使わない —
+  `gh_api` は endpoint 1引数のみでフラグを取れない設計のため）。ページの
+  件数が `per_page` 未満になったら打ち切り、Worker 側の各種
+  `MAX_*_PER_REPO` 相当の安全上限（milestones/issues 200件・releases
+  100件・commits 300件・workflow runs 200件・PR commits 250件、精神は
+  同じだが厳密な数値一致は求めない）を超えたら切り捨てて `console.warn`
+- **login 解決**: Worker 版は OAuth トークンの持ち主が自明だが、gh 版は
+  `gh api user` を1回叩いて `.login` を取り出す (`resolveGhLogin`,
+  activity と pr-commits で共用)
+- Projects v2 (GraphQL) の date フィールドは Worker 版・gh 版とも対象外
+  のまま（次フェーズ、既存 TODO）
+
+テスト: `apps/web/src/sync/githubProvider.test.ts` に新設4関数ぶんの
+純関数テストを追加（milestone→issue の due_on 継承、`pull_request` 有無
+での issue/pr 判定、release の draft/published_at フィルタと
+name→tag_name フォールバック、commit message 先頭行のみ採用、
+author.date→committer.date フォールバック、workflow_runs 配列アンラップ、
+PR commit の author.login 絞り込み・null 除外・昇順ソート、など）。
+`pnpm --filter web test` は 403→419（+16）。
+
+### 検証した範囲
+
+- `cargo check`（`apps/desktop/src-tauri/` 配下）成功、警告無し
+- `cargo test` 15/15 成功（アローリストの許可/拒否ケース網羅）
+- `pnpm --filter web test` 419/419 成功
+- `pnpm --filter web run typecheck` / `pnpm --filter sync run typecheck`
+  とも 0（`apps/sync` は無変更）
+- `pnpm --filter web run build` 成功
+- `pnpm exec vp fmt --check`（リポジトリ全体 281 ファイル）整形済みを確認
+
+### 残 TODO
+
+1. **Projects v2 (GraphQL) の date フィールド**: Worker 版・gh 版とも
+   対象外のまま（既存 TODO、フェーズ④以降で検討）
+2. **repo 選択 UI**: gh 版は `GET /user/repos`（安全上限50件）で見える
+   リポジトリを丸ごと対象にする。ユーザーが対象リポジトリを絞り込める
+   設定 UI は無い
+3. **未ログイン導線 UI**: `gh` CLI が未インストール/未ログインの場合、
+   各 `fetchXViaGh()` は例外を投げて `console.warn` した上で空データに
+   フォールバックするのみ。OAuth 連携（ブラウザ/PWA 側）のような
+   「連携してください」の案内 UI は無い
+
 ## 次の増分（今回はやらない）
 
-1. **`gh` プロバイダ**: docs/github-integration.md 相当の GitHub 連携を
-   デスクトップ側にも
-2. **実リマインダーのフロント連携**: トレイ/ショートカット/通知の土台は
+1. **実リマインダーのフロント連携**: トレイ/ショートカット/通知の土台は
    増分2aで実装済み。予定リマインダーをネイティブ通知に配線するには
    フロント(リモート URL の web アプリ)から Tauri コマンドを呼ぶ仕組みが
    必要（「残 TODO」セクション参照）
-3. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
+2. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
    要るため、当面は今回のリモート URL 方式のまま運用する
 
 ## Mac 配布: Homebrew cask + 署名回避（2026-07-21 ユーザー決定）
