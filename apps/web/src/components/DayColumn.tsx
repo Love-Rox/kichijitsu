@@ -117,7 +117,7 @@ interface DayColumnProps {
    */
   plannedBlocks: PlannedBlock[];
   /**
-   * 作業キュー(WorkQueueDrawer)からこの列へドロップされたときに呼ばれる。ローカル専用
+   * 作業キュー(GitHubPane、旧 WorkQueueDrawer)からこの列へドロップされたときに呼ばれる。ローカル専用
    * (Google へは一切書き戻さない) — App.tsx 側は plannedStore.upsert + IndexedDB 書き込みのみ行う。
    */
   onDropWorkItem: (item: DroppedWorkItem, startMs: number, endMs: number) => void;
@@ -381,7 +381,7 @@ export function DayColumn({
   }
 
   /**
-   * 作業キュー(WorkQueueDrawer)からのドロップ受け入れ(docs/github-integration.md
+   * 作業キュー(GitHubPane、旧 WorkQueueDrawer)からのドロップ受け入れ(docs/github-integration.md
    * 「時間計測」増分1)。dragover で e.preventDefault() しないとブラウザが drop を許可しない
    * (HTML5 DnD の標準的な作法)。
    */

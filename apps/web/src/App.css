@@ -290,9 +290,27 @@
   gap: 6px;
 }
 
+/*
+ * GitHubPane(増分1)の docked モードとカレンダー(.app-main-calendar)を横に並べる flex
+ * コンテナ。overlay モードは position: fixed の backdrop で被さるだけなので、この flex 化の
+ * 影響を受けない(GitHubPane.tsx のコメント参照)。
+ */
 .app-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * カレンダー本体(WeekGrid/MonthView + init-overlay)側。GitHubPane が docked のときは
+ * .app-main の flex 計算で残り幅ぶんに縮む(flex:1, min-width:0)。position: relative は
+ * 元々 .app-main に付いていたものをこちらへ移設 — .init-overlay(絶対配置)の最寄りの
+ * 位置指定祖先として機能させるため。
+ */
+.app-main-calendar {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 

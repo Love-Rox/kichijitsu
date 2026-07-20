@@ -59,7 +59,7 @@ import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
 import { CalendarSettingsPanel } from "./components/CalendarSettingsPanel";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
-import { WorkQueueDrawer } from "./components/WorkQueueDrawer";
+import { GitHubPane } from "./components/GitHubPane";
 import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
@@ -121,6 +121,7 @@ import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrenc
 import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
 import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
 import { stepAnchor } from "./layout/dayGrid";
+import { effectivePaneMode, type PaneMode } from "./layout/paneMode";
 import "./App.css";
 
 /**
@@ -173,6 +174,22 @@ function initialView(isNarrow: boolean): View {
   if (stored && isViewAllowedForWidth(stored, isNarrow)) return stored;
   // 初回訪問(保存済み view 無し): 狭幅では Notion Calendar に倣い3日タイムラインを既定にする
   return isNarrow ? "day3" : "week";
+}
+
+const PANE_MODE_STORAGE_KEY = "kichijitsu:paneMode";
+
+function isPaneMode(value: string): value is PaneMode {
+  return value === "docked" || value === "overlay";
+}
+
+/** localStorage に保存された前回選択の GitHub ペイン配置モードを読む。プライベートモード等で無効なら null */
+function loadStoredPaneMode(): PaneMode | null {
+  try {
+    const v = window.localStorage.getItem(PANE_MODE_STORAGE_KEY);
+    return v && isPaneMode(v) ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -243,6 +260,24 @@ function App() {
     }
   }, [view]);
 
+  // GitHub 情報ペイン(GitHubPane、増分1)の配置モード(overlay/docked)。view と同じく
+  // ユーザーの明示的な選択を覚えておき、次回訪問時のデフォルトにする。isNarrow による
+  // docked 不可のフォールバックは resolvedPaneMode(effectivePaneMode)側で行い、この state
+  // 自体は狭幅表示中でも書き換えない(layout/paneMode.ts のコメント参照)
+  const [paneMode, setPaneMode] = useState<PaneMode>(() => loadStoredPaneMode() ?? "overlay");
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PANE_MODE_STORAGE_KEY, paneMode);
+    } catch {
+      /* ignore */
+    }
+  }, [paneMode]);
+
+  // 狭幅では docked を選べない(effectivePaneMode 参照)ので、実際に GitHubPane へ渡すモードは
+  // 常にこちらを使う。paneMode(永続化される好み)自体は isNarrow に関わらず変更しない
+  const resolvedPaneMode = effectivePaneMode(paneMode, isNarrow);
+
   const store = useMemo(() => new OccurrenceStore(), []);
   const allDayStore = useMemo(() => new AllDayStore(), []);
   // Google タスク (docs/google-tasks.md) の読み口。AllDayStore と対になる別ストア
@@ -289,11 +324,15 @@ function App() {
   // 409 github_not_connected / 502 github_fetch_failed はこのフラグを立てない
   // (前者は me.github が null のはずで無関係、後者は一時的な取得失敗なので再連携は不要)
   const [githubAuthExpired, setGithubAuthExpired] = useState(false);
-  // 作業キュー サイドレール (docs/github-integration.md フェーズ②Part B)。日付を持たない
+  // 作業キュー(docs/github-integration.md フェーズ②Part B)のデータ。日付を持たない
   // ライブな一覧のため IndexedDB には入れず React state だけで保持する(占有元は
-  // GET /api/github/queue、ドロワーを開くたび・連携直後に取り直す。手動更新は onRefresh)。
+  // GET /api/github/queue、ペインを開くたび・連携直後に取り直す。手動更新は onRefresh)。
   const [githubQueue, setGithubQueue] = useState<GitHubWorkItemDTO[]>([]);
-  const [queueOpen, setQueueOpen] = useState(false);
+  // GitHub 情報ペイン(GitHubPane、増分1で WorkQueueDrawer から発展)の開閉。増分1では
+  // セクションが作業キュー1つだけのため実質「作業キューが見えているか」と同義だが、
+  // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある
+  // (githubQueue・queueLoading・queueAuthExpired・fetchGithubQueue はデータ側の名前のまま維持)。
+  const [paneOpen, setPaneOpen] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
   // 401 github_auth_expired 専用フラグ(githubAuthExpired とは独立: レーン用の
   // /api/github/items とキュー用の /api/github/queue は別エンドポイントで、
@@ -833,12 +872,12 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me.github]);
 
-  // ドロワーを開くたびの取得(手動更新は onRefresh=fetchGithubQueue の直接呼び出し)
+  // ペインを開くたびの取得(手動更新は onRefresh=fetchGithubQueue の直接呼び出し)
   useEffect(() => {
-    if (!queueOpen) return;
+    if (!paneOpen) return;
     fetchGithubQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queueOpen]);
+  }, [paneOpen]);
 
   // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
   // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
@@ -2288,9 +2327,11 @@ function App() {
             )}
           </div>
           {/*
-           * 作業キュー サイドレール(docs/github-integration.md フェーズ②Part B)の開閉導線。
-           * GitHub 未連携(me.github===null)では出さない(安全側: 開いても 409 で空になるだけだが、
-           * 導線自体を見せない方が分かりやすい)。件数バッジは0件のときは出さない。
+           * GitHub 情報ペイン(GitHubPane、docs/github-integration.md フェーズ②Part B → 増分1で
+           * セクション式コンテナへ発展)の開閉導線。増分1ではセクションが作業キュー1つだけなので
+           * ラベル・アイコンは従来通り「作業キュー」のまま。GitHub 未連携(me.github===null)では
+           * 出さない(安全側: 開いても 409 で空になるだけだが、導線自体を見せない方が分かりやすい)。
+           * 件数バッジは0件のときは出さない。
            */}
           {/*
            * GitHub 実績オーバーレイの表示 ON/OFF トグル(フェーズ③Part B)。作業キューと同じく
@@ -2331,10 +2372,10 @@ function App() {
             <button
               type="button"
               className="toolbar-queue-btn"
-              onClick={() => setQueueOpen((v) => !v)}
+              onClick={() => setPaneOpen((v) => !v)}
               aria-label="作業キュー"
               title="作業キュー"
-              aria-expanded={queueOpen}
+              aria-expanded={paneOpen}
               aria-haspopup="dialog"
             >
               <span aria-hidden="true">☰</span>
@@ -2387,57 +2428,82 @@ function App() {
         </div>
       </header>
       <main className="app-main">
-        {view !== "month" ? (
-          <WeekGrid
-            store={store}
-            allDayStore={allDayStore}
-            taskStore={taskStore}
-            githubStore={githubStore}
-            githubActivity={activityVisible ? githubActivity : []}
-            githubCiRuns={ciVisible ? githubCiRuns : []}
-            plannedStore={plannedStore}
-            onDropWorkItem={onDropWorkItem}
-            onMovePlannedBlock={onMovePlannedBlock}
-            onDeletePlannedBlock={onDeletePlannedBlock}
-            timeEntryStore={timeEntryStore}
-            onStartTimer={onStartTimer}
-            onStopTimer={onStopTimer}
-            weekStart={timelineStart}
-            dayCount={dayCount}
-            timeZone={timeZone}
-            onPersist={handlePersist}
-            visibleCalendarKeys={visibleCalendarKeys}
-            calendarLookup={calendarLookup}
-            onDelete={handleDeleteOccurrence}
-            writeTarget={defaultWriteTarget}
-            onCreateEvent={handleCreate}
-            onToggleTask={handleToggleTask}
-            // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
-            // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
-            longPressCreate={isNarrow}
+        <div className="app-main-calendar">
+          {view !== "month" ? (
+            <WeekGrid
+              store={store}
+              allDayStore={allDayStore}
+              taskStore={taskStore}
+              githubStore={githubStore}
+              githubActivity={activityVisible ? githubActivity : []}
+              githubCiRuns={ciVisible ? githubCiRuns : []}
+              plannedStore={plannedStore}
+              onDropWorkItem={onDropWorkItem}
+              onMovePlannedBlock={onMovePlannedBlock}
+              onDeletePlannedBlock={onDeletePlannedBlock}
+              timeEntryStore={timeEntryStore}
+              onStartTimer={onStartTimer}
+              onStopTimer={onStopTimer}
+              weekStart={timelineStart}
+              dayCount={dayCount}
+              timeZone={timeZone}
+              onPersist={handlePersist}
+              visibleCalendarKeys={visibleCalendarKeys}
+              calendarLookup={calendarLookup}
+              onDelete={handleDeleteOccurrence}
+              writeTarget={defaultWriteTarget}
+              onCreateEvent={handleCreate}
+              onToggleTask={handleToggleTask}
+              // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
+              // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
+              longPressCreate={isNarrow}
+            />
+          ) : (
+            <MonthView
+              store={store}
+              allDayStore={allDayStore}
+              monthCursor={monthCursor}
+              timeZone={timeZone}
+              visibleCalendarKeys={visibleCalendarKeys}
+              calendarLookup={calendarLookup}
+              onDelete={handleDeleteOccurrence}
+              writeTarget={defaultWriteTarget}
+              onCreateEvent={handleCreate}
+              onNavigateToDay={handleNavigateToDay}
+            />
+          )}
+          {initIndicator.visible && (
+            <div
+              className={
+                initIndicator.fading ? "init-overlay masu-indicator--fading" : "init-overlay"
+              }
+            >
+              <MasuIndicator size="md" />
+            </div>
+          )}
+        </div>
+        {/*
+         * GitHub 情報ペイン(GitHubPane、増分1)。overlay モードは position: fixed の backdrop で
+         * グリッド上に被さるため、マウント位置自体は .app-main 内のどこでもよい(flex レイアウトの
+         * 影響を受けない)。docked モードは逆に .app-main-calendar と並ぶ通常の flex アイテムとして
+         * 振る舞う必要があるため、旧 WorkQueueDrawer のように </main> の外側に別マウントするのではなく
+         * ここ(.app-main の直接の子)に1箇所だけ置く。
+         */}
+        {paneOpen && me.github && (
+          <GitHubPane
+            mode={resolvedPaneMode}
+            onModeChange={setPaneMode}
+            onClose={() => setPaneOpen(false)}
+            disableModeToggle={isNarrow}
+            items={githubQueue}
+            loading={queueLoading}
+            authExpired={queueAuthExpired}
+            onRefresh={fetchGithubQueue}
+            onReconnect={() => {
+              window.location.href = "/auth/github/login";
+            }}
+            onDragStart={() => setPaneOpen(false)}
           />
-        ) : (
-          <MonthView
-            store={store}
-            allDayStore={allDayStore}
-            monthCursor={monthCursor}
-            timeZone={timeZone}
-            visibleCalendarKeys={visibleCalendarKeys}
-            calendarLookup={calendarLookup}
-            onDelete={handleDeleteOccurrence}
-            writeTarget={defaultWriteTarget}
-            onCreateEvent={handleCreate}
-            onNavigateToDay={handleNavigateToDay}
-          />
-        )}
-        {initIndicator.visible && (
-          <div
-            className={
-              initIndicator.fading ? "init-overlay masu-indicator--fading" : "init-overlay"
-            }
-          >
-            <MasuIndicator size="md" />
-          </div>
         )}
       </main>
       {helpOpen && <KeyboardHelpOverlay onClose={() => setHelpOpen(false)} />}
@@ -2459,19 +2525,6 @@ function App() {
           visibleCalendarKeys={visibleCalendarKeys}
           calendarLookup={calendarLookup}
           onJump={handleSearchJump}
-        />
-      )}
-      {queueOpen && me.github && (
-        <WorkQueueDrawer
-          items={githubQueue}
-          loading={queueLoading}
-          authExpired={queueAuthExpired}
-          onRefresh={fetchGithubQueue}
-          onReconnect={() => {
-            window.location.href = "/auth/github/login";
-          }}
-          onClose={() => setQueueOpen(false)}
-          onDragStart={() => setQueueOpen(false)}
         />
       )}
       {reportOpen && (

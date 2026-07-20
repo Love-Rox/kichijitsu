@@ -6,7 +6,7 @@ import type { GitHubWorkItemDTO, GitHubWorkKind } from "@kichijitsu/shared";
  * 保持するだけ(日付を持たないライブな一覧のため)なので、ここには DTO→表示用の整形ロジックのみ置く。
  */
 
-/** kind ごとのセクション見出し(WorkQueueDrawer.tsx が描画順に使う) */
+/** kind ごとのセクション見出し(GitHubPane.tsx が描画順に使う) */
 export const WORK_QUEUE_SECTION_LABELS: Record<GitHubWorkKind, string> = {
   review_requested: "レビュー依頼",
   assigned: "自分の担当",

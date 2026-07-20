@@ -1,0 +1,345 @@
+/*
+ * GitHub 情報ペイン(docs/github-integration.md フェーズ②Part B → 増分1でセクション式
+ * コンテナへ発展、旧 WorkQueueDrawer.css を置き換え)。SearchOverlay/BlockRulesOverlay と
+ * 同じ z-index 帯(2000台、WeekGrid のドラッグ関連 最大1000より上)を overlay モードでは使う。
+ * docked モードは position: fixed を使わず通常の flex アイテムとして .app-main 内に並ぶ
+ * (App.css .app-main-calendar と flex サイドバイサイド、グリッド側が flex-shrink する)。
+ * 色は既存オーバーレイと同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
+ * 生成り #faf7f2・朱 --logo-aka)。GitHub の type バッジ色は GitHubLane.tsx (WeekGrid.css)
+ * と揃える(issue=紫 #6e5494・PR=緑 #0b8043、brand/README.md「機能色の例外」)。
+ */
+.github-pane-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.18);
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 両モード共通のペイン本体(overlay/docked それぞれのモディファイアで幅・境界線・アニメーションを足す) */
+.github-pane {
+  display: flex;
+  flex-direction: column;
+  background: #faf7f2;
+  overflow: hidden;
+}
+
+.github-pane--overlay {
+  width: min(420px, 100vw);
+  max-width: min(420px, 100vw);
+  height: 100%;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -20px 0 48px rgba(36, 33, 30, 0.24);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .github-pane--overlay {
+    animation: github-pane-slide-in 200ms ease-out;
+  }
+}
+
+@keyframes github-pane-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/*
+ * ドッキング常設(docked): グリッドの右に常設する flex サイドバー。position: fixed を使わない
+ * 通常の flex アイテムとして .app-main 内に並ぶため、box-shadow(浮いている印象を作る演出)や
+ * スライドインアニメーション(グリッドがリフローする中でのアニメーションは不要にジャンキーに
+ * 見えるため付けない、docs 方針)は無し。境界線だけ overlay と揃える。
+ */
+.github-pane--docked {
+  flex: 0 0 340px;
+  width: 340px;
+  height: 100%;
+  border-left: 1px solid #e5e7eb;
+}
+
+.github-pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.github-pane-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.github-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.github-pane-mode-btn,
+.github-pane-close-btn,
+.github-pane-refresh-btn {
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.github-pane-mode-btn:hover,
+.github-pane-close-btn:hover,
+.github-pane-refresh-btn:hover:not(:disabled) {
+  color: #24211e;
+  background: #f0ece3;
+}
+
+.github-pane-refresh-btn:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.github-pane-mode-btn:focus-visible,
+.github-pane-close-btn:focus-visible,
+.github-pane-refresh-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.github-pane-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/*
+ * 作業キューセクション(増分1で唯一のセクション)。セクション自身の見出し行(タイトル+更新
+ * ボタン)・認可切れバナー・一覧(またはスケルトン/空表示)を縦に並べる。将来セクションを
+ * 追加するときも同じ形(このクラスを root に持つコンポーネント)で github-pane-body に並べる。
+ */
+.github-pane-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.github-pane-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.github-pane-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.github-pane-auth-expired {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f6e3dc;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #7a3226;
+}
+
+.github-pane-auth-expired p {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.github-pane-reconnect-btn {
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.github-pane-reconnect-btn:focus-visible {
+  outline: 2px solid #7a3226;
+  outline-offset: 2px;
+}
+
+.github-pane-empty-all {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #8a8478;
+}
+
+/* kind (review_requested/assigned/authored) ごとのグループ。github-pane-section (トップレベルの
+   セクション)とは別階層 — groupWorkItemsByKind の3グループをまとめる内側のまとまり */
+.github-pane-kind-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.github-pane-kind-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.github-pane-kind-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #b3ac9d;
+}
+
+.github-pane-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/*
+ * ドラッグ→タイムブロック化(docs/github-integration.md「時間計測」増分1)の draggable な
+ * ラッパ。中の <a>(.github-pane-item)はクリックでの新規タブ遷移のみを担い、ドラッグ開始は
+ * こちらが担当する(GitHubPane.tsx のコメント参照)。
+ */
+.github-pane-item-row {
+  cursor: grab;
+}
+
+.github-pane-item-row:active {
+  cursor: grabbing;
+}
+
+.github-pane-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  text-decoration: none;
+  color: #24211e;
+}
+
+.github-pane-item:hover {
+  border-color: #6e5494;
+}
+
+.github-pane-item--pr:hover {
+  border-color: #0b8043;
+}
+
+.github-pane-item:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.github-pane-item-kind {
+  flex: none;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6e5494;
+}
+
+.github-pane-item--pr .github-pane-item-kind {
+  color: #0b8043;
+}
+
+.github-pane-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.github-pane-item-title {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.github-pane-item-meta {
+  font-size: 11px;
+  color: #8a8478;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 初回ロード中のスケルトン */
+.github-pane-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.github-pane-skeleton-line {
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f0ece3 0%, #f7f4ee 50%, #f0ece3 100%);
+  background-size: 200% 100%;
+}
+
+.github-pane-skeleton-line--short {
+  width: 70%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .github-pane-skeleton-line {
+    animation: github-pane-skeleton-shimmer 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes github-pane-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .github-pane--overlay {
+    width: min(420px, 100vw);
+  }
+
+  .github-pane--overlay .github-pane-header {
+    padding: 10px 12px;
+  }
+
+  .github-pane--overlay .github-pane-body {
+    padding: 12px;
+    gap: 14px;
+  }
+}
