@@ -16,11 +16,16 @@
 
 const SID_COOKIE = "sid";
 const STATE_COOKIE = "oauth_state";
+// GitHub 連携 (docs/github-oauth.md、2026-07-20) の state cookie は Google の
+// oauth_state と別名にする。同時に両方の連携フローを開始した場合に state cookie が
+// 上書きされて片方が invalid_oauth_state になる事故を防ぐため。
+const GITHUB_STATE_COOKIE = "github_oauth_state";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const STATE_MAX_AGE_SECONDS = 60 * 10; // 10 minutes
 
 export const SESSION_COOKIE_NAME = SID_COOKIE;
 export const STATE_COOKIE_NAME = STATE_COOKIE;
+export const GITHUB_STATE_COOKIE_NAME = GITHUB_STATE_COOKIE;
 export const SESSION_COOKIE_MAX_AGE = SESSION_MAX_AGE_SECONDS;
 export const STATE_COOKIE_MAX_AGE = STATE_MAX_AGE_SECONDS;
 

@@ -9,6 +9,11 @@
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 
+# GitHub App の user-to-server OAuth (docs/github-oauth.md 参照。App の作成手順もそこに書いてある)。
+# Callback URL に http://localhost:8787/auth/github/callback を登録しておくこと。
+GITHUB_CLIENT_ID=your-github-app-client-id
+GITHUB_CLIENT_SECRET=your-github-app-client-secret
+
 # セッション Cookie の署名 (HMAC-SHA256) に使うランダムな秘密文字列。
 # 生成例: openssl rand -base64 32
 SESSION_SECRET=replace-with-a-random-secret
@@ -30,6 +35,7 @@ ALLOWED_EMAILS=
 
 # wrangler dev の routes ホストシミュレーション対策 (詳細は wrangler.jsonc のコメント)
 OAUTH_REDIRECT_URL=http://localhost:8787/auth/callback
+GITHUB_REDIRECT_URL=http://localhost:8787/auth/github/callback
 
 # WEBHOOK_BASE_URL (Google Calendar watch channel の push 通知先) は意図的にここへ書かない。
 # wrangler.jsonc の vars.WEBHOOK_BASE_URL (本番値 https://kichijitsu.love-rox.cc) が

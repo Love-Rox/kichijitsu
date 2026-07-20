@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./types";
 import { authRoutes } from "./routes/auth";
+import { githubAuthRoutes } from "./routes/github-auth";
 import { apiRoutes } from "./routes/api";
 import { webhookRoutes } from "./routes/webhook";
 import { registerWatch, stopWatch, buildWebhookAddress } from "./google/watch";
@@ -17,6 +18,7 @@ export { ProfileHubDO } from "./durable-object/profile-hub-do";
 const app = new Hono<AppEnv>();
 
 app.route("/", authRoutes);
+app.route("/", githubAuthRoutes);
 app.route("/", apiRoutes);
 app.route("/", webhookRoutes);
 

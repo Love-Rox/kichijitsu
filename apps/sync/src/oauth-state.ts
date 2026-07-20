@@ -11,9 +11,18 @@
 // 判別可能なユニオンにしているのは、`state.mode === 'add'` で分岐した先で
 // `state.profileId` が確実に string だと TypeScript に narrowing させるため
 // (フラットな `profileId?: string` だと呼び出し側で毎回 non-null assertion が要る)。
+//
+// "github" (docs/github-oauth.md、2026-07-20) は GitHub App の user-to-server 連携用。
+// Google の "add" (=既存プロファイルに Google アカウントを追加) とは意味が異なる
+// (Google アカウントではなく GitHub アカウントを既存プロファイルにぶら下げる) ため
+// 別モードとして区別する。ただし CSRF 対策としての state cookie は Google と別名
+// (routes/github-auth.ts の GITHUB_STATE_COOKIE_NAME) を使うので、この型自体が
+// Google の state と混ざることは無い — mode を分けるのは「callback 側で意図を
+// 取り違えない」ための型安全性のためであり、CSRF 対策そのものではない。
 export type OAuthState =
   | { nonce: string; mode: "login" }
-  | { nonce: string; mode: "add"; profileId: string };
+  | { nonce: string; mode: "add"; profileId: string }
+  | { nonce: string; mode: "github"; profileId: string };
 
 export function encodeOAuthState(state: OAuthState): string {
   return base64UrlEncode(new TextEncoder().encode(JSON.stringify(state)));
@@ -34,6 +43,10 @@ export function decodeOAuthState(value: string): OAuthState | null {
   if (mode === "add") {
     if (typeof profileId !== "string" || !profileId) return null;
     return { nonce, mode: "add", profileId };
+  }
+  if (mode === "github") {
+    if (typeof profileId !== "string" || !profileId) return null;
+    return { nonce, mode: "github", profileId };
   }
   if (mode === "login") {
     return { nonce, mode: "login" };

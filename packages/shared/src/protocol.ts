@@ -41,6 +41,14 @@ export interface AccountDTO {
 }
 
 /**
+ * 連携済みの GitHub アカウント (docs/github-oauth.md、2026-07-20)。プロファイル1つにつき
+ * 高々1件。issue/PR の取得・同期は次フェーズなので、ここでは連携状態の露出のみ。
+ */
+export interface GitHubConnectionDTO {
+  login: string;
+}
+
+/**
  * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
  * プロファイルに複数の Google アカウントがぶら下がる。
  * connected は accounts.length > 0 と同義（後方互換のため残す）
@@ -54,6 +62,8 @@ export interface MeResponse {
    * primary をデフォルト選択する。空配列は「全部外した」意思として尊重する。
    */
   visibleCalendars: Record<string, string[]>;
+  /** GitHub 連携が無ければ null。 */
+  github: GitHubConnectionDTO | null;
 }
 
 /**

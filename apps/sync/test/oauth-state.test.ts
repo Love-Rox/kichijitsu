@@ -16,6 +16,19 @@ describe("encodeOAuthState / decodeOAuthState", () => {
     expect(decodeOAuthState(encoded)).toEqual(state);
   });
 
+  it("round-trips a github-mode state carrying the target profileId", () => {
+    const state: OAuthState = { nonce: "gh-456", mode: "github", profileId: "profile-def" };
+    const encoded = encodeOAuthState(state);
+
+    expect(decodeOAuthState(encoded)).toEqual(state);
+  });
+
+  it("rejects a github-mode payload missing profileId", () => {
+    const encoded = base64UrlEncodeJson({ nonce: "n", mode: "github" });
+
+    expect(decodeOAuthState(encoded)).toBeNull();
+  });
+
   it("produces a URL-safe opaque token (no raw JSON leaking into the query string)", () => {
     const encoded = encodeOAuthState({ nonce: "n", mode: "login" });
     expect(encoded).not.toMatch(/[{}":]/);

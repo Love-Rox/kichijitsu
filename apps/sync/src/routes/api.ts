@@ -67,7 +67,12 @@ apiRoutes.use("*", populateProfileId);
 apiRoutes.get("/api/me", async (c) => {
   const profileId = c.get("profileId");
   if (!profileId) {
-    return c.json<MeResponse>({ connected: false, accounts: [], visibleCalendars: {} });
+    return c.json<MeResponse>({
+      connected: false,
+      accounts: [],
+      visibleCalendars: {},
+      github: null,
+    });
   }
   const { results } = await c.env.DB.prepare(
     "SELECT id, email FROM accounts WHERE profile_id = ? ORDER BY created_at ASC",
@@ -79,7 +84,19 @@ apiRoutes.get("/api/me", async (c) => {
     c.env,
     accounts.map((account) => account.id),
   );
-  return c.json<MeResponse>({ connected: accounts.length > 0, accounts, visibleCalendars });
+  const github = await loadGitHubConnection(c.env, profileId);
+  return c.json<MeResponse>({ connected: accounts.length > 0, accounts, visibleCalendars, github });
+});
+
+// GitHub 連携解除 (docs/github-oauth.md、2026-07-20)。issue/PR 同期は次フェーズなので、
+// ここでは github_connections の行を消すだけ (Google の revoke 相当は無い — GitHub App の
+// user-to-server トークンは App 側の Installations 画面から取り消す運用を想定)。
+apiRoutes.delete("/api/github", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  await c.env.DB.prepare("DELETE FROM github_connections WHERE profile_id = ?")
+    .bind(profileId)
+    .run();
+  return c.body(null, 204);
 });
 
 // カレンダー選択をサーバーに保存する (2026-07-20、端末間同期)。対象アカウントの所属検証あり。
@@ -602,6 +619,11 @@ apiRoutes.delete("/api/account", requireAuth, async (c) => {
 
   const remaining = profileAccounts.length - targets.length;
   if (shouldClearSessionAfterDisconnect(remaining)) {
+    // プロファイルに Google アカウントが1つも残らない = プロファイル自体が実質消える
+    // ので、ぶら下がっている GitHub 連携 (docs/github-oauth.md) も一緒に掃除する。
+    await c.env.DB.prepare("DELETE FROM github_connections WHERE profile_id = ?")
+      .bind(profileId)
+      .run();
     deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
   }
 
@@ -676,6 +698,19 @@ async function loadVisibleCalendars(
     prefsResult.results.map((row) => row.account_id),
     visibleResult.results,
   );
+}
+
+/** GET /api/me 用: プロファイルの GitHub 連携 (docs/github-oauth.md)。無ければ null。 */
+async function loadGitHubConnection(
+  env: Env,
+  profileId: string,
+): Promise<{ login: string } | null> {
+  const row = await env.DB.prepare(
+    "SELECT github_login FROM github_connections WHERE profile_id = ?",
+  )
+    .bind(profileId)
+    .first<{ github_login: string }>();
+  return row ? { login: row.github_login } : null;
 }
 
 /**

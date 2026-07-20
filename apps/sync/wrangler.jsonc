@@ -21,6 +21,9 @@
   // wrangler dev は routes があるとリクエスト URL を本番ホスト (http スキーム) で
   // シミュレートし redirect_uri_mismatch になるため、ローカルでは .dev.vars で
   // http://localhost:8787/auth/callback に上書きする。本番は空のままでよい。
+  // GITHUB_REDIRECT_URL: OAUTH_REDIRECT_URL と同じ扱い (docs/github-oauth.md)。空 (デフォルト)
+  // ならリクエスト URL から /auth/github/callback を導出する。ローカルは .dev.vars で
+  // http://localhost:8787/auth/github/callback に上書きする。
   // WEBHOOK_BASE_URL: Google Calendar push 通知 (watch channel) の address として渡す
   // ベース URL。意図的に .dev.vars では上書きしない — ローカル開発機は Google から到達
   // できないアドレス (localhost 等) しか持てないため、ローカルでの watch 登録は
@@ -32,6 +35,7 @@
   "vars": {
     "APP_URL": "https://kichijitsu.love-rox.cc",
     "OAUTH_REDIRECT_URL": "",
+    "GITHUB_REDIRECT_URL": "",
     "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc",
   },
   // 本番ルーティング: kichijitsu.love-rox.cc/{api,auth}/* はこの Worker (kichijitsu-sync) へ。

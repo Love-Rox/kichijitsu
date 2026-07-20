@@ -220,6 +220,7 @@ function App() {
     connected: false,
     accounts: [],
     visibleCalendars: {},
+    github: null,
   });
   const [calendarsByAccount, setCalendarsByAccount] = useState<
     Record<string, CalendarListEntryDTO[]>
@@ -482,7 +483,7 @@ function App() {
     try {
       const res = await checkedFetch("/api/me");
       if (!res.ok) {
-        setMe({ connected: false, accounts: [], visibleCalendars: {} });
+        setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
         return;
       }
       const data = (await res.json()) as MeResponse;
@@ -493,7 +494,7 @@ function App() {
       // 依存しない — どちらが先でも既存のレース対策(prev 優先マージ)と両立する)
       setVisibleCalendarsState((prev) => mergeServerVisibleCalendars(prev, data.visibleCalendars));
     } catch {
-      setMe({ connected: false, accounts: [], visibleCalendars: {} });
+      setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
     }
   }, [checkedFetch]);
 
@@ -899,6 +900,7 @@ function App() {
         const { [accountId]: _removedVisible, ...remainingVisibleCalendars } =
           prev.visibleCalendars;
         return {
+          ...prev,
           connected: accounts.length > 0,
           accounts,
           visibleCalendars: remainingVisibleCalendars,
