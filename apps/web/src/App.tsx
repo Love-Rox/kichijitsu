@@ -34,6 +34,7 @@ import type {
 } from "@kichijitsu/shared";
 import { buildBlockRuleDeleteRequest } from "./sync/blockRules";
 import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
+import { hookActualByLinkedItem } from "./sync/hookActual";
 import { buildEventDeleteRequest, buildEventPatchRequest } from "./sync/eventPatch";
 import {
   buildEventCreateRequest,
@@ -77,7 +78,7 @@ import {
 } from "./model/dummy";
 import { instanceId } from "./model/series";
 import type { Occurrence, PlannedBlock, TaskItem } from "./model/types";
-import { OccurrenceStore } from "./store/occurrenceStore";
+import { OccurrenceStore, useAllOccurrences } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
@@ -1721,6 +1722,21 @@ function App() {
   const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
   const reportTimeEntries = useTimeEntries(timeEntryStore);
 
+  // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が「kichijitsu 実績」
+  // カレンダーに書くイベント)。通常の Google 同期で既に occurrences ストアに入っている
+  // (mapGoogle.ts が extendedProperties から workLog を写す) ため、追加のネットワーク取得は
+  // 不要 — occurrences ストアの全件購読 + 純関数の突き合わせだけで済む。plannedBlocks の
+  // 変更(linkedItemId の増減)にも追従するよう両方を依存に含める
+  const reportOccurrences = useAllOccurrences(store);
+  const reportHookActualByLinkedItem = useMemo(
+    () =>
+      hookActualByLinkedItem(
+        reportOccurrences,
+        reportPlannedBlocks.map((b) => b.linkedItemId),
+      ),
+    [reportOccurrences, reportPlannedBlocks],
+  );
+
   // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。
   // レポートを開いたときだけ POST /api/github/pr-commits を叩く(interval 等の常時ポーリングは
   // しない)。対象は reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の
@@ -2438,6 +2454,7 @@ function App() {
           nowMs={timerNowMs}
           estimatedByKey={me.github ? prCommitEstimates : {}}
           estimatesLoading={prCommitEstimatesLoading}
+          hookActualByLinkedItem={reportHookActualByLinkedItem}
           onClose={() => setReportOpen(false)}
         />
       )}
