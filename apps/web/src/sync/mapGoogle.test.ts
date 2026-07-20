@@ -379,6 +379,65 @@ describe('mapGoogleEvents: 色フォールバック', () => {
   })
 })
 
+describe('mapGoogleEvents: hasCustomColor (表示色バグ修正 2026-07-20)', () => {
+  it('colorId が Google 公式パレットに実際にマップされた単発イベントは hasCustomColor: true', () => {
+    const event = baseEvent({ id: 'single-colored', colorId: '11' })
+
+    const result = mapGoogleEvents([event], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.singles[0].hasCustomColor).toBe(true)
+  })
+
+  it('colorId が無い単発イベントは hasCustomColor: false(ctx.defaultColor 未定義でも表示側で再解決させるため)', () => {
+    const event = baseEvent({ id: 'single-no-color-id' })
+
+    const result = mapGoogleEvents([event], ctx) // defaultColor 未指定 → DEFAULT_COLOR 焼き込み
+
+    expect(result.singles[0].hasCustomColor).toBe(false)
+  })
+
+  it('colorId が未知の値の単発イベントも hasCustomColor: false(実際には個別色を使えていないため)', () => {
+    const event = baseEvent({ id: 'single-unknown-color-id', colorId: '999' })
+
+    const result = mapGoogleEvents([event], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.singles[0].hasCustomColor).toBe(false)
+  })
+
+  it('colorId ありのシリーズ・終日イベントも hasCustomColor: true になる', () => {
+    const series = baseEvent({
+      id: 'series-colored',
+      colorId: '5',
+      recurrence: ['RRULE:FREQ=WEEKLY'],
+    })
+    const allDay = baseEvent({
+      id: 'allday-colored',
+      colorId: '2',
+      start: { date: '2026-07-20' },
+      end: { date: '2026-07-21' },
+    })
+
+    const result = mapGoogleEvents([series, allDay], ctx)
+
+    expect(result.series[0].hasCustomColor).toBe(true)
+    expect(result.allDays[0].hasCustomColor).toBe(true)
+  })
+
+  it('colorId 無しのシリーズ・終日イベントは hasCustomColor: false', () => {
+    const series = baseEvent({ id: 'series-no-color', recurrence: ['RRULE:FREQ=WEEKLY'] })
+    const allDay = baseEvent({
+      id: 'allday-no-color',
+      start: { date: '2026-07-20' },
+      end: { date: '2026-07-21' },
+    })
+
+    const result = mapGoogleEvents([series, allDay], { ...ctx, defaultColor: '#123456' })
+
+    expect(result.series[0].hasCustomColor).toBe(false)
+    expect(result.allDays[0].hasCustomColor).toBe(false)
+  })
+})
+
 describe('mapGoogleEvents: location / description の取り込み', () => {
   it('単発イベント・シリーズの location/description を写す', () => {
     const single = baseEvent({

@@ -5,6 +5,7 @@ import {
   buildCalendarStripeColors,
   isValidCssColor,
   resolveBusyColor,
+  resolveDisplayColor,
   resolveEventColor,
   type CalendarColorInfo,
   type ColorLookupTarget,
@@ -55,6 +56,33 @@ describe('resolveEventColor', () => {
     expect(resolveEventColor(target({ accountId: undefined, calendarId: undefined, color: '#00ff00' }), lookup)).toBe(
       '#00ff00',
     )
+  })
+})
+
+describe('resolveDisplayColor', () => {
+  it('hasCustomColor が true なら calendarLookup を無視して target.color をそのまま使う', () => {
+    const lookup = new Map<string, CalendarColorInfo>([['acc-1:cal-1', { backgroundColor: '#ff0000' }]])
+    expect(resolveDisplayColor(target({ hasCustomColor: true, color: '#00ff00' }), lookup)).toBe('#00ff00')
+  })
+
+  it('hasCustomColor が false/undefined なら calendarLookup のカレンダー色を優先する', () => {
+    const lookup = new Map<string, CalendarColorInfo>([['acc-1:cal-1', { backgroundColor: '#ff0000' }]])
+    expect(resolveDisplayColor(target({ hasCustomColor: false, color: '#00ff00' }), lookup)).toBe('#ff0000')
+    expect(resolveDisplayColor(target({ color: '#00ff00' }), lookup)).toBe('#ff0000')
+  })
+
+  it('hasCustomColor が false で calendarLookup にエントリが無ければ target.color にフォールバックする', () => {
+    const lookup = new Map<string, CalendarColorInfo>()
+    expect(resolveDisplayColor(target({ hasCustomColor: false, color: '#00ff00' }), lookup)).toBe('#00ff00')
+  })
+
+  it('祝日カレンダー相当のシナリオ: 初回同期でデフォルト色が焼き込まれても、後からカレンダー色を取得できれば表示はそちらに一致する', () => {
+    // 初回同期時: カレンダー一覧取得より先に同期が走り、colorId 無しイベントに
+    // DEFAULT_COLOR (#3b82f6) が焼き込まれてしまったケースを模す (hasCustomColor: false)
+    const bakedOccurrence = target({ hasCustomColor: false, color: '#3b82f6', calendarId: 'holiday-cal' })
+    // その後カレンダー一覧が取得できて、パネルは祝日カレンダーの本来の色 (#d50000 相当) を出す
+    const lookup = new Map<string, CalendarColorInfo>([['acc-1:holiday-cal', { backgroundColor: '#d50000' }]])
+    expect(resolveDisplayColor(bakedOccurrence, lookup)).toBe('#d50000')
   })
 })
 

@@ -12,6 +12,8 @@ export interface EventSeries {
   id: string
   title: string
   color: string
+  /** Occurrence.hasCustomColor と同じ意味。展開時に occurrence へそのまま引き継ぐ */
+  hasCustomColor?: boolean
   source: OccurrenceSource
   /** 展開された全 occurrence に引き継がれる元リソースへの参照 (Google の htmlLink 等) */
   link?: OccurrenceLink

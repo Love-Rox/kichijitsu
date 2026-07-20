@@ -49,6 +49,39 @@ describe('expandSeries', () => {
     }
   })
 
+  it('hasCustomColor を series からそのまま occurrence へ伝播する(色バグ修正 2026-07-20)', () => {
+    const customColorSeries = baseSeries({ id: 'series-custom', hasCustomColor: true, rrule: 'FREQ=DAILY;COUNT=1' })
+    const noCustomColorSeries = baseSeries({
+      id: 'series-no-custom',
+      hasCustomColor: false,
+      rrule: 'FREQ=DAILY;COUNT=1',
+    })
+    const undefinedSeries = baseSeries({ id: 'series-undefined', rrule: 'FREQ=DAILY;COUNT=1' })
+
+    const resultCustom = expandSeries({
+      series: customColorSeries,
+      overrides: [],
+      windowStartMs: FAR_PAST,
+      windowEndMs: FAR_FUTURE,
+    })
+    const resultNoCustom = expandSeries({
+      series: noCustomColorSeries,
+      overrides: [],
+      windowStartMs: FAR_PAST,
+      windowEndMs: FAR_FUTURE,
+    })
+    const resultUndefined = expandSeries({
+      series: undefinedSeries,
+      overrides: [],
+      windowStartMs: FAR_PAST,
+      windowEndMs: FAR_FUTURE,
+    })
+
+    expect(resultCustom[0].hasCustomColor).toBe(true)
+    expect(resultNoCustom[0].hasCustomColor).toBe(false)
+    expect(resultUndefined[0].hasCustomColor).toBeUndefined()
+  })
+
   it('FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)', () => {
     // 2026-01-05 は月曜
     const series = baseSeries({

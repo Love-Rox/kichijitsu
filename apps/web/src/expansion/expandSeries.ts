@@ -310,6 +310,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       startMs,
       endMs,
       color,
+      hasCustomColor: series.hasCustomColor,
       source: series.source,
       link: series.link,
       accountId: series.accountId,

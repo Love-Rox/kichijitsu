@@ -6,6 +6,7 @@ import { useCloseOnOutsideOrEscape } from '../hooks/useCloseOnOutsideOrEscape'
 import { formatAllDayDateRange } from '../layout/gridMetrics'
 import { EventDetailCard, type CalendarInfo } from './EventBlock'
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from './eventPopoverShared'
+import { resolveDisplayColor } from '../layout/eventColors'
 
 const HOVER_DELAY_MS = 400
 
@@ -87,18 +88,16 @@ export function AllDayBar({ occurrence, groupMembers, row, colStart, colEnd, cal
   useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null))
 
   const showGroupDots = groupMembers.length > 1
-  const dotColors = showGroupDots
-    ? groupMembers.map((m) => {
-        const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
-        return info?.backgroundColor ?? m.color
-      })
-    : []
+  const dotColors = showGroupDots ? groupMembers.map((m) => resolveDisplayColor(m, calendarLookup)) : []
 
+  // 表示色バグ修正 (2026-07-20): EventBlock と同様、生の occurrence.color ではなく
+  // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)
+  const displayColor = resolveDisplayColor(occurrence, calendarLookup)
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
-    backgroundColor: `color-mix(in srgb, ${occurrence.color} 18%, white)`,
-    borderLeftColor: occurrence.color,
+    backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
+    borderLeftColor: displayColor,
   }
 
   return (

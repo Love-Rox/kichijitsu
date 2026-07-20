@@ -71,3 +71,23 @@ export function isBusyPlaceholder(title: string): boolean {
   const t = title.trim()
   return t === 'Busy' || t === '予定あり'
 }
+
+/** [startMs, endMs) の半開区間。overlapsBusy の busyIntervals 引数の要素型 */
+export interface TimeInterval {
+  startMs: number
+  endMs: number
+}
+
+/**
+ * 「予定あり」バッジ判定 (2026-07-20 ユーザー決定): Busy は最背面のままなので
+ * 実予定に隠れて見えなくなりうる。その代わり、実予定がいずれかの Busy 区間と
+ * 時間的に重なっているかをこの純関数で判定し、重なる実予定側に小さなバッジを出す。
+ * 半開区間 [startMs, endMs) 同士の重なり判定なので、端が接するだけ(片方の終了と
+ * もう片方の開始が一致)は重なりとみなさない(背中合わせの予定を誤検出しない)。
+ */
+export function overlapsBusy(
+  occ: { startMs: number; endMs: number },
+  busyIntervals: readonly TimeInterval[],
+): boolean {
+  return busyIntervals.some((b) => occ.startMs < b.endMs && occ.endMs > b.startMs)
+}

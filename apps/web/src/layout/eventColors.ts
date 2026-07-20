@@ -11,6 +11,13 @@ export interface ColorLookupTarget {
   accountId?: string
   calendarId?: string
   color: string
+  /**
+   * true ならこの color はイベント個別色 (Google colorId 由来) なので表示時も
+   * そのまま尊重する。false/undefined なら color は同期時点のフォールバック
+   * 焼き込み値に過ぎないため、resolveDisplayColor は calendarLookup のカレンダー色を
+   * 優先する(Occurrence.hasCustomColor / AllDayOccurrence.hasCustomColor 参照)。
+   */
+  hasCustomColor?: boolean
 }
 
 export interface CalendarColorInfo {
@@ -55,11 +62,31 @@ export function resolveEventColor(
 }
 
 /**
- * Busy プレースホルダの左ボーダー/ハッチ色。resolveEventColor で解決した色が不正
+ * 表示色の解決順位 (色バグ修正 2026-07-20): イベント個別色 (hasCustomColor) が
+ * あればそれを尊重してそのまま使う。無ければカレンダー色を優先する resolveEventColor
+ * に委ねる (calendarLookup のカレンダー色 → 無ければ occurrence.color)。
+ *
+ * 背景: occurrence.color は同期時に colorFor() で焼き込まれるスナップショットで、
+ * カレンダー一覧取得より先に初回同期が走ると ctx.defaultColor が未定義のまま
+ * デフォルト色が焼き込まれてしまう(祝日カレンダー等で顕著)。hasCustomColor が
+ * false の occurrence は render 時に毎回このロジックでカレンダー色を再解決する
+ * ことで、焼き込み時点のズレを再同期無しに解消する。EventBlock/AllDayBar の
+ * 表示色(背景・左ボーダー・Busy ハッチ・集約ストライプ)は全てこれを経由すること。
+ */
+export function resolveDisplayColor(
+  target: ColorLookupTarget,
+  calendarLookup: Map<string, CalendarColorInfo>,
+): string {
+  if (target.hasCustomColor) return target.color
+  return resolveEventColor(target, calendarLookup)
+}
+
+/**
+ * Busy プレースホルダの左ボーダー/ハッチ色。resolveDisplayColor で解決した色が不正
  * (未設定・空・想定外のフォーマット)なら従来のグレーにフォールバックする。
  */
 export function resolveBusyColor(target: ColorLookupTarget, calendarLookup: Map<string, CalendarColorInfo>): string {
-  const resolved = resolveEventColor(target, calendarLookup)
+  const resolved = resolveDisplayColor(target, calendarLookup)
   return isValidCssColor(resolved) ? resolved : BUSY_FALLBACK_COLOR
 }
 
@@ -75,7 +102,7 @@ export function buildCalendarStripeColors(
   maxStripes: number = DEFAULT_MAX_STRIPES,
 ): string[] {
   const colors = members.map((member) => {
-    const resolved = resolveEventColor(member, calendarLookup)
+    const resolved = resolveDisplayColor(member, calendarLookup)
     return isValidCssColor(resolved) ? resolved : UNKNOWN_CALENDAR_COLOR
   })
   if (colors.length <= maxStripes) return colors

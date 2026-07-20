@@ -20,7 +20,7 @@ import {
   minutesToPx,
   pxToMinutes,
 } from '../layout/gridMetrics'
-import { buildCalendarStripeColors, resolveBusyColor } from '../layout/eventColors'
+import { buildCalendarStripeColors, resolveBusyColor, resolveDisplayColor } from '../layout/eventColors'
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
@@ -46,6 +46,13 @@ interface EventBlockProps {
   /** カスケード表示の重なり順(0-based 列番号)。z-index の基準にする */
   stackIndex: number
   isCompact: boolean
+  /**
+   * この occurrence (非 Busy) が、同じ日の Busy 区間のいずれかと時間的に重なっているか
+   * (WeekGrid 側で overlapsBusy により算出済み)。true ならカード端に「予定あり」の
+   * 斜線バッジを重ねて、Busy に隠れて見えない予定があることを示す(ユーザー決定 2026-07-20:
+   * Busy は最背面のまま、実予定側にバッジを出す方式)。
+   */
+  blockedByBusy?: boolean
   timeZone: string
   /** このブロックが今属している日の週内インデックス (0=月 .. 6=日) */
   dayIndex: number
@@ -109,6 +116,7 @@ export function EventBlock({
   widthPct,
   stackIndex,
   isCompact,
+  blockedByBusy,
   timeZone,
   dayIndex,
   dayStartMs,
@@ -370,6 +378,11 @@ export function EventBlock({
   // resolveBusyColor が従来のグレーにフォールバックする。
   const isBusy = isBusyPlaceholder(occurrence.title)
   const busyColor = isBusy ? resolveBusyColor(occurrence, calendarLookup) : undefined
+  // 表示色バグ修正 (2026-07-20): 生の occurrence.color を直接使わず、常に
+  // resolveDisplayColor 経由で解決する。hasCustomColor が無ければ calendarLookup の
+  // カレンダー色を優先するため、初回同期時に defaultColor が未定義だった occurrence でも
+  // パネルの色と一致する(再同期不要)。イベント個別色 (hasCustomColor) は尊重される。
+  const displayColor = isBusy ? undefined : resolveDisplayColor(occurrence, calendarLookup)
   const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`
 
   // 同一予定の集約(フェーズ5〜6): 2件以上の複製がある場合、左端に所属カレンダー
@@ -391,8 +404,8 @@ export function EventBlock({
     ...(isBusy
       ? ({ borderLeftColor: busyColor, '--busy-color': busyColor } as CSSProperties)
       : {
-          backgroundColor: `color-mix(in srgb, ${occurrence.color} 15%, white)`,
-          borderLeftColor: occurrence.color,
+          backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
+          borderLeftColor: displayColor,
         }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
     ...(hasStripes
@@ -433,6 +446,12 @@ export function EventBlock({
               <span key={i} className="event-cal-stripe" style={{ background: c }} />
             ))}
           </span>
+        )}
+        {!isBusy && blockedByBusy && (
+          // 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、
+          // Busy の時間帯と重なる実予定側に小さな斜線バッジを出して「他の予定に隠れている
+          // Busy がある」ことを示す。ドラッグ/クリックを奪わないよう pointer-events:none(CSS 側)
+          <span className="event-busy-badge" aria-hidden="true" />
         )}
         {isCompact ? (
           <span className="event-line">

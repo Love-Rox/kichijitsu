@@ -77,13 +77,21 @@ const DEFAULT_COLOR = '#3b82f6'
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
  * colorId が未知の値の場合もカレンダー色へフォールバックする(決め打ちの
  * DEFAULT_COLOR よりカレンダー色の方がユーザーの意図に近いため)。
+ *
+ * hasCustomColor: colorId が Google 公式パレットに実際にマップされ、
+ * イベント個別色が使われたケースだけ true。ここで焼き込む color は同期時点の
+ * スナップショットに過ぎず (カレンダー一覧取得が同期より後だと ctx.defaultColor が
+ * 未定義でズレる)、表示側 (eventColors.ts の resolveDisplayColor) は hasCustomColor が
+ * false の occurrence を render 時に calendarLookup のカレンダー色で上書きする。
+ * colorId が未知の値のときも false のままにする(その場合の color は個別色ではなく
+ * カレンダー色/デフォルトのフォールバックなので、表示側で再解決させたほうが正しい)。
  */
-function colorFor(colorId: string | undefined, ctx: MapGoogleContext): string {
+function colorFor(colorId: string | undefined, ctx: MapGoogleContext): { color: string; hasCustomColor: boolean } {
   if (colorId) {
     const mapped = GOOGLE_COLOR_MAP[colorId]
-    if (mapped) return mapped
+    if (mapped) return { color: mapped, hasCustomColor: true }
   }
-  return ctx.defaultColor ?? DEFAULT_COLOR
+  return { color: ctx.defaultColor ?? DEFAULT_COLOR, hasCustomColor: false }
 }
 
 function durationMinutesBetween(startIso: string, endIso: string): number {
@@ -189,10 +197,13 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     return null
   }
 
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+
   return {
     id: eventKey(ctx, event.id),
     title: event.summary ?? '(無題)',
-    color: colorFor(event.colorId, ctx),
+    color,
+    hasCustomColor,
     source: 'google',
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,
@@ -259,13 +270,16 @@ function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurr
     endDate = startDate
   }
 
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+
   return {
     id: eventKey(ctx, event.id),
     seriesId: null,
     title: event.summary ?? '(無題)',
     startDate,
     endDate,
-    color: colorFor(event.colorId, ctx),
+    color,
+    hasCustomColor,
     source: 'google',
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,
@@ -283,13 +297,16 @@ function buildSingle(
   endDateTime: string,
   ctx: MapGoogleContext,
 ): Occurrence {
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx)
+
   return {
     id: eventKey(ctx, event.id),
     seriesId: null,
     title: event.summary ?? '(無題)',
     startMs: Temporal.Instant.from(startDateTime).epochMilliseconds,
     endMs: Temporal.Instant.from(endDateTime).epochMilliseconds,
-    color: colorFor(event.colorId, ctx),
+    color,
+    hasCustomColor,
     source: 'google',
     accountId: ctx.accountId,
     calendarId: ctx.calendarId,

@@ -12,7 +12,7 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from '../layout/groupDuplicates'
-import { isBusyPlaceholder, minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { isBusyPlaceholder, minutesToPx, overlapsBusy, WEEKDAY_LABELS } from '../layout/gridMetrics'
 import { EventBlock, type CalendarInfo } from './EventBlock'
 import { AllDayBar } from './AllDayBar'
 import './WeekGrid.css'
@@ -423,6 +423,14 @@ export function WeekGrid({
                       })
                       .forEach((occ, rank) => stackZ.set(occ.id, rank))
 
+                    // 「予定あり」バッジ(2026-07-20): この日の Busy 区間を集め、非 Busy の
+                    // 各カードがどれかと重なっていれば blockedByBusy を立てる。Busy は
+                    // 最背面のまま動かさず、実予定側にバッジを出すことで隠れた Busy に気付けるようにする
+                    const busyIntervals = positioned
+                      .map((p) => p.item.primary)
+                      .filter((occ) => isBusyPlaceholder(occ.title))
+                      .map((occ) => ({ startMs: occ.startMs, endMs: occ.endMs }))
+
                     return (
                       <div
                         key={day.toString()}
@@ -440,6 +448,8 @@ export function WeekGrid({
                           const leftPct = column * step * 100
                           const widthPct = 100 - leftPct
                           const stackIndex = stackZ.get(occurrence.id) ?? column
+                          const blockedByBusy =
+                            !isBusyPlaceholder(occurrence.title) && overlapsBusy(occurrence, busyIntervals)
 
                           return (
                             <EventBlock
@@ -452,6 +462,7 @@ export function WeekGrid({
                               leftPct={leftPct}
                               widthPct={widthPct}
                               isCompact={isCompact}
+                              blockedByBusy={blockedByBusy}
                               timeZone={timeZone}
                               dayIndex={dayIndex}
                               dayStartMs={dayStartMs}

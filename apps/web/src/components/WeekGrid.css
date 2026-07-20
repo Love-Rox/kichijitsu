@@ -374,6 +374,31 @@
 }
 
 /*
+ * 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、代わりに
+ * Busy 区間と時間的に重なる実予定カードの右上へこの小さな斜線バッジを重ねて、隠れている
+ * Busy に気付けるようにする。.event--busy の斜線ハッチと同じ模様の縮小版、色は控えめな
+ * グレー(アプリの薄墨トーンに合わせる)。ドラッグ/クリックを奪わないよう pointer-events:none。
+ */
+.event-busy-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+  background-color: rgba(138, 132, 120, 0.18);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 2px,
+    rgba(138, 132, 120, 0.6) 2px,
+    rgba(138, 132, 120, 0.6) 3px
+  );
+}
+
+/*
  * 終日レーン (AllDayBar.tsx) 向け: 2件以上のコピーがあるときだけ、所属カレンダーの
  * 色ドットをカード上に並べる(ホバー不要で「複数アカウントに存在する」と分かるように)
  */

@@ -20,6 +20,13 @@ export interface Occurrence {
   startMs: number
   endMs: number
   color: string
+  /**
+   * true なら color はイベント個別色 (Google の colorId 由来) で、表示時も
+   * そのまま使う。false/undefined なら color は同期時点のフォールバック焼き込み値
+   * に過ぎず、表示は calendarLookup のカレンダー色を優先する
+   * (layout/eventColors.ts の resolveDisplayColor 参照)
+   */
+  hasCustomColor?: boolean
   source: OccurrenceSource
   link?: OccurrenceLink
   /**
@@ -53,6 +60,8 @@ export interface AllDayOccurrence {
   /** ISO 8601 calendar date (終了日、inclusive。単日イベントは startDate と同じ) */
   endDate: string
   color: string
+  /** Occurrence.hasCustomColor と同じ意味 (resolveDisplayColor 参照) */
+  hasCustomColor?: boolean
   source: OccurrenceSource
   link?: OccurrenceLink
   /** Google 由来のみ: どのアカウントのどのカレンダーか。表示トグルと削除の単位 */
