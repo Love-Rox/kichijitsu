@@ -51,4 +51,6 @@ export type {
   McpTokenDeleteRequest,
   WorkIntervalRequest,
   WorkIntervalResponse,
+  WorkLogDTO,
+  WorkLogsResponse,
 } from "./protocol";

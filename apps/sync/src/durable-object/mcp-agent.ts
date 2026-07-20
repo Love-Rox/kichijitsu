@@ -35,9 +35,9 @@ import type { McpCalendarTarget } from "../core/mcp-targets";
 import {
   isMcpAccountOwnedByProfile,
   resolveMcpDefaultWriteAccountId,
-  resolveMcpOwnerAccountId,
   resolveMcpReadTargets,
 } from "../mcp-calendars";
+import { buildWorkLogRow, insertWorkLog, validateWorkLogInput } from "../core/work-log";
 
 export interface McpProps extends Record<string, unknown> {
   profileId: string;
@@ -272,8 +272,8 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
       "log_work_interval",
       {
         description:
-          "作業実績を Google カレンダーの「kichijitsu 実績」に記録する（カレンダーに書き込む）。" +
-          "無ければカレンダーを自動作成する。Claude Code 等の hook から呼ぶことを想定 (docs/mcp.md)。",
+          "作業実績を記録する (kichijitsu の work_logs テーブルに保存、Google カレンダーには書き込まない)。" +
+          "Claude Code 等の hook から呼ぶことを想定 (docs/mcp.md)。",
         inputSchema: {
           start: z.string(),
           end: z.string(),
@@ -284,27 +284,19 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
           timeZone: z.string().optional(),
         },
       },
-      async ({ start, end, repo, branch, issueRef, agent, timeZone }) => {
+      // timeZone は D1 保存では不要 (Date.parse が offset 込みの ISO を直接 epoch ms へ変換する)
+      // だが、既存 hook との後方互換のため入力スキーマとしては受け付けたまま無視する。
+      async ({ start, end, repo, branch, issueRef, agent }) => {
         const profileId = this.requireProfileId();
-        const accountId = await resolveMcpOwnerAccountId(this.env, profileId);
-        if (!accountId) {
-          throw new Error("mcp: profile has no owner account to log work intervals against");
+        const input = { startIso: start, endIso: end, repo, branch, issueRef, agent };
+        const validationError = validateWorkLogInput(input);
+        if (validationError) {
+          throw new Error(`log_work_interval: invalid input (${validationError})`);
         }
 
-        const stub = this.env.USER_SYNC.getByName(accountId);
-        const result = await stub.logWorkInterval(accountId, {
-          startIso: start,
-          endIso: end,
-          repo,
-          branch,
-          issueRef,
-          agent,
-          timeZone,
-        });
-        if (!result.ok) {
-          throw new Error(`log_work_interval failed: ${result.error} (status ${result.status})`);
-        }
-        return { content: [{ type: "text", text: JSON.stringify(result.data) }] };
+        const row = buildWorkLogRow(crypto.randomUUID(), profileId, input, Date.now());
+        await insertWorkLog(this.env, row);
+        return { content: [{ type: "text", text: JSON.stringify({ id: row.id }) }] };
       },
     );
   }

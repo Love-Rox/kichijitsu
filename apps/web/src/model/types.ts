@@ -50,18 +50,6 @@ export interface Occurrence {
    * UI (EventBlock.tsx) はこれを見て「自動生成」の印と説明文を出す。
    */
   isMirror?: boolean;
-  /**
-   * hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が「kichijitsu 実績」
-   * カレンダーに書くイベント) かどうかの軽量マーカー。true 相当は
-   * extendedProperties.private.kichijitsuWorkLog==='1' のイベントのみで、mapGoogle.ts が
-   * buildSingle 内でこのフィールドに写す (isMirror と同じパス、buildAllDay/buildSeries/
-   * buildOverride 側には付けない — work-log.ts の buildWorkLogEvent は常に単発の
-   * dateTime イベントしか作らないため)。
-   * repo は extendedProperties.private.repo をそのまま、issueRef は同 issueRef を
-   * そのまま(数値文字列とは限らない — ブランチ名由来の非数値の場合もある。数値判定・
-   * 突合は sync/hookActual.ts が行う)。省略時は undefined (=hook 実績ではない)。
-   */
-  workLog?: { repo: string; issueRef?: string };
 }
 
 /**

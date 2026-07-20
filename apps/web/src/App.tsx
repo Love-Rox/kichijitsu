@@ -31,6 +31,8 @@ import type {
   TasksSyncRequest,
   TasksSyncResponse,
   WatchRequest,
+  WorkLogDTO,
+  WorkLogsResponse,
 } from "@kichijitsu/shared";
 import { buildBlockRuleDeleteRequest } from "./sync/blockRules";
 import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
@@ -78,7 +80,7 @@ import {
 } from "./model/dummy";
 import { instanceId } from "./model/series";
 import type { Occurrence, PlannedBlock, TaskItem } from "./model/types";
-import { OccurrenceStore, useAllOccurrences } from "./store/occurrenceStore";
+import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
@@ -318,6 +320,11 @@ function App() {
   // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
   // effect 参照)。手動タイマー実績(TimeEntry)とは別立てのデータなので専用 state で持つ
   const [prCommitEstimates, setPrCommitEstimates] = useState<Record<string, number>>({});
+  // hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
+  // 保存する値。2026-07-21 に Google カレンダー保存から D1 保存へ移行)。レポートを開いたときだけ
+  // GET /api/work-logs を取りに行く(下の effect 参照)。手動タイマー実績(TimeEntry)・commit 推定
+  // (prCommitEstimates) とは別立てのデータなので専用 state で持つ
+  const [reportWorkLogs, setReportWorkLogs] = useState<WorkLogDTO[]>([]);
   // MCP トークン一覧 (docs/mcp.md Part A、2026-07-20)。サーバーが正 (IndexedDB には入れない、
   // GitHub 連携メタと同じくエフェメラルな設定パネル用 state)。設定パネルを開いたときに取得する
   // (下の panelOpen effect、カレンダー再フェッチと同じ流儀)
@@ -1722,19 +1729,39 @@ function App() {
   const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
   const reportTimeEntries = useTimeEntries(timeEntryStore);
 
-  // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が「kichijitsu 実績」
-  // カレンダーに書くイベント)。通常の Google 同期で既に occurrences ストアに入っている
-  // (mapGoogle.ts が extendedProperties から workLog を写す) ため、追加のネットワーク取得は
-  // 不要 — occurrences ストアの全件購読 + 純関数の突き合わせだけで済む。plannedBlocks の
-  // 変更(linkedItemId の増減)にも追従するよう両方を依存に含める
-  const reportOccurrences = useAllOccurrences(store);
+  // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
+  // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
+  // レポートを開いたときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
+  // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空のまま
+  // (レポート表示自体は継続できる、他の実績経路と同じ「取りこぼしより安全側」の方針)。
+  useEffect(() => {
+    if (!reportOpen) return;
+    let cancelled = false;
+    checkedFetch("/api/work-logs")
+      .then(async (res) => {
+        if (!res.ok) {
+          if (!cancelled) setReportWorkLogs([]);
+          return;
+        }
+        const data = (await res.json()) as WorkLogsResponse;
+        if (!cancelled) setReportWorkLogs(data.workLogs);
+      })
+      .catch((err) => {
+        console.warn("kichijitsu: GET /api/work-logs failed", err);
+        if (!cancelled) setReportWorkLogs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportOpen, checkedFetch]);
+
   const reportHookActualByLinkedItem = useMemo(
     () =>
       hookActualByLinkedItem(
-        reportOccurrences,
+        reportWorkLogs,
         reportPlannedBlocks.map((b) => b.linkedItemId),
       ),
-    [reportOccurrences, reportPlannedBlocks],
+    [reportWorkLogs, reportPlannedBlocks],
   );
 
   // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。

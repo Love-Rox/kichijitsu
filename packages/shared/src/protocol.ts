@@ -463,7 +463,12 @@ export interface McpTokenDeleteRequest {
 /**
  * POST /api/work-intervals (docs/mcp.md「エージェントの作業時間記録」) — hook から作業実績を
  * 記録する REST 経路。認証は MCP トークンの Bearer (セッション cookie ではない、非対話利用のため)。
- * MCP ツール log_work_interval と同じ core (logWorkInterval) を呼ぶ。
+ * MCP ツール log_work_interval と同じ core (core/work-log.ts) を呼ぶ。
+ *
+ * D1 保存 (2026-07-21移行): 当初は Google カレンダーへの書き込みだったが、カレンダー新規作成に
+ * calendar.events スコープでは足りず 403 になる実バグが本番で判明したため work_logs テーブルへの
+ * D1 保存に切り替えた。timeZone は D1 保存では不要になったが、既存 hook との後方互換のため
+ * フィールド自体は受け付ける (サーバー側では無視する)。
  */
 export interface WorkIntervalRequest {
   start: string;
@@ -475,6 +480,23 @@ export interface WorkIntervalRequest {
   timeZone?: string;
 }
 export interface WorkIntervalResponse {
-  calendarId: string;
-  eventId: string;
+  id: string;
+}
+
+/**
+ * GET /api/work-logs (docs/mcp.md「エージェントの作業時間記録」) — web 用。認証はセッション
+ * cookie (POST /api/work-intervals の Bearer とは経路が異なる)。TimeReportOverlay の「hook 実績」
+ * 列が sync/hookActual.ts の突合に使う。
+ */
+export interface WorkLogDTO {
+  id: string;
+  repo: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+  startMs: number;
+  endMs: number;
+}
+export interface WorkLogsResponse {
+  workLogs: WorkLogDTO[];
 }

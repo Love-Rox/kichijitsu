@@ -35,6 +35,8 @@ import type {
   TasksSyncResponse,
   VisibleCalendarsRequest,
   WatchRequest,
+  WorkLogDTO,
+  WorkLogsResponse,
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { populateProfileId, requireAuth } from "../middleware";
@@ -541,6 +543,53 @@ apiRoutes.delete("/api/mcp-tokens", requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
+// 作業実績記録 (docs/mcp.md「エージェントの作業時間記録」、2026-07-21 D1 保存へ移行) の閲覧経路。
+// 書き込み (POST /api/work-intervals, routes/work-intervals.ts) は MCP トークンの Bearer 認証だが、
+// こちらは web 用でセッション cookie 認証 (requireAuth) — 認証経路が異なる点に注意。
+// since/until (epoch ms の文字列、任意) で start_ms/end_ms を絞り込める。件数上限は新しい順 500件。
+apiRoutes.get("/api/work-logs", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const conditions = ["profile_id = ?"];
+  const params: (string | number)[] = [profileId];
+  const since = c.req.query("since");
+  if (since && !Number.isNaN(Number(since))) {
+    conditions.push("start_ms >= ?");
+    params.push(Number(since));
+  }
+  const until = c.req.query("until");
+  if (until && !Number.isNaN(Number(until))) {
+    conditions.push("end_ms <= ?");
+    params.push(Number(until));
+  }
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, repo, issue_ref, branch, agent, start_ms, end_ms FROM work_logs WHERE ${conditions.join(" AND ")} ORDER BY start_ms DESC LIMIT 500`,
+  )
+    .bind(...params)
+    .all<{
+      id: string;
+      repo: string;
+      issue_ref: string | null;
+      branch: string | null;
+      agent: string | null;
+      start_ms: number;
+      end_ms: number;
+    }>();
+
+  const workLogs: WorkLogDTO[] = results.map((row) => ({
+    id: row.id,
+    repo: row.repo,
+    ...(row.issue_ref ? { issueRef: row.issue_ref } : {}),
+    ...(row.branch ? { branch: row.branch } : {}),
+    ...(row.agent ? { agent: row.agent } : {}),
+    startMs: row.start_ms,
+    endMs: row.end_ms,
+  }));
+
+  return c.json<WorkLogsResponse>({ workLogs });
+});
+
 apiRoutes.get("/api/calendars", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   const accountId = c.req.query("accountId");
@@ -904,12 +953,14 @@ apiRoutes.delete("/api/account", requireAuth, async (c) => {
   const remaining = profileAccounts.length - targets.length;
   if (shouldClearSessionAfterDisconnect(remaining)) {
     // プロファイルに Google アカウントが1つも残らない = プロファイル自体が実質消える
-    // ので、ぶら下がっている GitHub 連携 (docs/github-oauth.md) と MCP トークン
-    // (docs/mcp.md、2026-07-20) も一緒に掃除する。
+    // ので、ぶら下がっている GitHub 連携 (docs/github-oauth.md)・MCP トークン
+    // (docs/mcp.md、2026-07-20)・作業実績 (docs/mcp.md「エージェントの作業時間記録」、
+    // 2026-07-21 D1 保存へ移行) も一緒に掃除する。
     await c.env.DB.prepare("DELETE FROM github_connections WHERE profile_id = ?")
       .bind(profileId)
       .run();
     await c.env.DB.prepare("DELETE FROM mcp_tokens WHERE profile_id = ?").bind(profileId).run();
+    await c.env.DB.prepare("DELETE FROM work_logs WHERE profile_id = ?").bind(profileId).run();
     deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
   }
 

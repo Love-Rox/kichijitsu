@@ -96,31 +96,6 @@ function isMirrorEvent(event: GoogleEventDTO): boolean {
 }
 
 /**
- * apps/sync (work-log.ts の buildWorkLogEvent) が「kichijitsu 実績」カレンダーの hook 実績
- * イベントに立てる extendedProperties.private のキー。ここでの識別・写しも isMirror と同じ
- * 「web はサーバー内部モジュールに依存せず DTO 越しにロジックを複製する」設計に倣う
- * (docs/mcp.md「エージェントの作業時間記録」)。
- */
-const WORK_LOG_MARKER_KEY = "kichijitsuWorkLog";
-const WORK_LOG_MARKER_VALUE = "1";
-
-/**
- * event が hook 実績イベントなら { repo, issueRef? } を返し、そうでなければ undefined。
- * repo は work-log.ts 側で必須のため常に付く前提だが、万一欠けていた場合
- * (手で extendedProperties を弄った等の異常値) は repo+number の突合ができないため
- * 安全側で undefined を返す(hook 実績として扱わない)。issueRef は数値文字列とは限らない
- * (ブランチ名由来の非数値もあり得る) — 数値判定・repo+number での突合は sync/hookActual.ts
- * が呼び出し側で行うため、ここではそのまま素通しする。
- */
-function workLogFor(event: GoogleEventDTO): { repo: string; issueRef?: string } | undefined {
-  const priv = event.extendedProperties?.private;
-  if (priv?.[WORK_LOG_MARKER_KEY] !== WORK_LOG_MARKER_VALUE) return undefined;
-  const repo = priv.repo;
-  if (!repo) return undefined;
-  return priv.issueRef ? { repo, issueRef: priv.issueRef } : { repo };
-}
-
-/**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
  * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
@@ -359,7 +334,6 @@ function buildSingle(
   ctx: MapGoogleContext,
 ): Occurrence {
   const { color, hasCustomColor } = colorFor(event.colorId, ctx);
-  const workLog = workLogFor(event);
 
   return {
     id: eventKey(ctx, event.id),
@@ -377,7 +351,6 @@ function buildSingle(
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
-    ...(workLog ? { workLog } : {}),
   };
 }
 
