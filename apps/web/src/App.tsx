@@ -222,14 +222,23 @@ function App() {
       if (cancelled) return
 
       const state = await getExpansionState(database)
+      let all: Occurrence[] | undefined
       if (state) {
-        const all = await getOccurrencesBetween(database, state.expandedFromMs, state.expandedToMs)
-        if (!cancelled) store.load(all)
+        all = await getOccurrencesBetween(database, state.expandedFromMs, state.expandedToMs)
       }
 
       // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
       const allDays = await getAllAllDayOccurrences(database)
-      if (!cancelled) allDayStore.load(allDays)
+
+      // occurrences と終日予定の初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
+      if (!cancelled) {
+        await store.batch(async () => {
+          await allDayStore.batch(async () => {
+            if (all) store.load(all)
+            allDayStore.load(allDays)
+          })
+        })
+      }
 
       const storedVisible = await getVisibleCalendars(database)
       if (!cancelled) {
@@ -500,23 +509,20 @@ function App() {
 
       if (!db) return
 
+      // 選択解除では IndexedDB のデータを削除しない。表示は WeekGrid の
+      // visibleCalendarKeys フィルタで隠すだけにする。削除してしまうと、
+      // 再選択時にサーバーの syncToken が残っているため増分同期(変更なし=空)が返り、
+      // 削除済みデータが復活せず空表示になる既知のバグだった(2026-07-20 修正)。
+      // 再選択は即座に再表示され、同期の往復もちらつきも不要。実データの削除は
+      // アカウント連携解除(handleDisconnectAccount)のときだけ行う。
       if (nextChecked) {
         const cal = calendarsByAccount[accountId]?.find((c) => c.id === calendarId)
         syncCalendar(accountId, calendarId, cal?.backgroundColor).catch((err) => {
           console.error('kichijitsu: failed to sync newly selected calendar', err)
         })
-      } else {
-        deleteGoogleData(db, (k) => k.accountId === accountId && k.calendarId === calendarId)
-          .then(({ deletedOccurrenceIds, deletedAllDayIds }) => {
-            store.remove(deletedOccurrenceIds)
-            allDayStore.remove(deletedAllDayIds)
-          })
-          .catch((err) => {
-            console.error('kichijitsu: failed to remove calendar data', err)
-          })
       }
     },
-    [db, visibleCalendars, calendarsByAccount, store, allDayStore, syncCalendar, postWatch],
+    [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch],
   )
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を

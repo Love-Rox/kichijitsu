@@ -83,14 +83,24 @@
   outline: none;
 }
 
-.calendar-panel-checkbox:focus-visible {
-  outline: 1.5px solid var(--logo-aka, #d7402e);
-  outline-offset: 1px;
-}
-
 .calendar-panel-checkbox .masu {
   width: 12px;
   height: 12px;
+}
+
+/*
+ * キーボードフォーカスの表示。ボタン外周に outline を出すと 20px ボタンの枠と
+ * 中の 12px 枡の枠が同心円状に二重に見える(ユーザー指摘 2026-07-20)。
+ * フォーカスリングは枡そのものに載せて二重枠を避ける。マウスクリック時は
+ * :focus-visible が(多くのブラウザで)一致しないので通常は出ない。
+ */
+.calendar-panel-checkbox:focus-visible {
+  outline: none;
+}
+
+.calendar-panel-checkbox:focus-visible .masu {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
 }
 
 .calendar-panel-cal-name {

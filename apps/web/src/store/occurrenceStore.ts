@@ -11,6 +11,31 @@ export class OccurrenceStore {
   private listeners = new Set<() => void>()
   private version = 0
   private rangeCache = new Map<string, { version: number; result: Occurrence[] }>()
+  private batchDepth = 0
+  private pendingNotify = false
+
+  /**
+   * fn の実行中に発生する複数回の bump() を1回の listener 通知にまとめる。
+   * remove() → load() のような「一時的にデータが空になる」2段階更新の間に
+   * 空フレームが描画されるチラつきを防ぐのが目的 (全同期・週移動・展開のやり直し等)。
+   *
+   * ネスト対応: 呼び出し中に batch() がさらにネストされても、depth が 0 に
+   * 戻った最外周の呼び出しでだけ通知する。fn は async でもよく、完了 (resolve/reject
+   * いずれでも) を待ってから depth を戻す。version 自体は抑止中も通常どおり
+   * 上げるため、flush 後に getRange を呼べば必ず最新状態を返す。
+   */
+  async batch(fn: () => void | Promise<void>): Promise<void> {
+    this.batchDepth++
+    try {
+      await fn()
+    } finally {
+      this.batchDepth--
+      if (this.batchDepth === 0 && this.pendingNotify) {
+        this.pendingNotify = false
+        this.notify()
+      }
+    }
+  }
 
   load(occurrences: Iterable<Occurrence>): void {
     for (const o of occurrences) this.byId.set(o.id, o)
@@ -61,6 +86,14 @@ export class OccurrenceStore {
 
   private bump(): void {
     this.version++
+    if (this.batchDepth > 0) {
+      this.pendingNotify = true
+      return
+    }
+    this.notify()
+  }
+
+  private notify(): void {
     for (const l of this.listeners) l()
   }
 }

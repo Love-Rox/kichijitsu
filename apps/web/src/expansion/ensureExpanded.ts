@@ -101,7 +101,11 @@ async function doEnsureExpanded(
 
   await putOccurrences(db, occurrences)
   await setExpansionState(db, { expandedFromMs: decision.fromMs, expandedToMs: decision.toMs })
-  store.load(occurrences)
+  // batch は remove+load の中間フレームを潰すのが主目的だが、load 単発でも
+  // 呼び出し元 (reexpandCurrentWindow 等) の batch にネストして安全に畳まれるよう揃えておく
+  await store.batch(() => {
+    store.load(occurrences)
+  })
 }
 
 /**
@@ -143,11 +147,16 @@ async function doReexpand(db: IDBPDatabase<KichijitsuDB>, store: OccurrenceStore
     .filter((o) => o.seriesId !== null && seriesIds.has(o.seriesId))
     .map((o) => o.id)
   await deleteOccurrencesByIds(db, staleIds)
-  // store.load() は追加専用なので、置き換え前に古い occurrence を明示的に消しておく
-  // (消さないと RRULE 変更等で無くなった回が残骸として表示され続ける)
-  store.remove(staleIds)
 
   const occurrences = await runExpansion(series, overrides, state.expandedFromMs, state.expandedToMs)
   await putOccurrences(db, occurrences)
-  store.load(occurrences)
+
+  // remove() → load() の間に古い回が消えた空フレームが描画されないよう、
+  // 通知を1回にまとめる (store.load() は追加専用なので、置き換え前に古い
+  // occurrence を明示的に消しておく必要がある: 消さないと RRULE 変更等で
+  // 無くなった回が残骸として表示され続ける)
+  await store.batch(() => {
+    store.remove(staleIds)
+    store.load(occurrences)
+  })
 }

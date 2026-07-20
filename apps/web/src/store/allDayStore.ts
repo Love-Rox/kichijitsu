@@ -16,6 +16,25 @@ export class AllDayStore {
   private listeners = new Set<() => void>()
   private version = 0
   private rangeCache = new Map<string, { version: number; result: AllDayOccurrence[] }>()
+  private batchDepth = 0
+  private pendingNotify = false
+
+  /**
+   * fn の実行中に発生する複数回の bump() を1回の listener 通知にまとめる。
+   * OccurrenceStore.batch() と同じ設計 (詳細はそちらのコメント参照)。
+   */
+  async batch(fn: () => void | Promise<void>): Promise<void> {
+    this.batchDepth++
+    try {
+      await fn()
+    } finally {
+      this.batchDepth--
+      if (this.batchDepth === 0 && this.pendingNotify) {
+        this.pendingNotify = false
+        this.notify()
+      }
+    }
+  }
 
   load(items: Iterable<AllDayOccurrence>): void {
     for (const o of items) this.byId.set(o.id, o)
@@ -61,6 +80,14 @@ export class AllDayStore {
 
   private bump(): void {
     this.version++
+    if (this.batchDepth > 0) {
+      this.pendingNotify = true
+      return
+    }
+    this.notify()
+  }
+
+  private notify(): void {
     for (const l of this.listeners) l()
   }
 }
