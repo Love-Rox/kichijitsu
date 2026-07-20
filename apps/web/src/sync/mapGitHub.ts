@@ -39,6 +39,10 @@ function milestoneGroupKey(repo: string, milestoneTitle: string): string {
  * (GitHubItemDTO の実運用では milestone 配下の issue/PR しか流れてこない想定だが、
  * 型上は optional のため防御的に扱う)。
  *
+ * release(docs/github-integration.md フェーズ④「first cut」、2026-07-20)は milestone
+ * と無関係な独立アイテムのため、milestone 同様スキップする — layoutGitHubDay 側で
+ * 別リストとして取り出す(「milestone なし」グループに紛れ込ませない)。
+ *
  * グループの出現順: milestone 項目が現れた順(先着) → milestoneTitle だけの child から
  * 新規グループが作られた順。同一グループ内の children は入力順を保つ。
  */
@@ -63,7 +67,7 @@ export function groupGitHubItemsByMilestone(items: GitHubItem[]): GitHubMileston
   }
 
   for (const item of items) {
-    if (item.type === "milestone") continue;
+    if (item.type === "milestone" || item.type === "release") continue;
     const milestoneTitle = item.milestoneTitle ?? "(milestone なし)";
     groupFor(item.repo, milestoneTitle).children.push(item);
   }
@@ -74,7 +78,9 @@ export function groupGitHubItemsByMilestone(items: GitHubItem[]): GitHubMileston
 /** GitHubLane が実際に描画する1日ぶんの内容(表示件数の上限適用済み) */
 export interface GitHubDayLayout {
   visibleGroups: GitHubMilestoneGroup[];
-  /** 上限を超えて非表示になった項目数 (milestone 見出し + issue/PR チップの合計) */
+  /** その日の release 項目 (milestone グループに属さない独立アイテム、応答順を保持) */
+  releases: GitHubItem[];
+  /** 上限を超えて非表示になった項目数 (milestone 見出し + issue/PR チップの合計、release は含まない) */
   overflowCount: number;
 }
 
@@ -82,10 +88,15 @@ export interface GitHubDayLayout {
 export const GITHUB_MAX_VISIBLE_MILESTONES = 3;
 
 /**
- * [dayStartMs, dayEndMs) に収まる GitHubItem を抽出し、milestone ごとにグルーピングした上で、
- * 表示する milestone グループ数を maxVisibleGroups に制限する(超過分は overflowCount にまとめ、
- * WeekGrid/GitHubLane 側は「+N」表示に使う)。milestone グループ単位で丸ごと出す/隠すため、
- * 1つの milestone の issue/PR が中途半端に分断されることは無い。
+ * [dayStartMs, dayEndMs) に収まる GitHubItem を抽出し、release とそれ以外(milestone/issue/PR)
+ * に分けた上で、後者を milestone ごとにグルーピングし、表示する milestone グループ数を
+ * maxVisibleGroups に制限する(超過分は overflowCount にまとめ、WeekGrid/GitHubLane 側は
+ * 「+N」表示に使う)。milestone グループ単位で丸ごと出す/隠すため、1つの milestone の
+ * issue/PR が中途半端に分断されることは無い。
+ *
+ * release(docs/github-integration.md フェーズ④「first cut」、2026-07-20)は milestone
+ * グループとは独立に扱う: 1日あたりの想定件数がごく小さい(repo あたりせいぜい1件程度)ため、
+ * v1 では上限・overflow 集計の対象にせず、応答順のまま全件 releases に入れる。
  */
 export function layoutGitHubDay(
   items: GitHubItem[],
@@ -94,6 +105,7 @@ export function layoutGitHubDay(
   maxVisibleGroups: number = GITHUB_MAX_VISIBLE_MILESTONES,
 ): GitHubDayLayout {
   const dayItems = items.filter((it) => it.dateMs >= dayStartMs && it.dateMs < dayEndMs);
+  const releases = dayItems.filter((it) => it.type === "release");
   const groups = groupGitHubItemsByMilestone(dayItems);
 
   const visibleGroups = groups.slice(0, maxVisibleGroups);
@@ -103,5 +115,5 @@ export function layoutGitHubDay(
     0,
   );
 
-  return { visibleGroups, overflowCount };
+  return { visibleGroups, releases, overflowCount };
 }

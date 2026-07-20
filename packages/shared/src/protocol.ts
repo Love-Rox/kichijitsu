@@ -52,28 +52,31 @@ export interface GitHubConnectionDTO {
  * GET /api/github/items が返す1件の種別 (docs/github-integration.md フェーズ①)。
  * milestone 自体も1アイテムとして含み、issue/PR はその所属 milestone にぶら下がる。
  */
-export type GitHubItemType = "milestone" | "issue" | "pr";
+export type GitHubItemType = "milestone" | "issue" | "pr" | "release";
 
 /**
- * milestone 期日 + その milestone に属する open issue/PR の1件 (docs/github-integration.md
- * フェーズ①、2026-07-20)。サーバーは GitHub アイテム本体を永続化しない — 取得の都度
- * DTO に変換してそのまま返す (Google の GoogleEventDTO と同じ思想)。
+ * milestone 期日 + その milestone に属する open issue/PR + 公開済み release の1件
+ * (docs/github-integration.md フェーズ①、release は同フェーズ④「first cut」、2026-07-20)。
+ * サーバーは GitHub アイテム本体を永続化しない — 取得の都度 DTO に変換してそのまま返す
+ * (Google の GoogleEventDTO と同じ思想)。
  * Projects v2 (GraphQL) の date フィールドは対象外 (次フェーズ)。
  */
 export interface GitHubItemDTO {
-  /** 安定 ID: `gh:{owner}/{repo}:milestone:{n}` / `gh:{owner}/{repo}:{issue|pr}:{n}` */
+  /** 安定 ID: `gh:{owner}/{repo}:milestone:{n}` / `gh:{owner}/{repo}:{issue|pr}:{n}` /
+   * `gh:{owner}/{repo}:release:{tagName}` */
   id: string;
   type: GitHubItemType;
   title: string;
   /** 期日 (milestone の due_on を epoch ms 化)。issue/PR は所属 milestone の due_on を継承する
-   * (GitHub の issue/PR 自体には締切概念が無いため)。 */
+   * (GitHub の issue/PR 自体には締切概念が無いため)。release は published_at を epoch ms 化。 */
   dateMs: number;
   /** "owner/repo" */
   repo: string;
+  /** release には GitHub の issue 的な番号が無いため常に 0 (一意性は id のタグ由来部分が担う)。 */
   number: number;
   /** html_url */
   url: string;
-  /** issue/PR が属する milestone のタイトル。milestone 自身のアイテムには付かない。 */
+  /** issue/PR が属する milestone のタイトル。milestone/release 自身のアイテムには付かない。 */
   milestoneTitle?: string;
 }
 

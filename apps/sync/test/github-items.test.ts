@@ -213,4 +213,188 @@ describe("fetchGitHubItems", () => {
 
     expect(items).toEqual([]);
   });
+
+  it("includes published releases as flattened items", async () => {
+    const fetchImpl = routedFetch([
+      INSTALLATIONS_ROUTE,
+      reposRoute([{ owner: "acme", name: "widgets" }]),
+      {
+        match: /\/repos\/acme\/widgets\/milestones/,
+        response: () => jsonResponse([]),
+      },
+      {
+        match: /\/repos\/acme\/widgets\/releases/,
+        response: () =>
+          jsonResponse([
+            {
+              tag_name: "v1.0.0",
+              name: "Version 1.0.0",
+              html_url: "https://github.com/acme/widgets/releases/tag/v1.0.0",
+              published_at: "2026-08-01T00:00:00Z",
+              draft: false,
+              prerelease: false,
+            },
+          ]),
+      },
+    ]);
+
+    const items = await fetchGitHubItems({ fetch: fetchImpl, token: "token-abc" });
+
+    expect(items).toEqual([
+      {
+        id: "gh:acme/widgets:release:v1.0.0",
+        type: "release",
+        title: "Version 1.0.0",
+        dateMs: Date.parse("2026-08-01T00:00:00Z"),
+        repo: "acme/widgets",
+        number: 0,
+        url: "https://github.com/acme/widgets/releases/tag/v1.0.0",
+      },
+    ]);
+  });
+
+  it("continues past a repo whose release fetch fails, keeping that repo's milestones/issues and other repos", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = routedFetch([
+      INSTALLATIONS_ROUTE,
+      reposRoute([
+        { owner: "acme", name: "widgets" },
+        { owner: "acme", name: "other" },
+      ]),
+      {
+        match: /\/repos\/acme\/widgets\/milestones/,
+        response: () =>
+          jsonResponse([
+            {
+              number: 1,
+              title: "v1.0",
+              due_on: "2026-08-01T00:00:00Z",
+              html_url: "https://github.com/acme/widgets/milestone/1",
+            },
+          ]),
+      },
+      {
+        match: /\/repos\/acme\/widgets\/issues/,
+        response: () =>
+          jsonResponse([
+            {
+              number: 10,
+              title: "Fix crash",
+              html_url: "https://github.com/acme/widgets/issues/10",
+            },
+          ]),
+      },
+      {
+        match: /\/repos\/acme\/widgets\/releases/,
+        response: () => new Response("server error", { status: 500 }),
+      },
+      {
+        match: /\/repos\/acme\/other\/milestones/,
+        response: () => jsonResponse([]),
+      },
+      {
+        match: /\/repos\/acme\/other\/releases/,
+        response: () =>
+          jsonResponse([
+            {
+              tag_name: "v9.0.0",
+              name: "Version 9.0.0",
+              html_url: "https://github.com/acme/other/releases/tag/v9.0.0",
+              published_at: "2026-08-02T00:00:00Z",
+              draft: false,
+              prerelease: false,
+            },
+          ]),
+      },
+    ]);
+
+    const items = await fetchGitHubItems({ fetch: fetchImpl, token: "token-abc" });
+
+    expect(items).toEqual([
+      {
+        id: "gh:acme/widgets:milestone:1",
+        type: "milestone",
+        title: "v1.0",
+        dateMs: Date.parse("2026-08-01T00:00:00Z"),
+        repo: "acme/widgets",
+        number: 1,
+        url: "https://github.com/acme/widgets/milestone/1",
+      },
+      {
+        id: "gh:acme/widgets:issue:10",
+        type: "issue",
+        title: "Fix crash",
+        dateMs: Date.parse("2026-08-01T00:00:00Z"),
+        repo: "acme/widgets",
+        number: 10,
+        url: "https://github.com/acme/widgets/issues/10",
+        milestoneTitle: "v1.0",
+      },
+      {
+        id: "gh:acme/other:release:v9.0.0",
+        type: "release",
+        title: "Version 9.0.0",
+        dateMs: Date.parse("2026-08-02T00:00:00Z"),
+        repo: "acme/other",
+        number: 0,
+        url: "https://github.com/acme/other/releases/tag/v9.0.0",
+      },
+    ]);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("returns milestones/issues/PRs and releases together for the same repo", async () => {
+    const fetchImpl = routedFetch([
+      INSTALLATIONS_ROUTE,
+      reposRoute([{ owner: "acme", name: "widgets" }]),
+      {
+        match: /\/repos\/acme\/widgets\/milestones/,
+        response: () =>
+          jsonResponse([
+            {
+              number: 1,
+              title: "v1.0",
+              due_on: "2026-08-01T00:00:00Z",
+              html_url: "https://github.com/acme/widgets/milestone/1",
+            },
+          ]),
+      },
+      {
+        match: /\/repos\/acme\/widgets\/issues\?milestone=1/,
+        response: () =>
+          jsonResponse([
+            {
+              number: 11,
+              title: "Add feature",
+              html_url: "https://github.com/acme/widgets/pull/11",
+              pull_request: { url: "..." },
+            },
+          ]),
+      },
+      {
+        match: /\/repos\/acme\/widgets\/releases/,
+        response: () =>
+          jsonResponse([
+            {
+              tag_name: "v1.0.0",
+              name: "Version 1.0.0",
+              html_url: "https://github.com/acme/widgets/releases/tag/v1.0.0",
+              published_at: "2026-07-15T00:00:00Z",
+              draft: false,
+              prerelease: false,
+            },
+          ]),
+      },
+    ]);
+
+    const items = await fetchGitHubItems({ fetch: fetchImpl, token: "token-abc" });
+
+    expect(items.map((it) => it.type).sort()).toEqual(["milestone", "pr", "release"]);
+    expect(items.map((it) => it.id)).toEqual([
+      "gh:acme/widgets:milestone:1",
+      "gh:acme/widgets:pr:11",
+      "gh:acme/widgets:release:v1.0.0",
+    ]);
+  });
 });

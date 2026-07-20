@@ -624,11 +624,12 @@ export function WeekGrid({
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayLayouts.map(({ visibleGroups, overflowCount }, dayIndex) => (
+                  {dayLayouts.map(({ visibleGroups, releases, overflowCount }, dayIndex) => (
                     // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
                     <GitHubLane
                       key={dayIndex}
                       groups={visibleGroups}
+                      releases={releases}
                       overflowCount={overflowCount}
                     />
                   ))}

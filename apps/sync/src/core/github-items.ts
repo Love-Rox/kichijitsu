@@ -2,6 +2,7 @@ import type { GitHubItemDTO } from "@kichijitsu/shared";
 import { listInstallationRepos } from "../github/installations";
 import { listOpenMilestones } from "../github/milestones";
 import { listOpenIssuesForMilestone } from "../github/issues";
+import { listReleases, type ReleaseInfo } from "../github/releases";
 
 /**
  * GET /api/github/items のオーケストレーション (docs/github-integration.md フェーズ①)。
@@ -19,7 +20,10 @@ export interface GitHubItemsDeps {
  * - milestone 自体も1アイテムとして含める (type='milestone', dateMs=due_on)。
  * - issue/PR は所属 milestone の due_on を dateMs に採用する (GitHub の issue/PR 自体には
  *   締切概念が無いため、milestone の期日を継承する) — milestoneTitle も持たせる。
- * - repo/milestone 単位のエラーは握って console.error で継続する: 1 repo (または1
+ * - 各 repo につき、milestone 系のループとは独立に公開済み release も取得する
+ *   (type='release', dateMs=published_at、docs/github-integration.md フェーズ④
+ *   「first cut」、2026-07-20)。CI/Actions は対象外 (別フェーズ)。
+ * - repo/milestone/release 単位のエラーは握って console.error で継続する: 1 repo (または1
  *   milestone) の失敗が全体の取得を止めないようにする。
  *
  * TODO: レート制限節約の ETag 対応は次フェーズ (Part B 後) でやる。
@@ -79,6 +83,26 @@ export async function fetchGitHubItems(deps: GitHubItemsDeps): Promise<GitHubIte
           milestoneTitle: milestone.title,
         });
       }
+    }
+
+    let releases: ReleaseInfo[];
+    try {
+      releases = await listReleases(deps.fetch, deps.token, owner, repo);
+    } catch (err) {
+      console.error(`fetchGitHubItems: failed to list releases for ${owner}/${repo}`, err);
+      releases = [];
+    }
+
+    for (const release of releases) {
+      items.push({
+        id: `gh:${owner}/${repo}:release:${release.tagName}`,
+        type: "release",
+        title: release.name,
+        dateMs: Date.parse(release.publishedAt),
+        repo: `${owner}/${repo}`,
+        number: 0,
+        url: release.htmlUrl,
+      });
     }
   }
 

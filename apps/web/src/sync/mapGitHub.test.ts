@@ -35,6 +35,19 @@ function child(overrides: Partial<GitHubItem> = {}): GitHubItem {
   };
 }
 
+function release(overrides: Partial<GitHubItem> = {}): GitHubItem {
+  return {
+    id: "gh:acme/repo:release:v1.0.0",
+    type: "release",
+    title: "Version 1.0.0",
+    dateMs: Date.UTC(2026, 6, 20),
+    repo: "acme/repo",
+    number: 0,
+    url: "https://github.com/acme/repo/releases/tag/v1.0.0",
+    ...overrides,
+  };
+}
+
 describe("mapGitHubItems", () => {
   it("GitHubItemDTO[] を GitHubItem[] へ変換する(フィールドはそのまま)", () => {
     const dtos: GitHubItemDTO[] = [
@@ -125,6 +138,28 @@ describe("groupGitHubItemsByMilestone", () => {
   it("空配列を渡せば空配列を返す", () => {
     expect(groupGitHubItemsByMilestone([])).toEqual([]);
   });
+
+  it("release アイテムは「milestone なし」グループにも他のグループにも入らない", () => {
+    const r = release();
+    const groups = groupGitHubItemsByMilestone([r]);
+    expect(groups).toEqual([]);
+  });
+
+  it("release アイテムが混ざっていても milestone グループの結果に影響しない", () => {
+    const m = milestone();
+    const c = child();
+    const r = release();
+    const groups = groupGitHubItemsByMilestone([m, c, r]);
+    expect(groups).toEqual([
+      {
+        key: "acme/repo::v1.0",
+        repo: "acme/repo",
+        milestoneTitle: "v1.0",
+        milestone: m,
+        children: [c],
+      },
+    ]);
+  });
 });
 
 describe("layoutGitHubDay", () => {
@@ -180,7 +215,38 @@ describe("layoutGitHubDay", () => {
   it("空配列を渡せば空の結果を返す", () => {
     expect(layoutGitHubDay([], dayStart, dayEnd)).toEqual({
       visibleGroups: [],
+      releases: [],
       overflowCount: 0,
     });
+  });
+
+  it("日範囲内の release は releases に入る", () => {
+    const r = release({ dateMs: dayStart });
+    const { releases } = layoutGitHubDay([r], dayStart, dayEnd);
+    expect(releases).toEqual([r]);
+  });
+
+  it("日範囲外の release は除外する", () => {
+    const outOfRange = release({ dateMs: Date.UTC(2026, 6, 21) });
+    const { releases } = layoutGitHubDay([outOfRange], dayStart, dayEnd);
+    expect(releases).toEqual([]);
+  });
+
+  it("release は overflowCount や maxVisibleGroups の対象にならない", () => {
+    const releases = Array.from({ length: 10 }, (_, i) =>
+      release({ id: `gh:acme/repo:release:v${i}.0.0`, dateMs: dayStart }),
+    );
+    const result = layoutGitHubDay(releases, dayStart, dayEnd, 3);
+    expect(result.releases).toHaveLength(10);
+    expect(result.overflowCount).toBe(0);
+  });
+
+  it("release と milestone グループは同じ日の結果に共存する", () => {
+    const m = milestone({ dateMs: dayStart });
+    const c = child({ dateMs: dayStart });
+    const r = release({ dateMs: dayStart });
+    const { visibleGroups, releases } = layoutGitHubDay([m, c, r], dayStart, dayEnd);
+    expect(visibleGroups).toHaveLength(1);
+    expect(releases).toEqual([r]);
   });
 });

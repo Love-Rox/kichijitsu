@@ -110,7 +110,7 @@ export interface TaskItem {
  * milestone / issue / PR の種別を表す。TaskItem.status のように、web 側の
  * モデル層は wire DTO (GitHubItemDTO) から意図的に切り離す (protocol.ts に依存しない)。
  */
-export type GitHubItemType = "milestone" | "issue" | "pr";
+export type GitHubItemType = "milestone" | "issue" | "pr" | "release";
 
 /**
  * GitHubItemDTO の保存用モデル。Occurrence/TaskItem と違い、DTO から構造を
@@ -120,6 +120,10 @@ export type GitHubItemType = "milestone" | "issue" | "pr";
  * 展開ウィンドウの概念が無く(AllDayOccurrence/TaskItem と同様)、取得の都度
  * 全件で置き換える運用(サーバーが GitHub アイテムを永続化しないため、
  * 毎回のフェッチが常に完全なスナップショットになる)。
+ *
+ * release アイテム(docs/github-integration.md フェーズ④「first cut」、2026-07-20)は
+ * milestoneTitle を持たず、number は常に 0(GitHub の release には issue 的な番号が無いため、
+ * 一意性は id のタグ由来部分が担う)。
  */
 export interface GitHubItem {
   id: string;

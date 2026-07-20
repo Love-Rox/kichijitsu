@@ -444,6 +444,68 @@
   cursor: default;
 }
 
+/*
+ * release マーカー (docs/github-integration.md フェーズ④「first cut」、2026-07-20)。
+ * milestone(紫 #6e5494)・issue/PR チップの PR(緑 #0b8043)とは別トーンにして、GitHub
+ * データソース内の種別を一目で区別できるようにする。brand/README.md の朱(#D7402E系)は
+ * ここでは使わない(アクセントは1画面につきひとつの原則)。GitHub 自身のリンク色に近い
+ * 落ち着いた青 #0969da を採用。milestone のダイヤ(◆)とは異なる印(🏷)にして混同を避ける。
+ */
+.github-release-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.github-release-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 4px;
+  border-left: 2px solid #0969da;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #24211e;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-release-marker:hover .github-release-title {
+  text-decoration: underline;
+}
+
+.github-release-marker:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.github-release-tag {
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+
+.github-release-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-weight: 600;
+}
+
+.github-release-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: #8a8478;
+}
+
 /* ---- 本体: 縦スクロールする領域 ---- */
 
 .week-grid-scroll {
