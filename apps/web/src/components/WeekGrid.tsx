@@ -7,7 +7,10 @@ import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
 import type { TaskStore } from "../store/taskStore";
 import { useTasks } from "../store/taskStore";
+import type { GitHubStore } from "../store/githubStore";
+import { useGitHubItems } from "../store/githubStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import { layoutGitHubDay } from "../sync/mapGitHub";
 import { packColumns } from "../layout/packColumns";
 import { packDayBars } from "../layout/packDayBars";
 import {
@@ -21,6 +24,7 @@ import { type CalendarInfo } from "./EventBlock";
 import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
 import { TaskRow } from "./TaskRow";
+import { GitHubLane } from "./GitHubLane";
 import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
@@ -40,6 +44,12 @@ interface WeekGridProps {
   allDayStore: AllDayStore;
   /** Google タスク (docs/google-tasks.md) の読み口。due 付きタスクを日付レーンに表示する */
   taskStore: TaskStore;
+  /**
+   * GitHub 連携 (docs/github-integration.md フェーズ①Part B) の読み口。milestone/issue/PR を
+   * 終日レーンの直下の専用レーンに表示する。未連携時は常に空のストアが渡る想定で、
+   * その場合レーンごと非表示になる(App.tsx 側は無条件にインスタンスを用意する)
+   */
+  githubStore: GitHubStore;
   /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate;
   /**
@@ -114,6 +124,7 @@ export function WeekGrid({
   store,
   allDayStore,
   taskStore,
+  githubStore,
   weekStart,
   dayCount,
   timeZone,
@@ -372,6 +383,26 @@ export function WeekGrid({
   // 表示中3パネルのどこかにタスクが1件でもあればレーンごと表示する(終日レーンと同じ流儀)
   const taskLaneHasContent = tasksRaw.length > 0;
 
+  // ---- GitHub レーン (docs/github-integration.md フェーズ①Part B) ----
+  // 時刻予定と同じ [rangeStartMs, rangeEndMs) (表示中3パネルぶん) を GitHubStore に問い合わせる。
+  // dateMs は epoch ms の一時点(終日予定の startDate/endDate のような幅を持たない)なので、
+  // 日ごとの割り当ては weekPanels が既に持つ dayStarts/dayEnds (時刻予定と同じ壁時計境界) を
+  // そのまま再利用する — 別途タイムゾーン変換をやり直さない
+  const githubItemsRaw = useGitHubItems(githubStore, rangeStartMs, rangeEndMs);
+
+  const githubPanels = useMemo(
+    () =>
+      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
+        panelStart,
+        dayLayouts: dayStarts.map((dayStart, i) =>
+          layoutGitHubDay(githubItemsRaw, dayStart, dayEnds[i]),
+        ),
+      })),
+    [weekPanels, githubItemsRaw],
+  );
+  // 未連携・0件ならレーンごと非表示にする(終日/タスクレーンと同じ流儀)
+  const githubLaneHasContent = githubItemsRaw.length > 0;
+
   const handleCommit = useCallback(
     (updated: Occurrence) => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
@@ -487,6 +518,32 @@ export function WeekGrid({
                         <TaskRow key={task.id} task={task} onToggle={onToggleTask} />
                       ))}
                     </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {githubLaneHasContent && (
+        <div className="week-grid-github">
+          <div className="week-grid-github-gutter">GitHub</div>
+          <div className="week-grid-github-viewport">
+            <div className="week-grid-github-strip" style={stripStyle}>
+              {githubPanels.map(({ panelStart, dayLayouts }) => (
+                <div
+                  className="week-grid-github-panel"
+                  key={panelStart.toString()}
+                  style={panelColumnsStyle}
+                >
+                  {dayLayouts.map(({ visibleGroups, overflowCount }, dayIndex) => (
+                    // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
+                    <GitHubLane
+                      key={dayIndex}
+                      groups={visibleGroups}
+                      overflowCount={overflowCount}
+                    />
                   ))}
                 </div>
               ))}

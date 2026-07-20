@@ -168,6 +168,41 @@
 }
 
 /*
+ * GitHub 連携 (docs/github-integration.md フェーズ①Part B)。Google アカウントの
+ * .calendar-panel-account と同じ区切り(上ボーダー)を持つが、連携が1件のみのため
+ * リストではなく単一行 + 見出しの構成にする。
+ */
+.calendar-panel-github {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f0ece3;
+}
+
+.calendar-panel-github-connected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #24211e;
+}
+
+.calendar-panel-github-login {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.calendar-panel-github-expired {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #d7402e;
+}
+
+/*
  * プライバシー/規約リンク(App.tsx の .toolbar-legal と同内容)。狭幅ヘッダーから
  * 隠した分をここに集約するフッター(スマホ対応、docs/multiplatform.md)。
  */

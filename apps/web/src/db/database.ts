@@ -1,6 +1,6 @@
 import { openDB } from "idb";
 import type { DBSchema, IDBPDatabase } from "idb";
-import type { AllDayOccurrence, Occurrence, TaskItem } from "../model/types";
+import type { AllDayOccurrence, GitHubItem, Occurrence, TaskItem } from "../model/types";
 import type { EventSeries, InstanceOverride } from "../model/series";
 import type { ExpansionState } from "../expansion/windowPolicy";
 import { DAY_MS } from "../expansion/windowPolicy";
@@ -48,6 +48,16 @@ export interface KichijitsuDB extends DBSchema {
     key: string;
     value: InstanceOverride;
   };
+  /**
+   * GitHub 連携 (docs/github-integration.md フェーズ①Part B、2026-07-20) の
+   * milestone/issue/PR アイテム。allDayOccurrences/tasks と同様、展開ウィンドウの概念が
+   * 無いため全件を常時ロードする。サーバーが永続化しない(取得の都度スナップショット)ため、
+   * 取得成功のたびに丸ごと置き換える運用(App.tsx 参照)
+   */
+  githubItems: {
+    key: string;
+    value: GitHubItem;
+  };
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
@@ -56,7 +66,7 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = "kichijitsu";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const META_EXPANSION_KEY = "expansion";
 const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
 
@@ -86,6 +96,10 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
         }
         if (!db.objectStoreNames.contains("overrides")) {
           db.createObjectStore("overrides", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("githubItems")) {
+          // DB_VERSION 4 (GitHub 連携フェーズ①Part B) で追加。既存ユーザーもここを通って新規作成される
+          db.createObjectStore("githubItems", { keyPath: "id" });
         }
         if (!db.objectStoreNames.contains("meta")) {
           // out-of-line key: put 時に key を明示して渡す (keyPath なし)
@@ -232,6 +246,37 @@ export async function deleteTasksByIds(
   if (ids.length === 0) return;
   const tx = db.transaction("tasks", "readwrite");
   await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done]);
+}
+
+/**
+ * 単一トランザクションでの bulk 書き込み(GitHub アイテム)。putTasks と同じ流儀
+ * (allDayOccurrences 系の putAllDayOccurrences に倣う)
+ */
+export async function putGitHubItems(
+  db: IDBPDatabase<KichijitsuDB>,
+  items: GitHubItem[],
+): Promise<void> {
+  if (items.length === 0) return;
+  const tx = db.transaction("githubItems", "readwrite");
+  await Promise.all([...items.map((i) => tx.store.put(i)), tx.done]);
+}
+
+/**
+ * GitHub アイテムも終日予定/タスクと同様に展開ウィンドウの概念が無いため全件取得で読み込む
+ * (起動時に丸ごと GitHubStore へロードする用途)
+ */
+export async function getAllGitHubItems(db: IDBPDatabase<KichijitsuDB>): Promise<GitHubItem[]> {
+  return db.getAll("githubItems");
+}
+
+/**
+ * githubItems ストアを丸ごと空にする。サーバーが GitHub アイテムを永続化せず、
+ * GET /api/github/items が常に完全なスナップショットを返す設計 (docs/github-integration.md)
+ * のため、取得成功のたびに「全消し→全書き込み」で置き換える(差分削除の必要が無い)。
+ * 連携解除 (DELETE /api/github) 時のローカルデータ削除にも使う。
+ */
+export async function clearGitHubItems(db: IDBPDatabase<KichijitsuDB>): Promise<void> {
+  await db.clear("githubItems");
 }
 
 /**

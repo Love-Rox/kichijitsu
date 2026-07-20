@@ -14,6 +14,17 @@ interface CalendarSettingsPanelProps {
   onAddAccount: () => void;
   /** カレンダーブロック設定オーバーレイ(docs/blocking.md)を開く導線。App.tsx 側で開閉制御する */
   onOpenBlockRules?: () => void;
+  /**
+   * GitHub 連携状態 (docs/github-integration.md フェーズ①Part B)。undefined/null は未連携
+   * (「GitHub と連携」ボタンを出す)、文字列なら連携済みの login 名(「連携解除」導線を出す)
+   */
+  githubLogin?: string | null;
+  /** GET /api/github/items が 401 (github_auth_expired) を返した場合に「再連携」を促す */
+  githubAuthExpired?: boolean;
+  /** 「GitHub と連携」/「再連携」ボタンから呼ぶ(App.tsx 側で /auth/github/login へ遷移する) */
+  onConnectGitHub?: () => void;
+  /** 「連携解除」確定で呼ぶ。成功すれば解決、失敗すれば reject する(onDisconnectAccount と同じ流儀) */
+  onDisconnectGitHub?: () => Promise<void>;
 }
 
 /**
@@ -31,6 +42,10 @@ export function CalendarSettingsPanel({
   onDisconnectAccount,
   onAddAccount,
   onOpenBlockRules,
+  githubLogin,
+  githubAuthExpired,
+  onConnectGitHub,
+  onDisconnectGitHub,
 }: CalendarSettingsPanelProps) {
   return (
     <div className="calendar-panel" role="dialog" aria-label="カレンダー設定">
@@ -95,6 +110,34 @@ export function CalendarSettingsPanel({
         </button>
       )}
       {/*
+       * GitHub 連携 (docs/github-integration.md フェーズ①Part B)。Google アカウントとは
+       * 独立した連携なので、アカウント一覧とは別セクションとして「+ アカウントを追加」の下、
+       * 凡例フッターの手前に置く。onConnectGitHub が無ければ(呼び出し元が未対応)何も描画しない
+       */}
+      {onConnectGitHub && (
+        <div className="calendar-panel-github">
+          <div className="calendar-panel-account-header">GitHub</div>
+          {githubLogin ? (
+            <div className="calendar-panel-github-connected">
+              <span className="calendar-panel-github-login">@{githubLogin}</span>
+              {onDisconnectGitHub && <GitHubDisconnectControl onDisconnect={onDisconnectGitHub} />}
+            </div>
+          ) : (
+            <button type="button" className="calendar-panel-add-account" onClick={onConnectGitHub}>
+              + GitHub と連携
+            </button>
+          )}
+          {githubAuthExpired && (
+            <p className="calendar-panel-github-expired">
+              GitHub の認可が切れました。
+              <button type="button" className="calendar-panel-text-btn" onClick={onConnectGitHub}>
+                再連携
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+      {/*
        * Google 審査要件の導線(プライバシーポリシー・規約)。狭幅ヘッダーではスペース確保のため
        * ヘッダー直下のリンク (.toolbar-legal) を隠す代わりに、設定パネル下部へ集約する
        * (App.tsx 参照)。パネルは幅に余裕があるため常時表示でよい。
@@ -139,6 +182,59 @@ function AccountDisconnectControl({
             });
             // 成功時は呼び出し元 (App.tsx) が accounts から本行ごと除去するので
             // ここでの idle 復帰は不要
+          }}
+        >
+          解除する
+        </button>
+        <button
+          type="button"
+          className="calendar-panel-text-btn"
+          disabled={state === "disconnecting"}
+          onClick={() => setState("idle")}
+        >
+          やめる
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="calendar-panel-disconnect-row">
+      <button
+        type="button"
+        className="calendar-panel-text-btn"
+        onClick={() => setState("confirming")}
+      >
+        連携解除
+      </button>
+      {state === "error" && <span className="calendar-panel-error">解除失敗</span>}
+    </span>
+  );
+}
+
+/**
+ * GitHub 連携の「連携解除」導線。AccountDisconnectControl と全く同じインライン2段階確認だが、
+ * こちらは対象を1つに固定できる(GitHub 連携はプロファイルにつき高々1件)ため accountId を取らない。
+ */
+function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise<void> }) {
+  const [state, setState] = useState<DisconnectRowState>("idle");
+
+  if (state === "confirming" || state === "disconnecting") {
+    return (
+      <span className="calendar-panel-disconnect-confirm">
+        連携解除しますか？
+        <button
+          type="button"
+          className="calendar-panel-text-btn"
+          disabled={state === "disconnecting"}
+          onClick={() => {
+            setState("disconnecting");
+            onDisconnect().catch((err) => {
+              console.error("kichijitsu: GitHub disconnect failed", err);
+              setState("error");
+            });
+            // 成功時は呼び出し元 (App.tsx) が githubLogin を null に戻すので
+            // ここでの idle 復帰は不要 (AccountDisconnectControl と同じ流儀)
           }}
         >
           解除する

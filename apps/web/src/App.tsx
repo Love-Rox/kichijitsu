@@ -9,6 +9,7 @@ import type {
   CalendarListEntryDTO,
   DisconnectRequest,
   EventCreateResponse,
+  GitHubItemsResponse,
   MeResponse,
   SyncRequest,
   SyncResponse,
@@ -29,6 +30,7 @@ import {
 } from "./sync/eventCreate";
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
+import { mapGitHubItems } from "./sync/mapGitHub";
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
@@ -59,19 +61,23 @@ import type { Occurrence, TaskItem } from "./model/types";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
+import { GitHubStore } from "./store/githubStore";
 import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
+  clearGitHubItems,
   countSeries,
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   getAllAllDayOccurrences,
+  getAllGitHubItems,
   getAllTasks,
   getExpansionState,
   getOccurrencesBetween,
   getOverride,
   getVisibleCalendars,
   openKichijitsuDB,
+  putGitHubItems,
   putOccurrence,
   putOccurrences,
   putOverride,
@@ -212,6 +218,9 @@ function App() {
   const allDayStore = useMemo(() => new AllDayStore(), []);
   // Google タスク (docs/google-tasks.md) の読み口。AllDayStore と対になる別ストア
   const taskStore = useMemo(() => new TaskStore(), []);
+  // GitHub 連携 (docs/github-integration.md フェーズ①Part B) の読み口。未連携時も
+  // インスタンス自体は常に存在し、単に空のまま(WeekGrid 側がレーンを非表示にする)
+  const githubStore = useMemo(() => new GitHubStore(), []);
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null);
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
@@ -240,6 +249,11 @@ function App() {
   // ルール一覧はサーバーが正 — me.connected になったら一度だけ取得する(下の useEffect)
   const [blockRules, setBlockRules] = useState<BlockRuleDTO[]>([]);
   const [blockOverlayOpen, setBlockOverlayOpen] = useState(false);
+  // GitHub 連携 (docs/github-integration.md フェーズ①Part B): GET /api/github/items が
+  // 401 github_auth_expired を返したかどうか。設定パネルが「再連携」導線を出すのに使う。
+  // 409 github_not_connected / 502 github_fetch_failed はこのフラグを立てない
+  // (前者は me.github が null のはずで無関係、後者は一時的な取得失敗なので再連携は不要)
+  const [githubAuthExpired, setGithubAuthExpired] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -421,15 +435,22 @@ function App() {
       const allDays = await getAllAllDayOccurrences(database);
       // Google タスク (docs/google-tasks.md): 終日予定と同じく全件を丸ごとロードする
       const allTasks = await getAllTasks(database);
+      // GitHub アイテム (docs/github-integration.md フェーズ①Part B): 同じく全件ロード。
+      // ここでは前回取得のキャッシュを表示するだけで、最新化は me.github 判明後の別 effect が行う
+      const allGitHubItems = await getAllGitHubItems(database);
 
-      // occurrences・終日予定・タスクの初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
+      // occurrences・終日予定・タスク・GitHub アイテムの初回反映を1回の通知にまとめ、
+      // 初期描画のチラつきを防ぐ
       if (!cancelled) {
         await store.batch(async () => {
           await allDayStore.batch(async () => {
             await taskStore.batch(async () => {
-              if (all) store.load(all);
-              allDayStore.load(allDays);
-              taskStore.load(allTasks);
+              await githubStore.batch(async () => {
+                if (all) store.load(all);
+                allDayStore.load(allDays);
+                taskStore.load(allTasks);
+                githubStore.load(allGitHubItems);
+              });
             });
           });
         });
@@ -533,6 +554,47 @@ function App() {
       cancelled = true;
     };
   }, [me.connected, checkedFetch]);
+
+  // GitHub アイテムの取得(docs/github-integration.md フェーズ①Part B)。db 準備完了 &
+  // me.github が連携済みになったら GET /api/github/items を取る。サーバーは GitHub アイテムを
+  // 永続化せず応答は常に完全なスナップショットのため、成功したら IndexedDB/store を
+  // 「全消し→全書き込み」で置き換える(clearGitHubItems/githubStore.clear、差分計算はしない)。
+  // 409 github_not_connected は me.github が null のはずで基本発生しない(念のため無視)。
+  // 401 github_auth_expired は再連携導線 (CalendarSettingsPanel) を出すためフラグを立てる。
+  // 502 github_fetch_failed・ネットワークエラーは一時的な失敗として warn のみ(レーンは前回の
+  // キャッシュ表示のまま据え置く)
+  useEffect(() => {
+    if (!db || !me.github) return;
+    let cancelled = false;
+    checkedFetch("/api/github/items")
+      .then(async (res) => {
+        if (res.status === 401) {
+          if (!cancelled) setGithubAuthExpired(true);
+          return;
+        }
+        if (res.status === 409) return; // 未連携(通常は me.github が null のはずなので無視)
+        if (!res.ok) {
+          console.warn(`kichijitsu: GET /api/github/items failed: ${res.status}`);
+          return;
+        }
+        const data = (await res.json()) as GitHubItemsResponse;
+        const mapped = mapGitHubItems(data.items);
+        if (cancelled || !db) return;
+        setGithubAuthExpired(false);
+        await clearGitHubItems(db);
+        await putGitHubItems(db, mapped);
+        await githubStore.batch(async () => {
+          githubStore.clear();
+          githubStore.load(mapped);
+        });
+      })
+      .catch((err) => {
+        console.warn("kichijitsu: GET /api/github/items failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [db, me.github, checkedFetch, githubStore]);
 
   // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
   // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
@@ -938,6 +1000,25 @@ function App() {
     },
     [db, store, allDayStore, taskStore, checkedFetch],
   );
+
+  // GitHub 連携解除 (docs/github-integration.md フェーズ①Part B)。DELETE /api/github で
+  // サーバー側の github_connections 行を消し、成功したら me.github を null に戻して
+  // ローカルの GitHub アイテムも畳む(IndexedDB/store の両方)。失敗時は呼び出し元
+  // (設定パネルのインライン確認 UI、handleDisconnectAccount と同じ流儀)が catch して表示する
+  const handleDisconnectGitHub = useCallback(async () => {
+    const res = await checkedFetch("/api/github", { method: "DELETE" });
+    if (!res.ok) {
+      throw new Error(`DELETE /api/github failed: ${res.status}`);
+    }
+    setMe((prev) => ({ ...prev, github: null }));
+    setGithubAuthExpired(false);
+    if (db) {
+      await clearGitHubItems(db);
+      await githubStore.batch(async () => {
+        githubStore.clear();
+      });
+    }
+  }, [db, githubStore, checkedFetch]);
 
   // BlockRulesOverlay の作成フォームから呼ぶ。id 無し=新規作成、有り=更新(今回の UI からは
   // 常に新規作成のみ使うが、将来の編集導線のためリクエストは仕様通り両対応で扱う)。
@@ -1673,6 +1754,12 @@ function App() {
                       setPanelOpen(false);
                       setBlockOverlayOpen(true);
                     }}
+                    githubLogin={me.github?.login ?? null}
+                    githubAuthExpired={githubAuthExpired}
+                    onConnectGitHub={() => {
+                      window.location.href = "/auth/github/login";
+                    }}
+                    onDisconnectGitHub={handleDisconnectGitHub}
                   />
                 )}
               </>
@@ -1709,6 +1796,7 @@ function App() {
             store={store}
             allDayStore={allDayStore}
             taskStore={taskStore}
+            githubStore={githubStore}
             weekStart={timelineStart}
             dayCount={dayCount}
             timeZone={timeZone}

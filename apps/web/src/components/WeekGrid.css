@@ -270,6 +270,180 @@
   text-decoration: line-through;
 }
 
+/*
+ * ---- GitHub レーン (docs/github-integration.md フェーズ①Part B) ----
+ * タスクレーンの直下・時刻グリッドの上に置く、GitHub milestone/issue/PR 専用の帯。
+ * gutter/viewport/strip/panel の構造・週送りスライドはタスクレーンと同じ流儀
+ * (milestone の期日は複数日にまたがらないため packDayBars 相当の行詰めは不要)。
+ * 内容が無い(未連携 or 0件)週は WeekGrid.tsx 側でレーンごと非表示にする。
+ */
+.week-grid-github {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid #e5e7eb;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.week-grid-github-gutter {
+  flex: 0 0 60px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 3px;
+  font-size: 10px;
+  color: #9ca3af;
+}
+
+.week-grid-github-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.week-grid-github-strip {
+  display: flex;
+  width: 300%;
+  align-items: flex-start;
+}
+
+.week-grid-github-panel {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: start;
+  padding: 2px 0;
+}
+
+.github-lane-day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.github-milestone-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/*
+ * milestone 見出し。brand/README.md「機能色の例外」に倣い、GitHub というデータソース
+ * 自体の識別色(GitHub の Octicon に近い落ち着いた紫)を左枠・ダイヤ記号だけに使う
+ * (朱はここでは使わない — アクセントは1画面につきひとつの原則を守る)。
+ */
+.github-milestone-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 4px;
+  border-left: 2px solid #6e5494;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #24211e;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-milestone-marker:hover .github-milestone-title {
+  text-decoration: underline;
+}
+
+.github-milestone-marker:focus-visible {
+  outline: 2px solid #6e5494;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.github-milestone-diamond {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: #6e5494;
+}
+
+.github-milestone-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-weight: 600;
+}
+
+.github-milestone-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: #8a8478;
+}
+
+.github-item-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding-left: 6px;
+}
+
+.github-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 1px 6px 1px 5px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #24211e;
+  background: #faf7f2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-item-chip:hover {
+  border-color: #6e5494;
+}
+
+.github-item-chip:focus-visible {
+  outline: 2px solid #6e5494;
+  outline-offset: 1px;
+}
+
+.github-item-chip-kind {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 700;
+  color: #6e5494;
+}
+
+.github-item-chip--pr .github-item-chip-kind {
+  color: #0b8043;
+}
+
+.github-item-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* milestone グループ数の上限を超えた分をまとめる「+N」表示(AllDayBar の .allday-overflow と同じ流儀) */
+.github-overflow {
+  padding-left: 6px;
+  font-size: 10px;
+  color: #8a8478;
+  cursor: default;
+}
+
 /* ---- 本体: 縦スクロールする領域 ---- */
 
 .week-grid-scroll {
@@ -875,6 +1049,7 @@
   .week-grid-header-gutter,
   .week-grid-allday-gutter,
   .week-grid-tasks-gutter,
+  .week-grid-github-gutter,
   .week-grid-gutter {
     flex-basis: 40px;
   }

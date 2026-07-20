@@ -104,3 +104,34 @@ export interface TaskItem {
   status: "needsAction" | "completed";
   notes?: string;
 }
+
+/**
+ * GitHub 連携 (docs/github-integration.md フェーズ①、2026-07-20) の1アイテム。
+ * milestone / issue / PR の種別を表す。TaskItem.status のように、web 側の
+ * モデル層は wire DTO (GitHubItemDTO) から意図的に切り離す (protocol.ts に依存しない)。
+ */
+export type GitHubItemType = "milestone" | "issue" | "pr";
+
+/**
+ * GitHubItemDTO の保存用モデル。Occurrence/TaskItem と違い、DTO から構造を
+ * 変換する必要が無い (id/type/title/dateMs/repo/number/url/milestoneTitle を
+ * そのまま持つだけ) ため、フィールド構成は DTO と同一。
+ *
+ * 展開ウィンドウの概念が無く(AllDayOccurrence/TaskItem と同様)、取得の都度
+ * 全件で置き換える運用(サーバーが GitHub アイテムを永続化しないため、
+ * 毎回のフェッチが常に完全なスナップショットになる)。
+ */
+export interface GitHubItem {
+  id: string;
+  type: GitHubItemType;
+  title: string;
+  /** 期日 (milestone の due_on を epoch ms 化したもの)。issue/PR は所属 milestone の期日を継承する */
+  dateMs: number;
+  /** "owner/repo" */
+  repo: string;
+  number: number;
+  /** html_url。クリックで新規タブで開く */
+  url: string;
+  /** issue/PR が属する milestone のタイトル。milestone 自身のアイテムには付かない */
+  milestoneTitle?: string;
+}
