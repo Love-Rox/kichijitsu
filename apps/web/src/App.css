@@ -135,6 +135,51 @@
 }
 
 /*
+ * 作業キュー サイドレールの開閉ボタン(docs/github-integration.md フェーズ②Part B)。
+ * .toolbar-account > button と似たトーンだが、件数バッジ(朱1点、brand/README.md
+ * 「朱の枡は1つのまとまりにつき基本1個」の例外的許容 — 未読件数のような通知バッジは
+ * 朱で強調して良い)を右上に重ねるため position: relative にしてある。
+ */
+.toolbar-queue-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-queue-btn:hover {
+  background: #f3f4f6;
+}
+
+.toolbar-queue-btn[aria-expanded="true"] {
+  border-color: #6e5494;
+  color: #24211e;
+}
+
+.toolbar-queue-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/*
  * キーボードショートカット ヘルプ('?' キーと同じトグル、フェーズ6)。
  * toolbar-legal のリンクと同じトーンで控えめに(円形の "?" バッジ)。
  */
@@ -356,5 +401,14 @@
 
   .toolbar-account {
     gap: 4px;
+  }
+
+  /* 狭幅では isNarrow 分岐でラベル文言を隠しアイコン+バッジのみにする(App.tsx 参照)。
+     パディングもナビ他ボタンと同じだけ絞って幅を詰める */
+  .toolbar-queue-btn {
+    gap: 0;
+    padding: 4px 5px;
+    font-size: 11px;
+    min-height: 32px;
   }
 }

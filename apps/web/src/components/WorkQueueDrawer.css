@@ -1,0 +1,286 @@
+/*
+ * 作業キュー サイドレール(docs/github-integration.md フェーズ②Part B)。SearchOverlay/
+ * BlockRulesOverlay と同じ z-index 帯(2000台、WeekGrid のドラッグ関連 最大1000より上)を使うが、
+ * 見せ方は画面中央のモーダルではなく右から出る常設サイドレール。fixed オーバーレイなので
+ * 開いても週グリッド側のレイアウト(グリッド列幅など)はリフローしない。
+ * 色は既存オーバーレイと同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
+ * 生成り #faf7f2・朱 --logo-aka)。GitHub の type バッジ色は GitHubLane.tsx (WeekGrid.css)
+ * と揃える(issue=紫 #6e5494・PR=緑 #0b8043、brand/README.md「機能色の例外」)。
+ */
+.work-queue-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.18);
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.work-queue-drawer {
+  width: min(420px, 100vw);
+  max-width: min(420px, 100vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #faf7f2;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -20px 0 48px rgba(36, 33, 30, 0.24);
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .work-queue-drawer {
+    animation: work-queue-slide-in 200ms ease-out;
+  }
+}
+
+@keyframes work-queue-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.work-queue-drawer-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.work-queue-drawer-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.work-queue-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.work-queue-refresh-btn,
+.work-queue-close-btn {
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.work-queue-refresh-btn:hover:not(:disabled),
+.work-queue-close-btn:hover {
+  color: #24211e;
+  background: #f0ece3;
+}
+
+.work-queue-refresh-btn:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.work-queue-refresh-btn:focus-visible,
+.work-queue-close-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.work-queue-auth-expired {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  background: #f6e3dc;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #7a3226;
+}
+
+.work-queue-auth-expired p {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.work-queue-reconnect-btn {
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.work-queue-reconnect-btn:focus-visible {
+  outline: 2px solid #7a3226;
+  outline-offset: 2px;
+}
+
+.work-queue-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.work-queue-empty-all {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #8a8478;
+}
+
+.work-queue-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-queue-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.work-queue-section-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #b3ac9d;
+}
+
+.work-queue-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.work-queue-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  text-decoration: none;
+  color: #24211e;
+}
+
+.work-queue-item:hover {
+  border-color: #6e5494;
+}
+
+.work-queue-item--pr:hover {
+  border-color: #0b8043;
+}
+
+.work-queue-item:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.work-queue-item-kind {
+  flex: none;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6e5494;
+}
+
+.work-queue-item--pr .work-queue-item-kind {
+  color: #0b8043;
+}
+
+.work-queue-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.work-queue-item-title {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.work-queue-item-meta {
+  font-size: 11px;
+  color: #8a8478;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 初回ロード中のスケルトン */
+.work-queue-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.work-queue-skeleton-line {
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f0ece3 0%, #f7f4ee 50%, #f0ece3 100%);
+  background-size: 200% 100%;
+}
+
+.work-queue-skeleton-line--short {
+  width: 70%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .work-queue-skeleton-line {
+    animation: work-queue-skeleton-shimmer 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes work-queue-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .work-queue-drawer {
+    width: min(420px, 100vw);
+  }
+
+  .work-queue-drawer-header {
+    padding: 10px 12px;
+  }
+
+  .work-queue-body {
+    padding: 12px;
+    gap: 14px;
+  }
+}

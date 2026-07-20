@@ -10,6 +10,8 @@ import type {
   DisconnectRequest,
   EventCreateResponse,
   GitHubItemsResponse,
+  GitHubQueueResponse,
+  GitHubWorkItemDTO,
   MeResponse,
   SyncRequest,
   SyncResponse,
@@ -40,6 +42,7 @@ import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
 import { CalendarSettingsPanel } from "./components/CalendarSettingsPanel";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
+import { WorkQueueDrawer } from "./components/WorkQueueDrawer";
 import type { CalendarInfo } from "./components/EventBlock";
 import {
   isEditableTarget,
@@ -254,6 +257,16 @@ function App() {
   // 409 github_not_connected / 502 github_fetch_failed はこのフラグを立てない
   // (前者は me.github が null のはずで無関係、後者は一時的な取得失敗なので再連携は不要)
   const [githubAuthExpired, setGithubAuthExpired] = useState(false);
+  // 作業キュー サイドレール (docs/github-integration.md フェーズ②Part B)。日付を持たない
+  // ライブな一覧のため IndexedDB には入れず React state だけで保持する(占有元は
+  // GET /api/github/queue、ドロワーを開くたび・連携直後に取り直す。手動更新は onRefresh)。
+  const [githubQueue, setGithubQueue] = useState<GitHubWorkItemDTO[]>([]);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueLoading, setQueueLoading] = useState(false);
+  // 401 github_auth_expired 専用フラグ(githubAuthExpired とは独立: レーン用の
+  // /api/github/items とキュー用の /api/github/queue は別エンドポイントで、
+  // 片方だけ失効することは無い想定だが、UI 側の責務は分けておく)
+  const [queueAuthExpired, setQueueAuthExpired] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -595,6 +608,54 @@ function App() {
       cancelled = true;
     };
   }, [db, me.github, checkedFetch, githubStore]);
+
+  // 作業キューの取得(docs/github-integration.md フェーズ②Part B)。GET /api/github/queue は
+  // サーバー側で永続化しない都度取得の一覧なので、成功したら githubQueue を丸ごと置き換えるだけ
+  // (差分計算はしない、/api/github/items と同じ「全消し→全書き込み」の考え方だが
+  // こちらは IndexedDB を経由しないぶん単純)。401/409/502 のマッピングは /api/github/items と
+  // 同じ(408 は無し)。ドロワーを開いた時と onRefresh の両方からこの1つの関数を呼ぶ。
+  const fetchGithubQueue = useCallback(() => {
+    if (!me.github) return;
+    setQueueLoading(true);
+    checkedFetch("/api/github/queue")
+      .then(async (res) => {
+        if (res.status === 401) {
+          setQueueAuthExpired(true);
+          return;
+        }
+        if (res.status === 409) {
+          // 未連携(通常は me.github が null のはずなので基本発生しない)。空扱いにする
+          setGithubQueue([]);
+          return;
+        }
+        if (!res.ok) {
+          console.warn(`kichijitsu: GET /api/github/queue failed: ${res.status}`);
+          return;
+        }
+        const data = (await res.json()) as GitHubQueueResponse;
+        setQueueAuthExpired(false);
+        setGithubQueue(data.items);
+      })
+      .catch((err) => {
+        console.warn("kichijitsu: GET /api/github/queue failed", err);
+      })
+      .finally(() => setQueueLoading(false));
+  }, [me.github, checkedFetch]);
+
+  // 連携直後の初回取得(me.github が null→非null になったタイミング)。ドロワーを
+  // 開く前でもヘッダーの件数バッジを最新化できるようにする
+  useEffect(() => {
+    if (!me.github) return;
+    fetchGithubQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.github]);
+
+  // ドロワーを開くたびの取得(手動更新は onRefresh=fetchGithubQueue の直接呼び出し)
+  useEffect(() => {
+    if (!queueOpen) return;
+    fetchGithubQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueOpen]);
 
   // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
   // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
@@ -1012,6 +1073,9 @@ function App() {
     }
     setMe((prev) => ({ ...prev, github: null }));
     setGithubAuthExpired(false);
+    // 作業キュー(フェーズ②Part B)も畳む。IndexedDB には入れていないので state を空にするだけ
+    setGithubQueue([]);
+    setQueueAuthExpired(false);
     if (db) {
       await clearGitHubItems(db);
       await githubStore.batch(async () => {
@@ -1774,6 +1838,28 @@ function App() {
               </button>
             )}
           </div>
+          {/*
+           * 作業キュー サイドレール(docs/github-integration.md フェーズ②Part B)の開閉導線。
+           * GitHub 未連携(me.github===null)では出さない(安全側: 開いても 409 で空になるだけだが、
+           * 導線自体を見せない方が分かりやすい)。件数バッジは0件のときは出さない。
+           */}
+          {me.github && (
+            <button
+              type="button"
+              className="toolbar-queue-btn"
+              onClick={() => setQueueOpen((v) => !v)}
+              aria-label="作業キュー"
+              title="作業キュー"
+              aria-expanded={queueOpen}
+              aria-haspopup="dialog"
+            >
+              <span aria-hidden="true">☰</span>
+              {!isNarrow && <span className="toolbar-queue-label">作業キュー</span>}
+              {githubQueue.length > 0 && (
+                <span className="toolbar-queue-badge">{githubQueue.length}</span>
+              )}
+            </button>
+          )}
           {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル */}
           <button
             type="button"
@@ -1854,6 +1940,18 @@ function App() {
           visibleCalendarKeys={visibleCalendarKeys}
           calendarLookup={calendarLookup}
           onJump={handleSearchJump}
+        />
+      )}
+      {queueOpen && me.github && (
+        <WorkQueueDrawer
+          items={githubQueue}
+          loading={queueLoading}
+          authExpired={queueAuthExpired}
+          onRefresh={fetchGithubQueue}
+          onReconnect={() => {
+            window.location.href = "/auth/github/login";
+          }}
+          onClose={() => setQueueOpen(false)}
         />
       )}
     </div>
