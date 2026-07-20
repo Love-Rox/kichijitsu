@@ -147,6 +147,20 @@ export interface GitHubActivityResponse {
 }
 
 /**
+ * POST /api/github/pr-commits のリクエスト (docs/github-integration.md フェーズ③「時間計測」
+ * Part A)。予定ブロックに紐づく PR (type: 'pr' に絞るのは呼び出し側の責務) について、
+ * 自分の commit 時刻を取得する。
+ */
+export interface PullCommitsRequest {
+  items: { repo: string; number: number }[];
+}
+
+/** POST /api/github/pr-commits のレスポンス。キー "{owner/repo}#{number}" → 昇順 ISO タイムスタンプ配列。 */
+export interface PullCommitsResponse {
+  commitsByItem: Record<string, string[]>;
+}
+
+/**
  * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
  * プロファイルに複数の Google アカウントがぶら下がる。
  * connected は accounts.length > 0 と同義（後方互換のため残す）

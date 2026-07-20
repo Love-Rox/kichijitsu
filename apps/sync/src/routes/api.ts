@@ -19,6 +19,8 @@ import type {
   GitHubItemsResponse,
   GitHubQueueResponse,
   MeResponse,
+  PullCommitsRequest,
+  PullCommitsResponse,
   SyncRequest,
   TaskListsResponse,
   TaskPatchRequest,
@@ -36,6 +38,7 @@ import { revokeToken } from "../google/oauth";
 import { fetchGitHubActivity } from "../core/github-activity";
 import { fetchGitHubItems } from "../core/github-items";
 import { fetchGitHubQueue } from "../core/github-queue";
+import { fetchPullCommitsForItems } from "../core/github-pr-commits";
 import { GitHubApiError } from "../github/http";
 import { registerWatch, stopWatch, buildWebhookAddress } from "../google/watch";
 import {
@@ -209,6 +212,61 @@ apiRoutes.get("/api/github/activity", requireAuth, async (c) => {
       return c.json<ApiError>({ error: "github_auth_expired" }, 401);
     }
     console.error(`github activity: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// PR ごとの自分の commit 時刻取得 (docs/github-integration.md フェーズ③「時間計測」Part A、
+// 2026-07-20)。予定ブロックに紐づく PR のリストを受け取り、各 PR について自分 (login) の
+// commit の ISO タイムスタンプ配列を返すだけ (サーバーは永続化しない)。クラスタリングして
+// 実績時間として見せる UI は Part B で別途 (このエンドポイントは生の時刻列を返すのみ)。
+// - items が配列でない/各要素の repo・number の型が不正なら 400 missing_fields。
+// - items が空配列なら GitHub を叩かず即 200 { commitsByItem: {} }。
+// - エラーマッピングは /api/github/items・/api/github/queue・/api/github/activity と同じ
+//   (resolveGitHubAccessToken を共有)。ただし 1 PR 単位の失敗は
+//   core/github-pr-commits.ts の fetchPullCommitsForItems が内部で握って継続するので、
+//   ここまで届くのはトークン失効など全体に関わる失敗のみ。
+apiRoutes.post("/api/github/pr-commits", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  let body: PullCommitsRequest;
+  try {
+    body = await c.req.json<PullCommitsRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (
+    !Array.isArray(body?.items) ||
+    body.items.some(
+      (item) =>
+        typeof item?.repo !== "string" ||
+        item.repo.length === 0 ||
+        typeof item?.number !== "number",
+    )
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  if (body.items.length === 0) {
+    return c.json<PullCommitsResponse>({ commitsByItem: {} });
+  }
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github pr-commits");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const commitsByItem = await fetchPullCommitsForItems(
+      { fetch, token: resolved.token, login: resolved.login },
+      body.items,
+    );
+    return c.json<PullCommitsResponse>({ commitsByItem });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github pr-commits: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github pr-commits: fetch failed for profile ${profileId}`, err);
     return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
   }
 });

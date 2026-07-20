@@ -38,4 +38,6 @@ export type {
   GitHubActivityType,
   GitHubActivityDTO,
   GitHubActivityResponse,
+  PullCommitsRequest,
+  PullCommitsResponse,
 } from "./protocol";
