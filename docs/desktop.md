@@ -2,7 +2,8 @@
 
 `apps/desktop` は Tauri 2 製の kichijitsu デスクトップシェル。方針は
 docs/multiplatform.md の「Tauri 2 デスクトップ: まずリモート URL 方式」に従う
-（2026-07-21 増分1で追加）。
+（2026-07-21 増分1で追加。同日、増分2a でトレイ常駐・グローバルショートカット・
+ネイティブ通知の土台を追加）。
 
 ## 増分1: リモート URL 方式（今回作ったもの）
 
@@ -37,15 +38,72 @@ apps/desktop/
   package.json          # @tauri-apps/cli のみ devDependency。scripts: dev/build
   src-tauri/
     tauri.conf.json      # productName/identifier/window/icon/bundle
-    Cargo.toml            # tauri 2 依存のみ（コマンド無しなので serde 等も無し）
+    Cargo.toml            # tauri 2 (tray-icon feature) + global-shortcut/notification プラグイン
     build.rs
     src/
       main.rs
-      lib.rs              # tauri::Builder::default().run(...) のみ
+      lib.rs              # setup() でトレイ/グローバルショートカット/通知を配線（増分2a）
     capabilities/
-      default.json        # core:default のみ
+      default.json        # core:default + global-shortcut/notification の最小許可
     icons/                # tauri icon で生成した icns/ico/png 一式
 ```
+
+## 増分2a: トレイ常駐・グローバルショートカット・ネイティブ通知
+
+増分1のリモート URL 方式の上に、OS ネイティブなシェル機能を **`apps/desktop` の
+Rust 側のみ**で追加した（フロントを同梱していないため、フロントからは制御でき
+ない。すべて `src-tauri/src/lib.rs` の `setup()` 内で完結）。
+
+- **トレイ常駐**（Tauri 2 コア機能 `tray-icon`、プラグインではない）
+  - `Cargo.toml` に `tauri = { version = "2", features = ["tray-icon"] }`
+  - アイコンは `app.default_window_icon()`（既存 `src-tauri/icons/` を流用、
+    新規アイコン追加なし）
+  - メニュー: 「表示/隠す」「終了」。**左クリックは表示/隠すトグル専用**にし、
+    メニューは右クリックでのみ開く（`show_menu_on_left_click(false)`）
+  - ウィンドウの「閉じる」（× ボタン、macOS の赤信号含む）はアプリを終了させ
+    ず、`WindowEvent::CloseRequested` で `api.prevent_close()` + `window.hide()`
+    してトレイに格納する。**アプリの終了はトレイメニューの「終了」
+    (`app.exit(0)`) のみ**
+- **グローバルショートカット**（`tauri-plugin-global-shortcut` 2.x、デスクトップ
+  専用プラグインのため `Cargo.toml` で `target.'cfg(any(target_os = "macos",
+windows, target_os = "linux"))'.dependencies` に限定）
+  - **`CmdOrCtrl+Shift+K`** でウィンドウの表示/隠すをトグル（トレイ左クリックと
+    同じ `toggle_main_window()` を呼ぶ）。定数 `TOGGLE_WINDOW_SHORTCUT` として
+    `lib.rs` 冒頭にコメント付きで定義
+- **ネイティブ通知**（`tauri-plugin-notification` 2.x）は**配線の土台まで**。
+  プラグインを有効化し、起動時に1回テスト通知（「トレイ常駐・グローバル
+  ショートカット・通知の土台が起動しました」）を出すところまでで、実際の
+  予定リマインダー通知は未配線（下記「残 TODO」参照）
+- `capabilities/default.json` に `global-shortcut:allow-register` /
+  `allow-unregister` / `allow-is-registered` と `notification:default` を追加。
+  ただし今回追加した機能はすべて Rust の `setup()` から直接プラグイン API を
+  呼んでおり、webview からの `invoke()` を経由しないため、capability の許可が
+  無くても動作する。将来フロントから同じ機能を呼ぶ場合に備えた最小限の明示
+  という位置づけ（`core:tray:*` は `core:default` に既に含まれるため追加不要）
+
+### 使い方
+
+- トレイアイコンを**左クリック**: ウィンドウの表示/隠すをトグル（隠れていれば
+  表示して前面へ、表示中なら隠す）
+- トレイアイコンを**右クリック**: 「表示/隠す」「終了」メニューを表示
+- **`CmdOrCtrl+Shift+K`**（macOS は Cmd、Windows/Linux は Ctrl）: どこからでも
+  ウィンドウの表示/隠すをトグル（トレイ左クリックと同じ動作）
+- ウィンドウを閉じてもアプリは終了せずトレイに残る。完全終了はトレイメニュー
+  の「終了」から
+
+### 残 TODO: 実リマインダーのフロント連携
+
+予定のリマインダー通知（Web 版の VAPID Web Push 相当）をネイティブ通知に置き
+換えるには、フロント(リモート URL の web アプリ)側から Tauri コマンドを呼ぶ
+配線が必要（今回はやらない、次増分）。想定する形:
+
+1. `#[tauri::command]` でフロントから呼べる通知コマンド（例:
+   `fn notify(title: String, body: String)`）を追加
+2. `capabilities/default.json` の `notification:*` 許可をそのコマンド用に絞り
+   込む
+3. Web 版のリマインダースケジューリングロジックから、デスクトップ実行時のみ
+   その Tauri コマンドを呼ぶ分岐を追加（`window.__TAURI__` の有無で判定、また
+   は `@tauri-apps/api` の環境検出）
 
 ## ビルド・実行手順
 
@@ -90,17 +148,32 @@ pnpm --filter desktop build   # リリースビルド（= pnpm build:desktop）
   でのインストーラ生成まで）は重いため未実行。`tauri dev` での実機起動・
   ウィンドウ表示・ログイン動作の確認はユーザー側で行ってほしい
 
+### 増分2a で検証した範囲
+
+- `tauri-plugin-global-shortcut` 2.3.2 / `tauri-plugin-notification` 2.3.3 /
+  `tauri` 2.11.5（`tray-icon` feature）を Cargo.toml に追加し、
+  **`cargo check`（`apps/desktop/src-tauri/` 配下）が成功することを確認済み**
+  （crates.io からの新規取得・コンパイルまで通った。警告無し）
+- 現行の Tauri 2 API（v2.tauri.app の System Tray / Global Shortcut /
+  Notification 各ガイド、docs.rs の `tauri::tray` / `GlobalShortcutExt` /
+  `NotificationExt`）を web で確認し、その通りの書式で実装
+- `pnpm --filter web run typecheck` / `pnpm --filter sync run typecheck` が
+  引き続き 0 のままであることを確認（desktop 以外は無変更）
+- `pnpm exec vp fmt --check`（リポジトリ全体、279 ファイル）が整形済みである
+  ことを確認。今回変更した `capabilities/default.json` も対象に含まれる
+- ネイティブバイナリでの実機確認（トレイクリック・ショートカット押下・通知
+  表示）は `cargo check` の範囲外のため未実施。`tauri dev` での実機確認は
+  ユーザー側で行ってほしい
+
 ## 次の増分（今回はやらない）
 
 1. **`gh` プロバイダ**: docs/github-integration.md 相当の GitHub 連携を
    デスクトップ側にも
-2. **トレイ常駐**: `tauri-plugin-*` ではなく `tray-icon` 機能でメニューバー
-   常駐・ウィンドウの開閉
-3. **グローバルショートカット**: `tauri-plugin-global-shortcut` でクイック
-   入力などを呼び出す
-4. **ネイティブ通知**: `tauri-plugin-notification` に差し替え（現状 Web
-   版は VAPID の Web Push。docs/multiplatform.md の「通知」セクション参照）
-5. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
+2. **実リマインダーのフロント連携**: トレイ/ショートカット/通知の土台は
+   増分2aで実装済み。予定リマインダーをネイティブ通知に配線するには
+   フロント(リモート URL の web アプリ)から Tauri コマンドを呼ぶ仕組みが
+   必要（「残 TODO」セクション参照）
+3. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
    要るため、当面は今回のリモート URL 方式のまま運用する
 
 ## Mac 配布: Homebrew cask + 署名回避（2026-07-21 ユーザー決定）

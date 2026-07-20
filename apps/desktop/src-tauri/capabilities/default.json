@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "kichijitsu デスクトップシェルの既定 capability。増分1はリモート URL を読むだけで Tauri コマンドを呼ばないため core:default のみで足りる。",
+  "description": "kichijitsu デスクトップシェルの既定 capability。トレイ/グローバルショートカット/通知はすべて Rust の setup() から直接呼んでおり webview からの invoke を経由しないため、capability による許可が無くても動く。ここでの追加は将来フロントから呼ぶ場合に備えた最小限の明示。core:tray:* は core:default に含まれるため未追加（gen/schemas/acl-manifests.json の core.default 参照）。",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "notification:default"
+  ]
 }
