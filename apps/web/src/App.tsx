@@ -36,6 +36,7 @@ import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
 import { mapGitHubItems } from "./sync/mapGitHub";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
+import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
@@ -46,6 +47,8 @@ import { CalendarSettingsPanel } from "./components/CalendarSettingsPanel";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { WorkQueueDrawer } from "./components/WorkQueueDrawer";
+import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
+import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
 import {
   isEditableTarget,
@@ -68,7 +71,8 @@ import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
-import { PlannedStore } from "./store/plannedStore";
+import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
+import { TimeEntryStore, useRunningTimeEntries, useTimeEntries } from "./store/timeEntryStore";
 import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
@@ -81,6 +85,7 @@ import {
   getAllGitHubItems,
   getAllPlannedBlocks,
   getAllTasks,
+  getAllTimeEntries,
   getExpansionState,
   getOccurrencesBetween,
   getOverride,
@@ -93,6 +98,7 @@ import {
   putPlannedBlock,
   putSeries,
   putTask,
+  putTimeEntry,
   setVisibleCalendars,
   type KichijitsuDB,
   type VisibleCalendarsMap,
@@ -234,6 +240,9 @@ function App() {
   // 予定タイムブロック(docs/github-integration.md「時間計測」増分1)の読み口。occurrences とは
   // 完全に独立したストア — Google 同期(applySync 等)はこのストアに一切触れない
   const plannedStore = useMemo(() => new PlannedStore(), []);
+  // 手動タイマー・実績記録(docs/github-integration.md「時間計測」増分2)の読み口。plannedStore と
+  // 同じく Google 同期からは完全に独立し、ローカル操作のみで更新される
+  const timeEntryStore = useMemo(() => new TimeEntryStore(), []);
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null);
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
@@ -282,6 +291,9 @@ function App() {
   const [githubActivity, setGithubActivity] = useState<GitHubActivityDTO[]>([]);
   // ON/OFF トグル(視覚ノイズになり得るため)。既定 ON。OFF のときはレールを出さず取得もしない
   const [activityVisible, setActivityVisible] = useState(true);
+  // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
+  // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
+  const [reportOpen, setReportOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -470,20 +482,25 @@ function App() {
       // Google 同期とは無関係なので、以後この値がサーバーから再取得されることは無い
       // (ローカル操作のみで更新される)
       const allPlannedBlocks = await getAllPlannedBlocks(database);
+      // 手動タイマーの実績エントリ (docs/github-integration.md「時間計測」増分2): 同じく全件ロード
+      const allTimeEntries = await getAllTimeEntries(database);
 
-      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロックの初回反映を
-      // 1回の通知にまとめ、初期描画のチラつきを防ぐ
+      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロック・実績エントリの
+      // 初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
       if (!cancelled) {
         await store.batch(async () => {
           await allDayStore.batch(async () => {
             await taskStore.batch(async () => {
               await githubStore.batch(async () => {
                 await plannedStore.batch(async () => {
-                  if (all) store.load(all);
-                  allDayStore.load(allDays);
-                  taskStore.load(allTasks);
-                  githubStore.load(allGitHubItems);
-                  plannedStore.load(allPlannedBlocks);
+                  await timeEntryStore.batch(async () => {
+                    if (all) store.load(all);
+                    allDayStore.load(allDays);
+                    taskStore.load(allTasks);
+                    githubStore.load(allGitHubItems);
+                    plannedStore.load(allPlannedBlocks);
+                    timeEntryStore.load(allTimeEntries);
+                  });
                 });
               });
             });
@@ -1495,6 +1512,67 @@ function App() {
     [db, plannedStore],
   );
 
+  // ---- 手動タイマー・実績記録 (docs/github-integration.md「時間計測」増分2、2026-07-20) ----
+  // plannedBlock 系と同じくローカル専用: timeEntryStore(メモリ)と IndexedDB の timeEntries
+  // ストアだけを更新し、ネットワーク呼び出しは一切行わない。commit からの自動推定は増分3。
+  //
+  // **単一走行の制約は無い**(2026-07-20 仕様変更、ユーザー要望): 別々の linkedItemId は
+  // 同時に何本でも走行できる。onStartTimer は既存の走行中エントリを自動 stop しない —
+  // 防ぐのは「同じ item の二重走行」だけ(isRunning() で判定して no-op にする)。
+  // onStopTimer も対象 item だけを止め、他 item の並走には触れない。
+
+  /** ▶ ボタン(PlannedBlockCard)/ヘッダーから呼ばれる */
+  const onStartTimer = useCallback(
+    (item: TimerLinkedItem) => {
+      if (!db) return;
+      // 同一 item の二重走行だけを防ぐ(他 item が走行中でも無条件に新規 start してよい)
+      if (timeEntryStore.isRunning(item.linkedItemId)) return;
+      const entry = startTimer(item);
+      timeEntryStore.upsert(entry);
+      putTimeEntry(db, entry).catch((err) => {
+        console.error("kichijitsu: failed to persist time entry start", err);
+      });
+    },
+    [db, timeEntryStore],
+  );
+
+  /** ⏹ ボタン(PlannedBlockCard)/ヘッダーから呼ばれる。対象 linkedItemId の走行中エントリだけを止める */
+  const onStopTimer = useCallback(
+    (linkedItemId: string) => {
+      if (!db) return;
+      const running = timeEntryStore
+        .getRunningEntries()
+        .find((e) => e.linkedItemId === linkedItemId);
+      if (!running) return;
+      const stopped = stopTimer(running);
+      timeEntryStore.upsert(stopped);
+      putTimeEntry(db, stopped).catch((err) => {
+        console.error("kichijitsu: failed to persist time entry stop", err);
+      });
+    },
+    [db, timeEntryStore],
+  );
+
+  // ヘッダーの走行中インジケーター(RunningTimersIndicator)と、レポートを開いたときの
+  // 経過表示に使う「現在時刻」。1秒 tick は走行中エントリが1本以上あるときだけ動かし、
+  // 0本になったら setInterval を止める(無駄な再描画をしない、という増分2の完了条件)。
+  const runningTimeEntries = useRunningTimeEntries(timeEntryStore);
+  const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (runningTimeEntries.length === 0) return;
+    setTimerNowMs(Date.now());
+    const id = window.setInterval(() => setTimerNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+    // 依存は「1本以上走行中か」だけでよい: 本数の増減(2件→3件等)では張り直さず、
+    // 0↔非0 の遷移でだけ interval を開始/停止する
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningTimeEntries.length > 0]);
+
+  // 予定 vs 実績レポート(TimeReportOverlay)用の全件購読。オーバーレイが閉じていても
+  // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
+  const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
+  const reportTimeEntries = useTimeEntries(timeEntryStore);
+
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
   // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
@@ -2005,6 +2083,32 @@ function App() {
               )}
             </button>
           )}
+          {/*
+           * 手動タイマー・予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2)。
+           * ローカルのみのデータのため GitHub 未連携でも(連携解除後でも)出す — 「実績」「作業キュー」
+           * ボタンと違い me.github ゲートは掛けない。データは全ビュー(週/3日/1日/月)共通で
+           * plannedStore/timeEntryStore から読むため、view 切替の影響を受けない。
+           */}
+          <button
+            type="button"
+            className="toolbar-queue-btn"
+            onClick={() => setReportOpen((v) => !v)}
+            aria-label="予定 vs 実績レポート"
+            title="予定 vs 実績レポート"
+            aria-expanded={reportOpen}
+            aria-haspopup="dialog"
+          >
+            {!isNarrow ? "レポート" : "📊"}
+          </button>
+          {/*
+           * 走行中タイマーのインジケーター(増分2)。me 連携有無に関係なく、走行中エントリが
+           * 1件でもあれば表示する(コンポーネント自身が0件時に null を返す)。
+           */}
+          <RunningTimersIndicator
+            runningEntries={runningTimeEntries}
+            nowMs={timerNowMs}
+            onStop={onStopTimer}
+          />
           {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル */}
           <button
             type="button"
@@ -2033,6 +2137,9 @@ function App() {
             onDropWorkItem={onDropWorkItem}
             onMovePlannedBlock={onMovePlannedBlock}
             onDeletePlannedBlock={onDeletePlannedBlock}
+            timeEntryStore={timeEntryStore}
+            onStartTimer={onStartTimer}
+            onStopTimer={onStopTimer}
             weekStart={timelineStart}
             dayCount={dayCount}
             timeZone={timeZone}
@@ -2103,6 +2210,14 @@ function App() {
           }}
           onClose={() => setQueueOpen(false)}
           onDragStart={() => setQueueOpen(false)}
+        />
+      )}
+      {reportOpen && (
+        <TimeReportOverlay
+          plannedBlocks={reportPlannedBlocks}
+          timeEntries={reportTimeEntries}
+          nowMs={timerNowMs}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>

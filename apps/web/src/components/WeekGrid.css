@@ -827,7 +827,8 @@
   border-radius: 4px;
   border: 1.5px dashed #6e5494;
   background: color-mix(in srgb, #6e5494 10%, #faf7f2);
-  padding: 2px 4px 2px 17px;
+  /* delete(左端14px)+timer(その隣14px)ぶんの余白 */
+  padding: 2px 4px 2px 32px;
   font-size: 11px;
   line-height: 1.35;
   color: #24211e;
@@ -854,6 +855,29 @@
   z-index: 1000 !important;
 }
 
+/*
+ * 手動タイマー(増分2)が走行中の予定ブロック。朱は使わず GitHub purple の
+ * アクセントを実線化 + ごく控えめな脈動で「計測中」を示す(brand の朱は通知バッジ専用)。
+ */
+.planned-block.planned-block--timer-running {
+  border-style: solid;
+  animation: planned-block-pulse 1.8s ease-in-out infinite;
+}
+
+.planned-block.planned-block--timer-running.planned-block--pr {
+  border-color: #0b8043;
+}
+
+@keyframes planned-block-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, #6e5494 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #6e5494 0%, transparent);
+  }
+}
+
 .planned-block-delete {
   position: absolute;
   top: 1px;
@@ -876,6 +900,35 @@
 .planned-block-delete:hover {
   color: #d7402e;
   background: #fff;
+}
+
+/* ▶/⏹ ボタン。delete ボタンのすぐ右隣、同じ「小さな枠外アイコン」の見た目に揃える */
+.planned-block-timer {
+  position: absolute;
+  top: 1px;
+  left: 16px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #6e5494;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.planned-block-timer:hover {
+  background: #fff;
+}
+
+.planned-block-timer.is-running {
+  background: #6e5494;
+  color: #fff;
 }
 
 .planned-block-link {

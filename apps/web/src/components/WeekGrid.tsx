@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { GitHubActivityDTO } from "@kichijitsu/shared";
-import type { Occurrence, TaskItem } from "../model/types";
+import type { Occurrence, PlannedBlock, TaskItem } from "../model/types";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
@@ -12,6 +12,8 @@ import type { GitHubStore } from "../store/githubStore";
 import { useGitHubItems } from "../store/githubStore";
 import type { PlannedStore } from "../store/plannedStore";
 import { usePlannedBlocks } from "../store/plannedStore";
+import type { TimeEntryStore } from "../store/timeEntryStore";
+import { useRunningTimeEntries } from "../store/timeEntryStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
 import type { DroppedWorkItem } from "../sync/planned";
 import { layoutGitHubDay } from "../sync/mapGitHub";
@@ -75,6 +77,16 @@ interface WeekGridProps {
   onMovePlannedBlock: (id: string, startMs: number, endMs: number) => void;
   /** 予定タイムブロックの削除ボタンから呼ばれる(ローカルのみ) */
   onDeletePlannedBlock: (id: string) => void;
+  /**
+   * 手動タイマー(docs/github-integration.md「時間計測」増分2)の読み口。plannedStore と同様
+   * Google 同期には一切触れられない別ストア。ここで走行中エントリを購読し、linkedItemId 集合へ
+   * 変換してから DayColumn(→PlannedBlockCard)へ渡す(各カードでの isRunning 判定を軽くするため)。
+   */
+  timeEntryStore: TimeEntryStore;
+  /** ▶ ボタンから呼ばれる(ローカルのみ) */
+  onStartTimer: (block: PlannedBlock) => void;
+  /** ⏹ ボタンから呼ばれる(ローカルのみ)。対象 item だけを止める */
+  onStopTimer: (linkedItemId: string) => void;
   /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate;
   /**
@@ -155,6 +167,9 @@ export function WeekGrid({
   onDropWorkItem,
   onMovePlannedBlock,
   onDeletePlannedBlock,
+  timeEntryStore,
+  onStartTimer,
+  onStopTimer,
   weekStart,
   dayCount,
   timeZone,
@@ -169,6 +184,15 @@ export function WeekGrid({
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds);
+
+  // 手動タイマー(増分2): 走行中エントリの linkedItemId 集合。DayColumn 全体で1回だけ計算し、
+  // 各 PlannedBlockCard は Set.has() だけで isRunning を判定する(N個のカードごとに store を
+  // 舐め直さない)
+  const runningTimeEntries = useRunningTimeEntries(timeEntryStore);
+  const runningLinkedItemIds = useMemo(
+    () => new Set(runningTimeEntries.map((e) => e.linkedItemId)),
+    [runningTimeEntries],
+  );
 
   // 表示中(=アニメーション完了済み)の中央週。ストリップは常にこの ±1週の3週ぶんだけ DOM を持つ
   const [center, setCenter] = useState(weekStart);
@@ -655,6 +679,9 @@ export function WeekGrid({
                       onDropWorkItem={onDropWorkItem}
                       onMovePlannedBlock={onMovePlannedBlock}
                       onDeletePlannedBlock={onDeletePlannedBlock}
+                      runningLinkedItemIds={runningLinkedItemIds}
+                      onStartTimer={onStartTimer}
+                      onStopTimer={onStopTimer}
                     />
                   ))}
                 </div>

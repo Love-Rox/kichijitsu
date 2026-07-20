@@ -21,6 +21,16 @@ interface PlannedBlockCardProps {
   onMove: (id: string, startMs: number, endMs: number) => void;
   /** 削除ボタンから呼ばれる(ローカルのみ) */
   onDelete: (id: string) => void;
+  /**
+   * 手動タイマー(docs/github-integration.md「時間計測」増分2)。この block の linkedItemId が
+   * 走行中かどうか(App 側の timeEntryStore.isRunning)。true なら ⏹、false なら ▶ を出す。
+   * 他 item が走行中でも ▶ は常に押せる(単一走行の制約は無い、複数併走可)。
+   */
+  isTimerRunning: boolean;
+  /** ▶ ボタンから呼ばれる(ローカルのみ)。この block をそのまま渡す(linkedItemId 等を含む) */
+  onStartTimer: (block: PlannedBlock) => void;
+  /** ⏹ ボタンから呼ばれる(ローカルのみ)。この block の linkedItemId のタイマーだけを止める */
+  onStopTimer: (linkedItemId: string) => void;
 }
 
 interface DragState {
@@ -58,6 +68,9 @@ export function PlannedBlockCard({
   timeZone,
   onMove,
   onDelete,
+  isTimerRunning,
+  onStartTimer,
+  onStopTimer,
 }: PlannedBlockCardProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -205,7 +218,11 @@ export function PlannedBlockCard({
   return (
     <div
       ref={elRef}
-      className={`planned-block planned-block--${block.itemType}`}
+      className={
+        isTimerRunning
+          ? `planned-block planned-block--${block.itemType} planned-block--timer-running`
+          : `planned-block planned-block--${block.itemType}`
+      }
       style={style}
       onPointerDown={handlePointerDownMove}
       onPointerMove={handlePointerMove}
@@ -225,6 +242,27 @@ export function PlannedBlockCard({
         title="削除"
       >
         ×
+      </button>
+      {/*
+       * 手動タイマー(増分2)の ▶/⏹。delete ボタンと同じ「小さなヒット領域 + stopPropagation」の
+       * 扱いにして、ドラッグ移動/リサイズ/リンククリックと競合しないようにする。
+       */}
+      <button
+        type="button"
+        className={isTimerRunning ? "planned-block-timer is-running" : "planned-block-timer"}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isTimerRunning) {
+            onStopTimer(block.linkedItemId);
+          } else {
+            onStartTimer(block);
+          }
+        }}
+        aria-label={isTimerRunning ? "タイマーを停止" : "タイマーを開始"}
+        title={isTimerRunning ? "計測を停止" : "計測を開始"}
+      >
+        {isTimerRunning ? "⏹" : "▶"}
       </button>
       <a
         className="planned-block-link"

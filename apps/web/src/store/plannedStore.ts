@@ -61,6 +61,15 @@ export class PlannedStore {
     return this.byId.get(id);
   }
 
+  /**
+   * 全件(予定 vs 実績レポート用、docs/github-integration.md「時間計測」増分2)。getRange と違い
+   * 表示範囲を問わず全ての予定タイムブロックを対象にする。呼び出しごとに新しい配列を作る
+   * (TimeEntryStore.getAll と同じくキャッシュ無し、小規模データ想定のため)。
+   */
+  getAll(): PlannedBlock[] {
+    return [...this.byId.values()];
+  }
+
   /** [startMs, endMs) に重なる予定ブロックを開始時刻順で返す。結果は version 単位でキャッシュ */
   getRange(startMs: number, endMs: number): PlannedBlock[] {
     const key = `${startMs}:${endMs}`;
@@ -102,4 +111,14 @@ export function usePlannedBlocks(
 ): PlannedBlock[] {
   useSyncExternalStore(store.subscribe, store.getVersion);
   return store.getRange(startMs, endMs);
+}
+
+/**
+ * 全件購読フック(予定 vs 実績レポート用、docs/github-integration.md「時間計測」増分2)。
+ * usePlannedBlocks(範囲絞り込み、WeekGrid が使う)とは別に、TimeReportOverlay が
+ * 表示中の週/月に関係なく全ての予定タイムブロックを必要とするために用意する。
+ */
+export function useAllPlannedBlocks(store: PlannedStore): PlannedBlock[] {
+  useSyncExternalStore(store.subscribe, store.getVersion);
+  return store.getAll();
 }

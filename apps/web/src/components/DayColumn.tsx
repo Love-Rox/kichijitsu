@@ -116,6 +116,16 @@ interface DayColumnProps {
   onMovePlannedBlock: (id: string, startMs: number, endMs: number) => void;
   /** 予定タイムブロックの削除ボタンから呼ばれる(ローカルのみ) */
   onDeletePlannedBlock: (id: string) => void;
+  /**
+   * 手動タイマー(docs/github-integration.md「時間計測」増分2)。走行中(endMs===null)な
+   * timeEntries の linkedItemId 集合(WeekGrid 側で1回だけ計算済み)。各 PlannedBlockCard の
+   * ▶/⏹ 表示切り替えに使う(block.linkedItemId がこの集合に含まれるかだけを見る)。
+   */
+  runningLinkedItemIds: Set<string>;
+  /** ▶ ボタンから呼ばれる(ローカルのみ) */
+  onStartTimer: (block: PlannedBlock) => void;
+  /** ⏹ ボタンから呼ばれる(ローカルのみ)。対象 item だけを止める(他の並走には触れない) */
+  onStopTimer: (linkedItemId: string) => void;
 }
 
 /**
@@ -148,6 +158,9 @@ export function DayColumn({
   onDropWorkItem,
   onMovePlannedBlock,
   onDeletePlannedBlock,
+  runningLinkedItemIds,
+  onStartTimer,
+  onStopTimer,
 }: DayColumnProps) {
   const createDragRef = useRef<CreateDragState | null>(null);
   const longPressPendingRef = useRef<LongPressPendingState | null>(null);
@@ -451,6 +464,9 @@ export function DayColumn({
                 timeZone={timeZone}
                 onMove={onMovePlannedBlock}
                 onDelete={onDeletePlannedBlock}
+                isTimerRunning={runningLinkedItemIds.has(block.linkedItemId)}
+                onStartTimer={onStartTimer}
+                onStopTimer={onStopTimer}
               />
             );
           })}

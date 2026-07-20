@@ -162,3 +162,32 @@ export interface PlannedBlock {
   /** html_url。クリックで新規タブに開く */
   url: string;
 }
+
+/**
+ * 手動タイマーで記録する実績エントリ (docs/github-integration.md「時間計測」増分2、
+ * 2026-07-20)。PlannedBlock が「予定」を表すのに対し、こちらは「実績」— ▶/⏹ の
+ * 手動操作で作られる、**Google に一切書き戻さないローカル専用**の時間記録。
+ *
+ * PlannedBlock と同じく、レポートが元の作業アイテムが消えた後も成立するよう
+ * itemType/title/repo/number/url を非正規化して持つ。同一 linkedItemId につき
+ * 複数の TimeEntry を持てる(同時に複数 item を並行計測できる、単一走行の制約は無い)。
+ * ただし同一 linkedItemId で endMs===null (走行中) のエントリは高々1件
+ * (store.isRunning/getRunningEntries が前提とする不変条件、二重防止は App 側のハンドラが担う)。
+ *
+ * commit からの実績自動推定は増分3の別データ(このモデルは手動タイマーのみを表す)。
+ */
+export interface TimeEntry {
+  id: string;
+  /** 紐づく GitHub 作業アイテムの id (PlannedBlock.linkedItemId と同じ体系) */
+  linkedItemId: string;
+  itemType: "issue" | "pr";
+  title: string;
+  /** "owner/repo" */
+  repo: string;
+  number: number;
+  /** html_url。クリックで新規タブに開く */
+  url: string;
+  startMs: number;
+  /** null = 走行中。stopTimer() で確定値が入る */
+  endMs: number | null;
+}

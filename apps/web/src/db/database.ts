@@ -6,6 +6,7 @@ import type {
   Occurrence,
   PlannedBlock,
   TaskItem,
+  TimeEntry,
 } from "../model/types";
 import type { EventSeries, InstanceOverride } from "../model/series";
 import type { ExpansionState } from "../expansion/windowPolicy";
@@ -74,6 +75,16 @@ export interface KichijitsuDB extends DBSchema {
     key: string;
     value: PlannedBlock;
   };
+  /**
+   * 手動タイマーの実績エントリ (docs/github-integration.md「時間計測」増分2、2026-07-20)。
+   * plannedBlocks と同様 Google 同期からは完全に独立し、展開ウィンドウの概念も無いため
+   * 全件を常時ロードする運用。走行中(endMs===null)のエントリも含めてそのまま保存する
+   * (start 時点で put し、stop 時に endMs を埋めて再度 put する2段書き込み)。
+   */
+  timeEntries: {
+    key: string;
+    value: TimeEntry;
+  };
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
@@ -82,7 +93,7 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = "kichijitsu";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const META_EXPANSION_KEY = "expansion";
 const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
 
@@ -121,6 +132,11 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
           // DB_VERSION 5 (GitHub 連携「時間計測」増分1) で追加。既存ユーザー(v4 以前)も
           // ここを通って新規作成される。他ストアとは独立(Google 同期は触れない)
           db.createObjectStore("plannedBlocks", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("timeEntries")) {
+          // DB_VERSION 6 (GitHub 連携「時間計測」増分2) で追加。既存ユーザー(v5 以前)も
+          // ここを通って新規作成される。plannedBlocks と同じく他ストアとは独立
+          db.createObjectStore("timeEntries", { keyPath: "id" });
         }
         if (!db.objectStoreNames.contains("meta")) {
           // out-of-line key: put 時に key を明示して渡す (keyPath なし)
@@ -322,6 +338,28 @@ export async function deletePlannedBlock(
   id: string,
 ): Promise<void> {
   await db.delete("plannedBlocks", id);
+}
+
+/**
+ * 手動タイマーの実績エントリ (docs/github-integration.md「時間計測」増分2)。plannedBlocks 系と
+ * 同様、展開ウィンドウの概念が無いため全件取得で読み込む(起動時に丸ごと TimeEntryStore へ
+ * ロードする用途)。
+ */
+export async function getAllTimeEntries(db: IDBPDatabase<KichijitsuDB>): Promise<TimeEntry[]> {
+  return db.getAll("timeEntries");
+}
+
+/** 1件の作成・更新(▶ での開始・⏹ での確定、いずれもローカルのみ) */
+export async function putTimeEntry(
+  db: IDBPDatabase<KichijitsuDB>,
+  entry: TimeEntry,
+): Promise<void> {
+  await db.put("timeEntries", entry);
+}
+
+/** 現状 UI からは呼ばれないが、plannedBlocks の delete と対にして用意しておく */
+export async function deleteTimeEntry(db: IDBPDatabase<KichijitsuDB>, id: string): Promise<void> {
+  await db.delete("timeEntries", id);
 }
 
 /**

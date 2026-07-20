@@ -1,0 +1,152 @@
+/*
+ * 予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2)。BlockRulesOverlay.css と
+ * 同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・生成り #faf7f2)を踏襲する。
+ * 予定=GitHub purple・実績=緑(PR の色と揃える)の2色バーで比率を示し、朱は使わない。
+ */
+.time-report-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.time-report-card {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  padding: 20px;
+  text-align: left;
+}
+
+.time-report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.time-report-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.time-report-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.time-report-close:hover {
+  color: #24211e;
+}
+
+.time-report-description {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #55504a;
+}
+
+.time-report-empty {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: #8a8478;
+}
+
+.time-report-table {
+  width: 100%;
+  margin-top: 16px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.time-report-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #55504a;
+  padding: 4px 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.time-report-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f0ece3;
+  vertical-align: middle;
+}
+
+.time-report-col-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  width: 64px;
+}
+
+.time-report-col-bar {
+  width: 96px;
+}
+
+.time-report-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.time-report-item-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #24211e;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.time-report-item-link:hover {
+  text-decoration: underline;
+}
+
+.time-report-item-repo {
+  font-size: 10px;
+  color: #8a8478;
+}
+
+.time-report-bar-track {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: #f0ece3;
+  overflow: hidden;
+}
+
+.time-report-bar-track + .time-report-bar-track {
+  margin-top: 3px;
+}
+
+.time-report-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+}
+
+.time-report-bar--planned {
+  background: #6e5494;
+}
+
+.time-report-bar--actual {
+  background: #0b8043;
+}
