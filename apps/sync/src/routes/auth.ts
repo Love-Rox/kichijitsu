@@ -14,6 +14,7 @@ import { isHttpsRequest } from '../http'
 import { isEmailAllowed } from '../allowlist'
 import { encryptToken } from '../crypto'
 import { encodeOAuthState, decodeOAuthState } from '../oauth-state'
+import { resolveLoginProfile } from '../profile-resolution'
 
 export const authRoutes = new Hono<AppEnv>()
 
@@ -119,19 +120,51 @@ authRoutes.get('/auth/callback', async (c) => {
   }
 
   // 再連携で Google が refresh_token を返さないことがある (通常は最初の同意時のみ発行)。
-  // その場合は既存の (暗号化済み) refresh_token をそのまま再利用する。
-  const existing = await c.env.DB.prepare('SELECT profile_id, refresh_token FROM accounts WHERE id = ?')
+  // その場合は既存の (暗号化済み) refresh_token をそのまま再利用する。is_owner も
+  // 「このアカウントが既にどこかのプロファイルのオーナーか」の判定に使う。
+  const existing = await c.env.DB.prepare('SELECT profile_id, refresh_token, is_owner FROM accounts WHERE id = ?')
     .bind(accountId)
-    .first<{ profile_id: string; refresh_token: string }>()
+    .first<{ profile_id: string; refresh_token: string; is_owner: number }>()
 
-  // プロファイルの決め方:
-  // - add モード: state に載っている (今ログイン中の) プロファイルにそのまま追加する。
-  //   既にこの Google アカウントが別プロファイルに属していても、今回の OAuth 同意で
-  //   本人確認は取れているので、現在のプロファイルへ付け替える (アカウントの持ち主が
-  //   自分の意思で行う操作なので、これは正当な移動として扱う)。
-  // - login モード (通常): このアカウントが既にどこかのプロファイルに属していれば
-  //   それを使う (= 再ログイン)。初めて連携するアカウントなら新しいプロファイルを作る。
-  const profileId = state.mode === 'add' ? state.profileId : (existing?.profile_id ?? crypto.randomUUID())
+  // プロファイルの決め方 (2026-07-20, アカウント設計の分離: 身元(オーナー) と 同期アカウント
+  // (接続) を分ける。詳細は src/profile-resolution.ts のコメント参照):
+  //
+  // - add モード (`?add=1`、有効なセッションが必要): state に載っている (今ログイン中の)
+  //   プロファイルに、このアカウントを「接続」(is_owner=0) として追加する。既にこの
+  //   Google アカウントが別プロファイルのオーナーだった場合でも、今回の OAuth 同意で
+  //   本人確認は取れているのでそのまま付け替える (アカウントの持ち主が自分の意思で行う
+  //   操作として正当な移動として扱う)。
+  //   矛盾ケース: accounts.id (= Google sub) が PK のままなので、1つの Google アカウントは
+  //   常にどこか1つのプロファイルにしか属せない。したがって、元プロファイルのオーナー
+  //   だったアカウントを他プロファイルへ「接続」として付け替えると、元プロファイルは
+  //   オーナー不在 (0 件) になり、元プロファイルに残っていた他の接続アカウントは
+  //   宙に浮く (どのプロファイルにも属さないわけではないが、ログインで復元できるオーナーが
+  //   いなくなる)。今回のスコープでは検出・防止しない — 「同一 sub が複数プロファイルに
+  //   接続として存在し得る」設計 (=(profile_id, sub) 複合キー化) は別途の大改修が必要なため
+  //   最小変更に留める。
+  //
+  // - login モード (通常、add でない): このアカウントが「どこかのプロファイルのオーナー」
+  //   なら、そのプロファイルへログインする (= 自分の身元で戻ってきた)。オーナーでない
+  //   (未接続の新規アカウント、または他プロファイルの接続に過ぎない) 場合は、この
+  //   アカウント自身をオーナーとする新規プロファイルを作る。「接続に過ぎないアカウントで
+  //   他人のプロファイルを丸ごと復活させる」経路はここで断つ — 修正前はここで
+  //   `existing?.profile_id` をそのまま採用していたため、スマホで接続アカウントとして
+  //   ログインすると、そのアカウントが足された先のプロファイル (= 他の Google アカウントも
+  //   含む束) が丸ごと復活してしまっていた (今回のバグの本体)。
+  let profileId: string
+  if (state.mode === 'add') {
+    profileId = state.profileId
+  } else {
+    const resolution = resolveLoginProfile(
+      existing ? { profileId: existing.profile_id, isOwner: existing.is_owner === 1 } : null,
+      crypto.randomUUID(),
+    )
+    profileId = resolution.profileId
+  }
+  // login モードでは、ログインに使ったアカウント自身が常にそのプロファイルのオーナー
+  // (既存のオーナー行を維持する場合も、新規プロファイルを作る場合も is_owner=1)。
+  // add モードで追加されるアカウントは常に「接続」(is_owner=0)。
+  const isOwner = state.mode === 'add' ? 0 : 1
 
   // Google から新しい平文 refresh_token を受け取った時だけ暗号化する。既存行を使い回す
   // 場合は D1 に入っている値 (= 既に v1 暗号文、または移行対象外の旧平文) をそのまま書き戻す
@@ -144,10 +177,10 @@ authRoutes.get('/auth/callback', async (c) => {
   }
 
   await c.env.DB.prepare(
-    `INSERT INTO accounts (id, profile_id, email, refresh_token, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token`,
+    `INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token, is_owner = excluded.is_owner`,
   )
-    .bind(accountId, profileId, email, refreshTokenToStore, Date.now())
+    .bind(accountId, profileId, email, refreshTokenToStore, isOwner, Date.now())
     .run()
 
   if (state.mode !== 'add') {

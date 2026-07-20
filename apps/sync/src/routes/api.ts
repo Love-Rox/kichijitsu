@@ -21,7 +21,12 @@ import { SESSION_COOKIE_NAME } from '../session'
 import { decryptToken, InvalidCiphertextError } from '../crypto'
 import { revokeToken } from '../google/oauth'
 import { registerWatch, stopWatch, buildWebhookAddress } from '../google/watch'
-import { isAccountInProfile, resolveDisconnectTargets, shouldClearSessionAfterDisconnect } from '../accounts'
+import {
+  isAccountInProfile,
+  resolveDisconnectTargets,
+  shouldClearSessionAfterDisconnect,
+  type AccountMembership,
+} from '../accounts'
 import { buildWatchRow } from '../core/watch-service'
 import { computeChannelToken } from '../watch-token'
 import { PROFILE_ID_HEADER } from '../durable-object/profile-hub-do'
@@ -274,12 +279,15 @@ apiRoutes.delete('/api/account', requireAuth, async (c) => {
     }
   }
 
-  const { results: profileAccounts } = await c.env.DB.prepare('SELECT id FROM accounts WHERE profile_id = ?')
+  const { results: profileAccountRows } = await c.env.DB.prepare('SELECT id, is_owner FROM accounts WHERE profile_id = ?')
     .bind(profileId)
-    .all<{ id: string }>()
-  const profileAccountIds = profileAccounts.map((row) => row.id)
+    .all<{ id: string; is_owner: number }>()
+  const profileAccounts: AccountMembership[] = profileAccountRows.map((row) => ({
+    id: row.id,
+    isOwner: row.is_owner === 1,
+  }))
 
-  const targets = resolveDisconnectTargets(body, profileAccountIds)
+  const targets = resolveDisconnectTargets(body, profileAccounts)
   if (targets === null) {
     // body.accountId が指定されたが、このプロファイルには属していない (他人のアカウント等)。
     return c.json<ApiError>({ error: 'account_not_found' }, 403)
@@ -289,7 +297,7 @@ apiRoutes.delete('/api/account', requireAuth, async (c) => {
     await disconnectAccount(c.env, accountId)
   }
 
-  const remaining = profileAccountIds.length - targets.length
+  const remaining = profileAccounts.length - targets.length
   if (shouldClearSessionAfterDisconnect(remaining)) {
     deleteCookie(c, SESSION_COOKIE_NAME, { path: '/' })
   }

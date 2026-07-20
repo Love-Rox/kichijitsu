@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { isAccountInProfile, resolveDisconnectTargets, shouldClearSessionAfterDisconnect } from '../src/accounts'
+import {
+  isAccountInProfile,
+  resolveDisconnectTargets,
+  shouldClearSessionAfterDisconnect,
+  type AccountMembership,
+} from '../src/accounts'
 
 describe('isAccountInProfile', () => {
   it('allows an account that belongs to the caller profile', () => {
@@ -16,10 +21,21 @@ describe('isAccountInProfile', () => {
 })
 
 describe('resolveDisconnectTargets', () => {
-  const PROFILE_ACCOUNTS = ['acc-1', 'acc-2']
+  // acc-1 が owner (身元)、acc-2 は接続 (同期専用) という前提の2アカウント構成。
+  const PROFILE_ACCOUNTS: AccountMembership[] = [
+    { id: 'acc-1', isOwner: true },
+    { id: 'acc-2', isOwner: false },
+  ]
+  const ALL_IDS = PROFILE_ACCOUNTS.map((a) => a.id)
 
-  it('targets just the requested account when it belongs to the profile', () => {
-    expect(resolveDisconnectTargets({ accountId: 'acc-1' }, PROFILE_ACCOUNTS)).toEqual(['acc-1'])
+  it('targets just the requested account when it is a non-owner (connected) account', () => {
+    expect(resolveDisconnectTargets({ accountId: 'acc-2' }, PROFILE_ACCOUNTS)).toEqual(['acc-2'])
+  })
+
+  it('escalates to the whole profile when the requested account is the owner (safe default)', () => {
+    // オーナーだけを消して接続アカウントが宙に浮く状態を防ぐため、オーナー解除は
+    // プロファイル全体の解除に格上げされる。
+    expect(resolveDisconnectTargets({ accountId: 'acc-1' }, PROFILE_ACCOUNTS)).toEqual(ALL_IDS)
   })
 
   it('returns null (ownership failure) when the requested account is not in the profile', () => {
@@ -27,7 +43,7 @@ describe('resolveDisconnectTargets', () => {
   })
 
   it('targets every account in the profile when accountId is omitted', () => {
-    expect(resolveDisconnectTargets({}, PROFILE_ACCOUNTS)).toEqual(PROFILE_ACCOUNTS)
+    expect(resolveDisconnectTargets({}, PROFILE_ACCOUNTS)).toEqual(ALL_IDS)
   })
 })
 
