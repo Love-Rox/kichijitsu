@@ -1,0 +1,163 @@
+/*
+ * 月表示ビュー(フェーズ6)。WeekGrid とは違い横スクロール/週送りスライドを持たない
+ * 固定 6週×7列グリッド。色トークンは WeekGrid.css/App.css と揃える
+ * (アクセント #d7402e、薄墨 #8a8478、罫線 #e5e7eb)。
+ */
+
+.month-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.month-view-weekday-header {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.month-view-weekday {
+  padding: 6px 0;
+  text-align: center;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.month-view-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.month-view-week {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.month-cell {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  border-left: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.month-cell:hover {
+  background-color: rgba(37, 99, 235, 0.03);
+}
+
+/* 当月外(前後月の埋め日)は日付・チップとも淡色にして視覚的に後退させる */
+.month-cell--outside {
+  background-color: rgba(229, 231, 235, 0.28);
+}
+
+.month-cell--outside .month-cell-date {
+  color: #c9c2b4;
+}
+
+.month-cell--today {
+  background-color: rgba(215, 64, 46, 0.04);
+}
+
+.month-cell-header {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.month-cell-date {
+  font-size: 11px;
+  color: #55504a;
+}
+
+/* 今日バッジ = WeekGrid の枡バッジ(brand/README.md)を月表示用に縮小したもの */
+.month-cell-date.is-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 30%;
+  background: #d7402e;
+  color: #faf7f2;
+  font-weight: 600;
+}
+
+.month-cell-chips {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.month-chip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  border: none;
+  border-left: 2px solid;
+  border-radius: 3px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: #24211e;
+  text-align: left;
+  cursor: pointer;
+}
+
+.month-chip:hover {
+  filter: brightness(0.97);
+}
+
+.month-chip-time {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 10px;
+  color: #55504a;
+}
+
+.month-chip-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 終日チップは EventDetailCard の終日バーと揃え、時刻ラベルの余白を持たず全幅をタイトルに使う */
+.month-chip--allday .month-chip-title {
+  font-weight: 500;
+}
+
+.month-chip-overflow {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 10px;
+  color: #8a8478;
+  cursor: pointer;
+}
+
+.month-chip-overflow:hover {
+  color: #24211e;
+  text-decoration: underline;
+}

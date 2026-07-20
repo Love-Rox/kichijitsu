@@ -20,6 +20,7 @@ import {
   type WriteTargetCandidate,
 } from './sync/eventCreate'
 import { WeekGrid } from './components/WeekGrid'
+import { MonthView } from './components/MonthView'
 import { LogoMark, LogoWordmark } from './components/Logo'
 import { MasuIndicator } from './components/MasuIndicator'
 import { CalendarSettingsPanel } from './components/CalendarSettingsPanel'
@@ -54,6 +55,7 @@ import {
 } from './db/database'
 import { ensureExpanded } from './expansion/ensureExpanded'
 import { applySyncResponse, deleteGoogleData } from './sync/applySync'
+import { mondayOf, monthGridRangeMs } from './layout/monthGrid'
 import './App.css'
 
 /**
@@ -65,11 +67,6 @@ import './App.css'
  */
 const DEMO_SEED_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1'
-
-/** 指定日を含む週の月曜日 */
-function mondayOf(date: Temporal.PlainDate): Temporal.PlainDate {
-  return date.subtract({ days: date.dayOfWeek - 1 })
-}
 
 /** 週 [weekStart, weekStart+7日) の epoch ms 範囲(timeZone の壁時計基準) */
 function weekRangeMs(weekStart: Temporal.PlainDate, timeZone: string): { fromMs: number; toMs: number } {
@@ -84,6 +81,10 @@ const NAV_LOCK_MS = 220
 function App() {
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), [])
   const [weekStart, setWeekStart] = useState(() => mondayOf(Temporal.Now.plainDateISO()))
+  // 月表示ビュー(フェーズ6)。weekStart とは独立した状態にし、view 切替時に
+  // 双方をその場で同期させる(switchView 参照)。常に「月内の1日」を指す
+  const [view, setView] = useState<'week' | 'month'>('week')
+  const [monthCursor, setMonthCursor] = useState(() => Temporal.Now.plainDateISO().with({ day: 1 }))
   const navLockRef = useRef(false)
 
   const store = useMemo(() => new OccurrenceStore(), [])
@@ -277,14 +278,15 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 週ナビゲーション時: 表示範囲を賄うのに十分な展開が済んでいるか確認する
+  // 週/月ナビゲーション時: 表示範囲(view に応じて週 or 6週グリッド全体)を賄うのに
+  // 十分な展開が済んでいるか確認する
   useEffect(() => {
     if (!db) return
-    const { fromMs, toMs } = weekRangeMs(weekStart, timeZone)
+    const { fromMs, toMs } = view === 'week' ? weekRangeMs(weekStart, timeZone) : monthGridRangeMs(monthCursor, timeZone)
     ensureExpanded(db, store, fromMs, toMs).catch((err) => {
       console.error('kichijitsu: ensureExpanded failed', err)
     })
-  }, [db, weekStart, timeZone, store])
+  }, [db, view, weekStart, monthCursor, timeZone, store])
 
   // Google 連携状態を確認する。バックエンド (apps/sync) が起動していない場合の
   // fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)。
@@ -814,17 +816,53 @@ function App() {
     }, NAV_LOCK_MS)
   }, [])
 
-  const goToPrevWeek = useCallback(() => {
-    withNavLock(() => setWeekStart((w) => w.subtract({ weeks: 1 })))
-  }, [withNavLock])
+  // ナビゲーション(←/→/今日、フェーズ6で月表示にも対応): view に応じて週送り/月送りを切り替える
+  const goToPrev = useCallback(() => {
+    withNavLock(() => {
+      if (view === 'week') setWeekStart((w) => w.subtract({ weeks: 1 }))
+      else setMonthCursor((m) => m.subtract({ months: 1 }))
+    })
+  }, [view, withNavLock])
 
-  const goToNextWeek = useCallback(() => {
-    withNavLock(() => setWeekStart((w) => w.add({ weeks: 1 })))
-  }, [withNavLock])
+  const goToNext = useCallback(() => {
+    withNavLock(() => {
+      if (view === 'week') setWeekStart((w) => w.add({ weeks: 1 }))
+      else setMonthCursor((m) => m.add({ months: 1 }))
+    })
+  }, [view, withNavLock])
 
   const goToToday = useCallback(() => {
-    withNavLock(() => setWeekStart(mondayOf(Temporal.Now.plainDateISO())))
-  }, [withNavLock])
+    withNavLock(() => {
+      if (view === 'week') setWeekStart(mondayOf(Temporal.Now.plainDateISO()))
+      else setMonthCursor(Temporal.Now.plainDateISO().with({ day: 1 }))
+    })
+  }, [view, withNavLock])
+
+  // 週⇔月ビューの切替(フェーズ6)。切替の瞬間、もう一方の状態を今表示中の期間に
+  // 同期させる(week→month: 表示中の週が属する月へ。month→week: 表示中の月の1日を
+  // 含む週へ)ことで、トグルしても「だいたい同じ期間を見ている」体験を保つ
+  const switchView = useCallback(
+    (next: 'week' | 'month') => {
+      if (view === next) return
+      withNavLock(() => {
+        if (next === 'month') setMonthCursor(weekStart.with({ day: 1 }))
+        else setWeekStart(mondayOf(monthCursor))
+        setView(next)
+      })
+    },
+    [view, weekStart, monthCursor, withNavLock],
+  )
+
+  // 月ビューのセル空き部分・「+N」クリック(フェーズ6): その日を含む週の week ビューへ切り替える
+  const handleNavigateToDay = useCallback(
+    (day: Temporal.PlainDate) => {
+      withNavLock(() => {
+        setWeekStart(mondayOf(day))
+        setView('week')
+      })
+    },
+    [withNavLock],
+  )
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -833,16 +871,16 @@ function App() {
         return
       }
       if (e.key === 'ArrowLeft') {
-        goToPrevWeek()
+        goToPrev()
       } else if (e.key === 'ArrowRight') {
-        goToNextWeek()
+        goToNext()
       } else if (e.key === 't' || e.key === 'T') {
         goToToday()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [goToPrevWeek, goToNextWeek, goToToday])
+  }, [goToPrev, goToNext, goToToday])
 
   // カレンダー設定パネル: 外側クリック・Escape で閉じる
   useEffect(() => {
@@ -891,19 +929,46 @@ function App() {
           <LogoWordmark />
         </div>
         <div className="toolbar-nav">
-          <button type="button" onClick={goToPrevWeek} aria-label="前週">
+          <button type="button" onClick={goToPrev} aria-label={view === 'week' ? '前週' : '前月'}>
             ←
           </button>
           <button type="button" onClick={goToToday}>
             今日
           </button>
-          <button type="button" onClick={goToNextWeek} aria-label="次週">
+          <button type="button" onClick={goToNext} aria-label={view === 'week' ? '次週' : '次月'}>
             →
+          </button>
+        </div>
+        {/* ビュー切替(フェーズ6): 週/月の控えめなセグメント */}
+        <div className="toolbar-view-toggle" role="group" aria-label="表示切替">
+          <button
+            type="button"
+            className={view === 'week' ? 'is-active' : ''}
+            aria-pressed={view === 'week'}
+            onClick={() => switchView('week')}
+          >
+            週
+          </button>
+          <button
+            type="button"
+            className={view === 'month' ? 'is-active' : ''}
+            aria-pressed={view === 'month'}
+            onClick={() => switchView('month')}
+          >
+            月
           </button>
         </div>
         <div className="toolbar-right">
           <span className="month-label">
-            {weekStart.year}年{weekStart.month}月
+            {view === 'week' ? (
+              <>
+                {weekStart.year}年{weekStart.month}月
+              </>
+            ) : (
+              <>
+                {monthCursor.year}年{monthCursor.month}月
+              </>
+            )}
           </span>
           {offline && (
             <span
@@ -974,18 +1039,33 @@ function App() {
         </div>
       </header>
       <main className="app-main">
-        <WeekGrid
-          store={store}
-          allDayStore={allDayStore}
-          weekStart={weekStart}
-          timeZone={timeZone}
-          onPersist={handlePersist}
-          visibleCalendarKeys={visibleCalendarKeys}
-          calendarLookup={calendarLookup}
-          onDelete={handleDeleteOccurrence}
-          writeTarget={defaultWriteTarget}
-          onCreateEvent={handleCreate}
-        />
+        {view === 'week' ? (
+          <WeekGrid
+            store={store}
+            allDayStore={allDayStore}
+            weekStart={weekStart}
+            timeZone={timeZone}
+            onPersist={handlePersist}
+            visibleCalendarKeys={visibleCalendarKeys}
+            calendarLookup={calendarLookup}
+            onDelete={handleDeleteOccurrence}
+            writeTarget={defaultWriteTarget}
+            onCreateEvent={handleCreate}
+          />
+        ) : (
+          <MonthView
+            store={store}
+            allDayStore={allDayStore}
+            monthCursor={monthCursor}
+            timeZone={timeZone}
+            visibleCalendarKeys={visibleCalendarKeys}
+            calendarLookup={calendarLookup}
+            onDelete={handleDeleteOccurrence}
+            writeTarget={defaultWriteTarget}
+            onCreateEvent={handleCreate}
+            onNavigateToDay={handleNavigateToDay}
+          />
+        )}
         {initIndicator.visible && (
           <div className={initIndicator.fading ? 'init-overlay masu-indicator--fading' : 'init-overlay'}>
             <MasuIndicator size="md" />
