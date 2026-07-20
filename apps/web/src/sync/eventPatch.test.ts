@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Temporal } from '@js-temporal/polyfill'
 import type { Occurrence } from '../model/types'
 import {
+  buildEventDeleteRequest,
   buildEventPatchRequest,
   rawGoogleEventId,
   seriesInstanceEventId,
@@ -127,5 +128,45 @@ describe('buildEventPatchRequest', () => {
   it('id のパースに失敗したら null (console.error はするが throw しない)', () => {
     const occ = baseOccurrence({ id: 'not-a-google-id' })
     expect(buildEventPatchRequest(occ, 'Asia/Tokyo')).toBeNull()
+  })
+})
+
+describe('buildEventDeleteRequest', () => {
+  it('単発の google occurrence から EventDeleteRequest を組み立てる', () => {
+    const occ = baseOccurrence()
+    expect(buildEventDeleteRequest(occ)).toEqual({
+      accountId: 'acc-1',
+      calendarId: 'cal-1',
+      eventId: 'evt-1',
+    })
+  })
+
+  it('シリーズ由来の occurrence はインスタンス ID を組み立てる', () => {
+    const originalStartMs = zms('2026-07-20T10:00:00', 'Asia/Tokyo')
+    const occ = baseOccurrence({
+      id: `g:acc-1:cal-1:series-evt:${originalStartMs}`,
+      seriesId: 'g:acc-1:cal-1:series-evt',
+      originalStartMs,
+    })
+    expect(buildEventDeleteRequest(occ)).toEqual({
+      accountId: 'acc-1',
+      calendarId: 'cal-1',
+      eventId: 'series-evt_20260720T010000Z',
+    })
+  })
+
+  it('source !== "google" なら null', () => {
+    const occ = baseOccurrence({ source: 'local' })
+    expect(buildEventDeleteRequest(occ)).toBeNull()
+  })
+
+  it('accountId または calendarId が欠けていれば null', () => {
+    const occ = baseOccurrence({ calendarId: undefined })
+    expect(buildEventDeleteRequest(occ)).toBeNull()
+  })
+
+  it('id のパースに失敗したら null (console.error はするが throw しない)', () => {
+    const occ = baseOccurrence({ id: 'not-a-google-id' })
+    expect(buildEventDeleteRequest(occ)).toBeNull()
   })
 })

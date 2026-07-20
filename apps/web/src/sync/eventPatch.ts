@@ -1,5 +1,5 @@
 import { Temporal } from '@js-temporal/polyfill'
-import type { EventPatchRequest } from '@kichijitsu/shared'
+import type { EventDeleteRequest, EventPatchRequest } from '@kichijitsu/shared'
 import type { Occurrence } from '../model/types'
 
 /**
@@ -64,6 +64,32 @@ export function buildEventPatchRequest(occurrence: Occurrence, timeZone: string)
     }
   } catch (err) {
     console.error('kichijitsu: failed to build EventPatchRequest', err)
+    return null
+  }
+}
+
+/**
+ * occurrence から POST /api/event/delete の body を組み立てる。
+ * eventId の組み立て規則は buildEventPatchRequest と全く同じ (rawGoogleEventId /
+ * seriesInstanceEventId を再利用)。source !== 'google' や accountId/calendarId 欠落、
+ * id のパース失敗時は null (呼び出し側で warn する)。
+ */
+export function buildEventDeleteRequest(occurrence: Occurrence): EventDeleteRequest | null {
+  if (occurrence.source !== 'google' || !occurrence.accountId || !occurrence.calendarId) {
+    return null
+  }
+  try {
+    const eventId =
+      occurrence.seriesId && occurrence.originalStartMs !== undefined
+        ? seriesInstanceEventId(occurrence.seriesId, occurrence.originalStartMs)
+        : rawGoogleEventId(occurrence.id)
+    return {
+      accountId: occurrence.accountId,
+      calendarId: occurrence.calendarId,
+      eventId,
+    }
+  } catch (err) {
+    console.error('kichijitsu: failed to build EventDeleteRequest', err)
     return null
   }
 }

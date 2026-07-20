@@ -5,6 +5,10 @@ import type {
   AccountDTO,
   ApiError,
   DisconnectRequest,
+  EventCreateRequest,
+  EventCreateResponse,
+  EventDeleteRequest,
+  EventDeleteResponse,
   EventPatchRequest,
   EventPatchResponse,
   MeResponse,
@@ -130,6 +134,83 @@ apiRoutes.post('/api/event/patch', requireAuth, async (c) => {
   }
 
   return c.json<EventPatchResponse>({ ok: true })
+})
+
+// 新規予定を Google へ作成する (フェーズ5)。エラーの一律 409 マッピング方針は /api/event/patch
+// と同じ (コメント参照)。成功時は eventId のみ返す — UI が楽観的 occurrence の id を確定 id に
+// 差し替えるためであり、それ以外の作成結果 (実際の start/end 等) を正本として返すことはしない。
+// 正本は次の同期 (webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する。
+apiRoutes.post('/api/event/create', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: EventCreateRequest
+  try {
+    body = await c.req.json<EventCreateRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (
+    !body?.accountId ||
+    !body?.calendarId ||
+    !body?.title ||
+    typeof body.startMs !== 'number' ||
+    typeof body.endMs !== 'number' ||
+    !body?.timeZone
+  ) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const account = await c.env.DB.prepare('SELECT profile_id FROM accounts WHERE id = ?')
+    .bind(body.accountId)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId)
+  const result = await stub.createEvent(body.accountId, body.calendarId, body.title, body.startMs, body.endMs, body.timeZone)
+  if (!result.ok) {
+    console.warn(
+      `event create failed: account=${body.accountId} calendar=${body.calendarId} status=${result.status} error=${result.error}`,
+    )
+    return c.json<ApiError>({ error: 'create_failed' }, 409)
+  }
+
+  return c.json<EventCreateResponse>({ ok: true, eventId: result.data })
+})
+
+// 予定を Google から削除する (フェーズ5)。404 (既に削除済み) は UserSyncDO.deleteEvent /
+// deleteEventWithRetry の中で成功扱いにしている (冪等) ので、ここに届く時点で ok:false は
+// 本当の失敗 (403/412/5xx や 401 リトライ失敗) のみ。エラーの一律 409 マッピング方針は
+// /api/event/patch と同じ (コメント参照)。
+apiRoutes.post('/api/event/delete', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: EventDeleteRequest
+  try {
+    body = await c.req.json<EventDeleteRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (!body?.accountId || !body?.calendarId || !body?.eventId) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const account = await c.env.DB.prepare('SELECT profile_id FROM accounts WHERE id = ?')
+    .bind(body.accountId)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId)
+  const result = await stub.deleteEvent(body.accountId, body.calendarId, body.eventId)
+  if (!result.ok) {
+    console.warn(
+      `event delete failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    )
+    return c.json<ApiError>({ error: 'delete_failed' }, 409)
+  }
+
+  return c.json<EventDeleteResponse>({ ok: true })
 })
 
 // リアルタイム反映用の SSE ストリーム。通知はトリガーに過ぎず、データそのものは運ばない

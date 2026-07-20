@@ -5,12 +5,20 @@ import type {
   AccountDTO,
   CalendarListEntryDTO,
   DisconnectRequest,
+  EventCreateResponse,
   MeResponse,
   SyncRequest,
   SyncResponse,
   WatchRequest,
 } from '@kichijitsu/shared'
-import { buildEventPatchRequest } from './sync/eventPatch'
+import { buildEventDeleteRequest, buildEventPatchRequest } from './sync/eventPatch'
+import {
+  buildEventCreateRequest,
+  buildPendingOccurrence,
+  finalizeCreatedOccurrence,
+  resolveDefaultWriteTarget,
+  type WriteTargetCandidate,
+} from './sync/eventCreate'
 import { WeekGrid } from './components/WeekGrid'
 import { LogoMark, LogoWordmark } from './components/Logo'
 import { MasuIndicator } from './components/MasuIndicator'
@@ -28,6 +36,7 @@ import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
   countSeries,
+  deleteOccurrencesByIds,
   deleteOverridesByIds,
   getAllAllDayOccurrences,
   getExpansionState,
@@ -402,19 +411,28 @@ function App() {
     [db, store, allDayStore, checkedFetch],
   )
 
-  // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色)。
-  // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする
-  const selectedTargets = useCallback((): { accountId: string; calendarId: string; defaultColor?: string }[] => {
-    const targets: { accountId: string; calendarId: string; defaultColor?: string }[] = []
+  // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色・primary か)。
+  // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする。
+  // primary フラグは新規予定の書き込み先決定 (defaultWriteTarget、フェーズ5) にも使う
+  const selectedTargets = useCallback((): WriteTargetCandidate[] => {
+    const targets: WriteTargetCandidate[] = []
     for (const account of me.accounts) {
       const calendars = calendarsByAccount[account.id] ?? []
       for (const calendarId of visibleCalendars[account.id] ?? []) {
         const cal = calendars.find((c) => c.id === calendarId)
-        targets.push({ accountId: account.id, calendarId, defaultColor: cal?.backgroundColor })
+        targets.push({ accountId: account.id, calendarId, primary: cal?.primary, defaultColor: cal?.backgroundColor })
       }
     }
     return targets
   }, [me.accounts, calendarsByAccount, visibleCalendars])
+
+  // 新規予定 (フェーズ5) のデフォルトの書き込み先: 選択中カレンダーのうち primary が
+  // あればそれ、無ければ先頭 (resolveDefaultWriteTarget、規則は eventCreate.ts 参照)。
+  // null なら空き領域クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
+  const defaultWriteTarget = useMemo(
+    () => resolveDefaultWriteTarget(selectedTargets()),
+    [selectedTargets],
+  )
 
   // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペアを並行に同期する
   const runSync = useCallback(async () => {
@@ -660,6 +678,133 @@ function App() {
     [db, store, checkedFetch, timeZone, flashSaveError],
   )
 
+  // 新規予定の楽観的作成(フェーズ5)。DayColumn(空き領域クリック/ドラッグ)がタイトルを
+  // 確定した瞬間に呼ばれる。仮 id (local-pending-<uuid>) の occurrence を即座に
+  // store/IndexedDB へ入れて表示し、POST /api/event/create で Google へ書き込む。
+  // 成功したら仮 occurrence を確定 id (`g:<accountId>:<calendarId>:<eventId>`) の
+  // occurrence に差し替える — 以後 SSE/同期で同じ予定が届いても id が一致するため
+  // 冪等に上書きされるだけで済み、重複表示は起きない(eventCreate.ts のコメント参照)。
+  // 失敗時は仮 occurrence を削除してロールバックし、saveError を表示する。
+  const handleCreate = useCallback(
+    (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => {
+      if (!db) return
+      const pending = buildPendingOccurrence({ title, startMs, endMs, target })
+      // 楽観的表示: 応答を待たずに即座に見た目へ反映する
+      store.update(pending)
+      async function run() {
+        if (!db) return
+        await putOccurrence(db, pending)
+
+        let ok = false
+        let eventId: string | undefined
+        try {
+          const res = await checkedFetch('/api/event/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildEventCreateRequest({ title, startMs, endMs, target, timeZone })),
+          })
+          ok = res.ok
+          if (ok) {
+            const data = (await res.json()) as EventCreateResponse
+            eventId = data.eventId
+          } else {
+            console.error(`kichijitsu: POST /api/event/create failed (${pending.id}): ${res.status}`)
+          }
+        } catch (err) {
+          console.error('kichijitsu: POST /api/event/create failed', err)
+        }
+
+        if (ok && eventId) {
+          const finalized = finalizeCreatedOccurrence(pending, target, eventId)
+          await deleteOccurrencesByIds(db, [pending.id])
+          await putOccurrence(db, finalized)
+          // remove→update の間の空フレームを1回の通知にまとめる(点滅防止、他の箇所と同じ流儀)
+          await store.batch(() => {
+            store.remove([pending.id])
+            store.update(finalized)
+          })
+          return
+        }
+
+        // ロールバック: 仮 occurrence を削除
+        await deleteOccurrencesByIds(db, [pending.id])
+        store.remove([pending.id])
+        flashSaveError()
+      }
+      run().catch((err) => {
+        console.error('kichijitsu: failed to persist new occurrence', err)
+      })
+    },
+    [db, store, checkedFetch, timeZone, flashSaveError],
+  )
+
+  // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
+  // から呼ばれる。occurrence を即座に store/IndexedDB から取り除き、シリーズ由来の
+  // 1回分なら override (patch: null = EXDATE 相当、model/series.ts 参照) を書いて
+  // 再展開後も現れないようにする(v1 の簡易実装: 本来は EXDATE をシリーズ側に足すのが
+  // 正だが、既存の override 機構を流用する)。POST /api/event/delete で Google へ
+  // 書き戻し、失敗時は occurrence(と override)を復元してロールバックし、saveError を表示する。
+  // 成功後に SSE/同期で cancelled が届いても既に消えているため冪等。
+  const handleDeleteOccurrence = useCallback(
+    (occurrence: Occurrence) => {
+      if (!db) return
+      async function run() {
+        if (!db) return
+
+        const seriesId = occurrence.seriesId
+        const originalStartMs = occurrence.originalStartMs
+        const overrideId =
+          seriesId && originalStartMs !== undefined ? instanceId(seriesId, originalStartMs) : undefined
+        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null
+
+        // 楽観的削除: 応答を待たずに即座に見た目から消す
+        store.remove([occurrence.id])
+        await deleteOccurrencesByIds(db, [occurrence.id])
+        if (overrideId && seriesId && originalStartMs !== undefined) {
+          await putOverride(db, { id: overrideId, seriesId, originalStartMs, patch: null })
+        }
+
+        const deleteReq = buildEventDeleteRequest(occurrence)
+        let ok = false
+        if (deleteReq) {
+          try {
+            const res = await checkedFetch('/api/event/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(deleteReq),
+            })
+            ok = res.ok
+            if (!ok) {
+              console.error(`kichijitsu: POST /api/event/delete failed (${occurrence.id}): ${res.status}`)
+            }
+          } catch (err) {
+            console.error('kichijitsu: POST /api/event/delete failed', err)
+          }
+        } else {
+          console.error('kichijitsu: could not build EventDeleteRequest, skipping delete', occurrence.id)
+        }
+
+        if (ok) return
+
+        // ロールバック: occurrence と override を復元
+        store.update(occurrence)
+        await putOccurrence(db, occurrence)
+        if (overrideId) {
+          if (previousOverride) {
+            await putOverride(db, previousOverride)
+          } else {
+            await deleteOverridesByIds(db, [overrideId])
+          }
+        }
+        flashSaveError()
+      }
+      run().catch((err) => {
+        console.error('kichijitsu: failed to delete occurrence', err)
+      })
+    },
+    [db, store, checkedFetch, flashSaveError],
+  )
+
   const withNavLock = useCallback((run: () => void) => {
     if (navLockRef.current) return
     navLockRef.current = true
@@ -837,6 +982,9 @@ function App() {
           onPersist={handlePersist}
           visibleCalendarKeys={visibleCalendarKeys}
           calendarLookup={calendarLookup}
+          onDelete={handleDeleteOccurrence}
+          writeTarget={defaultWriteTarget}
+          onCreateEvent={handleCreate}
         />
         {initIndicator.visible && (
           <div className={initIndicator.fading ? 'init-overlay masu-indicator--fading' : 'init-overlay'}>

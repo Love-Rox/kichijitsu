@@ -5,6 +5,7 @@ import type { OccurrenceStore } from '../store/occurrenceStore'
 import { useOccurrences } from '../store/occurrenceStore'
 import type { AllDayStore } from '../store/allDayStore'
 import { useAllDayOccurrences } from '../store/allDayStore'
+import type { WriteTargetCandidate } from '../sync/eventCreate'
 import { packColumns } from '../layout/packColumns'
 import { packDayBars } from '../layout/packDayBars'
 import {
@@ -12,14 +13,13 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from '../layout/groupDuplicates'
-import { busyOverlapColors, isBusyPlaceholder, minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
-import { resolveDisplayColor } from '../layout/eventColors'
-import { EventBlock, type CalendarInfo } from './EventBlock'
+import { minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { type CalendarInfo } from './EventBlock'
 import { AllDayBar } from './AllDayBar'
+import { DayColumn } from './DayColumn'
 import './WeekGrid.css'
 
 const INITIAL_SCROLL_HOUR = 8
-const COMPACT_THRESHOLD_MIN = 40
 const SLIDE_MS = 200
 
 /**
@@ -29,21 +29,6 @@ const SLIDE_MS = 200
  */
 const ALLDAY_ROW_HEIGHT = 20
 const ALLDAY_MAX_VISIBLE_ROWS = 3
-
-/**
- * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
- * ずらして重ねる(left = column * step, width = 残り全部)。CASCADE_STEP_FRAC は
- * 通常時のずれ幅(使用可能幅に対する割合)、CASCADE_MIN_CARD_FRAC は最前面
- * カード(最後列、常に全幅まで見える)の最低幅 — タイトルが読める下限。
- * 列数が多いときは step を縮めて全カードの左端がグリッド内に収まるようにする。
- */
-const CASCADE_STEP_FRAC = 0.14
-const CASCADE_MIN_CARD_FRAC = 0.32
-
-function cascadeStepFrac(columnCount: number): number {
-  if (columnCount <= 1) return 0
-  return Math.min(CASCADE_STEP_FRAC, (1 - CASCADE_MIN_CARD_FRAC) / (columnCount - 1))
-}
 
 interface WeekGridProps {
   store: OccurrenceStore
@@ -65,6 +50,12 @@ interface WeekGridProps {
   visibleCalendarKeys: Set<string>
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventBlock の詳細ポップオーバーが「どのカレンダーか」を出すのに使う */
   calendarLookup: Map<string, CalendarInfo>
+  /** 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5、google 由来の occurrence のみ) */
+  onDelete: (occurrence: Occurrence) => void
+  /** 新規予定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
+  writeTarget: WriteTargetCandidate | null
+  /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
+  onCreateEvent: (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => void
 }
 
 type SlidePhase = 'idle' | 'next' | 'prev'
@@ -98,6 +89,9 @@ export function WeekGrid({
   onPersist,
   visibleCalendarKeys,
   calendarLookup,
+  onDelete,
+  writeTarget,
+  onCreateEvent,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds)
@@ -402,92 +396,24 @@ export function WeekGrid({
             <div className="week-grid-days-strip" style={stripStyle}>
               {weekPanels.map(({ weekPanelStart, dayStarts, dayEnds, dayData }) => (
                 <div className="week-grid-days-panel" key={weekPanelStart.toString()}>
-                  {dayData.map(({ day, positioned }, dayIndex) => {
-                    const dayStartMs = dayStarts[dayIndex]
-                    const dayEndMs = dayEnds[dayIndex]
-                    const isToday = day.equals(todayPlainDate)
-                    const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs
-                    const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000)
-
-                    // カスケードの前面/背面: 列番号ではなく「開始が遅いほど前面」で決める。
-                    // 各カードのタイトル/時刻は上端(=開始時刻)にあるため、遅く始まるカードを
-                    // 前面にしてもそこは先行カードの本体部分で、タイトルを覆わない。
-                    // 同時刻は短い予定を前面に(長い予定に埋もれた短い予定をクリック可能に保つ)。
-                    // ただし Busy/予定あり のプレースホルダは中身が無いので無条件に最背面へ。
-                    const stackZ = new Map<string, number>()
-                    positioned
-                      .map((p) => p.item.primary)
-                      .sort((a, b) => {
-                        const busyA = isBusyPlaceholder(a.title) ? 0 : 1
-                        const busyB = isBusyPlaceholder(b.title) ? 0 : 1
-                        return busyA - busyB || a.startMs - b.startMs || b.endMs - a.endMs
-                      })
-                      .forEach((occ, rank) => stackZ.set(occ.id, rank))
-
-                    // 「予定あり」バッジ(2026-07-20): この日の Busy 区間を色付きで集め、
-                    // 非 Busy の各カードが重なる Busy のカレンダー色をバッジに出す。Busy は
-                    // 最背面のまま動かさず、実予定側にバッジを出すことで隠れた Busy に気付けるようにする。
-                    // 色は resolveDisplayColor で解決(表示色と一致させる)
-                    const busyIntervals = positioned
-                      .map((p) => p.item.primary)
-                      .filter((occ) => isBusyPlaceholder(occ.title))
-                      .map((occ) => ({
-                        startMs: occ.startMs,
-                        endMs: occ.endMs,
-                        color: resolveDisplayColor(occ, calendarLookup),
-                      }))
-
-                    return (
-                      <div
-                        key={day.toString()}
-                        className={isToday ? 'week-grid-day-column is-today' : 'week-grid-day-column'}
-                      >
-                        {positioned.map(({ item: group, column, columnCount }) => {
-                          const occurrence = group.primary
-                          const durationMin = (occurrence.endMs - occurrence.startMs) / 60_000
-                          const isCompact = durationMin < COMPACT_THRESHOLD_MIN
-                          const topPx = minutesToPx((occurrence.startMs - dayStartMs) / 60_000)
-                          const heightPx = Math.max(minutesToPx(durationMin), 4)
-                          // カスケード表示(フェーズ5): 列ごとに等分せず、少しずつ右へ
-                          // ずらして重ねる(left=column*step, width=残り全部)
-                          const step = cascadeStepFrac(columnCount)
-                          const leftPct = column * step * 100
-                          const widthPct = 100 - leftPct
-                          const stackIndex = stackZ.get(occurrence.id) ?? column
-                          // 重なる Busy のカレンダー色一覧(重複排除、最大3色)。空なら重なりなし
-                          const blockedByBusyColors = isBusyPlaceholder(occurrence.title)
-                            ? []
-                            : busyOverlapColors(occurrence, busyIntervals)
-
-                          return (
-                            <EventBlock
-                              key={occurrence.id}
-                              occurrence={occurrence}
-                              groupMembers={group.members}
-                              stackIndex={stackIndex}
-                              top={topPx}
-                              height={heightPx}
-                              leftPct={leftPct}
-                              widthPct={widthPct}
-                              isCompact={isCompact}
-                              blockedByBusyColors={blockedByBusyColors}
-                              timeZone={timeZone}
-                              dayIndex={dayIndex}
-                              dayStartMs={dayStartMs}
-                              weekDayStarts={dayStarts}
-                              onCommit={handleCommit}
-                              calendarLookup={calendarLookup}
-                            />
-                          )
-                        })}
-                        {showNowLine && (
-                          <div className="now-line" style={{ top: nowTop }}>
-                            <span className="now-line-dot" />
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                  {dayData.map(({ day, positioned }, dayIndex) => (
+                    <DayColumn
+                      key={day.toString()}
+                      dayIndex={dayIndex}
+                      dayStartMs={dayStarts[dayIndex]}
+                      dayEndMs={dayEnds[dayIndex]}
+                      isToday={day.equals(todayPlainDate)}
+                      nowMs={nowMs}
+                      positioned={positioned}
+                      timeZone={timeZone}
+                      weekDayStarts={dayStarts}
+                      onCommit={handleCommit}
+                      onDelete={onDelete}
+                      calendarLookup={calendarLookup}
+                      writeTarget={writeTarget}
+                      onCreateEvent={onCreateEvent}
+                    />
+                  ))}
                 </div>
               ))}
             </div>

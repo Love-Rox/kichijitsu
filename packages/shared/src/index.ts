@@ -9,6 +9,10 @@ export type {
   ServerEvent,
   EventPatchRequest,
   EventPatchResponse,
+  EventCreateRequest,
+  EventCreateResponse,
+  EventDeleteRequest,
+  EventDeleteResponse,
   WatchRequest,
   SyncResponse,
 } from './protocol'

@@ -119,3 +119,37 @@ export interface EventPatchRequest {
 export interface EventPatchResponse {
   ok: boolean
 }
+
+/**
+ * POST /api/event/create — 新規予定を Google に作成 (フェーズ5)。
+ * 作成結果の正本は次の同期 (SSE changed → /api/sync) で還流するが、UI の
+ * 楽観的表示のため作成された eventId を即時に返す。終日予定は未対応 (時刻予定のみ)。
+ */
+export interface EventCreateRequest {
+  accountId: string
+  calendarId: string
+  title: string
+  startMs: number
+  endMs: number
+  timeZone: string
+}
+
+export interface EventCreateResponse {
+  ok: boolean
+  /** Google が採番した event id (楽観的 occurrence を確定 id に差し替えるのに使う) */
+  eventId: string
+}
+
+/**
+ * POST /api/event/delete — 予定を Google から削除 (フェーズ5)。
+ * 繰り返しの1回分は EventPatchRequest と同じインスタンス ID の組み立て規則に従う。
+ */
+export interface EventDeleteRequest {
+  accountId: string
+  calendarId: string
+  eventId: string
+}
+
+export interface EventDeleteResponse {
+  ok: boolean
+}

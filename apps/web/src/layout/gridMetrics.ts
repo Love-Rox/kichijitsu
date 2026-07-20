@@ -18,6 +18,9 @@ export const PX_PER_MINUTE = HOUR_HEIGHT / 60
  */
 export const DAY_COLUMN_INSET_PX = 3
 
+/** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */
+export const COMPACT_THRESHOLD_MIN = 40
+
 export function minutesToPx(minutes: number): number {
   return minutes * PX_PER_MINUTE
 }
@@ -114,4 +117,21 @@ export function busyOverlapColors(
     }
   }
   return colors
+}
+
+/**
+ * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
+ * ずらして重ねる(left = column * step, width = 残り全部)。CASCADE_STEP_FRAC は
+ * 通常時のずれ幅(使用可能幅に対する割合)、CASCADE_MIN_CARD_FRAC は最前面
+ * カード(最後列、常に全幅まで見える)の最低幅 — タイトルが読める下限。
+ * 列数が多いときは step を縮めて全カードの左端がグリッド内に収まるようにする。
+ * WeekGrid.tsx (通常の予定描画) と DayColumn.tsx (新規作成ドラフトの見た目合わせ) の
+ * 両方から使うため、循環 import 回避のためだけの本モジュールに置く。
+ */
+const CASCADE_STEP_FRAC = 0.14
+const CASCADE_MIN_CARD_FRAC = 0.32
+
+export function cascadeStepFrac(columnCount: number): number {
+  if (columnCount <= 1) return 0
+  return Math.min(CASCADE_STEP_FRAC, (1 - CASCADE_MIN_CARD_FRAC) / (columnCount - 1))
 }

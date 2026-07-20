@@ -63,6 +63,12 @@ interface EventBlockProps {
   onCommit: (updated: Occurrence) => void
   /** `${accountId}:${calendarId}` → カレンダー名/色。詳細ポップオーバーの「どのカレンダーか」表示用 */
   calendarLookup: Map<string, CalendarInfo>
+  /**
+   * 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5)。source==='google' の
+   * ときだけ EventDetailCard に削除ボタンを渡す(呼び出しは常にこの occurrence 自身)。
+   * ローカル予定は当面削除 UI を出さない(将来対応)。
+   */
+  onDelete: (occurrence: Occurrence) => void
 }
 
 interface DragState {
@@ -123,6 +129,7 @@ export function EventBlock({
   weekDayStarts,
   onCommit,
   calendarLookup,
+  onDelete,
 }: EventBlockProps) {
   const elRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -489,6 +496,7 @@ export function EventBlock({
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
+            onDelete={occurrence.source === 'google' ? () => onDelete(occurrence) : undefined}
           />,
           document.body,
         )}
@@ -522,6 +530,14 @@ export interface EventDetailCardProps {
   /** `${accountId}:${calendarId}` → カレンダー名/色。全所属の列挙に使う */
   calendarLookup: Map<string, CalendarInfo>
   onClose: () => void
+  /**
+   * 指定されていれば「削除」ボタン(インライン2段階確認)を表示する(フェーズ5)。
+   * EventBlock は source==='google' のときだけこれを渡す(AllDayBar は渡さない=削除 UI 無し)。
+   * 確定操作(「削除する」クリック)で onDelete() を呼んだ直後に onClose() でポップオーバーを
+   * 閉じる — 削除は楽観的なので occurrence はすぐ画面から消え、失敗時の通知は
+   * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
+   */
+  onDelete?: () => void
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>
 }
@@ -545,6 +561,7 @@ export function EventDetailCard({
   groupMembers,
   calendarLookup,
   onClose,
+  onDelete,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y)
@@ -590,6 +607,55 @@ export function EventDetailCard({
           ))}
         </div>
       )}
+      {onDelete && (
+        <div className="event-detail-actions">
+          <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />
+        </div>
+      )}
     </div>
+  )
+}
+
+type DeleteControlState = 'idle' | 'confirming'
+
+/**
+ * 詳細ポップオーバーの「削除」導線。window.confirm を使わないインライン2段階確認
+ * (CalendarSettingsPanel.tsx の AccountDisconnectControl と同じ流儀)。
+ * 削除自体は楽観的 (App.tsx の handleDeleteOccurrence が即座に occurrence を消す) なので、
+ * このコンポーネントは非同期の完了を待たない — 確定操作で onDelete() を呼んだら
+ * そのままポップオーバーを閉じる (onDeleted、失敗時の通知は App.tsx の saveError トースト)。
+ */
+function EventDeleteControl({ onDelete, onDeleted }: { onDelete: () => void; onDeleted: () => void }) {
+  const [state, setState] = useState<DeleteControlState>('idle')
+
+  if (state === 'confirming') {
+    return (
+      <span className="event-detail-delete-confirm">
+        削除しますか？
+        <button
+          type="button"
+          className="event-detail-text-btn"
+          onClick={() => {
+            onDelete()
+            onDeleted()
+          }}
+        >
+          削除する
+        </button>
+        <button type="button" className="event-detail-text-btn" onClick={() => setState('idle')}>
+          やめる
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="event-detail-text-btn event-detail-delete-btn"
+      onClick={() => setState('confirming')}
+    >
+      削除
+    </button>
   )
 }

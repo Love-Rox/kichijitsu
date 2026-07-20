@@ -472,6 +472,47 @@
   touch-action: none;
 }
 
+/*
+ * ---- 空き領域ドラッグでの新規予定作成 (フェーズ5) ----
+ * .week-grid-day-column (position: relative) の子として絶対配置する点は .event と同じ。
+ * ghost はドラッグ中(pointermove)に DayColumn.tsx が直接 style を書き込む
+ * (EventBlock の drag-badge と同じ「pointermove 中は React state を更新しない」規律)。
+ */
+.day-column-create-ghost {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 4px;
+  border: 1.5px dashed #9ca3af;
+  background: rgba(156, 163, 175, 0.16);
+  pointer-events: none;
+  z-index: 400;
+}
+
+/* pointerup で確定した後のタイトル入力。ghost と同じ座標系(top/height は React state から) */
+.day-column-create-draft {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 4px;
+  border: 1.5px solid #d7402e;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(36, 33, 30, 0.25);
+  z-index: 600;
+  padding: 2px 4px;
+  box-sizing: border-box;
+}
+
+.day-column-create-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: #1f2937;
+}
+
 /* ---- ドラッグ中のフローティング時刻バッジ ---- */
 
 .drag-badge {
@@ -654,4 +695,42 @@
   height: 8px;
   border-radius: 50%;
   flex: none;
+}
+
+/* ---- 削除導線 (フェーズ5) ---- */
+
+.event-detail-actions {
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #55504a;
+}
+
+.event-detail-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.event-detail-text-btn:hover {
+  color: #24211e;
+}
+
+.event-detail-delete-btn {
+  color: #ef4444;
+}
+
+.event-detail-delete-btn:hover {
+  color: #b91c1c;
 }

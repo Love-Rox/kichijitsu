@@ -5,6 +5,8 @@ import { refreshAccessToken } from '../google/oauth'
 import { hasUpdatesSince } from '../google/poll-check'
 import { syncCalendar, type SyncCoreDeps } from '../core/sync'
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from '../core/patch-event'
+import { createEventWithRetry, type CreateEventCoreDeps } from '../core/create-event'
+import { deleteEventWithRetry, type DeleteEventCoreDeps } from '../core/delete-event'
 import { NotConnectedError } from '../core/errors'
 import { runRpc, type RpcResult } from '../rpc-result'
 import { decryptToken, InvalidCiphertextError } from '../crypto'
@@ -117,8 +119,42 @@ export class UserSyncDO extends DurableObject<Env> {
     timeZone: string,
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
-      patchEventTimeWithRetry(this.buildPatchDeps(accountId), { calendarId, eventId, startMs, endMs, timeZone }),
+      patchEventTimeWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId, startMs, endMs, timeZone }),
     )
+  }
+
+  /**
+   * POST /api/event/create (フェーズ5): 新規予定を Google に作成する。
+   * 成功時は作成された event の id を返す (UI が楽観的 occurrence の id を確定 id に
+   * 差し替えるため) — それ以外の作成結果を正本として扱うことはしない。正本は次の同期
+   * (webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する設計
+   * (create-event.ts のコメント参照)。403/412/5xx 等は runRpc が GoogleApiError として
+   * 拾い、実 status のまま RpcResult に載せる。route 側でこれを見て 409 等にマップする。
+   */
+  async createEvent(
+    accountId: string,
+    calendarId: string,
+    title: string,
+    startMs: number,
+    endMs: number,
+    timeZone: string,
+  ): Promise<RpcResult<string>> {
+    return runRpc(() =>
+      createEventWithRetry(this.buildEventWriteDeps(accountId), { calendarId, title, startMs, endMs, timeZone }),
+    )
+  }
+
+  /**
+   * POST /api/event/delete (フェーズ5): 予定を Google から削除する。
+   * 404 (既に削除済み) は deleteEventWithRetry 内で成功扱いにする (冪等)。成功しても
+   * 戻り値は無い (void) — 正本は次の同期 (webhook/ポーリング → SSE 'changed' →
+   * クライアントの /api/sync) で還流する設計であり、ここで Google の応答をクライアントへ
+   * そのまま返すことはしない (delete-event.ts のコメント参照)。403/412/5xx 等は runRpc が
+   * GoogleApiError として拾い、実 status のまま RpcResult に載せる。route 側でこれを見て
+   * 409 等にマップする。
+   */
+  async deleteEvent(accountId: string, calendarId: string, eventId: string): Promise<RpcResult<void>> {
+    return runRpc(() => deleteEventWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId }))
   }
 
   /** アカウント削除 (連携解除) 用: このユーザーの同期状態 (syncToken・access_token キャッシュ・ポーリング状態) を全消去する。 */
@@ -256,7 +292,12 @@ export class UserSyncDO extends DurableObject<Env> {
     }
   }
 
-  private buildPatchDeps(accountId: string): PatchEventCoreDeps {
+  /**
+   * patch/create/delete の書き戻し RPC 共通の依存先。PatchEventCoreDeps / CreateEventCoreDeps /
+   * DeleteEventCoreDeps はいずれも { fetch, getAccessToken, forceRefreshAccessToken } と構造的に
+   * 同一なので、1つの実装を全員に渡す。
+   */
+  private buildEventWriteDeps(accountId: string): PatchEventCoreDeps & CreateEventCoreDeps & DeleteEventCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
