@@ -3,6 +3,9 @@ import { Temporal } from '@js-temporal/polyfill'
 import type { IDBPDatabase } from 'idb'
 import type {
   AccountDTO,
+  BlockRuleDTO,
+  BlockRuleUpsertRequest,
+  BlockRulesResponse,
   CalendarListEntryDTO,
   DisconnectRequest,
   EventCreateResponse,
@@ -15,6 +18,7 @@ import type {
   TasksSyncResponse,
   WatchRequest,
 } from '@kichijitsu/shared'
+import { buildBlockRuleDeleteRequest } from './sync/blockRules'
 import { buildEventDeleteRequest, buildEventPatchRequest } from './sync/eventPatch'
 import {
   buildEventCreateRequest,
@@ -30,6 +34,7 @@ import { WeekGrid } from './components/WeekGrid'
 import { MonthView } from './components/MonthView'
 import { LogoMark, LogoWordmark } from './components/Logo'
 import { MasuIndicator } from './components/MasuIndicator'
+import { BlockRulesOverlay } from './components/BlockRulesOverlay'
 import { CalendarSettingsPanel } from './components/CalendarSettingsPanel'
 import { KeyboardHelpOverlay } from './components/KeyboardHelpOverlay'
 import { SearchOverlay } from './components/SearchOverlay'
@@ -211,6 +216,10 @@ function App() {
   // 予定検索オーバーレイ(フェーズ6)の開閉。ツールバーの検索ボタンからのみ開く
   // (キーボードショートカット化は別途 keyboard/shortcuts.ts 側の対応が必要なため今回は配線しない)
   const [searchOpen, setSearchOpen] = useState(false)
+  // カレンダーブロック設定 (docs/blocking.md、フェーズ7 第1段階の UI 部分)。
+  // ルール一覧はサーバーが正 — me.connected になったら一度だけ取得する(下の useEffect)
+  const [blockRules, setBlockRules] = useState<BlockRuleDTO[]>([])
+  const [blockOverlayOpen, setBlockOverlayOpen] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -470,6 +479,30 @@ function App() {
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
   }, [checkMe])
+
+  // カレンダーブロックのルール一覧を取得する(docs/blocking.md)。アカウント連携が無い間は
+  // 意味を持たないため me.connected になってから引く。checkMe と同じ流儀で
+  // 非 2xx・ネットワークエラーはコンソールを汚さない程度に warn するだけに留める
+  // (このオーバーレイは未接続では開けないので、失敗しても致命的ではない)
+  useEffect(() => {
+    if (!me.connected) return
+    let cancelled = false
+    checkedFetch('/api/block-rules')
+      .then(async (res) => {
+        if (!res.ok) {
+          console.warn(`kichijitsu: GET /api/block-rules failed: ${res.status}`)
+          return
+        }
+        const data = (await res.json()) as BlockRulesResponse
+        if (!cancelled) setBlockRules(data.rules)
+      })
+      .catch((err) => {
+        console.warn('kichijitsu: GET /api/block-rules failed', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [me.connected, checkedFetch])
 
   // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
   // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
@@ -846,6 +879,48 @@ function App() {
       }
     },
     [db, store, allDayStore, taskStore, checkedFetch],
+  )
+
+  // BlockRulesOverlay の作成フォームから呼ぶ。id 無し=新規作成、有り=更新(今回の UI からは
+  // 常に新規作成のみ使うが、将来の編集導線のためリクエストは仕様通り両対応で扱う)。
+  // 失敗時は throw してオーバーレイ側(呼び出し元)にエラー表示を委ねる
+  const handleCreateBlockRule = useCallback(
+    async (req: BlockRuleUpsertRequest) => {
+      const res = await checkedFetch('/api/block-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req satisfies BlockRuleUpsertRequest),
+      })
+      if (!res.ok) {
+        throw new Error(`POST /api/block-rules failed: ${res.status}`)
+      }
+      const saved = (await res.json()) as BlockRuleDTO
+      setBlockRules((prev) => {
+        const idx = prev.findIndex((r) => r.id === saved.id)
+        if (idx === -1) return [...prev, saved]
+        const next = [...prev]
+        next[idx] = saved
+        return next
+      })
+    },
+    [checkedFetch],
+  )
+
+  // BlockRulesOverlay のルール一覧の削除ボタンから呼ぶ。204 で成功、失敗時は throw して
+  // オーバーレイ側にエラー表示を委ねる(行ごとの確認 UI は持たない、削除は即時実行)
+  const handleDeleteBlockRule = useCallback(
+    async (id: string) => {
+      const res = await checkedFetch('/api/block-rules', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildBlockRuleDeleteRequest(id)),
+      })
+      if (!res.ok) {
+        throw new Error(`DELETE /api/block-rules failed: ${res.status}`)
+      }
+      setBlockRules((prev) => prev.filter((r) => r.id !== id))
+    },
+    [checkedFetch],
   )
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
@@ -1488,6 +1563,10 @@ function App() {
                     onAddAccount={() => {
                       window.location.href = '/auth/login?add=1'
                     }}
+                    onOpenBlockRules={() => {
+                      setPanelOpen(false)
+                      setBlockOverlayOpen(true)
+                    }}
                   />
                 )}
               </>
@@ -1559,6 +1638,16 @@ function App() {
         )}
       </main>
       {helpOpen && <KeyboardHelpOverlay onClose={() => setHelpOpen(false)} />}
+      {blockOverlayOpen && me.connected && (
+        <BlockRulesOverlay
+          accounts={me.accounts}
+          calendarsByAccount={calendarsByAccount}
+          rules={blockRules}
+          onCreate={handleCreateBlockRule}
+          onDelete={handleDeleteBlockRule}
+          onClose={() => setBlockOverlayOpen(false)}
+        />
+      )}
       {searchOpen && (
         <SearchOverlay
           onClose={() => setSearchOpen(false)}

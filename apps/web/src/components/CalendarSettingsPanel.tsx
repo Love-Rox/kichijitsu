@@ -12,6 +12,8 @@ interface CalendarSettingsPanelProps {
   /** 成功すれば解決、失敗すれば reject する。エラー表示はこのコンポーネント側(行ごとの確認 UI)が持つ */
   onDisconnectAccount: (accountId: string) => Promise<void>
   onAddAccount: () => void
+  /** カレンダーブロック設定オーバーレイ(docs/blocking.md)を開く導線。App.tsx 側で開閉制御する */
+  onOpenBlockRules?: () => void
 }
 
 /**
@@ -28,6 +30,7 @@ export function CalendarSettingsPanel({
   onToggleCalendar,
   onDisconnectAccount,
   onAddAccount,
+  onOpenBlockRules,
 }: CalendarSettingsPanelProps) {
   return (
     <div className="calendar-panel" role="dialog" aria-label="カレンダー設定">
@@ -82,6 +85,11 @@ export function CalendarSettingsPanel({
       <button type="button" className="calendar-panel-add-account" onClick={onAddAccount}>
         + アカウントを追加
       </button>
+      {onOpenBlockRules && (
+        <button type="button" className="calendar-panel-add-account" onClick={onOpenBlockRules}>
+          予定のブロックを設定
+        </button>
+      )}
       {/*
        * Google 審査要件の導線(プライバシーポリシー・規約)。狭幅ヘッダーではスペース確保のため
        * ヘッダー直下のリンク (.toolbar-legal) を隠す代わりに、設定パネル下部へ集約する

@@ -1,0 +1,359 @@
+/*
+ * カレンダーブロック設定オーバーレイ(フェーズ7、docs/blocking.md)。設定パネル(300px)には
+ * 収まらない作成フォームを持つため、SearchOverlay/KeyboardHelpOverlay と同じ画面中央の
+ * モーダル構成にする。色は同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
+ * 生成り #faf7f2・朱 --logo-aka)。朱は「保存済みルールが不在モードのバッジ」「保存ボタン」
+ * 「フォーカスリング」の抑制的な用途にのみ使う(brand/README.md「朱の枡は1つのまとまりに
+ * つき基本1個」)。z-index は SearchOverlay と同じ 2000 台(カレンダー設定ポップオーバーの
+ * 50 より確実に上)。
+ */
+.block-rules-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.block-rules-card {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  padding: 20px;
+  text-align: left;
+}
+
+.block-rules-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.block-rules-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.block-rules-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.block-rules-close:hover {
+  color: #24211e;
+}
+
+.block-rules-description {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #55504a;
+}
+
+.block-rules-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0ece3;
+}
+
+.block-rules-section-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.block-rules-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #8a8478;
+}
+
+/* ルール一覧 */
+.block-rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.block-rules-rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #24211e;
+}
+
+.block-rules-rule-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.block-rules-rule-sources,
+.block-rules-rule-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-rules-rule-arrow {
+  flex: none;
+  color: #b3ac9d;
+}
+
+.block-rules-badge {
+  flex: none;
+  font-size: 11px;
+  color: #55504a;
+  background: #f0ece3;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.block-rules-badge--ooo {
+  color: #7a3226;
+  background: #f6e3dc;
+}
+
+.block-rules-rule-delete {
+  flex: none;
+  border: none;
+  background: none;
+  font-size: 15px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.block-rules-rule-delete:hover:not(:disabled) {
+  color: #d7402e;
+}
+
+.block-rules-rule-delete:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.block-rules-error {
+  flex: none;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+/* 新規作成フォーム */
+.block-rules-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.block-rules-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-rules-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.block-rules-account-group + .block-rules-account-group {
+  margin-top: 8px;
+}
+
+.block-rules-account-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a8478;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-rules-cal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 2px 12px;
+}
+
+.block-rules-cal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: #24211e;
+}
+
+/* 枡チェックボックス/ラジオ: CalendarSettingsPanel.css の .calendar-panel-checkbox を踏襲 */
+.block-rules-cal-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  flex: none;
+  outline: none;
+}
+
+.block-rules-cal-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.block-rules-cal-checkbox .masu {
+  width: 12px;
+  height: 12px;
+}
+
+.block-rules-cal-checkbox:focus-visible {
+  outline: none;
+}
+
+.block-rules-cal-checkbox:focus-visible .masu {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.block-rules-cal-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* モード選択(セグメント) */
+.block-rules-mode-segment {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.block-rules-mode-btn {
+  border: none;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  color: #55504a;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.block-rules-mode-btn + .block-rules-mode-btn {
+  border-left: 1px solid #e5e7eb;
+}
+
+.block-rules-mode-btn.is-selected {
+  background: #24211e;
+  color: #faf7f2;
+}
+
+.block-rules-mode-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+.block-rules-mode-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #8a8478;
+}
+
+/* 保存 */
+.block-rules-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-rules-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.block-rules-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.block-rules-save-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .block-rules-mode-btn,
+  .block-rules-save-btn,
+  .block-rules-rule-delete,
+  .block-rules-close {
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+}
+
+@media (max-width: 640px) {
+  .block-rules-backdrop {
+    padding: 16px;
+  }
+
+  .block-rules-card {
+    padding: 14px;
+    max-height: min(92vh, 720px);
+  }
+
+  .block-rules-cal-list {
+    grid-template-columns: 1fr;
+  }
+}

@@ -4,6 +4,10 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type {
   AccountDTO,
   ApiError,
+  BlockRuleDeleteRequest,
+  BlockRuleDTO,
+  BlockRulesResponse,
+  BlockRuleUpsertRequest,
   DisconnectRequest,
   EventCreateRequest,
   EventCreateResponse,
@@ -40,6 +44,14 @@ import {
   buildVisibleCalendarRows,
   isValidVisibleCalendarsRequest,
 } from '../core/visible-calendars'
+import {
+  aggregateBlockRules,
+  buildBlockRuleRows,
+  collectReferencedAccountIds,
+  isValidBlockRuleDeleteRequest,
+  isValidBlockRuleUpsertRequest,
+  type BlockRuleRow,
+} from '../core/block-rules'
 import { computeChannelToken } from '../watch-token'
 import { PROFILE_ID_HEADER } from '../durable-object/profile-hub-do'
 import type { RpcResult } from '../rpc-result'
@@ -109,6 +121,104 @@ apiRoutes.put('/api/visible-calendars', requireAuth, async (c) => {
       `INSERT INTO account_calendar_prefs (account_id, configured, updated_at) VALUES (?, 1, ?)
        ON CONFLICT(account_id) DO UPDATE SET configured = 1, updated_at = excluded.updated_at`,
     ).bind(prefsRow.account_id, prefsRow.updated_at),
+  ])
+
+  return c.body(null, 204)
+})
+
+// カレンダーブロック機能 第1段階 (docs/blocking.md、2026-07-20): block_rules の CRUD のみ。
+// リコンサイル (mirror 生成) は第2段階で別途実装する。
+apiRoutes.get('/api/block-rules', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  const rules = await loadBlockRules(c.env, profileId)
+  return c.json<BlockRulesResponse>({ rules })
+})
+
+// id 無し=新規作成 (crypto.randomUUID() でルート側が採番)、id 有り=更新 (全置換: 該当行の
+// UPDATE + block_rule_sources の DELETE→INSERT)。source/target の全 accountId がこの
+// プロファイルに属していることを検証する (他人のアカウントを参照させない)。D1 の batch は
+// 暗黙のトランザクションとして実行される。
+apiRoutes.post('/api/block-rules', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: BlockRuleUpsertRequest
+  try {
+    body = await c.req.json<BlockRuleUpsertRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (!isValidBlockRuleUpsertRequest(body)) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const referencedAccountIds = Array.from(collectReferencedAccountIds(body))
+  if (!(await accountsAllBelongToProfile(c.env, referencedAccountIds, profileId))) {
+    return c.json<ApiError>({ error: 'account_not_found' }, 403)
+  }
+
+  if (body.id) {
+    const existing = await c.env.DB.prepare('SELECT profile_id FROM block_rules WHERE id = ?')
+      .bind(body.id)
+      .first<{ profile_id: string }>()
+    if (!isAccountInProfile(existing, profileId)) {
+      // 存在しない id と「他人のプロファイルの id」を区別せず 403 にする (他のエンドポイントと同じ方針)。
+      return c.json<ApiError>({ error: 'rule_not_found' }, 403)
+    }
+  }
+
+  const ruleId = body.id ?? crypto.randomUUID()
+  const now = Date.now()
+  const { ruleRow, sourceRows } = buildBlockRuleRows(ruleId, profileId, body, now)
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO block_rules (id, profile_id, target_account_id, target_calendar_id, mode, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         target_account_id = excluded.target_account_id,
+         target_calendar_id = excluded.target_calendar_id,
+         mode = excluded.mode`,
+    ).bind(ruleRow.id, ruleRow.profile_id, ruleRow.target_account_id, ruleRow.target_calendar_id, ruleRow.mode, ruleRow.created_at),
+    c.env.DB.prepare('DELETE FROM block_rule_sources WHERE rule_id = ?').bind(ruleId),
+    ...sourceRows.map((row) =>
+      c.env.DB.prepare('INSERT INTO block_rule_sources (rule_id, account_id, calendar_id) VALUES (?, ?, ?)').bind(
+        row.rule_id,
+        row.account_id,
+        row.calendar_id,
+      ),
+    ),
+  ])
+
+  return c.json<BlockRuleDTO>({
+    id: ruleId,
+    sources: sourceRows.map((row) => ({ accountId: row.account_id, calendarId: row.calendar_id })),
+    target: { accountId: ruleRow.target_account_id, calendarId: ruleRow.target_calendar_id },
+    mode: ruleRow.mode,
+  })
+})
+
+apiRoutes.delete('/api/block-rules', requireAuth, async (c) => {
+  const profileId = c.get('profileId')!
+  let body: BlockRuleDeleteRequest
+  try {
+    body = await c.req.json<BlockRuleDeleteRequest>()
+  } catch {
+    return c.json<ApiError>({ error: 'invalid_json' }, 400)
+  }
+  if (!isValidBlockRuleDeleteRequest(body)) {
+    return c.json<ApiError>({ error: 'missing_fields' }, 400)
+  }
+
+  const existing = await c.env.DB.prepare('SELECT profile_id FROM block_rules WHERE id = ?')
+    .bind(body.id)
+    .first<{ profile_id: string }>()
+  if (!isAccountInProfile(existing, profileId)) {
+    return c.json<ApiError>({ error: 'rule_not_found' }, 403)
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM block_rules WHERE id = ?').bind(body.id),
+    c.env.DB.prepare('DELETE FROM block_rule_sources WHERE rule_id = ?').bind(body.id),
+    c.env.DB.prepare('DELETE FROM block_mirrors WHERE rule_id = ?').bind(body.id),
   ])
 
   return c.body(null, 204)
@@ -527,6 +637,43 @@ async function loadVisibleCalendars(env: Env, accountIds: string[]): Promise<Rec
     prefsResult.results.map((row) => row.account_id),
     visibleResult.results,
   )
+}
+
+/**
+ * POST /api/block-rules 用: 指定した accountId 群が全てこのプロファイルに属しているか。
+ * 1件でも属していなければ false (他人のアカウント/カレンダーを参照させないための検証)。
+ * 空配列は自明に true。
+ */
+async function accountsAllBelongToProfile(env: Env, accountIds: string[], profileId: string): Promise<boolean> {
+  if (accountIds.length === 0) return true
+  const placeholders = accountIds.map(() => '?').join(', ')
+  const { results } = await env.DB.prepare(`SELECT id FROM accounts WHERE profile_id = ? AND id IN (${placeholders})`)
+    .bind(profileId, ...accountIds)
+    .all<{ id: string }>()
+  return results.length === accountIds.length
+}
+
+/**
+ * GET /api/block-rules 用: プロファイルに属する block_rules + block_rule_sources を引き、
+ * BlockRuleDTO[] に集約する。集約ロジック本体は core/block-rules.ts の aggregateBlockRules
+ * (純関数・テスト済み) に切り出してある。
+ */
+async function loadBlockRules(env: Env, profileId: string): Promise<BlockRuleDTO[]> {
+  const { results: ruleRows } = await env.DB.prepare(
+    'SELECT id, profile_id, target_account_id, target_calendar_id, mode, created_at FROM block_rules WHERE profile_id = ? ORDER BY created_at ASC',
+  )
+    .bind(profileId)
+    .all<BlockRuleRow>()
+  if (ruleRows.length === 0) return []
+
+  const placeholders = ruleRows.map(() => '?').join(', ')
+  const { results: sourceRows } = await env.DB.prepare(
+    `SELECT rule_id, account_id, calendar_id FROM block_rule_sources WHERE rule_id IN (${placeholders})`,
+  )
+    .bind(...ruleRows.map((row) => row.id))
+    .all<{ rule_id: string; account_id: string; calendar_id: string }>()
+
+  return aggregateBlockRules(ruleRows, sourceRows)
 }
 
 /**
