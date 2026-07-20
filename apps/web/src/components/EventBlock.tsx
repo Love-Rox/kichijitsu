@@ -459,6 +459,15 @@ export function EventBlock({
             ))}
           </span>
         )}
+        {occurrence.isMirror === true && (
+          // 自動生成 mirror の印(第5段階): カレンダーブロック機能が他カレンダーの予定から
+          // 自動で作った「予定あり」だと分かるよう、控えめなラベルを隅に出す。既存の
+          // Busy ハッチ・バッジの邪魔をしないよう pointer-events:none、朱は使わず既存の
+          // 薄墨トーン(#8a8478 系)に揃える(ユーザー指示 2026-07-20)。
+          <span className="event-mirror-tag" aria-hidden="true">
+            自動
+          </span>
+        )}
         {!isBusy &&
           blockedByBusyColors &&
           blockedByBusyColors.length > 0 && (
@@ -524,6 +533,8 @@ export interface EventDetailSubject {
   link?: OccurrenceLink;
   accountId?: string;
   calendarId?: string;
+  /** Occurrence.isMirror / AllDayOccurrence.isMirror と同じ意味(自動生成 mirror かどうか) */
+  isMirror?: boolean;
 }
 
 export interface EventDetailCardProps {
@@ -598,6 +609,13 @@ export function EventDetailCard({
       </button>
       <div className="event-detail-title">{subject.title}</div>
       <div className="event-detail-datetime">{dateTimeLabel}</div>
+      {subject.isMirror === true && (
+        // mirror には location/description が無い(無内容原則、docs/blocking.md)ため、
+        // この説明文が詳細ポップオーバーの主内容になる
+        <div className="event-detail-mirror-note">
+          他のカレンダーの予定から自動でブロックされた時間です
+        </div>
+      )}
       {subject.location && <div className="event-detail-location">{subject.location}</div>}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
       {subject.link?.url && (

@@ -72,6 +72,30 @@ const GOOGLE_COLOR_MAP: Record<string, string> = {
 const DEFAULT_COLOR = "#3b82f6";
 
 /**
+ * apps/sync (block-reconcile.ts) が mirror イベントに立てる extendedProperties.private
+ * のキー/値。同じ名前の定数・判定関数がサーバー側にもあるが、web はサーバー内部
+ * モジュールに依存しない設計 (protocol.ts の DTO 越しにしか通信しない) のため、
+ * ここに同じロジックを複製する。
+ */
+const MIRROR_MARKER_KEY = "kichijitsuMirror";
+const MIRROR_MARKER_VALUE = "1";
+
+/**
+ * event が「自動生成された Busy ブロック (mirror)」かどうか。true なら
+ * buildSingle/buildAllDay が occurrence.isMirror = true を立て、UI (EventBlock.tsx)
+ * が「自動」印を出す。
+ *
+ * mirror は buildMirrorEventBody (apps/sync/src/core/block-reconcile.ts) が作る
+ * 素の単発イベント (recurrence も recurringEventId も付かない) なので、実際に
+ * このフラグが乗る occurrence 生成パスは buildSingle と buildAllDay の2つのみ
+ * (mirror が繰り返しイベントになることは無いため buildSeries/buildOverride 側には
+ * 意図的に付けていない)。
+ */
+function isMirrorEvent(event: GoogleEventDTO): boolean {
+  return event.extendedProperties?.private?.[MIRROR_MARKER_KEY] === MIRROR_MARKER_VALUE;
+}
+
+/**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
  * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
@@ -298,6 +322,7 @@ function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurr
     location: event.location,
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
+    ...(isMirrorEvent(event) ? { isMirror: true } : {}),
   };
 }
 
@@ -325,6 +350,7 @@ function buildSingle(
     location: event.location,
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
+    ...(isMirrorEvent(event) ? { isMirror: true } : {}),
   };
 }
 

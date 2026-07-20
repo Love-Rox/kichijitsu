@@ -42,6 +42,14 @@ export interface Occurrence {
   /** ホバー/詳細表示用。location は会議室・住所・URL 等 */
   location?: string;
   description?: string;
+  /**
+   * カレンダーブロック機能 (docs/blocking.md) が生成した mirror (`予定あり`、
+   * extendedProperties.private.kichijitsuMirror='1') かどうか。true は
+   * mapGoogle.ts が付与する。省略時は undefined (=false 相当、通常の予定や
+   * ユーザーが手動で作った「予定あり」はこのフラグを持たない)。
+   * UI (EventBlock.tsx) はこれを見て「自動生成」の印と説明文を出す。
+   */
+  isMirror?: boolean;
 }
 
 /**
@@ -72,6 +80,8 @@ export interface AllDayOccurrence {
   /** ホバー/詳細表示用 */
   location?: string;
   description?: string;
+  /** Occurrence.isMirror と同じ意味 (カレンダーブロック機能の自動生成 mirror かどうか) */
+  isMirror?: boolean;
 }
 
 /**
