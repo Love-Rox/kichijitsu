@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react'
-import type { Occurrence } from '../model/types'
+import type { Occurrence, OccurrenceLink } from '../model/types'
 import { snapEndMs, snapStartMs } from '../layout/snap'
+import { useCloseOnOutsideOrEscape } from '../hooks/useCloseOnOutsideOrEscape'
+import {
+  clampPopoverPosition,
+  fillTooltipContent,
+  getSharedTooltipEl,
+  positionTooltip,
+  stripHtmlToPlainText,
+} from './eventPopoverShared'
 import {
   DAY_COLUMN_INSET_PX,
   formatDetailDateTime,
@@ -73,57 +81,14 @@ interface DragState {
 
 const CLICK_THRESHOLD_PX = 4
 const HOVER_DELAY_MS = 400
-const TOOLTIP_OFFSET_PX = 14
 
+/**
+ * 週7列グリッドの左端からのドラッグ着地列を [0,6] に収めるためだけの、
+ * このファイル内限定のクランプ(共有版は eventPopoverShared.ts の
+ * clampPopoverPosition が内部で使っている別インスタンス)。
+ */
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value))
-}
-
-/**
- * ホバーツールチップは全 EventBlock で1個の DOM ノードを使い回す(drag-badge と
- * 同じ流儀: React 管理下に置かず、直接 DOM 操作で表示/非表示・位置更新する)。
- * 同時にホバーできるブロックは常に1つなので、シングルトンで十分。
- */
-let sharedTooltipEl: HTMLDivElement | null = null
-function getSharedTooltipEl(): HTMLDivElement {
-  if (!sharedTooltipEl) {
-    sharedTooltipEl = document.createElement('div')
-    sharedTooltipEl.className = 'event-tooltip'
-    sharedTooltipEl.style.display = 'none'
-    document.body.appendChild(sharedTooltipEl)
-  }
-  return sharedTooltipEl
-}
-
-function positionTooltip(el: HTMLDivElement, clientX: number, clientY: number) {
-  el.style.transform = `translate(${clientX + TOOLTIP_OFFSET_PX}px, ${clientY + TOOLTIP_OFFSET_PX}px)`
-}
-
-/**
- * Google の description は HTML を含み得るため、表示前にプレーンテキスト化する。
- * ブロック境界 (<br>/<p>/<div>/<li>) を改行に変換してから DOMParser でタグを剥がす
- * ("要素の textContent" は改行を保持しないため、これをしないと段落が繋がって読みにくくなる)。
- * 厳密な HTML→text 変換ではなく、詳細ポップオーバーで読める程度の簡易処理。
- */
-function stripHtmlToPlainText(html: string): string {
-  const withBreaks = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li)>/gi, '\n')
-  const doc = new DOMParser().parseFromString(withBreaks, 'text/html')
-  const text = doc.body.textContent ?? ''
-  return text.replace(/\n{3,}/g, '\n\n').trim()
-}
-
-/** 詳細ポップオーバーの想定サイズ。ビューポート外にはみ出さないようクランプするための概算値 */
-const DETAIL_POPOVER_WIDTH = 300
-const DETAIL_POPOVER_MAX_HEIGHT = 420
-const DETAIL_POPOVER_MARGIN = 8
-
-function clampPopoverPosition(x: number, y: number): { left: number; top: number } {
-  const maxLeft = Math.max(DETAIL_POPOVER_MARGIN, window.innerWidth - DETAIL_POPOVER_WIDTH - DETAIL_POPOVER_MARGIN)
-  const maxTop = Math.max(DETAIL_POPOVER_MARGIN, window.innerHeight - DETAIL_POPOVER_MAX_HEIGHT - DETAIL_POPOVER_MARGIN)
-  return {
-    left: clamp(x, DETAIL_POPOVER_MARGIN, maxLeft),
-    top: clamp(y, DETAIL_POPOVER_MARGIN, maxTop),
-  }
 }
 
 /**
@@ -181,25 +146,7 @@ export function EventBlock({
 
   function showTooltip(clientX: number, clientY: number) {
     const el = getSharedTooltipEl()
-    el.replaceChildren()
-
-    const titleEl = document.createElement('div')
-    titleEl.className = 'event-tooltip-title'
-    titleEl.textContent = occurrence.title
-    el.appendChild(titleEl)
-
-    const rangeEl = document.createElement('div')
-    rangeEl.className = 'event-tooltip-range'
-    rangeEl.textContent = formatRange(occurrence.startMs, occurrence.endMs, timeZone)
-    el.appendChild(rangeEl)
-
-    if (occurrence.location) {
-      const locationEl = document.createElement('div')
-      locationEl.className = 'event-tooltip-location'
-      locationEl.textContent = occurrence.location
-      el.appendChild(locationEl)
-    }
-
+    fillTooltipContent(el, occurrence.title, formatRange(occurrence.startMs, occurrence.endMs, timeZone), occurrence.location)
     el.style.display = 'block'
     positionTooltip(el, clientX, clientY)
     tooltipShownRef.current = true
@@ -253,25 +200,8 @@ export function EventBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 詳細ポップオーバーが開いている間: 外側クリック・Escape で閉じる
-  useEffect(() => {
-    if (!detailPos) return
-    function onPointerDownOutside(e: PointerEvent) {
-      const card = detailCardRef.current
-      if (card && !card.contains(e.target as Node)) {
-        setDetailPos(null)
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setDetailPos(null)
-    }
-    document.addEventListener('pointerdown', onPointerDownOutside)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDownOutside)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [detailPos])
+  // 詳細ポップオーバーが開いている間: 外側クリック・Escape で閉じる(AllDayBar と共通の hook)
+  useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null))
 
   function beginDrag(
     e: ReactPointerEvent<HTMLDivElement>,
@@ -502,8 +432,8 @@ export function EventBlock({
         createPortal(
           <EventDetailCard
             ref={detailCardRef}
-            occurrence={occurrence}
-            timeZone={timeZone}
+            subject={occurrence}
+            dateTimeLabel={formatDetailDateTime(occurrence.startMs, occurrence.endMs, timeZone)}
             position={detailPos}
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
@@ -515,12 +445,29 @@ export function EventBlock({
   )
 }
 
-interface EventDetailCardProps {
-  occurrence: Occurrence
-  timeZone: string
+/**
+ * EventDetailCard が要求する最小限の形。Occurrence (時刻予定) と AllDayOccurrence
+ * (終日予定、フェーズ5) はどちらもこの形を構造的に満たすため、変換なしでそのまま
+ * subject/groupMembers に渡せる(AllDayBar.tsx から再利用する狙い)。
+ */
+export interface EventDetailSubject {
+  id: string
+  title: string
+  location?: string
+  description?: string
+  link?: OccurrenceLink
+  accountId?: string
+  calendarId?: string
+}
+
+export interface EventDetailCardProps {
+  subject: EventDetailSubject
+  /** 表示済みの日時ラベル。時刻予定は「7月20日(月) 10:00 – 11:00」、終日予定は
+   * 「7月20日〜7月22日」のように呼び出し側でフォーマットしてから渡す */
+  dateTimeLabel: string
   position: { x: number; y: number }
-  /** 集約グループの全メンバー(フェーズ5)。1件なら occurrence 自身のみ */
-  groupMembers: Occurrence[]
+  /** 集約グループの全メンバー(フェーズ5)。1件なら subject 自身のみ */
+  groupMembers: EventDetailSubject[]
   /** `${accountId}:${calendarId}` → カレンダー名/色。全所属の列挙に使う */
   calendarLookup: Map<string, CalendarInfo>
   onClose: () => void
@@ -537,10 +484,12 @@ interface EventDetailCardProps {
  * (.week-grid-days-strip) がいるため、position:fixed の containing block が
  * ビューポートではなくその祖先になってしまう問題を避けるべく document.body へ
  * createPortal している。
+ * subject/dateTimeLabel を汎用化してあるため AllDayBar.tsx (終日レーン、フェーズ5)
+ * からもそのまま再利用する。
  */
-function EventDetailCard({
-  occurrence,
-  timeZone,
+export function EventDetailCard({
+  subject,
+  dateTimeLabel,
   position,
   groupMembers,
   calendarLookup,
@@ -548,7 +497,7 @@ function EventDetailCard({
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y)
-  const plainDescription = occurrence.description ? stripHtmlToPlainText(occurrence.description) : ''
+  const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : ''
   const memberCalendars = groupMembers
     .map((m) => {
       const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
@@ -562,19 +511,17 @@ function EventDetailCard({
       className="event-detail-popover"
       style={{ left, top }}
       role="dialog"
-      aria-label={occurrence.title}
+      aria-label={subject.title}
     >
       <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
         ×
       </button>
-      <div className="event-detail-title">{occurrence.title}</div>
-      <div className="event-detail-datetime">
-        {formatDetailDateTime(occurrence.startMs, occurrence.endMs, timeZone)}
-      </div>
-      {occurrence.location && <div className="event-detail-location">{occurrence.location}</div>}
+      <div className="event-detail-title">{subject.title}</div>
+      <div className="event-detail-datetime">{dateTimeLabel}</div>
+      {subject.location && <div className="event-detail-location">{subject.location}</div>}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
-      {occurrence.link?.url && (
-        <a className="event-detail-link" href={occurrence.link.url} target="_blank" rel="noopener noreferrer">
+      {subject.link?.url && (
+        <a className="event-detail-link" href={subject.link.url} target="_blank" rel="noopener noreferrer">
           Google で開く
         </a>
       )}

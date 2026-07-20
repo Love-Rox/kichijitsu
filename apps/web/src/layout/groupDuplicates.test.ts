@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Occurrence } from '../model/types'
-import { groupDuplicateOccurrences } from './groupDuplicates'
+import type { AllDayOccurrence, Occurrence } from '../model/types'
+import { groupDuplicateAllDayOccurrences, groupDuplicateOccurrences } from './groupDuplicates'
 
 function occ(overrides: Partial<Occurrence> = {}): Occurrence {
   return {
@@ -9,6 +9,21 @@ function occ(overrides: Partial<Occurrence> = {}): Occurrence {
     title: 'Test Event',
     startMs: 1_000,
     endMs: 2_000,
+    color: '#3b82f6',
+    source: 'google',
+    accountId: 'acc-1',
+    calendarId: 'cal-1',
+    ...overrides,
+  }
+}
+
+function allDayOcc(overrides: Partial<AllDayOccurrence> = {}): AllDayOccurrence {
+  return {
+    id: 'g:acc-1:cal-1:holiday-1',
+    seriesId: null,
+    title: '海の日',
+    startDate: '2026-07-20',
+    endDate: '2026-07-20',
     color: '#3b82f6',
     source: 'google',
     accountId: 'acc-1',
@@ -95,5 +110,35 @@ describe('groupDuplicateOccurrences', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].primary).toBe(a)
     expect(groups[0].members).toEqual([a])
+  })
+})
+
+describe('groupDuplicateAllDayOccurrences', () => {
+  it('iCalUID + startDate + endDate が一致するコピーを1グループにまとめる', () => {
+    const a = allDayOcc({ id: 'g:acc-1:cal-1:holiday-a', accountId: 'acc-1', calendarId: 'cal-1', iCalUID: 'uid-1' })
+    const b = allDayOcc({ id: 'g:acc-2:cal-2:holiday-b', accountId: 'acc-2', calendarId: 'cal-2', iCalUID: 'uid-1' })
+
+    const groups = groupDuplicateAllDayOccurrences([a, b])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].members).toHaveLength(2)
+    expect(groups[0].primary.id).toBe('g:acc-1:cal-1:holiday-a') // accountId 昇順
+  })
+
+  it('日付が違えば別グループにする', () => {
+    const a = allDayOcc({ id: 'g:acc-1:cal-1:holiday-a', iCalUID: 'uid-1', startDate: '2026-07-20', endDate: '2026-07-20' })
+    const b = allDayOcc({ id: 'g:acc-2:cal-2:holiday-b', iCalUID: 'uid-1', startDate: '2026-08-11', endDate: '2026-08-11' })
+
+    const groups = groupDuplicateAllDayOccurrences([a, b])
+
+    expect(groups).toHaveLength(2)
+  })
+
+  it('iCalUID が無い終日予定は集約せず単独グループのまま', () => {
+    const a = allDayOcc({ id: 'g:acc-1:cal-1:holiday-a', iCalUID: undefined })
+
+    const groups = groupDuplicateAllDayOccurrences([a])
+
+    expect(groups).toEqual([{ primary: a, members: [a] }])
   })
 })

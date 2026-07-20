@@ -37,15 +37,30 @@ export interface Occurrence {
   description?: string
 }
 
-/** 終日予定は時刻を持たない日付として別レイヤーで扱う（UTC変換に巻き込まない） */
+/**
+ * 終日予定は時刻を持たない日付として別レイヤーで扱う（UTC変換に巻き込まない）。
+ * startDate/endDate は ISO 8601 calendar date (YYYY-MM-DD) の文字列で、
+ * 両端 inclusive (endDate 当日を含む) — Google の end.date は排他的だが、
+ * mapGoogle が取り込み時に inclusive へ正規化してここに格納する。
+ */
 export interface AllDayOccurrence {
   id: string
+  /** 繰り返しシリーズ由来なら親 series の id。終日の繰り返しは初版未対応のため常に null */
   seriesId: string | null
   title: string
-  /** ISO 8601 calendar date, e.g. "2026-07-19" */
+  /** ISO 8601 calendar date, e.g. "2026-07-19" (開始日、inclusive) */
   startDate: string
+  /** ISO 8601 calendar date (終了日、inclusive。単日イベントは startDate と同じ) */
   endDate: string
   color: string
   source: OccurrenceSource
   link?: OccurrenceLink
+  /** Google 由来のみ: どのアカウントのどのカレンダーか。表示トグルと削除の単位 */
+  accountId?: string
+  calendarId?: string
+  /** 同一予定の集約キー (Google iCalUID)。共有・招待の重複表示をまとめる */
+  iCalUID?: string
+  /** ホバー/詳細表示用 */
+  location?: string
+  description?: string
 }

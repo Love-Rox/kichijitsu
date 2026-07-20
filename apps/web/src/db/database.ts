@@ -1,6 +1,6 @@
 import { openDB } from 'idb'
 import type { DBSchema, IDBPDatabase } from 'idb'
-import type { Occurrence } from '../model/types'
+import type { AllDayOccurrence, Occurrence } from '../model/types'
 import type { EventSeries, InstanceOverride } from '../model/series'
 import type { ExpansionState } from '../expansion/windowPolicy'
 import { DAY_MS } from '../expansion/windowPolicy'
@@ -25,6 +25,12 @@ export interface KichijitsuDB extends DBSchema {
     value: Occurrence
     indexes: { startMs: number }
   }
+  /** 終日予定 (フェーズ5)。時刻予定と違い展開ウィンドウの概念が無いため全件を常時ロードする */
+  allDayOccurrences: {
+    key: string
+    value: AllDayOccurrence
+    indexes: { startDate: string }
+  }
   series: {
     key: string
     value: EventSeries
@@ -41,7 +47,7 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = 'kichijitsu'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const META_EXPANSION_KEY = 'expansion'
 const META_VISIBLE_CALENDARS_KEY = 'visibleCalendars'
 
@@ -55,6 +61,11 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
         if (!db.objectStoreNames.contains('occurrences')) {
           const store = db.createObjectStore('occurrences', { keyPath: 'id' })
           store.createIndex('startMs', 'startMs')
+        }
+        if (!db.objectStoreNames.contains('allDayOccurrences')) {
+          // DB_VERSION 2 (フェーズ5) で追加。既存ユーザーもここを通って新規作成される
+          const store = db.createObjectStore('allDayOccurrences', { keyPath: 'id' })
+          store.createIndex('startDate', 'startDate')
         }
         if (!db.objectStoreNames.contains('series')) {
           db.createObjectStore('series', { keyPath: 'id' })
@@ -142,6 +153,36 @@ export async function deleteOccurrencesByIds(
 ): Promise<void> {
   if (ids.length === 0) return
   const tx = db.transaction('occurrences', 'readwrite')
+  await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
+}
+
+/** 単一トランザクションでの bulk 書き込み(終日予定) */
+export async function putAllDayOccurrences(
+  db: IDBPDatabase<KichijitsuDB>,
+  allDayOccurrences: AllDayOccurrence[],
+): Promise<void> {
+  if (allDayOccurrences.length === 0) return
+  const tx = db.transaction('allDayOccurrences', 'readwrite')
+  await Promise.all([...allDayOccurrences.map((o) => tx.store.put(o)), tx.done])
+}
+
+/**
+ * 終日予定は展開ウィンドウの概念が無い(繰り返しは初版未対応なので、素直に
+ * 全件が実データ)ため、時刻予定のような範囲クエリではなく全件取得で読み込む。
+ * 起動時に AllDayStore へ丸ごとロードする用途
+ */
+export async function getAllAllDayOccurrences(
+  db: IDBPDatabase<KichijitsuDB>,
+): Promise<AllDayOccurrence[]> {
+  return db.getAll('allDayOccurrences')
+}
+
+export async function deleteAllDayOccurrencesByIds(
+  db: IDBPDatabase<KichijitsuDB>,
+  ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return
+  const tx = db.transaction('allDayOccurrences', 'readwrite')
   await Promise.all([...ids.map((id) => tx.store.delete(id)), tx.done])
 }
 
@@ -255,5 +296,60 @@ export async function cleanupLegacyGoogleData(
     seriesRemoved: legacySeriesIds.length,
     occurrencesRemoved: legacyOccurrenceIds.length,
     overridesRemoved: legacyOverrideIds.length,
+  }
+}
+
+/** cleanupDemoData の戻り値。全て 0 なら削除対象が無かった(冪等の2回目以降含む) */
+export interface DemoDataCleanupResult {
+  seriesRemoved: number
+  occurrencesRemoved: number
+  overridesRemoved: number
+}
+
+/**
+ * デモ/シードデータの一回きりクリーンアップ (実データ運用への移行、2026-07-20)。
+ *
+ * App.tsx の起動時シード (generateDummySeries/generateDummyOccurrences/
+ * generateDummyOverrides) は開発時 (`import.meta.env.DEV` かつ `?demo=1`) の
+ * みに退避したが、過去にシード済みだった環境には残骸が残るため、通常起動時に
+ * 一度だけ掃除する。id 規則 (dummy.ts 参照): 単発ダミーは `dummy-<day>-<i>`、
+ * シリーズは `series-<name>`。シリーズ由来の展開済み occurrence は
+ * `${seriesId}:${originalStartMs}` 形式の id を持つため、id の前方一致ではなく
+ * occurrence.seriesId がダミーシリーズ id 集合に含まれるかで判定する。
+ *
+ * 起動のたびに呼んでよい設計(冪等): 一度掃除し終われば以降は全て 0 件で
+ * 即 return する。呼び出し側は 0 件なら何もログを出さない想定
+ * (cleanupLegacyGoogleData と同じ流儀)。
+ */
+export async function cleanupDemoData(db: IDBPDatabase<KichijitsuDB>): Promise<DemoDataCleanupResult> {
+  const [allSeries, allOccurrences, allOverrides] = await Promise.all([
+    getAllSeries(db),
+    getAllOccurrences(db),
+    getAllOverrides(db),
+  ])
+
+  const demoSeriesIds = allSeries.filter((s) => s.id.startsWith('series-')).map((s) => s.id)
+  const demoSeriesIdSet = new Set(demoSeriesIds)
+  const demoOccurrenceIds = allOccurrences
+    .filter((o) => o.id.startsWith('dummy-') || (o.seriesId !== null && demoSeriesIdSet.has(o.seriesId)))
+    .map((o) => o.id)
+  const demoOverrideIds = allOverrides
+    .filter((o) => demoSeriesIdSet.has(o.seriesId))
+    .map((o) => o.id)
+
+  if (demoSeriesIds.length === 0 && demoOccurrenceIds.length === 0 && demoOverrideIds.length === 0) {
+    return { seriesRemoved: 0, occurrencesRemoved: 0, overridesRemoved: 0 }
+  }
+
+  await Promise.all([
+    deleteSeriesByIds(db, demoSeriesIds),
+    deleteOccurrencesByIds(db, demoOccurrenceIds),
+    deleteOverridesByIds(db, demoOverrideIds),
+  ])
+
+  return {
+    seriesRemoved: demoSeriesIds.length,
+    occurrencesRemoved: demoOccurrenceIds.length,
+    overridesRemoved: demoOverrideIds.length,
   }
 }

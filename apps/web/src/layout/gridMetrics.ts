@@ -45,3 +45,29 @@ export function formatDetailDateTime(startMs: number, endMs: number, timeZone: s
   const dateLabel = `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`
   return `${dateLabel} ${formatRange(startMs, endMs, timeZone)}`
 }
+
+/**
+ * 終日予定の詳細ポップオーバー用日付表示 (フェーズ5)。
+ * 単日イベントは曜日込みの「7月20日(月)」、複数日にまたがる場合は
+ * 「7月20日〜7月22日」形式(endDate は inclusive)。startDate/endDate は
+ * ISO calendar date 文字列 (YYYY-MM-DD)、タイムゾーン変換は行わない
+ * (終日予定は壁時計の日付そのものを表す)。
+ */
+export function formatAllDayDateRange(startDate: string, endDate: string): string {
+  const start = Temporal.PlainDate.from(startDate)
+  const end = Temporal.PlainDate.from(endDate)
+  if (start.equals(end)) {
+    return `${start.month}月${start.day}日(${WEEKDAY_LABELS[start.dayOfWeek - 1]})`
+  }
+  return `${start.month}月${start.day}日〜${end.month}月${end.day}日`
+}
+
+/**
+ * 「予定あり」相当の中身のないプレースホルダか。Google が詳細非公開の予定を
+ * "Busy" として返すもの、および将来のカレンダーブロック機能が作る「予定あり」ブロック。
+ * カスケードでは実予定を覆わないよう無条件に最背面へ回す (ユーザー決定 2026-07-20)。
+ */
+export function isBusyPlaceholder(title: string): boolean {
+  const t = title.trim()
+  return t === 'Busy' || t === '予定あり'
+}

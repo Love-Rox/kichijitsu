@@ -3,15 +3,31 @@ import { Temporal } from '@js-temporal/polyfill'
 import type { Occurrence } from '../model/types'
 import type { OccurrenceStore } from '../store/occurrenceStore'
 import { useOccurrences } from '../store/occurrenceStore'
+import type { AllDayStore } from '../store/allDayStore'
+import { useAllDayOccurrences } from '../store/allDayStore'
 import { packColumns } from '../layout/packColumns'
-import { groupDuplicateOccurrences, type OccurrenceGroup } from '../layout/groupDuplicates'
-import { minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
+import { packDayBars } from '../layout/packDayBars'
+import {
+  groupDuplicateAllDayOccurrences,
+  groupDuplicateOccurrences,
+  type OccurrenceGroup,
+} from '../layout/groupDuplicates'
+import { isBusyPlaceholder, minutesToPx, WEEKDAY_LABELS } from '../layout/gridMetrics'
 import { EventBlock, type CalendarInfo } from './EventBlock'
+import { AllDayBar } from './AllDayBar'
 import './WeekGrid.css'
 
 const INITIAL_SCROLL_HOUR = 8
 const COMPACT_THRESHOLD_MIN = 40
 const SLIDE_MS = 200
+
+/**
+ * 終日レーン(フェーズ5)のレイアウト定数。ROW_HEIGHT はバー1行ぶんの px 高さ、
+ * MAX_VISIBLE_ROWS は実際にバーとして描画する最大行数(それを超える分は
+ * 日ごとの「+N」表示にまとめる、Google カレンダーの月表示と同じ考え方)
+ */
+const ALLDAY_ROW_HEIGHT = 20
+const ALLDAY_MAX_VISIBLE_ROWS = 3
 
 /**
  * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
@@ -30,6 +46,8 @@ function cascadeStepFrac(columnCount: number): number {
 
 interface WeekGridProps {
   store: OccurrenceStore
+  /** 終日予定 (フェーズ5) の読み口。時刻予定の store と対になる別ストア */
+  allDayStore: AllDayStore
   weekStart: Temporal.PlainDate
   timeZone: string
   /**
@@ -65,8 +83,15 @@ interface WeekPanelData {
   dayData: { day: Temporal.PlainDate; positioned: ReturnType<typeof packColumns<OccurrenceGroup>> }[]
 }
 
+/** 終日レーンの「+N」表示用。非表示になったバーの件数とタイトル一覧(title 属性で列挙する) */
+interface AllDayOverflowInfo {
+  count: number
+  titles: string[]
+}
+
 export function WeekGrid({
   store,
+  allDayStore,
   weekStart,
   timeZone,
   onPersist,
@@ -194,6 +219,87 @@ export function WeekGrid({
     [weeks, groupedOccurrences, timeZone],
   )
 
+  // ---- 終日レーン (フェーズ5) ----
+  // 展開ウィンドウの概念が無い終日予定は、表示中3週ぶんの日付範囲 [fromDate, toDate]
+  // (inclusive) をそのまま AllDayStore に問い合わせる(時刻予定の rangeStartMs/EndMs と対応)
+  const allDayFromDate = useMemo(() => weeks[0].toString(), [weeks])
+  const allDayToDate = useMemo(() => weeks[2].add({ days: 6 }).toString(), [weeks])
+  const allDayOccurrencesRaw = useAllDayOccurrences(allDayStore, allDayFromDate, allDayToDate)
+
+  // カレンダー選択・同一予定集約は時刻予定と同じ扱い(要望どおり)
+  const visibleAllDayOccurrences = useMemo(
+    () =>
+      allDayOccurrencesRaw.filter(
+        (o) => o.source !== 'google' || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+      ),
+    [allDayOccurrencesRaw, visibleCalendarKeys],
+  )
+  const groupedAllDayOccurrences = useMemo(
+    () => groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
+    [visibleAllDayOccurrences],
+  )
+
+  // 週ごとに、その週の日インデックス [0,6] にクリップした区間で packDayBars する。
+  // 行の割り当てはここで確定するが、「何行まで見せるか(sharedVisibleRows)」は
+  // 3週分の最大行数を見てから決めるため、この時点では行を絞り込まない
+  const rawAllDayPanels = useMemo(
+    () =>
+      weeks.map((weekPanelStart) => {
+        const weekEndDate = weekPanelStart.add({ days: 6 })
+        const relevant = groupedAllDayOccurrences.filter((g) => {
+          const s = Temporal.PlainDate.from(g.primary.startDate)
+          const e = Temporal.PlainDate.from(g.primary.endDate)
+          return Temporal.PlainDate.compare(s, weekEndDate) <= 0 && Temporal.PlainDate.compare(e, weekPanelStart) >= 0
+        })
+        const clipped = relevant.map((group) => {
+          const s = Temporal.PlainDate.from(group.primary.startDate)
+          const e = Temporal.PlainDate.from(group.primary.endDate)
+          const startDayIndex = Math.max(0, weekPanelStart.until(s, { largestUnit: 'day' }).days)
+          const endDayIndex = Math.min(6, weekPanelStart.until(e, { largestUnit: 'day' }).days)
+          return { group, startDayIndex, endDayIndex }
+        })
+        const positioned = packDayBars(clipped, (b) => b.startDayIndex, (b) => b.endDayIndex)
+        return {
+          weekPanelStart,
+          bars: positioned.map((p) => ({ ...p.item, row: p.row })),
+        }
+      }),
+    [weeks, groupedAllDayOccurrences],
+  )
+
+  // 3週(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行までバーを見せ、
+  // それを超える分は「+N」に畳む。3週の中で1週でも溢れていれば +N 用の1行を全週共通で確保する
+  // (パネルごとに高さが変わるとスライドアニメーション中に見た目が揃わないため)
+  const { allDayVisibleRows, allDayHasOverflow } = useMemo(() => {
+    let maxRows = 0
+    let anyOverflow = false
+    for (const panel of rawAllDayPanels) {
+      for (const bar of panel.bars) {
+        maxRows = Math.max(maxRows, bar.row + 1)
+        if (bar.row >= ALLDAY_MAX_VISIBLE_ROWS) anyOverflow = true
+      }
+    }
+    return { allDayVisibleRows: Math.min(ALLDAY_MAX_VISIBLE_ROWS, maxRows), allDayHasOverflow: anyOverflow }
+  }, [rawAllDayPanels])
+  const allDayLaneRows = allDayVisibleRows + (allDayHasOverflow ? 1 : 0)
+
+  const allDayPanels = useMemo(
+    () =>
+      rawAllDayPanels.map(({ weekPanelStart, bars }) => {
+        const visibleBars = bars.filter((b) => b.row < allDayVisibleRows)
+        const overflowByDay: AllDayOverflowInfo[] = Array.from({ length: 7 }, () => ({ count: 0, titles: [] }))
+        for (const b of bars) {
+          if (b.row < allDayVisibleRows) continue
+          for (let d = b.startDayIndex; d <= b.endDayIndex; d++) {
+            overflowByDay[d].count++
+            overflowByDay[d].titles.push(b.group.primary.title)
+          }
+        }
+        return { weekPanelStart, visibleBars, overflowByDay }
+      }),
+    [rawAllDayPanels, allDayVisibleRows],
+  )
+
   const handleCommit = useCallback(
     (updated: Occurrence) => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
@@ -240,6 +346,47 @@ export function WeekGrid({
         </div>
       </div>
 
+      {allDayLaneRows > 0 && (
+        <div className="week-grid-allday">
+          <div className="week-grid-allday-gutter">終日</div>
+          <div className="week-grid-allday-viewport">
+            <div className="week-grid-allday-strip" style={stripStyle}>
+              {allDayPanels.map(({ weekPanelStart, visibleBars, overflowByDay }) => (
+                <div
+                  className="week-grid-allday-panel"
+                  key={weekPanelStart.toString()}
+                  style={{ gridTemplateRows: `repeat(${allDayLaneRows}, ${ALLDAY_ROW_HEIGHT}px)` }}
+                >
+                  {visibleBars.map((b) => (
+                    <AllDayBar
+                      key={b.group.primary.id}
+                      occurrence={b.group.primary}
+                      groupMembers={b.group.members}
+                      row={b.row + 1}
+                      colStart={b.startDayIndex + 1}
+                      colEnd={b.endDayIndex + 2}
+                      calendarLookup={calendarLookup}
+                    />
+                  ))}
+                  {overflowByDay.map((info, dayIndex) =>
+                    info.count > 0 ? (
+                      <div
+                        key={`overflow-${dayIndex}`}
+                        className="allday-overflow"
+                        style={{ gridRow: allDayVisibleRows + 1, gridColumn: dayIndex + 1 }}
+                        title={info.titles.join('\n')}
+                      >
+                        +{info.count}
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="week-grid-scroll" ref={scrollRef}>
         <div className="week-grid-body">
           <div className="week-grid-gutter">
@@ -261,6 +408,21 @@ export function WeekGrid({
                     const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs
                     const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000)
 
+                    // カスケードの前面/背面: 列番号ではなく「開始が遅いほど前面」で決める。
+                    // 各カードのタイトル/時刻は上端(=開始時刻)にあるため、遅く始まるカードを
+                    // 前面にしてもそこは先行カードの本体部分で、タイトルを覆わない。
+                    // 同時刻は短い予定を前面に(長い予定に埋もれた短い予定をクリック可能に保つ)。
+                    // ただし Busy/予定あり のプレースホルダは中身が無いので無条件に最背面へ。
+                    const stackZ = new Map<string, number>()
+                    positioned
+                      .map((p) => p.item.primary)
+                      .sort((a, b) => {
+                        const busyA = isBusyPlaceholder(a.title) ? 0 : 1
+                        const busyB = isBusyPlaceholder(b.title) ? 0 : 1
+                        return busyA - busyB || a.startMs - b.startMs || b.endMs - a.endMs
+                      })
+                      .forEach((occ, rank) => stackZ.set(occ.id, rank))
+
                     return (
                       <div
                         key={day.toString()}
@@ -277,13 +439,14 @@ export function WeekGrid({
                           const step = cascadeStepFrac(columnCount)
                           const leftPct = column * step * 100
                           const widthPct = 100 - leftPct
+                          const stackIndex = stackZ.get(occurrence.id) ?? column
 
                           return (
                             <EventBlock
                               key={occurrence.id}
                               occurrence={occurrence}
                               groupMembers={group.members}
-                              stackIndex={column}
+                              stackIndex={stackIndex}
                               top={topPx}
                               height={heightPx}
                               leftPct={leftPct}

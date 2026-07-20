@@ -23,10 +23,13 @@ import { generateDummyOccurrences, generateDummyOverrides, generateDummySeries }
 import { instanceId } from './model/series'
 import type { Occurrence } from './model/types'
 import { OccurrenceStore } from './store/occurrenceStore'
+import { AllDayStore } from './store/allDayStore'
 import {
+  cleanupDemoData,
   cleanupLegacyGoogleData,
   countSeries,
   deleteOverridesByIds,
+  getAllAllDayOccurrences,
   getExpansionState,
   getOccurrencesBetween,
   getOverride,
@@ -43,6 +46,16 @@ import {
 import { ensureExpanded } from './expansion/ensureExpanded'
 import { applySyncResponse, deleteGoogleData } from './sync/applySync'
 import './App.css'
+
+/**
+ * デモ/シードデータの自動投入を許可するかどうか (2026-07-20、実データ運用への移行)。
+ * 通常起動では常に false — 実データ (Google 連携) だけを表示する。
+ * ローカル開発で UI を素早く確認したいときだけ、`import.meta.env.DEV` (本番ビルドでは
+ * 常に false に固定される) かつ URL に `?demo=1` を付けた場合のみダミーの週間データを
+ * シードする退避経路として残してある。
+ */
+const DEMO_SEED_ENABLED =
+  import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1'
 
 /** 指定日を含む週の月曜日 */
 function mondayOf(date: Temporal.PlainDate): Temporal.PlainDate {
@@ -65,6 +78,7 @@ function App() {
   const navLockRef = useRef(false)
 
   const store = useMemo(() => new OccurrenceStore(), [])
+  const allDayStore = useMemo(() => new AllDayStore(), [])
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null)
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
@@ -172,14 +186,34 @@ function App() {
         )
       }
 
-      const existingSeriesCount = await countSeries(database)
-      if (existingSeriesCount === 0) {
-        const series = generateDummySeries(timeZone)
-        const overrides = generateDummyOverrides(series)
-        const singles = generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone)
-        await putSeries(database, series)
-        await Promise.all(overrides.map((o) => putOverride(database, o)))
-        await putOccurrences(database, singles)
+      // デモ/シードデータの一回きりクリーンアップ (実データ運用への移行、2026-07-20):
+      // DEMO_SEED_ENABLED が false の通常起動では二度とシードされないが、過去に
+      // シード済みだった環境の残骸を掃除する。cleanupLegacyGoogleData と同じ流儀で
+      // 起動のたびに呼んでよい(冪等・0件なら何も出さない)
+      const demoCleanup = await cleanupDemoData(database)
+      if (cancelled) return
+      const demoTotal =
+        demoCleanup.seriesRemoved + demoCleanup.occurrencesRemoved + demoCleanup.overridesRemoved
+      if (demoTotal > 0) {
+        console.info(
+          `kichijitsu: demo data cleanup removed ${demoTotal} record(s) ` +
+            `(series=${demoCleanup.seriesRemoved}, occurrences=${demoCleanup.occurrencesRemoved}, ` +
+            `overrides=${demoCleanup.overridesRemoved})`,
+        )
+      }
+
+      // ダミーシード投入は開発時の明示的なオプトイン (?demo=1) のときだけ (DEMO_SEED_ENABLED 参照)。
+      // 実データ運用では絶対に自動投入しない
+      if (DEMO_SEED_ENABLED) {
+        const existingSeriesCount = await countSeries(database)
+        if (existingSeriesCount === 0) {
+          const series = generateDummySeries(timeZone)
+          const overrides = generateDummyOverrides(series)
+          const singles = generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone)
+          await putSeries(database, series)
+          await Promise.all(overrides.map((o) => putOverride(database, o)))
+          await putOccurrences(database, singles)
+        }
       }
       if (cancelled) return
 
@@ -192,6 +226,10 @@ function App() {
         const all = await getOccurrencesBetween(database, state.expandedFromMs, state.expandedToMs)
         if (!cancelled) store.load(all)
       }
+
+      // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
+      const allDays = await getAllAllDayOccurrences(database)
+      if (!cancelled) allDayStore.load(allDays)
 
       const storedVisible = await getVisibleCalendars(database)
       if (!cancelled) {
@@ -350,9 +388,9 @@ function App() {
         throw new Error(`POST /api/sync failed (${accountId}/${calendarId}): ${syncRes.status}`)
       }
       const syncData = (await syncRes.json()) as SyncResponse
-      await applySyncResponse(db, store, syncData, { accountId, calendarId, defaultColor })
+      await applySyncResponse(db, store, allDayStore, syncData, { accountId, calendarId, defaultColor })
     },
-    [db, store, checkedFetch],
+    [db, store, allDayStore, checkedFetch],
   )
 
   // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色)。
@@ -469,15 +507,16 @@ function App() {
         })
       } else {
         deleteGoogleData(db, (k) => k.accountId === accountId && k.calendarId === calendarId)
-          .then(({ deletedOccurrenceIds }) => {
+          .then(({ deletedOccurrenceIds, deletedAllDayIds }) => {
             store.remove(deletedOccurrenceIds)
+            allDayStore.remove(deletedAllDayIds)
           })
           .catch((err) => {
             console.error('kichijitsu: failed to remove calendar data', err)
           })
       }
     },
-    [db, visibleCalendars, calendarsByAccount, store, syncCalendar, postWatch],
+    [db, visibleCalendars, calendarsByAccount, store, allDayStore, syncCalendar, postWatch],
   )
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
@@ -510,11 +549,12 @@ function App() {
       fetchedAccountsRef.current.delete(accountId)
 
       if (db) {
-        const { deletedOccurrenceIds } = await deleteGoogleData(db, (k) => k.accountId === accountId)
+        const { deletedOccurrenceIds, deletedAllDayIds } = await deleteGoogleData(db, (k) => k.accountId === accountId)
         store.remove(deletedOccurrenceIds)
+        allDayStore.remove(deletedAllDayIds)
       }
     },
-    [db, store, checkedFetch],
+    [db, store, allDayStore, checkedFetch],
   )
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
@@ -785,6 +825,7 @@ function App() {
       <main className="app-main">
         <WeekGrid
           store={store}
+          allDayStore={allDayStore}
           weekStart={weekStart}
           timeZone={timeZone}
           onPersist={handlePersist}

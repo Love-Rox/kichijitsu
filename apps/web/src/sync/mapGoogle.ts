@@ -2,7 +2,7 @@ import { Temporal } from '@js-temporal/polyfill'
 import type { GoogleEventDTO } from '@kichijitsu/shared'
 import type { EventSeries, InstanceOverride } from '../model/series'
 import { instanceId } from '../model/series'
-import type { Occurrence } from '../model/types'
+import type { AllDayOccurrence, Occurrence } from '../model/types'
 
 /**
  * Google Calendar の event DTO を kichijitsu のローカルモデルへ変換する純関数層。
@@ -27,8 +27,16 @@ export interface MappedSync {
   singles: Occurrence[]
   /** 単発イベントが cancelled になった場合の occurrence id */
   deletedSingleIds: string[]
-  /** 終日 (start.date のみ) でスキップした件数。UI が終日予定に未対応なため */
-  skippedAllDay: number
+  /** 終日の単発イベント (start.date のみ、繰り返しではない) */
+  allDays: AllDayOccurrence[]
+  /** 終日イベントが cancelled になった場合の AllDayOccurrence id */
+  deletedAllDayIds: string[]
+  /**
+   * 終日の繰り返し(親 + その例外インスタンス)でスキップした件数。
+   * 終日の繰り返し展開は初版未対応なため(通常の単発終日イベントは
+   * allDays に変換されるので、この件数には含まれない)
+   */
+  skippedAllDayRecurring: number
 }
 
 /** mapGoogleEvents の呼び出しごとのコンテキスト: どのアカウント・どのカレンダーの同期か */
@@ -233,6 +241,41 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch }
 }
 
+/**
+ * 終日の単発イベント → AllDayOccurrence。
+ * Google の end.date は排他的 (7/20〜7/21 は実質 7/20 の1日のみ) なので、
+ * 内部表現は「1日前倒しした inclusive な endDate」に正規化して保持する。
+ * 万一 end.date <= start.date (仕様上あり得ないはずの異常値) の場合は
+ * startDate にクランプし、endDate が startDate を下回らないようにする。
+ */
+function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurrence {
+  if (!event.start?.date || !event.end?.date) {
+    throw new Error(`all-day event ${event.id} missing start/end date`)
+  }
+  const startDate = event.start.date
+  const endDateExclusive = Temporal.PlainDate.from(event.end.date)
+  let endDate = endDateExclusive.subtract({ days: 1 }).toString()
+  if (Temporal.PlainDate.compare(endDate, startDate) < 0) {
+    endDate = startDate
+  }
+
+  return {
+    id: eventKey(ctx, event.id),
+    seriesId: null,
+    title: event.summary ?? '(無題)',
+    startDate,
+    endDate,
+    color: colorFor(event.colorId, ctx),
+    source: 'google',
+    accountId: ctx.accountId,
+    calendarId: ctx.calendarId,
+    iCalUID: event.iCalUID,
+    location: event.location,
+    description: event.description,
+    ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
+  }
+}
+
 /** 単発イベント → Occurrence。start/end.dateTime は呼び出し側で存在確認済み */
 function buildSingle(
   event: GoogleEventDTO,
@@ -262,13 +305,26 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
   const overrides: InstanceOverride[] = []
   const singles: Occurrence[] = []
   const deletedSingleIds: string[] = []
-  let skippedAllDay = 0
+  const allDays: AllDayOccurrence[] = []
+  const deletedAllDayIds: string[] = []
+  let skippedAllDayRecurring = 0
 
   for (const event of events) {
     try {
-      // 終日 (date のみ、dateTime なし) は UI 未対応のため常にスキップ
-      if (event.start?.date && !event.start?.dateTime) {
-        skippedAllDay++
+      // 終日 (date のみ、dateTime なし)
+      const isAllDay = !!event.start?.date && !event.start?.dateTime
+      if (isAllDay) {
+        // 終日の繰り返し(親 + その例外インスタンス)は初版未対応のためスキップする。
+        // 親を作らない以上、例外インスタンス側も対応する親を持てないため一緒に数える
+        if ((event.recurrence && event.recurrence.length > 0) || event.recurringEventId) {
+          skippedAllDayRecurring++
+          continue
+        }
+        if (event.status === 'cancelled') {
+          deletedAllDayIds.push(eventKey(ctx, event.id))
+          continue
+        }
+        allDays.push(buildAllDay(event, ctx))
         continue
       }
 
@@ -298,9 +354,11 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
     }
   }
 
-  if (skippedAllDay > 0) {
-    console.info(`mapGoogleEvents: skipped ${skippedAllDay} all-day event(s) (not supported yet)`)
+  if (skippedAllDayRecurring > 0) {
+    console.info(
+      `mapGoogleEvents: skipped ${skippedAllDayRecurring} recurring all-day event(s) (not supported yet)`,
+    )
   }
 
-  return { series, overrides, singles, deletedSingleIds, skippedAllDay }
+  return { series, overrides, singles, deletedSingleIds, allDays, deletedAllDayIds, skippedAllDayRecurring }
 }

@@ -171,19 +171,91 @@ describe('mapGoogleEvents', () => {
     expect(result.deletedSingleIds).toEqual(['g:acc-1:cal-1:single-cancelled'])
   })
 
-  it('終日イベント (start.date のみ) は skippedAllDay をインクリメントしてスキップする', () => {
+  it('終日の単発イベント (start.date のみ) は AllDayOccurrence に変換する (end.date は排他的→inclusive に正規化)', () => {
     const event = baseEvent({
       id: 'allday-1',
+      summary: '海の日',
+      colorId: '11',
       start: { date: '2026-07-20' },
-      end: { date: '2026-07-21' },
+      end: { date: '2026-07-21' }, // 排他的: 実質 7/20 のみの1日イベント
     })
 
     const result = mapGoogleEvents([event], ctx)
 
     expect(result.singles).toHaveLength(0)
     expect(result.series).toHaveLength(0)
-    expect(result.skippedAllDay).toBe(1)
+    expect(result.allDays).toHaveLength(1)
+    const allDay = result.allDays[0]
+    expect(allDay.id).toBe('g:acc-1:cal-1:allday-1')
+    expect(allDay.seriesId).toBeNull()
+    expect(allDay.title).toBe('海の日')
+    expect(allDay.startDate).toBe('2026-07-20')
+    expect(allDay.endDate).toBe('2026-07-20') // inclusive 化: 排他的な7/21ではなく7/20
+    expect(allDay.color).toBe('#d50000')
+    expect(allDay.source).toBe('google')
+    expect(allDay.accountId).toBe('acc-1')
+    expect(allDay.calendarId).toBe('cal-1')
+    expect(result.skippedAllDayRecurring).toBe(0)
+  })
+
+  it('複数日にまたがる終日イベントの end.date を inclusive な endDate に正規化する', () => {
+    const event = baseEvent({
+      id: 'allday-multiday',
+      start: { date: '2026-08-08' },
+      end: { date: '2026-08-11' }, // 排他的: 8/8, 8/9, 8/10 の3日間 (8/11 は含まない)
+    })
+
+    const result = mapGoogleEvents([event], ctx)
+
+    expect(result.allDays).toHaveLength(1)
+    expect(result.allDays[0].startDate).toBe('2026-08-08')
+    expect(result.allDays[0].endDate).toBe('2026-08-10')
+  })
+
+  it('cancelled な終日イベントは deletedAllDayIds に入る', () => {
+    const event = baseEvent({
+      id: 'allday-cancelled',
+      status: 'cancelled',
+      start: { date: '2026-07-20' },
+      end: { date: '2026-07-21' },
+    })
+
+    const result = mapGoogleEvents([event], ctx)
+
+    expect(result.allDays).toHaveLength(0)
+    expect(result.deletedAllDayIds).toEqual(['g:acc-1:cal-1:allday-cancelled'])
+  })
+
+  it('終日の繰り返し親 (recurrence あり + start.date) は skippedAllDayRecurring をインクリメントしてスキップする', () => {
+    const event = baseEvent({
+      id: 'allday-series',
+      start: { date: '2026-07-20' },
+      end: { date: '2026-07-21' },
+      recurrence: ['RRULE:FREQ=YEARLY'],
+    })
+
+    const result = mapGoogleEvents([event], ctx)
+
+    expect(result.series).toHaveLength(0)
+    expect(result.allDays).toHaveLength(0)
+    expect(result.skippedAllDayRecurring).toBe(1)
     expect(console.info).toHaveBeenCalled()
+  })
+
+  it('終日の繰り返し例外インスタンス (recurringEventId + start.date) も skippedAllDayRecurring に数える', () => {
+    const event = baseEvent({
+      id: 'allday-exception',
+      recurringEventId: 'allday-series',
+      start: { date: '2026-07-27' },
+      end: { date: '2026-07-28' },
+      originalStartTime: { date: '2026-07-20' },
+    })
+
+    const result = mapGoogleEvents([event], ctx)
+
+    expect(result.overrides).toHaveLength(0)
+    expect(result.allDays).toHaveLength(0)
+    expect(result.skippedAllDayRecurring).toBe(1)
   })
 
   it('未対応の recurrence 行 (RDATE 等) は行単位でスキップし、RRULE は活かす', () => {
