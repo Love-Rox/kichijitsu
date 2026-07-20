@@ -150,3 +150,22 @@
 .time-report-bar--actual {
   background: #0b8043;
 }
+
+/*
+ * 「推定」列(commit からの自動推定、増分3 Part B)。計測実績(time-report-col-num)とは
+ * 視覚的にはっきり区別する: 薄い色・破線の左罫線・"≈" プレフィックスで「あくまで見積もり」と
+ * 分かるようにする(実績列の実線罫線・墨色の数字とは対照的に)。
+ */
+.time-report-col-estimate {
+  border-left: 1px dashed #d8d2c4;
+  width: 72px;
+}
+
+.time-report-estimate-value {
+  color: #8a8478;
+  font-style: italic;
+}
+
+.time-report-estimate-empty {
+  color: #c7c1b4;
+}

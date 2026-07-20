@@ -75,20 +75,18 @@ describe("listPullCommitTimestamps", () => {
   });
 
   it("keeps commits where author.login matches authorLogin", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([
-            rawPullCommit({
-              sha: "sha1",
-              authorLogin: "octocat",
-              authorDate: "2026-07-15T10:00:00Z",
-            }),
-          ]),
-          { status: 200 },
-        ),
-      );
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          rawPullCommit({
+            sha: "sha1",
+            authorLogin: "octocat",
+            authorDate: "2026-07-15T10:00:00Z",
+          }),
+        ]),
+        { status: 200 },
+      ),
+    );
 
     const timestamps = await listPullCommitTimestamps(
       fetchImpl,

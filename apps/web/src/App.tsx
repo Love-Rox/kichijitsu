@@ -15,6 +15,8 @@ import type {
   GitHubQueueResponse,
   GitHubWorkItemDTO,
   MeResponse,
+  PullCommitsRequest,
+  PullCommitsResponse,
   SyncRequest,
   SyncResponse,
   TaskListDTO,
@@ -24,6 +26,7 @@ import type {
   WatchRequest,
 } from "@kichijitsu/shared";
 import { buildBlockRuleDeleteRequest } from "./sync/blockRules";
+import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
 import { buildEventDeleteRequest, buildEventPatchRequest } from "./sync/eventPatch";
 import {
   buildEventCreateRequest,
@@ -294,6 +297,12 @@ function App() {
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
+  // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B)。
+  // レポートを開いたときだけ POST /api/github/pr-commits を取りに行き、キー
+  // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
+  // effect 参照)。手動タイマー実績(TimeEntry)とは別立てのデータなので専用 state で持つ
+  const [prCommitEstimates, setPrCommitEstimates] = useState<Record<string, number>>({});
+  const [prCommitEstimatesLoading, setPrCommitEstimatesLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -1573,6 +1582,57 @@ function App() {
   const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
   const reportTimeEntries = useTimeEntries(timeEntryStore);
 
+  // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。
+  // レポートを開いたときだけ POST /api/github/pr-commits を叩く(interval 等の常時ポーリングは
+  // しない)。対象は reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の
+  // {repo, number} のみ — issue は commit と紐づかないため送らない。未連携(me.github===null)
+  // なら取得せず推定列は空のまま。401→githubAuthExpired 経路に合流(①②と同じ再連携導線を共有)、
+  // 409(未連携相当、通常は me.github が null のはずなので基本発生しない)は空扱い、
+  // 502・ネットワークエラーは一時的な失敗として warn のみ(前回の推定を維持する)。
+  useEffect(() => {
+    if (!reportOpen || !me.github) return;
+    const prItems = collectPrTargets(reportPlannedBlocks, reportTimeEntries);
+    if (prItems.length === 0) {
+      setPrCommitEstimates({});
+      return;
+    }
+    let cancelled = false;
+    setPrCommitEstimatesLoading(true);
+    checkedFetch("/api/github/pr-commits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: prItems } satisfies PullCommitsRequest),
+    })
+      .then(async (res) => {
+        if (res.status === 401) {
+          if (!cancelled) setGithubAuthExpired(true);
+          return;
+        }
+        if (res.status === 409) {
+          if (!cancelled) setPrCommitEstimates({});
+          return;
+        }
+        if (!res.ok) {
+          console.warn(`kichijitsu: POST /api/github/pr-commits failed: ${res.status}`);
+          return;
+        }
+        const data = (await res.json()) as PullCommitsResponse;
+        if (!cancelled) {
+          setGithubAuthExpired(false);
+          setPrCommitEstimates(estimateByItemKey(data.commitsByItem));
+        }
+      })
+      .catch((err) => {
+        console.warn("kichijitsu: POST /api/github/pr-commits failed", err);
+      })
+      .finally(() => {
+        if (!cancelled) setPrCommitEstimatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportOpen, me.github, reportPlannedBlocks, reportTimeEntries, checkedFetch]);
+
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
   // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
@@ -2217,6 +2277,8 @@ function App() {
           plannedBlocks={reportPlannedBlocks}
           timeEntries={reportTimeEntries}
           nowMs={timerNowMs}
+          estimatedByKey={me.github ? prCommitEstimates : {}}
+          estimatesLoading={prCommitEstimatesLoading}
           onClose={() => setReportOpen(false)}
         />
       )}
