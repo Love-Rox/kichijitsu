@@ -15,6 +15,7 @@ import type {
   EventDeleteResponse,
   EventPatchRequest,
   EventPatchResponse,
+  GitHubItemsResponse,
   MeResponse,
   SyncRequest,
   TaskListsResponse,
@@ -30,6 +31,8 @@ import { populateProfileId, requireAuth } from "../middleware";
 import { SESSION_COOKIE_NAME } from "../session";
 import { decryptToken, InvalidCiphertextError } from "../crypto";
 import { revokeToken } from "../google/oauth";
+import { fetchGitHubItems } from "../core/github-items";
+import { GitHubApiError } from "../github/http";
 import { registerWatch, stopWatch, buildWebhookAddress } from "../google/watch";
 import {
   isAccountInProfile,
@@ -97,6 +100,48 @@ apiRoutes.delete("/api/github", requireAuth, async (c) => {
     .bind(profileId)
     .run();
   return c.body(null, 204);
+});
+
+// GitHub アイテム取得 (docs/github-integration.md フェーズ①、2026-07-20)。milestone 期日 +
+// その milestone の open issue/PR を取って DTO で返すだけ (サーバーは永続化しない、
+// Google の /api/sync と同じ思想)。表示 (専用レーン) は Part B で別途。
+// - 未連携 (github_connections に行が無い) は 409 github_not_connected。
+// - 復号できない/GitHub が 401 を返す (トークン失効) は 401 github_auth_expired
+//   (将来の再連携導線用に区別しておく)。
+// - それ以外の GitHub API 失敗は一律 502 github_fetch_failed (/api/event/patch 等の
+//   一律マッピング方針と同じ — 理由ごとの分岐をクライアントに要求しない)。
+apiRoutes.get("/api/github/items", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const connection = await c.env.DB.prepare(
+    "SELECT access_token FROM github_connections WHERE profile_id = ?",
+  )
+    .bind(profileId)
+    .first<{ access_token: string }>();
+  if (!connection) {
+    return c.json<ApiError>({ error: "github_not_connected" }, 409);
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await decryptToken(c.env.TOKEN_ENC_KEY, connection.access_token);
+  } catch (err) {
+    if (!(err instanceof InvalidCiphertextError)) throw err;
+    console.warn(`github items: could not decrypt access_token for profile ${profileId}`);
+    return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+  }
+
+  try {
+    const items = await fetchGitHubItems({ fetch, token: accessToken });
+    return c.json<GitHubItemsResponse>({ items });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github items: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github items: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
 });
 
 // カレンダー選択をサーバーに保存する (2026-07-20、端末間同期)。対象アカウントの所属検証あり。

@@ -28,4 +28,8 @@ export type {
   BlockRuleDeleteRequest,
   WatchRequest,
   SyncResponse,
+  GitHubConnectionDTO,
+  GitHubItemType,
+  GitHubItemDTO,
+  GitHubItemsResponse,
 } from "./protocol";
