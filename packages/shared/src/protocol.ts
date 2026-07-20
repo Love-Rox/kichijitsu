@@ -27,6 +27,11 @@ export interface GoogleEventDTO {
   location?: string;
   /** 説明 (HTML を含み得る。表示側でプレーンテキスト化する) */
   description?: string;
+  /**
+   * カレンダーブロック機能 (docs/blocking.md) が mirror 識別 (kichijitsuMirror) を
+   * 読むために必要。private は自分専用、shared は招待先とも共有される拡張プロパティ
+   */
+  extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
 }
 
 /** 連携済みの Google アカウント1件。id は Google の sub */
