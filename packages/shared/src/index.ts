@@ -35,4 +35,7 @@ export type {
   GitHubWorkKind,
   GitHubWorkItemDTO,
   GitHubQueueResponse,
+  GitHubActivityType,
+  GitHubActivityDTO,
+  GitHubActivityResponse,
 } from "./protocol";

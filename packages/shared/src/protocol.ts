@@ -116,6 +116,37 @@ export interface GitHubQueueResponse {
 }
 
 /**
+ * GET /api/github/activity が返す1件の種別 (docs/github-integration.md フェーズ③
+ * 「実績オーバーレイ」Part A、2026-07-20)。第1弾は commit のみ — PR/レビュー活動は
+ * 将来この union にバリアントを足すだけで拡張できる形にしてある。
+ */
+export type GitHubActivityType = "commit"; // 将来 'pr' | 'review' を足す
+
+/**
+ * 実績オーバーレイの1件 (docs/github-integration.md フェーズ③)。インストール先 repo に
+ * 対して `author=自分の login` + 表示中の時間範囲 (since/until) で commits API を叩いた
+ * 結果を DTO 化したもの。サーバーは永続化しない (GitHubItemDTO 等と同じ思想)。
+ */
+export interface GitHubActivityDTO {
+  /** 安定 ID: `gha:{owner}/{repo}:commit:{sha}` */
+  id: string;
+  type: GitHubActivityType;
+  /** commit メッセージの先頭行のみ。 */
+  title: string;
+  /** "owner/repo" */
+  repo: string;
+  /** html_url */
+  url: string;
+  /** 活動時刻 (epoch ms)。グリッドに時刻配置するのに使う。 */
+  timestampMs: number;
+}
+
+/** GET /api/github/activity のレスポンス。 */
+export interface GitHubActivityResponse {
+  items: GitHubActivityDTO[];
+}
+
+/**
  * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
  * プロファイルに複数の Google アカウントがぶら下がる。
  * connected は accounts.length > 0 と同義（後方互換のため残す）

@@ -15,6 +15,7 @@ import type {
   EventDeleteResponse,
   EventPatchRequest,
   EventPatchResponse,
+  GitHubActivityResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
   MeResponse,
@@ -32,6 +33,7 @@ import { populateProfileId, requireAuth } from "../middleware";
 import { SESSION_COOKIE_NAME } from "../session";
 import { decryptToken, InvalidCiphertextError } from "../crypto";
 import { revokeToken } from "../google/oauth";
+import { fetchGitHubActivity } from "../core/github-activity";
 import { fetchGitHubItems } from "../core/github-items";
 import { fetchGitHubQueue } from "../core/github-queue";
 import { GitHubApiError } from "../github/http";
@@ -154,6 +156,59 @@ apiRoutes.get("/api/github/queue", requireAuth, async (c) => {
       return c.json<ApiError>({ error: "github_auth_expired" }, 401);
     }
     console.error(`github queue: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// GitHub 実績オーバーレイ取得 (docs/github-integration.md フェーズ③「実績オーバーレイ」
+// Part A、2026-07-20)。インストール先 repo に対して自分の commit 活動 (author=login) を
+// since/until (クライアントが渡す表示中の時間帯) で取って DTO で返すだけ (サーバーは
+// 永続化しない)。表示 (グリッドへの薄いオーバーレイ) は Part B で別途。
+// - since/until が無ければ 400 missing_range (per-repo commit 取得を範囲限定するための
+//   必須パラメータ)。
+// - 範囲が MAX_ACTIVITY_RANGE_DAYS を超えたら 400 range_too_wide (per-repo 反復が膨らむのを防ぐ)。
+// - エラーマッピングは /api/github/items・/api/github/queue と同じ (resolveGitHubAccessToken
+//   を共有)。
+const MAX_ACTIVITY_RANGE_DAYS = 62;
+
+apiRoutes.get("/api/github/activity", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const sinceIso = c.req.query("since");
+  const untilIso = c.req.query("until");
+  if (!sinceIso || !untilIso) {
+    return c.json<ApiError>({ error: "missing_range" }, 400);
+  }
+  const sinceMs = Date.parse(sinceIso);
+  const untilMs = Date.parse(untilIso);
+  if (Number.isNaN(sinceMs) || Number.isNaN(untilMs)) {
+    return c.json<ApiError>({ error: "missing_range" }, 400);
+  }
+  const rangeDays = (untilMs - sinceMs) / (24 * 60 * 60 * 1000);
+  if (rangeDays > MAX_ACTIVITY_RANGE_DAYS) {
+    return c.json<ApiError>({ error: "range_too_wide" }, 400);
+  }
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github activity");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const items = await fetchGitHubActivity({
+      fetch,
+      token: resolved.token,
+      login: resolved.login,
+      sinceIso,
+      untilIso,
+    });
+    return c.json<GitHubActivityResponse>({ items });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github activity: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github activity: fetch failed for profile ${profileId}`, err);
     return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
   }
 });
@@ -760,12 +815,16 @@ async function loadVisibleCalendars(
 }
 
 /**
- * GET /api/github/items と /api/github/queue で共通のトークン解決 (docs/github-integration.md
- * フェーズ①②、2026-07-20)。github_connections を profileId で引いて復号するだけの処理が
- * 両ルートで重複していたので DRY 化した — 挙動 (未連携 409 / 復号失敗 401) は変えていない。
+ * GET /api/github/items・/api/github/queue・/api/github/activity で共通のトークン解決
+ * (docs/github-integration.md フェーズ①②③、2026-07-20)。github_connections を profileId で
+ * 引いて復号するだけの処理が各ルートで重複していたので DRY 化した — 挙動 (未連携 409 /
+ * 復号失敗 401) は変えていない。
+ * `login` も併せて返す (フェーズ③の commits API が author=login を要求するため、
+ * github_login を SELECT に追加して拡張した — 既存の呼び出し側 (①②) は login を無視する
+ * だけなので非破壊)。
  */
 type GitHubTokenResolution =
-  | { ok: true; token: string }
+  | { ok: true; token: string; login: string }
   | { ok: false; error: "github_not_connected" | "github_auth_expired"; status: 409 | 401 };
 
 async function resolveGitHubAccessToken(
@@ -774,17 +833,17 @@ async function resolveGitHubAccessToken(
   logPrefix: string,
 ): Promise<GitHubTokenResolution> {
   const connection = await env.DB.prepare(
-    "SELECT access_token FROM github_connections WHERE profile_id = ?",
+    "SELECT access_token, github_login FROM github_connections WHERE profile_id = ?",
   )
     .bind(profileId)
-    .first<{ access_token: string }>();
+    .first<{ access_token: string; github_login: string }>();
   if (!connection) {
     return { ok: false, error: "github_not_connected", status: 409 };
   }
 
   try {
     const token = await decryptToken(env.TOKEN_ENC_KEY, connection.access_token);
-    return { ok: true, token };
+    return { ok: true, token, login: connection.github_login };
   } catch (err) {
     if (!(err instanceof InvalidCiphertextError)) throw err;
     console.warn(`${logPrefix}: could not decrypt access_token for profile ${profileId}`);

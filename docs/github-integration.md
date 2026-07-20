@@ -51,3 +51,33 @@ type OccurrenceSource = "local" | "google" | "github";
 描画エンジン → IndexedDB → Google 同期（設計ドキュメントの順序）を崩さず、
 GitHub 連携は Google 同期の**後**に同じ Worker 基盤へ追加する。
 上表 1 → 2 → 3 → 4 の順で薄く積む。時間計測はその後。
+
+## 認証プロバイダの抽象化 — `gh` CLI 対応（Tauri、2026-07-20 ユーザー要望）
+
+一部の org は OAuth App / GitHub App のインストールを制限しており、連携（トークン取得）が
+取りづらい。一方、開発者は手元で `gh auth login` 済みのことが多い。そこで **Tauri
+デスクトップ版では `gh` コマンドをデータ取得の代替プロバイダにする**（認証が取りづらい
+org 対策、ユーザー要望）。
+
+- **プロバイダは2系統、DTO は共通**:
+  - **Worker OAuth**（Web/PWA、現行）: `GET /api/github/{items,queue,activity}` が
+    GitHub App user-to-server トークンで取得し DTO を返す。
+  - **ローカル `gh`**（Tauri）: Tauri から `gh api <endpoint>` を invoke し、GitHub REST の
+    生 JSON を**同じ DTO**（`GitHubItemDTO` / `GitHubWorkItemDTO` / `GitHubActivityDTO`）へ
+    map する。Worker も OAuth トークンも不要で、ユーザーの既存 gh 認証をそのまま使う。
+    ローカルファースト（正本=リモート、取得はデバイスから）とも合致。
+- **クライアントの境界**: web 側の GitHub 取得を薄いプロバイダ interface の裏に置く
+  （例 `GitHubProvider.fetchItems()/fetchQueue()/fetchActivity()`）。Web は fetch 実装、
+  Tauri は `gh` 実装を注入。UI・ストア・マッピング（`sync/mapGitHub.ts` 等）は DTO だけを
+  見るので無変更で差し替わる。
+- **gh 実装の要点**（Tauri フェーズで実装）:
+  - `gh api --paginate 'search/issues?q=...'`、`gh api 'repos/{o}/{r}/milestones?state=open'`、
+    `gh api 'repos/{o}/{r}/commits?author=...&since=...'` 等、Worker 側 `github/*.ts` と
+    同じエンドポイントを叩く。ページングは `--paginate`。
+  - インストール先 repo の概念は gh には無い（gh はユーザーの全アクセス範囲）。対象 repo は
+    設定で明示選択させる or `gh repo list` から選ぶ（Worker 版の installation スコープに相当）。
+  - `gh` 未インストール/未ログインは検出してフォールバック（OAuth 連携を案内）。
+  - Tauri の shell/command 権限（allowlist で `gh` のみ許可）で最小権限実行。
+- **実装タイミング**: Tauri デスクトップ化のフェーズ（docs/multiplatform.md）。今の
+  Web/OAuth 実装（①②③…）はそのまま「Worker プロバイダ」として残る。DTO を壊さないことが
+  唯一の制約。
