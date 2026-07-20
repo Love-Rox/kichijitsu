@@ -118,7 +118,13 @@
   text-decoration: underline;
 }
 
-.toolbar-account button {
+/*
+ * ツールバーの汎用ボタン。ただし設定パネルは .toolbar-account の中に描画されるため、
+ * この要素セレクタ (.toolbar-account button) がパネル内のチェックボックス等にも
+ * 漏れて border/背景を勝手に付けてしまっていた (ユーザー指摘 2026-07-20)。
+ * :not(.calendar-panel-checkbox) で除外し、パネルのボタンは各自のスタイルに任せる。
+ */
+.toolbar-account > button {
   font: inherit;
   font-size: 13px;
   border: 1px solid #e5e7eb;
@@ -129,11 +135,11 @@
   cursor: pointer;
 }
 
-.toolbar-account button:hover:not(:disabled) {
+.toolbar-account > button:hover:not(:disabled) {
   background: #f3f4f6;
 }
 
-.toolbar-account button:disabled {
+.toolbar-account > button:disabled {
   color: #9ca3af;
   cursor: default;
 }
