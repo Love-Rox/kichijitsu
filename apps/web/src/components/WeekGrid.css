@@ -310,11 +310,13 @@
 
 /*
  * Busy/予定あり = 中身の無い「ブロックされた時間」。実予定と一目で区別できるよう
- * 斜線ハッチのグレー表示にする(色は使わない)。文字は控えめ、影も弱め。
- * z 順序は WeekGrid 側で常に最背面に回している。
+ * 斜線ハッチにするが、そのカレンダーの色を反映する(2026-07-20 ユーザー決定)。
+ * 色は EventBlock 側が --busy-color カスタムプロパティとしてインライン指定する
+ * (occurrence.color/calendarLookup 由来、不正なら従来のグレーにフォールバック済み)。
+ * 文字色は可読性優先で従来の薄墨のまま固定。z 順序は WeekGrid 側で常に最背面に回している。
  */
 .event--busy {
-  border-left-color: #c9c2b4;
+  border-left-color: var(--busy-color, #c9c2b4);
   color: #8a8478;
   box-shadow: none;
   background-color: #f4f1ea;
@@ -322,8 +324,8 @@
     -45deg,
     transparent,
     transparent 5px,
-    rgba(140, 132, 120, 0.16) 5px,
-    rgba(140, 132, 120, 0.16) 10px
+    color-mix(in srgb, var(--busy-color, #8a8478) 30%, transparent) 5px,
+    color-mix(in srgb, var(--busy-color, #8a8478) 30%, transparent) 10px
   );
 }
 
@@ -350,7 +352,29 @@
 }
 
 /*
- * 同一予定の集約(フェーズ5): 2件以上のコピーがあるときだけ、所属カレンダーの
+ * 同一予定の集約(フェーズ6): 時刻グリッドのカードで2件以上のコピーがあるときは、
+ * 左端に所属カレンダーぶんの色ストライプを並べて「複数カレンダーにまたがっている」
+ * ことを一目で示す(単色の左ボーダーの代わり。EventBlock 側で borderLeft: none にして
+ * 代わりにこれを敷く)。ドラッグ/リサイズ/クリックの邪魔をしないよう pointer-events:none。
+ * (終日レーンの .event-group-dots は別レイアウトのため今回のスコープ外、そのまま残す)
+ */
+.event-cal-stripes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.event-cal-stripe {
+  width: 3px;
+  height: 100%;
+  flex: none;
+}
+
+/*
+ * 終日レーン (AllDayBar.tsx) 向け: 2件以上のコピーがあるときだけ、所属カレンダーの
  * 色ドットをカード上に並べる(ホバー不要で「複数アカウントに存在する」と分かるように)
  */
 .event-group-dots {
@@ -399,10 +423,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.event--compact .event-group-dots {
-  flex: 0 0 auto;
 }
 
 .event.event--dragging {

@@ -20,6 +20,7 @@ import {
   minutesToPx,
   pxToMinutes,
 } from '../layout/gridMetrics'
+import { buildCalendarStripeColors, resolveBusyColor } from '../layout/eventColors'
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
@@ -362,9 +363,23 @@ export function EventBlock({
   // 使用可能幅」に対する % (WeekGrid 側で計算済み)。px のインセットと % を
   // calc() で組み合わせ、予定が日の仕切り線に密着しないようにする
   // Busy/予定あり は中身の無い「ブロックされた時間」。実予定と区別できるよう
-  // 斜線ハッチの控えめな見た目にする(.event--busy)。色は使わずグレーで統一。
+  // 斜線ハッチの控えめな見た目にする(.event--busy)が、そのカレンダーの色を
+  // 使ったハッチにする(2026-07-20 ユーザー決定)。左ボーダーとハッチの斜線の
+  // 両方に使う色を --busy-color として CSS へ渡し、.event--busy 側の
+  // repeating-linear-gradient がそれを参照する。色が解決できない/不正なら
+  // resolveBusyColor が従来のグレーにフォールバックする。
   const isBusy = isBusyPlaceholder(occurrence.title)
+  const busyColor = isBusy ? resolveBusyColor(occurrence, calendarLookup) : undefined
   const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`
+
+  // 同一予定の集約(フェーズ5〜6): 2件以上の複製がある場合、左端に所属カレンダー
+  // ぶんの色ストライプを並べて「複数カレンダーにまたがっている」ことを一目で
+  // 分かるようにする(単一メンバー時は従来通り単色の左ボーダーのまま)。
+  const stripeColors = groupMembers.length > 1 ? buildCalendarStripeColors(groupMembers, calendarLookup) : []
+  const hasStripes = stripeColors.length > 0
+  const STRIPE_WIDTH_PX = 3
+  const STRIPE_CONTENT_GAP_PX = 4 // .event の既定 padding-left (4px) と揃える
+
   const style: CSSProperties = {
     top,
     left: `calc(${DAY_COLUMN_INSET_PX}px + ${usableWidthExpr} * ${leftPct / 100})`,
@@ -372,28 +387,24 @@ export function EventBlock({
     zIndex: stackIndex + 1,
     // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと
     // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
-    // Busy は色を使わずグレーのハッチ(CSS 側 .event--busy)に任せるので背景指定しない。
+    // Busy は背景を独自指定せず、色付きハッチ(CSS 側 .event--busy + --busy-color)に任せる。
     ...(isBusy
-      ? {}
+      ? ({ borderLeftColor: busyColor, '--busy-color': busyColor } as CSSProperties)
       : {
           backgroundColor: `color-mix(in srgb, ${occurrence.color} 15%, white)`,
           borderLeftColor: occurrence.color,
         }),
+    // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
+    ...(hasStripes
+      ? {
+          borderLeft: 'none',
+          paddingLeft: `${stripeColors.length * STRIPE_WIDTH_PX + STRIPE_CONTENT_GAP_PX}px`,
+        }
+      : {}),
   }
   if (!isResizing) {
     style.height = height
   }
-
-  // 同一予定の集約(フェーズ5): 2件以上の複製がある場合だけ所属カレンダーの
-  // 色ドットをカード上に並べる。詳細ポップオーバー側では常に groupMembers を渡し、
-  // 1件のときは従来通り calendarInfo 単体表示のままにする(EventDetailCard 側で分岐)
-  const showGroupDots = groupMembers.length > 1
-  const dotColors = showGroupDots
-    ? groupMembers.map((m) => {
-        const info = m.accountId && m.calendarId ? calendarLookup.get(`${m.accountId}:${m.calendarId}`) : undefined
-        return info?.backgroundColor ?? m.color
-      })
-    : []
 
   return (
     <>
@@ -414,29 +425,24 @@ export function EventBlock({
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
+        {hasStripes && (
+          // 集約カードの「複数カレンダーにまたがっている」印。ドラッグ/クリックの
+          // 判定を奪わないよう pointer-events:none(CSS 側)にしてある
+          <span className="event-cal-stripes" aria-hidden="true">
+            {stripeColors.map((c, i) => (
+              <span key={i} className="event-cal-stripe" style={{ background: c }} />
+            ))}
+          </span>
+        )}
         {isCompact ? (
           <span className="event-line">
             <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
             <span className="event-title">{occurrence.title}</span>
-            {showGroupDots && (
-              <span className="event-group-dots" aria-hidden="true">
-                {dotColors.map((c, i) => (
-                  <span key={i} className="event-group-dot" style={{ background: c }} />
-                ))}
-              </span>
-            )}
           </span>
         ) : (
           <>
             <span className="event-header-row">
               <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
-              {showGroupDots && (
-                <span className="event-group-dots" aria-hidden="true">
-                  {dotColors.map((c, i) => (
-                    <span key={i} className="event-group-dot" style={{ background: c }} />
-                  ))}
-                </span>
-              )}
             </span>
             <span className="event-title">{occurrence.title}</span>
           </>
