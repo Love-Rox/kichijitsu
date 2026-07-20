@@ -1,0 +1,21 @@
+[package]
+name = "kichijitsu-desktop"
+version = "0.1.0"
+description = "kichijitsu desktop shell (reads the production web app via a remote URL webview)"
+authors = ["Love-Rox"]
+license = ""
+repository = "https://github.com/Love-Rox/kichijitsu"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "kichijitsu_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2" }
+
+[dependencies]
+tauri = { version = "2" }

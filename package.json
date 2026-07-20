@@ -6,7 +6,9 @@
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "deploy:sync": "pnpm --filter sync exec wrangler deploy",
-    "deploy:web": "pnpm --filter sync exec wrangler deploy --config ../web/wrangler.jsonc"
+    "deploy:web": "pnpm --filter sync exec wrangler deploy --config ../web/wrangler.jsonc",
+    "dev:desktop": "pnpm --filter desktop dev",
+    "build:desktop": "pnpm --filter desktop build"
   },
   "devDependencies": {
     "vite": "catalog:",
