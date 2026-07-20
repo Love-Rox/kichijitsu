@@ -13,6 +13,9 @@
 | `favicon.svg`   | ファビコン。16px でも読める 2x2 簡約版                                        |
 | `wordmark.svg`  | ワードマーク（確定版 2026-07-19）。**手編集禁止**、再生成は `gen-wordmark.js` |
 
+PWA アイコン (`apps/web/public/icons/*.png`) は `tile.svg` からの生成物。
+**手編集禁止**、再生成は `gen-pwa-icons.js`（`pnpm --filter web gen:icons` でも可）。
+
 ### ワードマーク
 
 - Inter SemiBold（SIL OFL 1.1, https://rsms.me/inter/）を**アウトライン化**した
