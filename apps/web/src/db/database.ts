@@ -1,6 +1,12 @@
 import { openDB } from "idb";
 import type { DBSchema, IDBPDatabase } from "idb";
-import type { AllDayOccurrence, GitHubItem, Occurrence, TaskItem } from "../model/types";
+import type {
+  AllDayOccurrence,
+  GitHubItem,
+  Occurrence,
+  PlannedBlock,
+  TaskItem,
+} from "../model/types";
 import type { EventSeries, InstanceOverride } from "../model/series";
 import type { ExpansionState } from "../expansion/windowPolicy";
 import { DAY_MS } from "../expansion/windowPolicy";
@@ -58,6 +64,16 @@ export interface KichijitsuDB extends DBSchema {
     key: string;
     value: GitHubItem;
   };
+  /**
+   * 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20)。
+   * occurrences とは完全に独立したストア — Google 同期はこのストアに一切触れない
+   * (applySync 等が occurrences/allDayOccurrences/tasks/githubItems だけを触る隔離を守るため)。
+   * githubItems と同様に展開ウィンドウの概念が無く、起動時に全件を常時ロードする運用
+   */
+  plannedBlocks: {
+    key: string;
+    value: PlannedBlock;
+  };
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
@@ -66,7 +82,7 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = "kichijitsu";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const META_EXPANSION_KEY = "expansion";
 const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
 
@@ -100,6 +116,11 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
         if (!db.objectStoreNames.contains("githubItems")) {
           // DB_VERSION 4 (GitHub 連携フェーズ①Part B) で追加。既存ユーザーもここを通って新規作成される
           db.createObjectStore("githubItems", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("plannedBlocks")) {
+          // DB_VERSION 5 (GitHub 連携「時間計測」増分1) で追加。既存ユーザー(v4 以前)も
+          // ここを通って新規作成される。他ストアとは独立(Google 同期は触れない)
+          db.createObjectStore("plannedBlocks", { keyPath: "id" });
         }
         if (!db.objectStoreNames.contains("meta")) {
           // out-of-line key: put 時に key を明示して渡す (keyPath なし)
@@ -277,6 +298,30 @@ export async function getAllGitHubItems(db: IDBPDatabase<KichijitsuDB>): Promise
  */
 export async function clearGitHubItems(db: IDBPDatabase<KichijitsuDB>): Promise<void> {
   await db.clear("githubItems");
+}
+
+/**
+ * 予定タイムブロック (docs/github-integration.md「時間計測」増分1)。githubItems 系と同様、
+ * 展開ウィンドウの概念が無いため全件取得で読み込む(起動時に丸ごと PlannedStore へロードする用途)。
+ */
+export async function getAllPlannedBlocks(db: IDBPDatabase<KichijitsuDB>): Promise<PlannedBlock[]> {
+  return db.getAll("plannedBlocks");
+}
+
+/** 1件の作成・更新(ドラッグでの新規作成・移動・リサイズ、いずれもローカルのみ) */
+export async function putPlannedBlock(
+  db: IDBPDatabase<KichijitsuDB>,
+  block: PlannedBlock,
+): Promise<void> {
+  await db.put("plannedBlocks", block);
+}
+
+/** 削除ボタンから呼ばれる(ローカルのみ、Google への書き戻し無し) */
+export async function deletePlannedBlock(
+  db: IDBPDatabase<KichijitsuDB>,
+  id: string,
+): Promise<void> {
+  await db.delete("plannedBlocks", id);
 }
 
 /**

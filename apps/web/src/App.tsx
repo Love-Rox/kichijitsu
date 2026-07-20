@@ -35,6 +35,7 @@ import {
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
 import { mapGitHubItems } from "./sync/mapGitHub";
+import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
@@ -62,11 +63,12 @@ import {
   generateDummySeries,
 } from "./model/dummy";
 import { instanceId } from "./model/series";
-import type { Occurrence, TaskItem } from "./model/types";
+import type { Occurrence, PlannedBlock, TaskItem } from "./model/types";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
+import { PlannedStore } from "./store/plannedStore";
 import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
@@ -74,8 +76,10 @@ import {
   countSeries,
   deleteOccurrencesByIds,
   deleteOverridesByIds,
+  deletePlannedBlock,
   getAllAllDayOccurrences,
   getAllGitHubItems,
+  getAllPlannedBlocks,
   getAllTasks,
   getExpansionState,
   getOccurrencesBetween,
@@ -86,6 +90,7 @@ import {
   putOccurrence,
   putOccurrences,
   putOverride,
+  putPlannedBlock,
   putSeries,
   putTask,
   setVisibleCalendars,
@@ -226,6 +231,9 @@ function App() {
   // GitHub 連携 (docs/github-integration.md フェーズ①Part B) の読み口。未連携時も
   // インスタンス自体は常に存在し、単に空のまま(WeekGrid 側がレーンを非表示にする)
   const githubStore = useMemo(() => new GitHubStore(), []);
+  // 予定タイムブロック(docs/github-integration.md「時間計測」増分1)の読み口。occurrences とは
+  // 完全に独立したストア — Google 同期(applySync 等)はこのストアに一切触れない
+  const plannedStore = useMemo(() => new PlannedStore(), []);
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null);
 
   // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
@@ -458,18 +466,25 @@ function App() {
       // GitHub アイテム (docs/github-integration.md フェーズ①Part B): 同じく全件ロード。
       // ここでは前回取得のキャッシュを表示するだけで、最新化は me.github 判明後の別 effect が行う
       const allGitHubItems = await getAllGitHubItems(database);
+      // 予定タイムブロック (docs/github-integration.md「時間計測」増分1): 同じく全件ロード。
+      // Google 同期とは無関係なので、以後この値がサーバーから再取得されることは無い
+      // (ローカル操作のみで更新される)
+      const allPlannedBlocks = await getAllPlannedBlocks(database);
 
-      // occurrences・終日予定・タスク・GitHub アイテムの初回反映を1回の通知にまとめ、
-      // 初期描画のチラつきを防ぐ
+      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロックの初回反映を
+      // 1回の通知にまとめ、初期描画のチラつきを防ぐ
       if (!cancelled) {
         await store.batch(async () => {
           await allDayStore.batch(async () => {
             await taskStore.batch(async () => {
               await githubStore.batch(async () => {
-                if (all) store.load(all);
-                allDayStore.load(allDays);
-                taskStore.load(allTasks);
-                githubStore.load(allGitHubItems);
+                await plannedStore.batch(async () => {
+                  if (all) store.load(all);
+                  allDayStore.load(allDays);
+                  taskStore.load(allTasks);
+                  githubStore.load(allGitHubItems);
+                  plannedStore.load(allPlannedBlocks);
+                });
               });
             });
           });
@@ -1433,6 +1448,53 @@ function App() {
     [db, store, checkedFetch, flashSaveError],
   );
 
+  // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
+  // 以下3つのハンドラは全てローカルのみ: plannedStore(メモリ)と IndexedDB の
+  // plannedBlocks ストアだけを更新し、ネットワーク呼び出し(/api/event/* 等)は一切行わない。
+  // Google 側の handlePersist/handleCreate/handleDeleteOccurrence とは意図的に別経路にしてある
+  // (このブロックは Google に存在しない、書き戻し先が無いローカル専用の予定のため)。
+
+  /** 作業キューの項目がグリッドへドロップされたときに呼ばれる(DayColumn.tsx の onDrop 経由) */
+  const onDropWorkItem = useCallback(
+    (item: DroppedWorkItem, startMs: number, endMs: number) => {
+      if (!db) return;
+      const block = buildPlannedBlock(item, startMs, endMs);
+      // 楽観的表示: ネットワークが絡まないため待つ理由が無く、常に即時反映で確定でよい
+      plannedStore.upsert(block);
+      putPlannedBlock(db, block).catch((err) => {
+        console.error("kichijitsu: failed to persist planned block", err);
+      });
+    },
+    [db, plannedStore],
+  );
+
+  /** 予定タイムブロックの本体ドラッグ(移動)/端ドラッグ(リサイズ)確定時に呼ばれる */
+  const onMovePlannedBlock = useCallback(
+    (id: string, startMs: number, endMs: number) => {
+      if (!db) return;
+      const existing = plannedStore.get(id);
+      if (!existing) return;
+      const updated: PlannedBlock = { ...existing, startMs, endMs };
+      plannedStore.upsert(updated);
+      putPlannedBlock(db, updated).catch((err) => {
+        console.error("kichijitsu: failed to persist planned block move", err);
+      });
+    },
+    [db, plannedStore],
+  );
+
+  /** 予定タイムブロックの削除ボタンから呼ばれる */
+  const onDeletePlannedBlock = useCallback(
+    (id: string) => {
+      if (!db) return;
+      plannedStore.remove([id]);
+      deletePlannedBlock(db, id).catch((err) => {
+        console.error("kichijitsu: failed to delete planned block", err);
+      });
+    },
+    [db, plannedStore],
+  );
+
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
   // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
@@ -1967,6 +2029,10 @@ function App() {
             taskStore={taskStore}
             githubStore={githubStore}
             githubActivity={activityVisible ? githubActivity : []}
+            plannedStore={plannedStore}
+            onDropWorkItem={onDropWorkItem}
+            onMovePlannedBlock={onMovePlannedBlock}
+            onDeletePlannedBlock={onDeletePlannedBlock}
             weekStart={timelineStart}
             dayCount={dayCount}
             timeZone={timeZone}
@@ -2036,6 +2102,7 @@ function App() {
             window.location.href = "/auth/github/login";
           }}
           onClose={() => setQueueOpen(false)}
+          onDragStart={() => setQueueOpen(false)}
         />
       )}
     </div>

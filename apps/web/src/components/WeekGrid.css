@@ -804,6 +804,120 @@
   color: #1f2937;
 }
 
+/*
+ * ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
+ * 作業キューからグリッドへドラッグして作る、Google に一切書き戻さないローカル専用ブロック。
+ * .event (Google 予定) と混同しないよう実線ではなく破線ボーダー + GitHub 連携の識別色
+ * (issue=紫 #6e5494 / PR=緑 #0b8043、work-queue-item/github-item-chip と同じトーン、
+ * 朱は使わない) にする。.event のカスケード列と重ね計算を共有せず、DayColumn 内の
+ * 独立レイヤ (.day-column-planned-layer) に絶対配置する — レイヤ自体は
+ * pointer-events:none にして、カード外の背景クリック(新規予定作成トリガー)を妨げない。
+ */
+.day-column-planned-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 550;
+}
+
+.planned-block {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1.5px dashed #6e5494;
+  background: color-mix(in srgb, #6e5494 10%, #faf7f2);
+  padding: 2px 4px 2px 17px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #24211e;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.planned-block--pr {
+  border-color: #0b8043;
+  background: color-mix(in srgb, #0b8043 10%, #faf7f2);
+}
+
+.planned-block:hover {
+  z-index: 700 !important;
+  box-shadow: 0 4px 12px rgba(36, 33, 30, 0.2);
+}
+
+.planned-block.planned-block--dragging {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  opacity: 0.92;
+  cursor: grabbing;
+  z-index: 1000 !important;
+}
+
+.planned-block-delete {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #8a8478;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.planned-block-delete:hover {
+  color: #d7402e;
+  background: #fff;
+}
+
+.planned-block-link {
+  font-weight: 700;
+  color: #6e5494;
+  text-decoration: none;
+  margin-right: 3px;
+}
+
+.planned-block--pr .planned-block-link {
+  color: #0b8043;
+}
+
+.planned-block-link:hover {
+  text-decoration: underline;
+}
+
+.planned-block-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planned-block-repo {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: #8a8478;
+}
+
+.planned-block-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
 /* ---- ドラッグ中のフローティング時刻バッジ ---- */
 
 .drag-badge {

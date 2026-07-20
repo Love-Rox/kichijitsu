@@ -135,3 +135,30 @@ export interface GitHubItem {
   /** issue/PR が属する milestone のタイトル。milestone 自身のアイテムには付かない */
   milestoneTitle?: string;
 }
+
+/**
+ * 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20)。
+ * 作業キュー(GitHubWorkItemDTO)の項目をグリッドへドラッグして作る、**Google に一切
+ * 書き戻さないローカル専用**の予定。Occurrence/AllDayOccurrence とは別の独立ストア・
+ * 別 IndexedDB store (`plannedBlocks`) に置くことで、Google 同期 (applySync 等) の
+ * 全消し→全書き込みに巻き込まれない(=同期のたびに消えたりしない)。
+ *
+ * linkedItemId で紐づく元の GitHubWorkItemDTO はサーバー側で永続化されず作業キューが
+ * 消えても表示を保てるよう、表示に必要な最小限 (itemType/title/repo/number/url) を
+ * 非正規化してこちら側にも持つ。実績(commit)との突き合わせ・レポートは増分2でやる
+ * (このモデルは「予定」のみ、実績フィールドは持たない)。
+ */
+export interface PlannedBlock {
+  id: string;
+  startMs: number;
+  endMs: number;
+  /** 紐づく GitHubWorkItem の id (`ghq:{owner}/{repo}:{issue|pr}:{number}`) */
+  linkedItemId: string;
+  itemType: "issue" | "pr";
+  title: string;
+  /** "owner/repo" */
+  repo: string;
+  number: number;
+  /** html_url。クリックで新規タブに開く */
+  url: string;
+}

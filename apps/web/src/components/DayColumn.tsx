@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import type { Occurrence } from "../model/types";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { Occurrence, PlannedBlock } from "../model/types";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
+import {
+  computeDropStartMs,
+  DEFAULT_PLANNED_DURATION_MS,
+  parseDroppedWorkItem,
+  plannedBlockHeightPx,
+  plannedBlockTopPx,
+  WORKITEM_DND_MIME,
+  type DroppedWorkItem,
+} from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import {
@@ -18,6 +27,7 @@ import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
+import { PlannedBlockCard } from "./PlannedBlock";
 
 /** 空き領域クリックで作る新規予定のデフォルトの長さ(縦ドラッグせずクリックだけで確定した場合) */
 const DEFAULT_CREATE_DURATION_MS = 60 * 60_000;
@@ -92,6 +102,20 @@ interface DayColumnProps {
    * 予定カードと絶対に重ならない(gridMetrics.ts の DAY_COLUMN_INSET_PX コメント参照)。
    */
   activityClusters: GitHubActivityCluster[];
+  /**
+   * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)。この日ぶんの
+   * PlannedBlock 配列(WeekGrid 側で [dayStartMs, dayEndMs) に絞り込み済み)。
+   */
+  plannedBlocks: PlannedBlock[];
+  /**
+   * 作業キュー(WorkQueueDrawer)からこの列へドロップされたときに呼ばれる。ローカル専用
+   * (Google へは一切書き戻さない) — App.tsx 側は plannedStore.upsert + IndexedDB 書き込みのみ行う。
+   */
+  onDropWorkItem: (item: DroppedWorkItem, startMs: number, endMs: number) => void;
+  /** 予定タイムブロックの移動/リサイズ確定時に呼ばれる(ローカルのみ) */
+  onMovePlannedBlock: (id: string, startMs: number, endMs: number) => void;
+  /** 予定タイムブロックの削除ボタンから呼ばれる(ローカルのみ) */
+  onDeletePlannedBlock: (id: string) => void;
 }
 
 /**
@@ -120,6 +144,10 @@ export function DayColumn({
   onCreateEvent,
   longPressCreate = false,
   activityClusters,
+  plannedBlocks,
+  onDropWorkItem,
+  onMovePlannedBlock,
+  onDeletePlannedBlock,
 }: DayColumnProps) {
   const createDragRef = useRef<CreateDragState | null>(null);
   const longPressPendingRef = useRef<LongPressPendingState | null>(null);
@@ -329,6 +357,36 @@ export function DayColumn({
     cancelDraft();
   }
 
+  /**
+   * 作業キュー(WorkQueueDrawer)からのドロップ受け入れ(docs/github-integration.md
+   * 「時間計測」増分1)。dragover で e.preventDefault() しないとブラウザが drop を許可しない
+   * (HTML5 DnD の標準的な作法)。
+   */
+  function handleColumnDragOver(e: ReactDragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes(WORKITEM_DND_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleColumnDrop(e: ReactDragEvent<HTMLDivElement>) {
+    const raw = e.dataTransfer.getData(WORKITEM_DND_MIME);
+    const item = parseDroppedWorkItem(raw);
+    if (!item) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const startMs = computeDropStartMs(dayStartMs, e.clientY, rect.top);
+    onDropWorkItem(item, startMs, startMs + DEFAULT_PLANNED_DURATION_MS);
+  }
+
+  // 予定タイムブロックの重なりは既存のカスケード(packColumns)をそのまま流用する
+  // (同時刻に複数あれば横ずらしで重ならないようにする、独立レイヤなので Google 予定側の
+  // stackZ とは無関係)
+  const plannedPositioned = packColumns(
+    plannedBlocks,
+    (b) => b.startMs,
+    (b) => b.endMs,
+  );
+
   return (
     <div
       className={isToday ? "week-grid-day-column is-today" : "week-grid-day-column"}
@@ -336,6 +394,8 @@ export function DayColumn({
       onPointerMove={handleColumnPointerMove}
       onPointerUp={handleColumnPointerUp}
       onPointerCancel={handleColumnPointerCancel}
+      onDragOver={handleColumnDragOver}
+      onDrop={handleColumnDrop}
     >
       {positioned.map(({ item: group, column, columnCount }) => {
         const occurrence = group.primary;
@@ -373,6 +433,29 @@ export function DayColumn({
           />
         );
       })}
+      {plannedPositioned.length > 0 && (
+        <div className="day-column-planned-layer">
+          {plannedPositioned.map(({ item: block, column, columnCount }) => {
+            const step = cascadeStepFrac(columnCount);
+            const leftPct = column * step * 100;
+            const widthPct = 100 - leftPct;
+            return (
+              <PlannedBlockCard
+                key={block.id}
+                block={block}
+                dayStartMs={dayStartMs}
+                top={plannedBlockTopPx(block.startMs, dayStartMs)}
+                height={plannedBlockHeightPx(block.startMs, block.endMs)}
+                leftPct={leftPct}
+                widthPct={widthPct}
+                timeZone={timeZone}
+                onMove={onMovePlannedBlock}
+                onDelete={onDeletePlannedBlock}
+              />
+            );
+          })}
+        </div>
+      )}
       {showNowLine && (
         <div className="now-line" style={{ top: nowTop }}>
           <span className="now-line-dot" />

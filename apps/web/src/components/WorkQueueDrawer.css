@@ -175,6 +175,19 @@
   gap: 4px;
 }
 
+/*
+ * ドラッグ→タイムブロック化(docs/github-integration.md「時間計測」増分1)の draggable な
+ * ラッパ。中の <a>(.work-queue-item) はクリックでの新規タブ遷移のみを担い、ドラッグ開始は
+ * こちらが担当する(WorkQueueDrawer.tsx のコメント参照)。
+ */
+.work-queue-item-row {
+  cursor: grab;
+}
+
+.work-queue-item-row:active {
+  cursor: grabbing;
+}
+
 .work-queue-item {
   display: flex;
   align-items: flex-start;

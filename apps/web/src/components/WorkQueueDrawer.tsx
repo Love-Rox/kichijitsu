@@ -1,6 +1,8 @@
 import { useRef } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import type { GitHubWorkItemDTO } from "@kichijitsu/shared";
 import { groupWorkItemsByKind } from "../sync/workQueue";
+import { WORKITEM_DND_MIME } from "../sync/planned";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./WorkQueueDrawer.css";
 
@@ -11,6 +13,15 @@ export interface WorkQueueDrawerProps {
   onRefresh: () => void;
   onReconnect: () => void;
   onClose: () => void;
+  /**
+   * ドラッグでのタイムブロック化(docs/github-integration.md「時間計測」増分1)開始時に
+   * 呼ばれる。このドロワーは fixed オーバーレイ(z-index 2000, 全画面 inset:0 の
+   * backdrop)でグリッドの上に被さっているため、開いたままだとグリッドへドロップできない
+   * ―― App.tsx はこれを受けてドロワーを閉じる(仕様どおり「ドラッグ中は閉じてよい」)。
+   * dataTransfer への setData は dragstart 同期実行内で完了済みなので、直後にこの
+   * コンポーネントがアンマウントされてもドラッグ操作自体はブラウザ側で継続する。
+   */
+  onDragStart: () => void;
 }
 
 /**
@@ -21,8 +32,9 @@ export interface WorkQueueDrawerProps {
  * (全幅グリッドをリフローさせない fixed オーバーレイ、CSS 参照)。
  *
  * items は React state のみで保持(IndexedDB には入れない、docs 方針)。ここでは
- * groupWorkItemsByKind (sync/workQueue.ts) で3セクションへ振り分けて描画するだけの
- * 表示専用コンポーネント — ドラッグ→タイムブロック化は次フェーズで別途対応する。
+ * groupWorkItemsByKind (sync/workQueue.ts) で3セクションへ振り分けて描画するだけでなく、
+ * 各行をグリッドへドラッグしてタイムブロック化できる(docs/github-integration.md
+ * 「時間計測」増分1、2026-07-20、WorkQueueItemRow 参照)。
  */
 export function WorkQueueDrawer({
   items,
@@ -31,6 +43,7 @@ export function WorkQueueDrawer({
   onRefresh,
   onReconnect,
   onClose,
+  onDragStart,
 }: WorkQueueDrawerProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   useCloseOnOutsideOrEscape(true, cardRef, onClose);
@@ -94,7 +107,7 @@ export function WorkQueueDrawer({
                   <ul className="work-queue-item-list">
                     {section.items.map((item) => (
                       <li key={`${section.kind}:${item.id}`}>
-                        <WorkQueueItemRow item={item} />
+                        <WorkQueueItemRow item={item} onDragStart={onDragStart} />
                       </li>
                     ))}
                   </ul>
@@ -110,32 +123,56 @@ export function WorkQueueDrawer({
 
 interface WorkQueueItemRowProps {
   item: GitHubWorkItemDTO;
+  onDragStart: () => void;
 }
 
 /**
  * 作業キュー1行。GitHubLane.tsx の item チップと同じ流儀 — <a target="_blank"> で
  * GitHub 側の画面をそのまま新規タブで開く(onClick+window.open ではなくネイティブリンクの
  * 挙動をそのまま活かす)。type バッジの色も GitHubLane と揃える(issue=紫 #6e5494/PR=緑 #0b8043)。
+ *
+ * ドラッグ→タイムブロック化(docs/github-integration.md「時間計測」増分1): draggable は
+ * <a> 自身ではなく外側の div ラッパに付ける(<a> はネイティブに draggable=true なリンクなので、
+ * そちらに付けると URL のドラッグ(text/uri-list)と競合し、狙った独自 MIME
+ * (WORKITEM_DND_MIME) の dragstart がうまく発火しないことがある)。<a> 側は
+ * draggable={false} で明示的に無効化し、クリック(新規タブで開く)はそのまま維持する。
  */
-function WorkQueueItemRow({ item }: WorkQueueItemRowProps) {
+function WorkQueueItemRow({ item, onDragStart }: WorkQueueItemRowProps) {
+  function handleDragStart(e: ReactDragEvent<HTMLDivElement>) {
+    const payload: Pick<GitHubWorkItemDTO, "id" | "type" | "title" | "repo" | "number" | "url"> = {
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      repo: item.repo,
+      number: item.number,
+      url: item.url,
+    };
+    e.dataTransfer.setData(WORKITEM_DND_MIME, JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "copy";
+    onDragStart();
+  }
+
   return (
-    <a
-      className={`work-queue-item work-queue-item--${item.type}`}
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`${item.repo} #${item.number} ${item.title}`}
-    >
-      <span className="work-queue-item-kind" aria-hidden="true">
-        {item.type === "pr" ? "PR" : "Iss"}
-      </span>
-      <span className="work-queue-item-main">
-        <span className="work-queue-item-title">{item.title}</span>
-        <span className="work-queue-item-meta">
-          {item.repo} #{item.number}
+    <div className="work-queue-item-row" draggable onDragStart={handleDragStart}>
+      <a
+        className={`work-queue-item work-queue-item--${item.type}`}
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`${item.repo} #${item.number} ${item.title}`}
+        draggable={false}
+      >
+        <span className="work-queue-item-kind" aria-hidden="true">
+          {item.type === "pr" ? "PR" : "Iss"}
         </span>
-      </span>
-    </a>
+        <span className="work-queue-item-main">
+          <span className="work-queue-item-title">{item.title}</span>
+          <span className="work-queue-item-meta">
+            {item.repo} #{item.number}
+          </span>
+        </span>
+      </a>
+    </div>
   );
 }
 

@@ -10,7 +10,10 @@ import type { TaskStore } from "../store/taskStore";
 import { useTasks } from "../store/taskStore";
 import type { GitHubStore } from "../store/githubStore";
 import { useGitHubItems } from "../store/githubStore";
+import type { PlannedStore } from "../store/plannedStore";
+import { usePlannedBlocks } from "../store/plannedStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { DroppedWorkItem } from "../sync/planned";
 import { layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
 import { packColumns } from "../layout/packColumns";
@@ -61,6 +64,17 @@ interface WeekGridProps {
    * 空配列が渡る想定(その場合レールは自然に何も描画しない)。
    */
   githubActivity: GitHubActivityDTO[];
+  /**
+   * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)の読み口。
+   * occurrences とは完全に独立したストア(Google 同期には一切触れられない)。
+   */
+  plannedStore: PlannedStore;
+  /** 作業キューからこの列へドロップされたときに呼ばれる(ローカルのみ。DayColumn.tsx 参照) */
+  onDropWorkItem: (item: DroppedWorkItem, startMs: number, endMs: number) => void;
+  /** 予定タイムブロックの移動/リサイズ確定時に呼ばれる(ローカルのみ) */
+  onMovePlannedBlock: (id: string, startMs: number, endMs: number) => void;
+  /** 予定タイムブロックの削除ボタンから呼ばれる(ローカルのみ) */
+  onDeletePlannedBlock: (id: string) => void;
   /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate;
   /**
@@ -137,6 +151,10 @@ export function WeekGrid({
   taskStore,
   githubStore,
   githubActivity,
+  plannedStore,
+  onDropWorkItem,
+  onMovePlannedBlock,
+  onDeletePlannedBlock,
   weekStart,
   dayCount,
   timeZone,
@@ -431,6 +449,23 @@ export function WeekGrid({
     [weekPanels, githubActivity],
   );
 
+  // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1) ----
+  // 時刻予定と同じ [rangeStartMs, rangeEndMs) を PlannedStore に問い合わせ、weekPanels と
+  // 同じ dayStarts/dayEnds(壁時計境界)で日ごとに割り当てる(activityPanels と同じ流儀)。
+  // カレンダー選択・同一予定集約の対象外(ローカル専用なので常に全件表示)
+  const plannedBlocksRaw = usePlannedBlocks(plannedStore, rangeStartMs, rangeEndMs);
+
+  const plannedPanels = useMemo(
+    () =>
+      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
+        panelStart,
+        dayBlocks: dayStarts.map((dayStart, i) =>
+          plannedBlocksRaw.filter((b) => b.startMs < dayEnds[i] && b.endMs > dayStart),
+        ),
+      })),
+    [weekPanels, plannedBlocksRaw],
+  );
+
   const handleCommit = useCallback(
     (updated: Occurrence) => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
@@ -616,6 +651,10 @@ export function WeekGrid({
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
                       activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}
+                      plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
+                      onDropWorkItem={onDropWorkItem}
+                      onMovePlannedBlock={onMovePlannedBlock}
+                      onDeletePlannedBlock={onDeletePlannedBlock}
                     />
                   ))}
                 </div>
