@@ -7,6 +7,7 @@
     "frontendDist": "https://kichijitsu.love-rox.cc"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",

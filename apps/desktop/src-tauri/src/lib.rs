@@ -17,14 +17,53 @@
 //   ところまで（実際のリマインダー通知はフロントから Tauri コマンドを
 //   呼ぶ配線が要るため次増分 TODO。下記 setup() 内コメント参照）
 //
-// gh プロバイダ・実リマインダーのフロント連携・Homebrew 配布は別増分
-// （docs/desktop.md「次の増分」参照）。
+// 増分2b: gh プロバイダ（薄い実証＝作業キューのみ）。認証が取りづらい org でも、
+// 手元の `gh` CLI 認証で GitHub データを取れるようにする
+// （docs/github-integration.md「認証プロバイダの抽象化」）。リモート URL の web は
+// Tauri の JS API に直接触れないため、tauri.conf.json の app.withGlobalTauri=true で
+// webview に window.__TAURI__ を注入し、web 側は invoke('gh_api', …) を呼ぶ。
+// 実リマインダーのフロント連携・Homebrew 配布・他 GitHub データ(items/activity/ci/
+// pr-commits)の gh 化は別増分（docs/desktop.md「次の増分」参照）。
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+
+/// `gh api <endpoint>` を実行し stdout(GitHub REST の生 JSON 文字列)を返す。
+///
+/// - **非シェル実行**: `std::process::Command::new("gh").arg("api").arg(endpoint)` で
+///   直接プロセスを起動する。シェル(`sh -c`)を介さないため、`endpoint` に何が来ても
+///   シェルインジェクションは起きない。呼べるのは常に `gh api <一引数>` だけで、
+///   任意コマンド実行はできない(`endpoint` は search クエリ等の API パスのみを想定)。
+/// - `gh` 不在は spawn 失敗として、未ログイン等の API エラーは非0終了の stderr として
+///   分かるエラーメッセージにして Err で返す(web 側はフォールバックできる)。
+///
+/// 注: これはアプリ自前の command なので、Tauri v2 では capability(ACL)の追加許可は
+/// 不要(プラグイン command と違い application command は invoke 可能)。
+#[tauri::command]
+async fn gh_api(endpoint: String) -> Result<String, String> {
+    let output = std::process::Command::new("gh")
+        .arg("api")
+        .arg(&endpoint)
+        .output()
+        .map_err(|e| {
+            format!("gh の起動に失敗しました({e})。gh CLI が未インストールの可能性があります")
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = stderr.trim();
+        return Err(if msg.is_empty() {
+            format!("gh api が失敗しました (exit {:?})", output.status.code())
+        } else {
+            format!("gh api が失敗しました: {msg}")
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
 
 /// ウィンドウの表示/フォーカスをトグルするグローバルショートカット。
 /// トレイアイコンの左クリックと同じ `toggle_main_window` を呼ぶ。
@@ -56,6 +95,7 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![gh_api])
         .setup(|app| {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;

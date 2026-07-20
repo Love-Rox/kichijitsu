@@ -48,6 +48,7 @@ import {
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
 import { mapGitHubItems } from "./sync/mapGitHub";
+import { isTauri, fetchWorkQueueViaGh } from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
 import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
@@ -839,6 +840,25 @@ function App() {
   const fetchGithubQueue = useCallback(() => {
     if (!me.github) return;
     setQueueLoading(true);
+
+    // プロバイダ分岐 (docs/github-integration.md「認証プロバイダの抽象化」)。
+    // Tauri デスクトップ実行時のみ、手元の gh CLI 認証で作業キューを直接取得する。
+    // ブラウザ/PWA では isTauri() が常に false になるため、以降の従来コードは不変。
+    if (isTauri()) {
+      fetchWorkQueueViaGh()
+        .then((items) => {
+          setQueueAuthExpired(false);
+          setGithubQueue(items);
+        })
+        .catch((err) => {
+          // gh 未インストール/未ログイン等。空扱いにして warn (OAuth 連携案内は次増分 TODO)。
+          console.warn("kichijitsu: gh 経由の作業キュー取得に失敗", err);
+          setGithubQueue([]);
+        })
+        .finally(() => setQueueLoading(false));
+      return;
+    }
+
     checkedFetch("/api/github/queue")
       .then(async (res) => {
         if (res.status === 401) {
