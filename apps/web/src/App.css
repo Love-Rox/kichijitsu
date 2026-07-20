@@ -164,6 +164,35 @@
   color: #24211e;
 }
 
+/*
+ * GitHub 実績オーバーレイの表示 ON/OFF トグル(docs/github-integration.md フェーズ③Part B)。
+ * .toolbar-queue-btn と同じトーン(枠線・パディング・角丸・hover)だが、バッジを持たない
+ * ぶんシンプル。ON 状態は GitHub purple のアクセント(brand の朱は通知バッジ専用、
+ * ここでは使わない)で示す。
+ */
+.toolbar-activity-btn {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-activity-btn:hover {
+  background: #f3f4f6;
+}
+
+.toolbar-activity-btn.is-active {
+  border-color: #6e5494;
+  color: #6e5494;
+  background: rgba(110, 84, 148, 0.08);
+}
+
 .toolbar-queue-badge {
   display: inline-flex;
   align-items: center;

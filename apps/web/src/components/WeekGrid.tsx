@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
+import type { GitHubActivityDTO } from "@kichijitsu/shared";
 import type { Occurrence, TaskItem } from "../model/types";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
@@ -11,6 +12,7 @@ import type { GitHubStore } from "../store/githubStore";
 import { useGitHubItems } from "../store/githubStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
 import { layoutGitHubDay } from "../sync/mapGitHub";
+import { layoutDayActivity } from "../sync/mapActivity";
 import { packColumns } from "../layout/packColumns";
 import { packDayBars } from "../layout/packDayBars";
 import {
@@ -50,6 +52,15 @@ interface WeekGridProps {
    * その場合レーンごと非表示になる(App.tsx 側は無条件にインスタンスを用意する)
    */
   githubStore: GitHubStore;
+  /**
+   * GitHub 実績オーバーレイ(docs/github-integration.md フェーズ③Part B)の生データ。
+   * milestone/issue/PR (githubStore) と違い commit 実績はライブ取得のみで IndexedDB に
+   * キャッシュしない(App.tsx が表示中の時間範囲ぶんを都度 GET /api/github/activity で
+   * 取得して渡す)。ここでは受け取って sync/mapActivity.ts の layoutDayActivity で
+   * 日ごとのクラスタへ変換し、DayColumn の右端レールへ渡すだけ。未連携・トグル OFF 時は
+   * 空配列が渡る想定(その場合レールは自然に何も描画しない)。
+   */
+  githubActivity: GitHubActivityDTO[];
   /** 表示中パネルの先頭日。週ビュー(dayCount=7)なら月曜、day3/day1 ビューなら任意の起点日 */
   weekStart: Temporal.PlainDate;
   /**
@@ -125,6 +136,7 @@ export function WeekGrid({
   allDayStore,
   taskStore,
   githubStore,
+  githubActivity,
   weekStart,
   dayCount,
   timeZone,
@@ -403,6 +415,22 @@ export function WeekGrid({
   // 未連携・0件ならレーンごと非表示にする(終日/タスクレーンと同じ流儀)
   const githubLaneHasContent = githubItemsRaw.length > 0;
 
+  // ---- GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B) ----
+  // githubPanels と同じ形だが、レーンではなく日列(weekPanels の dayData)に直接
+  // 差し込むため、weekPanels が既に持つ dayStarts/dayEnds(時刻予定と同じ壁時計境界)を
+  // そのまま使う。panelStarts 由来で weekPanels/activityPanels は常に同じ順序・件数になる
+  // (どちらも同じ panelStarts.map(...) から作るため index が揃う)
+  const activityPanels = useMemo(
+    () =>
+      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
+        panelStart,
+        dayClusters: dayStarts.map((dayStart, i) =>
+          layoutDayActivity(githubActivity, dayStart, dayEnds[i]),
+        ),
+      })),
+    [weekPanels, githubActivity],
+  );
+
   const handleCommit = useCallback(
     (updated: Occurrence) => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
@@ -564,7 +592,7 @@ export function WeekGrid({
 
           <div className="week-grid-days-viewport">
             <div className="week-grid-days-strip" style={stripStyle}>
-              {weekPanels.map(({ panelStart, dayStarts, dayEnds, dayData }) => (
+              {weekPanels.map(({ panelStart, dayStarts, dayEnds, dayData }, panelIndex) => (
                 <div
                   className="week-grid-days-panel"
                   key={panelStart.toString()}
@@ -587,6 +615,7 @@ export function WeekGrid({
                       writeTarget={writeTarget}
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
+                      activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}
                     />
                   ))}
                 </div>

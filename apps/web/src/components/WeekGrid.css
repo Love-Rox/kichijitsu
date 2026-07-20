@@ -831,6 +831,59 @@
   z-index: 2;
 }
 
+/*
+ * GitHub 実績オーバーレイ (フェーズ③Part B, docs/github-integration.md)。
+ * DAY_COLUMN_INSET_PX (gridMetrics.ts) ぶんの右端ガター — EventBlock のカスケード表示は
+ * どの段でもこのガターの内側までしか広がらない(usableWidth = 100% - inset*2)ため、
+ * ここに置く限り予定カードと絶対に重ならない。座標系は now-line と同じ
+ * (top = minutesToPx((ms - dayStartMs)/60000))。
+ */
+.day-activity-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(TS 側の定数値に追従、ここはハードコードのみ許容箇所) */
+  height: 100%;
+  pointer-events: none;
+}
+
+.day-activity-mark {
+  position: absolute;
+  right: -0.5px;
+  width: 4px;
+  height: 4px;
+  transform: translateY(-2px);
+  border-radius: 50%;
+  background: rgba(110, 84, 148, 0.55); /* GitHub purple、控えめ。朱は使わない */
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3; /* .now-line (2) より少し上、予定カードとは元々重ならないので競合しない */
+}
+
+.day-activity-mark:hover,
+.day-activity-mark:focus-visible {
+  background: rgba(110, 84, 148, 0.9);
+  outline: 2px solid rgba(110, 84, 148, 0.35);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-activity-mark {
+    transition: background-color 120ms ease;
+  }
+}
+
+.day-activity-count {
+  font-size: 7px;
+  line-height: 1;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .now-line-dot {
   position: absolute;
   top: -4px;

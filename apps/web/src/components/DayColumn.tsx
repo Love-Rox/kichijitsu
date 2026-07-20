@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Occurrence } from "../model/types";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { packColumns } from "../layout/packColumns";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import {
   busyOverlapColors,
   cascadeStepFrac,
   COMPACT_THRESHOLD_MIN,
+  formatTime,
   isBusyPlaceholder,
   minutesToPx,
   pxToMinutes,
@@ -82,6 +84,14 @@ interface DayColumnProps {
    * 省略時は false(既存のデスクトップ向け即時クリック挙動)
    */
   longPressCreate?: boolean;
+  /**
+   * GitHub 実績オーバーレイ(docs/github-integration.md フェーズ③Part B、sync/mapActivity.ts)。
+   * この日ぶんの commit クラスタ配列(空なら何も描画しない)。日列右端の
+   * DAY_COLUMN_INSET_PX ぶんの細い「レール」に、クラスタの代表位置(topPx)へ小さな点として
+   * 描画する。このガターは EventBlock のカスケード表示がどの段でも侵入しない領域なので、
+   * 予定カードと絶対に重ならない(gridMetrics.ts の DAY_COLUMN_INSET_PX コメント参照)。
+   */
+  activityClusters: GitHubActivityCluster[];
 }
 
 /**
@@ -109,6 +119,7 @@ export function DayColumn({
   writeTarget,
   onCreateEvent,
   longPressCreate = false,
+  activityClusters,
 }: DayColumnProps) {
   const createDragRef = useRef<CreateDragState | null>(null);
   const longPressPendingRef = useRef<LongPressPendingState | null>(null);
@@ -365,6 +376,31 @@ export function DayColumn({
       {showNowLine && (
         <div className="now-line" style={{ top: nowTop }}>
           <span className="now-line-dot" />
+        </div>
+      )}
+      {activityClusters.length > 0 && (
+        <div className="day-activity-rail">
+          {activityClusters.map((cluster) => {
+            const latest = cluster.items[cluster.items.length - 1];
+            const label =
+              cluster.count > 1
+                ? `${formatTime(latest.timestampMs, timeZone)} ${latest.title} 他${cluster.count - 1}件`
+                : `${formatTime(latest.timestampMs, timeZone)} ${latest.title}`;
+            return (
+              <a
+                key={`${cluster.topPx}-${latest.id}`}
+                href={latest.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="day-activity-mark"
+                style={{ top: cluster.topPx }}
+                title={label}
+                aria-label={label}
+              >
+                {cluster.count > 1 && <span className="day-activity-count">{cluster.count}</span>}
+              </a>
+            );
+          })}
         </div>
       )}
       {draft && (

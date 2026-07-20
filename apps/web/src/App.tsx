@@ -9,6 +9,8 @@ import type {
   CalendarListEntryDTO,
   DisconnectRequest,
   EventCreateResponse,
+  GitHubActivityDTO,
+  GitHubActivityResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
   GitHubWorkItemDTO,
@@ -267,6 +269,11 @@ function App() {
   // /api/github/items とキュー用の /api/github/queue は別エンドポイントで、
   // 片方だけ失効することは無い想定だが、UI 側の責務は分けておく)
   const [queueAuthExpired, setQueueAuthExpired] = useState(false);
+  // GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B)。実績はライブなので
+  // IndexedDB に入れず React state のみで保持する(表示中の時間範囲ぶんを都度取得)。
+  const [githubActivity, setGithubActivity] = useState<GitHubActivityDTO[]>([]);
+  // ON/OFF トグル(視覚ノイズになり得るため)。既定 ON。OFF のときはレールを出さず取得もしない
+  const [activityVisible, setActivityVisible] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -608,6 +615,61 @@ function App() {
       cancelled = true;
     };
   }, [db, me.github, checkedFetch, githubStore]);
+
+  // GitHub 実績オーバーレイの取得(フェーズ③Part B)。表示中の時間範囲([timelineStart, +dayCount日))が
+  // 変わるたびに取り直す(ライブ実績なので IndexedDB キャッシュは持たない)。ビュー切替・週送りの
+  // 連打で過剰リクエストにならないよう軽くデバウンスする。トグル OFF・未連携・月表示
+  // (WeekGrid 自体が描画されない)では取得しない。401 は githubAuthExpired 経路に合流させる
+  // (①の /api/github/items と同じ再連携導線を共有、専用のフラグは別途持たない)。409 は
+  // 未連携相当として空にし、502・ネットワークエラーは一時的な失敗として warn のみ(前回表示を維持)。
+  useEffect(() => {
+    if (!me.github || !activityVisible || view === "month") return;
+    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
+    const sinceIso = new Date(fromMs).toISOString();
+    const untilIso = new Date(toMs).toISOString();
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkedFetch(
+        `/api/github/activity?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
+      )
+        .then(async (res) => {
+          if (res.status === 401) {
+            if (!cancelled) setGithubAuthExpired(true);
+            return;
+          }
+          if (res.status === 409) {
+            if (!cancelled) setGithubActivity([]);
+            return;
+          }
+          if (!res.ok) {
+            console.warn(`kichijitsu: GET /api/github/activity failed: ${res.status}`);
+            return;
+          }
+          const data = (await res.json()) as GitHubActivityResponse;
+          if (!cancelled) {
+            setGithubAuthExpired(false);
+            setGithubActivity(data.items);
+          }
+        })
+        .catch((err) => {
+          console.warn("kichijitsu: GET /api/github/activity failed", err);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [me.github, activityVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
+
+  // 実績トグル OFF: 次の取得を待たず即座にレールを消す(cancelled フラグだけだと
+  // 直前の取得がまだ in-flight の場合に一瞬残ってしまうため、明示的に空にする)
+  const handleToggleActivityVisible = useCallback(() => {
+    setActivityVisible((prev) => {
+      const next = !prev;
+      if (!next) setGithubActivity([]);
+      return next;
+    });
+  }, []);
 
   // 作業キューの取得(docs/github-integration.md フェーズ②Part B)。GET /api/github/queue は
   // サーバー側で永続化しない都度取得の一覧なので、成功したら githubQueue を丸ごと置き換えるだけ
@@ -1076,6 +1138,8 @@ function App() {
     // 作業キュー(フェーズ②Part B)も畳む。IndexedDB には入れていないので state を空にするだけ
     setGithubQueue([]);
     setQueueAuthExpired(false);
+    // 実績オーバーレイ(フェーズ③Part B)も同じ流儀で畳む
+    setGithubActivity([]);
     if (db) {
       await clearGitHubItems(db);
       await githubStore.batch(async () => {
@@ -1843,6 +1907,25 @@ function App() {
            * GitHub 未連携(me.github===null)では出さない(安全側: 開いても 409 で空になるだけだが、
            * 導線自体を見せない方が分かりやすい)。件数バッジは0件のときは出さない。
            */}
+          {/*
+           * GitHub 実績オーバーレイの表示 ON/OFF トグル(フェーズ③Part B)。作業キューと同じく
+           * GitHub 未連携(me.github===null)では出さない。押すたびに handleToggleActivityVisible が
+           * githubActivity の取得/クリアを連動させる(WeekGrid 側はこの state を見るだけ)。
+           */}
+          {me.github && (
+            <button
+              type="button"
+              className={
+                activityVisible ? "toolbar-activity-btn is-active" : "toolbar-activity-btn"
+              }
+              onClick={handleToggleActivityVisible}
+              aria-pressed={activityVisible}
+              aria-label="GitHub 実績表示"
+              title="GitHub 実績表示の切り替え"
+            >
+              実績
+            </button>
+          )}
           {me.github && (
             <button
               type="button"
@@ -1883,6 +1966,7 @@ function App() {
             allDayStore={allDayStore}
             taskStore={taskStore}
             githubStore={githubStore}
+            githubActivity={activityVisible ? githubActivity : []}
             weekStart={timelineStart}
             dayCount={dayCount}
             timeZone={timeZone}

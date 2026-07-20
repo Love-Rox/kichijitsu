@@ -23,12 +23,12 @@ Permissions が権限を決めるため、認可フロー自体は Google より
      （インストール時にそのまま認可でき導線が1本化する）
 3. **Webhook**: いまは **Active のチェックを外す**（read はポーリング＋ETag で回す。
    webhook は後のフェーズで secret とあわせて有効化する）
-4. **Permissions → Repository permissions**（read 中心。①期限表示に必要な最小限）:
-   - **Issues**: Read-only
-   - **Pull requests**: Read-only
+4. **Permissions → Repository permissions**（read 中心。①②③に必要な最小限）:
+   - **Issues**: Read-only（① milestone・期限、② assigned issue）
+   - **Pull requests**: Read-only（① PR、② review 依頼/自分の PR）
+   - **Contents**: Read-only（③ commit 実績オーバーレイ。commits API に必要）
    - **Metadata**: Read-only（必須・自動）
-   - （任意・後フェーズ用）**Contents**: Read-only（commit 活動の実績オーバーレイ）、
-     **Projects**: Read-only（Projects v2 の date フィールド）
+   - （任意・後フェーズ用）**Projects**: Read-only（Projects v2 の date フィールド）
    - 将来の「期限の書き戻し」を見据えるなら Issues / Pull requests を後で Read & write に
      上げる（今は read のみでよい）
 5. **Where can this GitHub App be installed?**:
