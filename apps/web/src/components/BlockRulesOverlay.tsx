@@ -111,6 +111,11 @@ function RuleList({ rules, calendarsByAccount, onDelete }: RuleListProps) {
             >
               {info.modeLabel}
             </span>
+            {info.oooFallback && (
+              <span className="block-rules-mode-note block-rules-mode-note--inline">
+                不在に非対応のため「予定あり」で作成しています
+              </span>
+            )}
             <button
               type="button"
               className="block-rules-rule-delete"

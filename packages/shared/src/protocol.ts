@@ -234,6 +234,8 @@ export interface BlockRuleDTO {
   /** 複製先。1つ。outOfOffice は Workspace primary 限定 (非対応時は busy にフォールバック) */
   target: { accountId: string; calendarId: string };
   mode: BlockMode;
+  /** true = 不在を要求したが Workspace 非対応で busy として作成された (UI 注記用) */
+  oooFallback: boolean;
 }
 
 export interface BlockRulesResponse {

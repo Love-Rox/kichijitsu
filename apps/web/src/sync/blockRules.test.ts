@@ -94,12 +94,14 @@ describe("describeBlockRule", () => {
       ],
       target: { accountId: "acc-1", calendarId: "cal-b" },
       mode: "busy",
+      oooFallback: false,
     };
     expect(describeBlockRule(rule, calendarsByAccount)).toEqual({
       id: "rule-1",
       sourceNames: ["仕事", "サブ"],
       targetName: "プライベート",
       modeLabel: "予定あり",
+      oooFallback: false,
     });
   });
 
@@ -109,12 +111,47 @@ describe("describeBlockRule", () => {
       sources: [{ accountId: "acc-1", calendarId: "cal-deleted" }],
       target: { accountId: "acc-1", calendarId: "cal-b" },
       mode: "outOfOffice",
+      oooFallback: false,
     };
     expect(describeBlockRule(rule, calendarsByAccount)).toEqual({
       id: "rule-2",
       sourceNames: ["cal-deleted"],
       targetName: "プライベート",
       modeLabel: "不在",
+      oooFallback: false,
     });
+  });
+
+  it("outOfOffice かつ oooFallback: true のとき display の oooFallback は true", () => {
+    const rule: BlockRuleDTO = {
+      id: "rule-3",
+      sources: [{ accountId: "acc-1", calendarId: "cal-a" }],
+      target: { accountId: "acc-1", calendarId: "cal-b" },
+      mode: "outOfOffice",
+      oooFallback: true,
+    };
+    expect(describeBlockRule(rule, calendarsByAccount).oooFallback).toBe(true);
+  });
+
+  it("outOfOffice かつ oooFallback: false のとき display の oooFallback は false", () => {
+    const rule: BlockRuleDTO = {
+      id: "rule-4",
+      sources: [{ accountId: "acc-1", calendarId: "cal-a" }],
+      target: { accountId: "acc-1", calendarId: "cal-b" },
+      mode: "outOfOffice",
+      oooFallback: false,
+    };
+    expect(describeBlockRule(rule, calendarsByAccount).oooFallback).toBe(false);
+  });
+
+  it("busy モードで oooFallback: true でも display の oooFallback は false (busy には無関係)", () => {
+    const rule: BlockRuleDTO = {
+      id: "rule-5",
+      sources: [{ accountId: "acc-1", calendarId: "cal-a" }],
+      target: { accountId: "acc-1", calendarId: "cal-b" },
+      mode: "busy",
+      oooFallback: true,
+    };
+    expect(describeBlockRule(rule, calendarsByAccount).oooFallback).toBe(false);
   });
 });

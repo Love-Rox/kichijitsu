@@ -37,12 +37,17 @@ export interface ReconcileDeps {
     window: ReconcileWindow,
   ): Promise<GoogleEventDTO[]>;
   loadMirrors(ruleId: string): Promise<BlockMirrorRow[]>;
-  /** 返り値 = 作成された mirror event id。 */
+  /**
+   * mirror を作成する。返り値の `id` は作成された mirror event id。`oooFallback` は
+   * 第4段階: mode='outOfOffice' の body を送ったが Google に拒否され (Workspace の
+   * primary カレンダー限定機能のため)、eventType を外した busy body で作り直した場合に
+   * true になる。
+   */
   createMirror(
     targetAccountId: string,
     targetCalendarId: string,
     body: MirrorEventBody,
-  ): Promise<string>;
+  ): Promise<{ id: string; oooFallback: boolean }>;
   patchMirrorTime(
     targetAccountId: string,
     targetCalendarId: string,
@@ -62,6 +67,12 @@ export interface ReconcileDeps {
     sourceUpdated: string | null,
   ): Promise<void>;
   deleteMirrorRow(ruleId: string, sourceEventId: string): Promise<void>;
+  /**
+   * カレンダーブロック機能 (docs/blocking.md 第4段階): mode='outOfOffice' のルールが
+   * Google に拒否されて busy にフォールバックしたかどうかを記録する。設定 UI の
+   * 「不在に非対応のため予定ありで作成しています」注記表示に使う。
+   */
+  setRuleOooFallback(ruleId: string, value: boolean): Promise<void>;
   now(): number;
 }
 
@@ -128,14 +139,18 @@ async function reconcileRule(
   const mirrors = await deps.loadMirrors(rule.id);
   const plan = reconcileBlockRule(sourceEvents, mirrors);
 
+  let anyOooFallback = false;
   for (const source of plan.toCreate) {
     try {
       const body = buildMirrorEventBody(source, rule.mode);
-      const mirrorEventId = await deps.createMirror(
+      const { id: mirrorEventId, oooFallback } = await deps.createMirror(
         rule.target.accountId,
         rule.target.calendarId,
         body,
       );
+      if (oooFallback) {
+        anyOooFallback = true;
+      }
       // Google 作成が成功して初めて D1 に記録する (create 失敗時に行を残して不整合にしないため)。
       await deps.saveMirrorRow({
         rule_id: rule.id,
@@ -149,6 +164,19 @@ async function reconcileRule(
         `reconcileSourceChange: create mirror failed for rule=${rule.id} source=${source.id}`,
         err,
       );
+    }
+  }
+
+  // 第4段階: outOfOffice ルールで toCreate が実際に1件以上あった回だけ ooo_fallback を
+  // 更新する。全 mirror が既存済みで toCreate が空の回は既存の DB 上の値を保持したまま
+  // 何もしない (すでに記録済みのフラグを不用意に上書きしないため)。busy ルールでは常に
+  // 呼ばない。D1 書き込みの失敗がリコンサイル全体を止めないよう try/catch で分離する
+  // (このファイルの他の箇所と同じエラー分離の流儀)。
+  if (rule.mode === "outOfOffice" && plan.toCreate.length > 0) {
+    try {
+      await deps.setRuleOooFallback(rule.id, anyOooFallback);
+    } catch (err) {
+      console.error(`reconcileSourceChange: setRuleOooFallback failed for rule=${rule.id}`, err);
     }
   }
 

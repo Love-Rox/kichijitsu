@@ -51,12 +51,13 @@ function makeDeps(overrides: Partial<ReconcileDeps> = {}): ReconcileDeps {
     loadRulesForSource: vi.fn(async () => []),
     listSourceEvents: vi.fn(async () => []),
     loadMirrors: vi.fn(async () => []),
-    createMirror: vi.fn(async () => "mirror-new"),
+    createMirror: vi.fn(async () => ({ id: "mirror-new", oooFallback: false })),
     patchMirrorTime: vi.fn(async () => {}),
     deleteMirror: vi.fn(async () => {}),
     saveMirrorRow: vi.fn(async () => {}),
     updateMirrorRow: vi.fn(async () => {}),
     deleteMirrorRow: vi.fn(async () => {}),
+    setRuleOooFallback: vi.fn(async () => {}),
     now: vi.fn(() => 5000),
     ...overrides,
   };
@@ -76,7 +77,7 @@ describe("reconcileSourceChange", () => {
       loadRulesForSource: vi.fn(async () => [rule]),
       listSourceEvents: vi.fn(async () => [source]),
       loadMirrors: vi.fn(async () => []),
-      createMirror: vi.fn(async () => "mirror-created-id"),
+      createMirror: vi.fn(async () => ({ id: "mirror-created-id", oooFallback: false })),
       now: vi.fn(() => 9999),
     });
 
@@ -272,7 +273,7 @@ describe("reconcileSourceChange", () => {
       if (targetAccountId === "tgt-fail") {
         throw new Error("boom");
       }
-      return "mirror-ok";
+      return { id: "mirror-ok", oooFallback: false };
     });
     const deps = makeDeps({
       loadRulesForSource: vi.fn(async () => [ruleFailing, ruleOk]),
@@ -320,5 +321,86 @@ describe("reconcileSourceChange", () => {
     });
 
     await expect(reconcileSourceChange("acc", "cal", WINDOW, deps)).resolves.toBeUndefined();
+  });
+
+  describe("outOfOffice fallback flag (docs/blocking.md 第4段階)", () => {
+    it("records ooo_fallback=true when the single toCreate item falls back to busy", async () => {
+      const source = timedEvent();
+      const rule = makeRule({ mode: "outOfOffice" });
+      const deps = makeDeps({
+        loadRulesForSource: vi.fn(async () => [rule]),
+        listSourceEvents: vi.fn(async () => [source]),
+        createMirror: vi.fn(async () => ({ id: "mirror-fb", oooFallback: true })),
+      });
+
+      await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+      expect(deps.setRuleOooFallback).toHaveBeenCalledWith("rule-1", true);
+    });
+
+    it("records ooo_fallback=false when all toCreate items succeed without falling back", async () => {
+      const source = timedEvent();
+      const rule = makeRule({ mode: "outOfOffice" });
+      const deps = makeDeps({
+        loadRulesForSource: vi.fn(async () => [rule]),
+        listSourceEvents: vi.fn(async () => [source]),
+        createMirror: vi.fn(async () => ({ id: "mirror-ok", oooFallback: false })),
+      });
+
+      await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+      expect(deps.setRuleOooFallback).toHaveBeenCalledWith("rule-1", false);
+    });
+
+    it("does not call setRuleOooFallback for a busy-mode rule with toCreate items", async () => {
+      const source = timedEvent();
+      const rule = makeRule({ mode: "busy" });
+      const deps = makeDeps({
+        loadRulesForSource: vi.fn(async () => [rule]),
+        listSourceEvents: vi.fn(async () => [source]),
+      });
+
+      await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+      expect(deps.setRuleOooFallback).not.toHaveBeenCalled();
+    });
+
+    it("does not call setRuleOooFallback for an outOfOffice rule when toCreate is empty", async () => {
+      const mirror = mirrorRow();
+      const rule = makeRule({ mode: "outOfOffice" });
+      const deps = makeDeps({
+        loadRulesForSource: vi.fn(async () => [rule]),
+        // source と mirror が既に一致しているので toCreate は空 (toPatch/toDelete も空)。
+        listSourceEvents: vi.fn(async () => [timedEvent()]),
+        loadMirrors: vi.fn(async () => [mirror]),
+      });
+
+      await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+      expect(deps.setRuleOooFallback).not.toHaveBeenCalled();
+    });
+
+    it("records ooo_fallback=true when any of two toCreate items falls back (any-true wins)", async () => {
+      const eventA = timedEvent({ id: "ev-a" });
+      const eventB = timedEvent({ id: "ev-b" });
+      const rule = makeRule({ mode: "outOfOffice" });
+      // toCreate の順序どおりに呼ばれる (block-reconcile.ts の reconcileBlockRule は
+      // source 配列の順序を保つ) ことを前提に、呼び出しごとの結果をキューから取り出す。
+      const results = [
+        { id: "mirror-a", oooFallback: false },
+        { id: "mirror-b", oooFallback: true },
+      ];
+      const createMirror = vi.fn(async () => results.shift()!);
+      const deps = makeDeps({
+        loadRulesForSource: vi.fn(async () => [rule]),
+        listSourceEvents: vi.fn(async () => [eventA, eventB]),
+        createMirror,
+      });
+
+      await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+      expect(createMirror).toHaveBeenCalledTimes(2);
+      expect(deps.setRuleOooFallback).toHaveBeenCalledWith("rule-1", true);
+    });
   });
 });

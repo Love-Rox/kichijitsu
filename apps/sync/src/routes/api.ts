@@ -157,14 +157,21 @@ apiRoutes.post("/api/block-rules", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "account_not_found" }, 403);
   }
 
+  // 更新の場合、既存行の ooo_fallback を保持してレスポンスに反映するため取得しておく
+  // (下の INSERT ... ON CONFLICT は ooo_fallback を SET しないため DB 上の値は変わらない —
+  // 新規に既に記録されたフラグを更新の度に false へ巻き戻さないための意図的な仕様)。
+  let existingOooFallback = false;
   if (body.id) {
-    const existing = await c.env.DB.prepare("SELECT profile_id FROM block_rules WHERE id = ?")
+    const existing = await c.env.DB.prepare(
+      "SELECT profile_id, ooo_fallback FROM block_rules WHERE id = ?",
+    )
       .bind(body.id)
-      .first<{ profile_id: string }>();
+      .first<{ profile_id: string; ooo_fallback: number }>();
     if (!isAccountInProfile(existing, profileId)) {
       // 存在しない id と「他人のプロファイルの id」を区別せず 403 にする (他のエンドポイントと同じ方針)。
       return c.json<ApiError>({ error: "rule_not_found" }, 403);
     }
+    existingOooFallback = existing?.ooo_fallback === 1;
   }
 
   const ruleId = body.id ?? crypto.randomUUID();
@@ -173,8 +180,8 @@ apiRoutes.post("/api/block-rules", requireAuth, async (c) => {
 
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO block_rules (id, profile_id, target_account_id, target_calendar_id, mode, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO block_rules (id, profile_id, target_account_id, target_calendar_id, mode, created_at, ooo_fallback)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          target_account_id = excluded.target_account_id,
          target_calendar_id = excluded.target_calendar_id,
@@ -186,6 +193,7 @@ apiRoutes.post("/api/block-rules", requireAuth, async (c) => {
       ruleRow.target_calendar_id,
       ruleRow.mode,
       ruleRow.created_at,
+      ruleRow.ooo_fallback,
     ),
     c.env.DB.prepare("DELETE FROM block_rule_sources WHERE rule_id = ?").bind(ruleId),
     ...sourceRows.map((row) =>
@@ -200,6 +208,7 @@ apiRoutes.post("/api/block-rules", requireAuth, async (c) => {
     sources: sourceRows.map((row) => ({ accountId: row.account_id, calendarId: row.calendar_id })),
     target: { accountId: ruleRow.target_account_id, calendarId: ruleRow.target_calendar_id },
     mode: ruleRow.mode,
+    oooFallback: body.id ? existingOooFallback : false,
   });
 });
 
@@ -696,7 +705,7 @@ async function accountsAllBelongToProfile(
  */
 async function loadBlockRules(env: Env, profileId: string): Promise<BlockRuleDTO[]> {
   const { results: ruleRows } = await env.DB.prepare(
-    "SELECT id, profile_id, target_account_id, target_calendar_id, mode, created_at FROM block_rules WHERE profile_id = ? ORDER BY created_at ASC",
+    "SELECT id, profile_id, target_account_id, target_calendar_id, mode, created_at, ooo_fallback FROM block_rules WHERE profile_id = ? ORDER BY created_at ASC",
   )
     .bind(profileId)
     .all<BlockRuleRow>();

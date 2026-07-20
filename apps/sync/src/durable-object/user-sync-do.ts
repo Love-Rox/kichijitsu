@@ -226,7 +226,7 @@ export class UserSyncDO extends DurableObject<Env> {
     accountId: string,
     calendarId: string,
     body: MirrorEventBody,
-  ): Promise<RpcResult<string>> {
+  ): Promise<RpcResult<{ id: string; oooFallback: boolean }>> {
     return runRpc(() =>
       insertEventWithRetry(this.buildEventWriteDeps(accountId), calendarId, body),
     );

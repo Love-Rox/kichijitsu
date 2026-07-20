@@ -158,6 +158,7 @@ describe("buildBlockRuleRows", () => {
       target_calendar_id: "cal-b",
       mode: "busy",
       created_at: 1000,
+      ooo_fallback: 0,
     });
     expect(sourceRows).toEqual([{ rule_id: "rule-1", account_id: "acc-1", calendar_id: "cal-a" }]);
   });
@@ -190,6 +191,7 @@ describe("aggregateBlockRules", () => {
         target_calendar_id: "cal-b",
         mode: "busy" as const,
         created_at: 1000,
+        ooo_fallback: 0,
       },
       {
         id: "rule-2",
@@ -198,6 +200,7 @@ describe("aggregateBlockRules", () => {
         target_calendar_id: "cal-c",
         mode: "outOfOffice" as const,
         created_at: 2000,
+        ooo_fallback: 1,
       },
     ];
     const sourceRows = [
@@ -214,12 +217,14 @@ describe("aggregateBlockRules", () => {
         ],
         target: { accountId: "acc-2", calendarId: "cal-b" },
         mode: "busy",
+        oooFallback: false,
       },
       {
         id: "rule-2",
         sources: [{ accountId: "acc-1", calendarId: "cal-a" }],
         target: { accountId: "acc-3", calendarId: "cal-c" },
         mode: "outOfOffice",
+        oooFallback: true,
       },
     ]);
   });
@@ -233,6 +238,7 @@ describe("aggregateBlockRules", () => {
         target_calendar_id: "cal-b",
         mode: "busy" as const,
         created_at: 1000,
+        ooo_fallback: 0,
       },
     ];
     expect(aggregateBlockRules(ruleRows, [])).toEqual([
@@ -241,6 +247,7 @@ describe("aggregateBlockRules", () => {
         sources: [],
         target: { accountId: "acc-2", calendarId: "cal-b" },
         mode: "busy",
+        oooFallback: false,
       },
     ]);
   });

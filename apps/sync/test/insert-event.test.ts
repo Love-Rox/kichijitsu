@@ -52,6 +52,14 @@ function makeDeps(fetchImpl: typeof fetch) {
   return { deps, forceRefreshAccessToken };
 }
 
+const OOO_SOURCE: GoogleEventDTO = {
+  id: "ev-2",
+  status: "confirmed",
+  start: { dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+  end: { dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" },
+};
+const OOO_BODY = buildMirrorEventBody(OOO_SOURCE, "outOfOffice");
+
 describe("insertEventWithRetry", () => {
   it("resolves with the created mirror event id on success", async () => {
     const fetchImpl = vi
@@ -59,7 +67,10 @@ describe("insertEventWithRetry", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "mirror-id-1" }), { status: 200 }));
     const { deps } = makeDeps(fetchImpl);
 
-    await expect(insertEventWithRetry(deps, "primary", BODY)).resolves.toBe("mirror-id-1");
+    await expect(insertEventWithRetry(deps, "primary", BODY)).resolves.toEqual({
+      id: "mirror-id-1",
+      oooFallback: false,
+    });
   });
 
   it("refreshes the access token once on 401 and retries", async () => {
@@ -69,7 +80,10 @@ describe("insertEventWithRetry", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "mirror-id-1" }), { status: 200 }));
     const { deps, forceRefreshAccessToken } = makeDeps(fetchImpl);
 
-    await expect(insertEventWithRetry(deps, "primary", BODY)).resolves.toBe("mirror-id-1");
+    await expect(insertEventWithRetry(deps, "primary", BODY)).resolves.toEqual({
+      id: "mirror-id-1",
+      oooFallback: false,
+    });
     expect(forceRefreshAccessToken).toHaveBeenCalledOnce();
   });
 
@@ -80,5 +94,76 @@ describe("insertEventWithRetry", () => {
     const { deps } = makeDeps(fetchImpl);
 
     await expect(insertEventWithRetry(deps, "primary", BODY)).rejects.toThrow(/403/);
+  });
+
+  it("falls back to a busy (eventType-stripped) retry when an outOfOffice body gets a 400", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "mirror-fallback-1" }), { status: 200 }),
+      );
+    const { deps } = makeDeps(fetchImpl);
+
+    await expect(insertEventWithRetry(deps, "primary", OOO_BODY)).resolves.toEqual({
+      id: "mirror-fallback-1",
+      oooFallback: true,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const retriedInit = fetchImpl.mock.calls[1][1] as RequestInit;
+    const retriedBody = JSON.parse(retriedInit.body as string);
+    expect(retriedBody).not.toHaveProperty("eventType");
+  });
+
+  it("falls back to a busy retry when an outOfOffice body gets a 403", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("forbidden", { status: 403 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "mirror-fallback-2" }), { status: 200 }),
+      );
+    const { deps } = makeDeps(fetchImpl);
+
+    await expect(insertEventWithRetry(deps, "primary", OOO_BODY)).resolves.toEqual({
+      id: "mirror-fallback-2",
+      oooFallback: true,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const retriedInit = fetchImpl.mock.calls[1][1] as RequestInit;
+    const retriedBody = JSON.parse(retriedInit.body as string);
+    expect(retriedBody).not.toHaveProperty("eventType");
+  });
+
+  it("throws GoogleApiError when the outOfOffice fallback retry itself fails", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }))
+      .mockResolvedValueOnce(new Response("server error", { status: 500 }));
+    const { deps } = makeDeps(fetchImpl);
+
+    await expect(insertEventWithRetry(deps, "primary", OOO_BODY)).rejects.toThrow(/500/);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back for a busy body (no eventType) that gets a 400", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+    const { deps } = makeDeps(fetchImpl);
+
+    await expect(insertEventWithRetry(deps, "primary", BODY)).rejects.toThrow(/400/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fall back for an outOfOffice body on a non-400/403 4xx (e.g. 429)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+    const { deps } = makeDeps(fetchImpl);
+
+    await expect(insertEventWithRetry(deps, "primary", OOO_BODY)).rejects.toThrow(/429/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

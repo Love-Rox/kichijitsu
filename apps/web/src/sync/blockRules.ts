@@ -59,6 +59,8 @@ export interface BlockRuleDisplay {
   sourceNames: string[];
   targetName: string;
   modeLabel: string;
+  /** true = 不在を要求したが Workspace 非対応で busy として作成された (一覧の注記表示用) */
+  oooFallback: boolean;
 }
 
 /** ルール一覧表示用に DTO を整形する(カレンダー名解決込み) */
@@ -77,5 +79,6 @@ export function describeBlockRule(
       rule.target.calendarId,
     ),
     modeLabel: blockModeLabel(rule.mode),
+    oooFallback: rule.mode === "outOfOffice" && rule.oooFallback === true,
   };
 }
