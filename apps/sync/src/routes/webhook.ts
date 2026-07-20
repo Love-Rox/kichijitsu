@@ -40,6 +40,6 @@ webhookRoutes.post("/api/webhook/google", async (c) => {
   }
 
   const stub = c.env.PROFILE_HUB.getByName(decision.profileId);
-  await stub.notifyChanged(decision.accountId, decision.calendarId);
+  await stub.notifyChanged(decision.accountId, decision.calendarId, decision.profileId);
   return c.body(null, 200);
 });

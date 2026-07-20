@@ -16,6 +16,8 @@ interface RawGoogleEvent {
   iCalUID?: string;
   location?: string;
   description?: string;
+  /** カレンダーブロック機能 (docs/blocking.md) の mirror 判定 (kichijitsuMirror) に必要。 */
+  extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
 }
 
 interface RawEventsListResponse {
@@ -40,6 +42,7 @@ export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
     iCalUID: raw.iCalUID,
     location: raw.location,
     description: raw.description,
+    extendedProperties: raw.extendedProperties,
   };
 }
 

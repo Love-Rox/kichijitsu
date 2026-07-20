@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   CalendarListEntryDTO,
+  GoogleEventDTO,
   GoogleTaskDTO,
   SyncResponse,
   TaskListDTO,
@@ -12,6 +13,15 @@ import { syncCalendar, type SyncCoreDeps } from "../core/sync";
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../core/patch-event";
 import { createEventWithRetry, type CreateEventCoreDeps } from "../core/create-event";
 import { deleteEventWithRetry, type DeleteEventCoreDeps } from "../core/delete-event";
+import {
+  listEventsInWindowWithRetry,
+  type ListEventsInWindowCoreDeps,
+  type ReconcileWindow,
+} from "../core/list-events";
+import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
+import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
+import type { MirrorEventBody } from "../core/block-reconcile";
+import type { RawEventTimeField } from "../google/patch-event-raw";
 import {
   listTaskLists as listTaskListsCore,
   patchTaskStatusWithRetry,
@@ -187,6 +197,65 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   /**
+   * カレンダーブロック機能 (docs/blocking.md 第3段階): ProfileHubDO のリコンサイルが
+   * source カレンダーの現予定集合を取得するための RPC。指定した期間ウィンドウ内の
+   * イベントを (ページングを内部で吸収して) 全件返す。
+   */
+  async listEventsInWindow(
+    accountId: string,
+    calendarId: string,
+    timeMin: string,
+    timeMax: string,
+  ): Promise<RpcResult<GoogleEventDTO[]>> {
+    return runRpc(() =>
+      listEventsInWindowWithRetry(this.buildEventWriteDeps(accountId), calendarId, {
+        timeMin,
+        timeMax,
+      } satisfies ReconcileWindow),
+    );
+  }
+
+  /**
+   * カレンダーブロック機能 (docs/blocking.md 第3段階): ProfileHubDO のリコンサイルが
+   * target カレンダーに mirror (Busy/不在ブロック) を作成するための RPC。createEvent
+   * (title/startMs/endMs 限定) とは別に、extendedProperties/transparency/visibility/
+   * eventType を含む body をそのまま送れる汎用版が必要なため用意した。
+   * 作成された mirror event の id を返す (block_mirrors への保存に使う)。
+   */
+  async createMirrorEvent(
+    accountId: string,
+    calendarId: string,
+    body: MirrorEventBody,
+  ): Promise<RpcResult<string>> {
+    return runRpc(() =>
+      insertEventWithRetry(this.buildEventWriteDeps(accountId), calendarId, body),
+    );
+  }
+
+  /**
+   * カレンダーブロック機能 (docs/blocking.md 第3段階): ProfileHubDO のリコンサイルが
+   * mirror の時刻を source の変更に追従させるための RPC。patchEvent (epoch ms + timeZone、
+   * 時刻予定限定) とは別に、source の start/end (終日予定の date を含む) をそのまま
+   * 写せる raw 版が必要なため用意した。
+   */
+  async patchEventRaw(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    start: RawEventTimeField,
+    end: RawEventTimeField,
+  ): Promise<RpcResult<void>> {
+    return runRpc(() =>
+      patchEventRawWithRetry(this.buildEventWriteDeps(accountId), {
+        calendarId,
+        eventId,
+        start,
+        end,
+      }),
+    );
+  }
+
+  /**
    * GET /api/tasklists (Google タスク連携、docs/google-tasks.md): アカウントのタスク
    * リスト一覧を取得する。tasks スコープ未付与は Google が 403 を返し、runRpc が
    * GoogleApiError としてそのまま status=403 で RpcResult に載せる — route 側でこれを
@@ -294,7 +363,7 @@ export class UserSyncDO extends DurableObject<Env> {
         const changed = await this.checkCalendarForChanges(accessToken, calendarId);
         if (changed) {
           const hub = this.env.PROFILE_HUB.getByName(profileId);
-          await hub.notifyChanged(accountId, calendarId);
+          await hub.notifyChanged(accountId, calendarId, profileId);
         }
       } catch (err) {
         // 1つのカレンダーのチェックに失敗しても他のカレンダーは続行する。
@@ -363,13 +432,19 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   /**
-   * patch/create/delete の書き戻し RPC 共通の依存先。PatchEventCoreDeps / CreateEventCoreDeps /
-   * DeleteEventCoreDeps はいずれも { fetch, getAccessToken, forceRefreshAccessToken } と構造的に
-   * 同一なので、1つの実装を全員に渡す。
+   * patch/create/delete (+ カレンダーブロック機能の listEventsInWindow/createMirrorEvent/
+   * patchEventRaw) の書き戻し RPC 共通の依存先。いずれも
+   * { fetch, getAccessToken, forceRefreshAccessToken } と構造的に同一なので、1つの実装を
+   * 全員に渡す。
    */
   private buildEventWriteDeps(
     accountId: string,
-  ): PatchEventCoreDeps & CreateEventCoreDeps & DeleteEventCoreDeps {
+  ): PatchEventCoreDeps &
+    CreateEventCoreDeps &
+    DeleteEventCoreDeps &
+    ListEventsInWindowCoreDeps &
+    InsertEventCoreDeps &
+    PatchEventRawCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),

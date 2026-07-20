@@ -77,3 +77,52 @@
 3. webhook/alarm からリコンサイル起動、mirror の除外・ループ防止
 4. outOfOffice モードと Workspace 判定・フォールバック
 5. UI: 生成された Busy/不在ブロックは既存の Busy ハッチ表示で出る（自動生成と分かる印）
+
+## 第3段階 実装メモ（2026-07-20: webhook/alarm → 実 Google 書き込みの配線）
+
+トリガーは `ProfileHubDO.notifyChanged(accountId, calendarId, profileId)` 一箇所
+（webhook 受信・UserSyncDO alarm ポーリングの両方がここへ来る）。SSE 配信後、
+`ctx.waitUntil` でバックグラウンド実行することで SSE レスポンスを遅らせない。
+
+- **オーケストレーション**: `apps/sync/src/core/block-orchestrate.ts` の
+  `reconcileSourceChange`（副作用は全て `ReconcileDeps` 注入、モック deps で単体テスト
+  — `test/block-orchestrate.test.ts`）。第2段階の `reconcileBlockRule` /
+  `buildMirrorEventBody`（`core/block-reconcile.ts`）をそのまま再利用する。
+- **適用順序と不整合防止**: ルールごとに全 source calendar のイベントを結合 →
+  `reconcileBlockRule` で差分計算 → Google 書き込みが成功して初めて対応する
+  `block_mirrors` 行を書く（create 失敗なら行を挿入しない、patch/delete 失敗なら
+  行を更新/削除しない）。1操作・1ルールの失敗は他に波及させず `console.error` で継続する。
+- **Google 書き込み系の新規ヘルパー**（3層構造 `google/*.ts` → `core/*.ts` → DO RPC を維持）:
+  - `google/list-events.ts` + `core/list-events.ts`
+    (`listEventsInWindowWithRetry`): `singleEvents=true&showDeleted=false&timeMin&timeMax&maxResults=250&orderBy=startTime`
+    で `events.list` をページング取得。`extendedProperties` を DTO にマッピングするよう
+    `core/google-events.ts` の `toGoogleEventDTO`/`RawGoogleEvent` を拡張（mirror 判定に必須）。
+  - `google/insert-event.ts` + `core/insert-event.ts` (`insertEventWithRetry`): 既存
+    `createEvent`（title/startMs/endMs 限定）とは別に、`MirrorEventBody`
+    （extendedProperties/transparency/visibility/eventType 込み）をそのまま送る汎用版。
+  - `google/patch-event-raw.ts` + `core/patch-event-raw.ts`
+    (`patchEventRawWithRetry`): 既存 `patchEvent`（epoch ms + timeZone、時刻予定限定）とは
+    別に、source の start/end (`dateTime`/`date` いずれも) をそのまま写す raw 版。
+    all-day mirror の patch を正しく行うために追加した。delete は既存 `deleteEvent` RPC を
+    そのまま流用（新規実装なし）。
+  - `UserSyncDO` に `listEventsInWindow` / `createMirrorEvent` / `patchEventRaw` の3 RPC を追加。
+- **ProfileHubDO 側の実 deps**: `block_rule_sources`/`block_rules` を profileId で絞って
+  ルールを集約（`aggregateBlockRules` 再利用、profile 越境防止）、`block_mirrors` の
+  CRUD、対象 `UserSyncDO` への RPC 呼び出し。ウィンドウは `[now-1日, now+60日]`。
+- **`notifyChanged` のシグネチャ変更**: `profileId` を第3引数として明示的に渡すよう変更した
+  （webhook route・`UserSyncDO.alarm()` の両呼び出し元を追従）。理由: `ProfileHubDO.profileId`
+  は SSE 接続 (`fetch()`) 時にしか設定されず、ブラウザが一度も開かれていない状態で
+  webhook が先に届くケースでは未設定のままだった。プロファイル越境防止のクエリに
+  `profileId` が必須なため、これを補うために変更した。
+- **ループ防止**: mirror は target カレンダーに `kichijitsuMirror=1` を付けて作られる。
+  target が別ルールの source であっても、`reconcileBlockRule` が `isMirrorEvent` で
+  mirror 自身を除外するため無限増殖しない（第2段階から継続する不変条件）。
+- **並行性の既知の限界**: `ProfileHubDO` インスタンス内に `(accountId, calendarId)` ごとの
+  Promise チェーン (`reconcileChains`) を持ち、同一対象への reconcile を直列化する簡易
+  ロックを入れた。ただしこれは in-memory な状態であり、DO の再起動・退避 (eviction) を
+  跨いでは保持されない。短時間に webhook とポーリングが競合するなど極端なケースまでは
+  完全に防げず、完全な冪等性の保証は今回のスコープ外。
+- **スコープ外（第4段階に持ち越し）**: outOfOffice の Workspace 判定・busy フォールバックは
+  未実装。個人 Gmail アカウント等で Google が `eventType: 'outOfOffice'` を拒否した場合、
+  `insertEventWithRetry` は `GoogleApiError` を投げ、呼び出し元が `console.error` で
+  流すだけになる（busy への自動差し替えはしない）。
