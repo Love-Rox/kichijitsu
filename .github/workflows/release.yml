@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "kichijitsu ${{ github.ref_name }}"
+          releaseBody: |
+            **macOS (Homebrew)**
+            ```
+            brew install --cask love-rox/tap/kichijitsu
+            brew upgrade --cask kichijitsu
+            ```
+            ※ 無署名配布のため、初回起動が Gatekeeper にブロックされた場合は隔離属性を外してください:
+            ```
+            xattr -rd com.apple.quarantine "/Applications/kichijitsu.app"
+            ```
+            （外さない場合は、システム設定 → プライバシーとセキュリティ → 「このまま開く」でも起動できます）
+
+            cask のインストールには GitHub CLI の認証が必要です: `brew install gh && gh auth login`
+
+            **DMG を直接ダウンロードする場合**
+            下の `kichijitsu_*_universal.dmg` を使用してください。
+          args: --target universal-apple-darwin

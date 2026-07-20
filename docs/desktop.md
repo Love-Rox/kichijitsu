@@ -315,3 +315,86 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
 - **署名回避 / Gatekeeper（quarantine）の具体手順は、ユーザーの既存リポジトリ `labolabo` / `harushion` の cask 実装に倣う**（Homebrew tap の cask .rb を参照して同じ形にする）。実装時（Tauri 増分2）に GitHub でそれらの cask を確認してから書く。ここに憶測の手順は書かない。
 - CI: リリースビルド（`tauri build`）→ GitHub Releases へ添付 → tap の cask を更新、という流れを想定（`voidzero-dev/setup-vp` とは別。Rust ビルドが要るので macOS runner）。
 - 参考: この方式は「署名しない代わりに Homebrew 経由でインストールさせる」もので、ダウンロード直開きの `"開発元を確認できません"` を回避する狙い。正確な回避方法は上記2リポジトリで確認する。
+
+### リリース CI・cask ファイル（増分3、2026-07-21）
+
+`Love-Rox/Harushion` の `.github/workflows/release.yml` と
+`Love-Rox/homebrew-tap` の `Casks/harushion.rb`（`gh api` で実物を取得して確認
+済み）に倣い、以下を用意した。**実際のタグ push・tap への配置はユーザーが行う
+（この増分ではファイルの整備のみ）。**
+
+- `.github/workflows/release.yml`（リポジトリ root）
+  - `on: push: tags: ["v*"]`、`permissions: contents: write`
+  - `runs-on: macos-latest` のみ（Mac 配布が要件のため。Win/Linux は今回含め
+    ない）。`args: --target universal-apple-darwin` で universal バイナリを
+    ビルド
+  - kichijitsu は pnpm workspace（Harushion は npm）なので、Harushion 版から
+    差し替え: `pnpm/action-setup@v4`（`package.json` の `packageManager` を
+    自動検出）→ `actions/setup-node@v4`（`node-version: 26`、mise.toml に
+    合わせる、`cache: pnpm`）→ `pnpm install --frozen-lockfile`
+  - `dtolnay/rust-toolchain@stable`（`targets:
+    aarch64-apple-darwin,x86_64-apple-darwin`）、`swatinem/rust-cache@v2`
+    （`workspaces: apps/desktop/src-tauri`）
+  - `tauri-apps/tauri-action@v0`: `projectPath: apps/desktop`（`src-tauri` の
+    親。Harushion は `src-tauri` がリポジトリ直下なので `projectPath` 省略、
+    kichijitsu は monorepo なので明示が必要）、`tagName: ${{
+    github.ref_name }}`、`releaseName: "kichijitsu ${{ github.ref_name
+    }}"`、`releaseBody` に Homebrew インストール手順・`xattr` 案内・`gh auth
+    login` 案内を記載
+  - **フロントエンドビルド不要**（増分1のリモート URL 方式のまま。
+    `frontendDist` はリモート URL なので `beforeBuildCommand` 等は追加してい
+    ない）
+  - **Apple 署名 secret は要求しない**（証明書・公証まわりの env は無し）。
+    Harushion にあった `TAURI_SIGNING_PRIVATE_KEY` 系も、kichijitsu には
+    updater プラグインが無いため含めていない
+  - **cask 自動更新 job は入れていない**（tap 更新用の PAT secret
+    (`HOMEBREW_TAP_TOKEN` 等) が無い前提のため。下記「リリース/配布手順」で
+    手動更新する）
+- `apps/desktop/homebrew/kichijitsu.rb`（cask のソースオブトゥルース。tap
+  本体ではなくこのリポジトリ内に置く）
+  - `harushion.rb` を kichijitsu 用に置き換え: `version "0.1.0"`、`sha256`
+    は**プレースホルダ**（初回リリース後に実 DMG の `shasum -a 256` へ差し替
+    える旨をファイル内コメントに明記。`:no_check` にはしていない —
+    改ざん検知のため実ハッシュ運用を維持する方針）
+  - `url` は
+    `https://github.com/Love-Rox/kichijitsu/releases/download/v#{version}/kichijitsu_#{version}_universal.dmg`
+    （`productName` が `kichijitsu`、tauri-action のデフォルト命名規則で
+    DMG 名が `kichijitsu_0.1.0_universal.dmg` になる想定）
+  - `name`/`desc`/`homepage`/`livecheck (github_latest)`/`depends_on macos:
+    :ventura`/`app "kichijitsu.app"`/`caveats`（`xattr -rd
+    com.apple.quarantine` ＋ システム設定フォールバック ＋ `gh auth login`
+    案内）は harushion.rb と同じ形
+
+### リリース/配布手順（実際にタグを切るときにユーザーが行う）
+
+1. バージョンを上げる: `apps/desktop/src-tauri/tauri.conf.json` の
+   `version` と `apps/desktop/package.json` の `version` を揃えて更新（この
+   増分時点では両方 `0.1.0` で揃っている）
+2. タグを push する:
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. GitHub Actions（`.github/workflows/release.yml`）が macOS universal の
+   DMG をビルドし、GitHub Release を自動作成する（`draft` になるので内容を
+   確認してから公開する。tauri-action のデフォルト挙動）
+4. 公開された Release の DMG をダウンロードし、sha256 を取得する:
+   ```sh
+   shasum -a 256 kichijitsu_0.1.0_universal.dmg
+   ```
+5. `Love-Rox/homebrew-tap` リポジトリの `Casks/kichijitsu.rb` を、
+   `apps/desktop/homebrew/kichijitsu.rb` の内容 ＋ 手順4で得た実 sha256 で
+   新規作成（初回）または更新する（`harushion.rb`/`labolabo` と同じ tap に
+   同居させる）
+6. 動作確認:
+   ```sh
+   brew install --cask love-rox/tap/kichijitsu
+   ```
+   無署名配布のため、初回起動が Gatekeeper にブロックされたら:
+   ```sh
+   xattr -rd com.apple.quarantine /Applications/kichijitsu.app
+   ```
+   （tap のインストール自体に GitHub CLI 認証が要る場合は `brew install gh
+   && gh auth login` を先に行う）
+7. 以降のバージョンアップも 1〜6 を繰り返す（cask 自動更新 job は無いため、
+   tap 側の更新は毎回手動）
