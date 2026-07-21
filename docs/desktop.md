@@ -320,8 +320,9 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
 
 `Love-Rox/Harushion` の `.github/workflows/release.yml` と
 `Love-Rox/homebrew-tap` の `Casks/harushion.rb`（`gh api` で実物を取得して確認
-済み）に倣い、以下を用意した。**実際のタグ push・tap への配置はユーザーが行う
-（この増分ではファイルの整備のみ）。**
+済み）に倣い、以下を用意した。**v0.1.0 は 2026-07-21 にリリース済み**（タグ
+push → CI ビルド → DMG 公開 → `Love-Rox/homebrew-tap/Casks/kichijitsu.rb`
+配置 → `brew install` 検証まで完了）。
 
 - `.github/workflows/release.yml`（リポジトリ root）
   - `on: push: tags: ["v*"]`、`permissions: contents: write`
@@ -341,6 +342,12 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
     github.ref_name }}`、`releaseName: "kichijitsu ${{ github.ref_name
     }}"`、`releaseBody` に Homebrew インストール手順・`xattr` 案内・`gh auth
     login` 案内を記載
+  - **`tauriScript: pnpm tauri` が必須**（初回リリースで判明・2026-07-21）。
+    monorepo では `projectPath`（apps/desktop）直下にロックファイルが無いため
+    tauri-action がパッケージマネージャ検出で npm にフォールバックし、
+    `npm run tauri build` を実行 → `package.json` に `tauri` スクリプトが無く
+    `Missing script: "tauri"` で失敗する。`tauriScript: pnpm tauri` を指定して
+    pnpm に `apps/desktop/node_modules/.bin/tauri` を直接叩かせて解決した
   - **フロントエンドビルド不要**（増分1のリモート URL 方式のまま。
     `frontendDist` はリモート URL なので `beforeBuildCommand` 等は追加してい
     ない）
@@ -353,9 +360,9 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
 - `apps/desktop/homebrew/kichijitsu.rb`（cask のソースオブトゥルース。tap
   本体ではなくこのリポジトリ内に置く）
   - `harushion.rb` を kichijitsu 用に置き換え: `version "0.1.0"`、`sha256`
-    は**プレースホルダ**（初回リリース後に実 DMG の `shasum -a 256` へ差し替
-    える旨をファイル内コメントに明記。`:no_check` にはしていない —
-    改ざん検知のため実ハッシュ運用を維持する方針）
+    は v0.1.0 リリースで実 DMG の `shasum -a 256`
+    （`2f47ff27bd782ab683a251d3e3dea0179ee5a11856022137dbedb66e9b3b4a95`）
+    に確定済み（`:no_check` にはしない — 改ざん検知のため実ハッシュ運用を維持）
   - `url` は
     `https://github.com/Love-Rox/kichijitsu/releases/download/v#{version}/kichijitsu_#{version}_universal.dmg`
     （`productName` が `kichijitsu`、tauri-action のデフォルト命名規則で
@@ -370,14 +377,18 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
 1. バージョンを上げる: `apps/desktop/src-tauri/tauri.conf.json` の
    `version` と `apps/desktop/package.json` の `version` を揃えて更新（この
    増分時点では両方 `0.1.0` で揃っている）
-2. タグを push する:
+2. タグを push する（**アノテートタグ必須**。この repo は lightweight タグを
+   弾き `fatal: no tag message?` になる）:
    ```sh
-   git tag v0.1.0
+   git tag -a v0.1.0 -m "kichijitsu v0.1.0"
    git push origin v0.1.0
    ```
+   （`release.yml` を修正した場合は、タグ push トリガーが**タグの指すコミット
+   の** workflow を使うため、修正コミットにタグを張り直すこと:
+   `git tag -d v0.1.0 && git push origin :refs/tags/v0.1.0` の後に再作成）
 3. GitHub Actions（`.github/workflows/release.yml`）が macOS universal の
-   DMG をビルドし、GitHub Release を自動作成する（`draft` になるので内容を
-   確認してから公開する。tauri-action のデフォルト挙動）
+   DMG をビルドし、GitHub Release を自動作成・公開する（`gh run watch <id>`
+   で完走を確認できる）
 4. 公開された Release の DMG をダウンロードし、sha256 を取得する:
    ```sh
    shasum -a 256 kichijitsu_0.1.0_universal.dmg
