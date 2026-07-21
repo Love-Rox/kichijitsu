@@ -37,6 +37,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
+          # ワークスペースなので apps/desktop 直下にロックファイルが無く、tauri-action が
+          # パッケージマネージャ検出で npm にフォールバックして `npm run tauri build` を実行し、
+          # `tauri` スクリプト不在で失敗する。pnpm に node_modules/.bin/tauri を直接叩かせる。
+          tauriScript: pnpm tauri
           tagName: ${{ github.ref_name }}
           releaseName: "kichijitsu ${{ github.ref_name }}"
           releaseBody: |
