@@ -93,56 +93,64 @@ export interface KichijitsuDB extends DBSchema {
 }
 
 const DB_NAME = "kichijitsu";
-const DB_VERSION = 6;
+/** テスト (fake-indexeddb 上に openDB する場合など) からもスキーマ版数を参照できるよう公開 */
+export const DB_VERSION = 6;
 const META_EXPANSION_KEY = "expansion";
 const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
+/**
+ * openKichijitsuDB の upgrade コールバック本体。テスト (applySync 系の全同期アトミック性
+ * テストなど) が fake-indexeddb 上に同じスキーマの DB を独立して作れるよう、
+ * openDB 呼び出しから切り出してエクスポートする(挙動は従来と同一)。
+ */
+export function upgradeKichijitsuSchema(db: IDBPDatabase<KichijitsuDB>): void {
+  if (!db.objectStoreNames.contains("occurrences")) {
+    const store = db.createObjectStore("occurrences", { keyPath: "id" });
+    store.createIndex("startMs", "startMs");
+  }
+  if (!db.objectStoreNames.contains("allDayOccurrences")) {
+    // DB_VERSION 2 (フェーズ5) で追加。既存ユーザーもここを通って新規作成される
+    const store = db.createObjectStore("allDayOccurrences", { keyPath: "id" });
+    store.createIndex("startDate", "startDate");
+  }
+  if (!db.objectStoreNames.contains("tasks")) {
+    // DB_VERSION 3 (Google タスク連携、docs/google-tasks.md) で追加
+    const store = db.createObjectStore("tasks", { keyPath: "id" });
+    store.createIndex("dueDate", "dueDate");
+  }
+  if (!db.objectStoreNames.contains("series")) {
+    db.createObjectStore("series", { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains("overrides")) {
+    db.createObjectStore("overrides", { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains("githubItems")) {
+    // DB_VERSION 4 (GitHub 連携フェーズ①Part B) で追加。既存ユーザーもここを通って新規作成される
+    db.createObjectStore("githubItems", { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains("plannedBlocks")) {
+    // DB_VERSION 5 (GitHub 連携「時間計測」増分1) で追加。既存ユーザー(v4 以前)も
+    // ここを通って新規作成される。他ストアとは独立(Google 同期は触れない)
+    db.createObjectStore("plannedBlocks", { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains("timeEntries")) {
+    // DB_VERSION 6 (GitHub 連携「時間計測」増分2) で追加。既存ユーザー(v5 以前)も
+    // ここを通って新規作成される。plannedBlocks と同じく他ストアとは独立
+    db.createObjectStore("timeEntries", { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains("meta")) {
+    // out-of-line key: put 時に key を明示して渡す (keyPath なし)
+    db.createObjectStore("meta");
+  }
+}
+
 /** DB 接続を開く(メモ化: 同一プロセス内では1接続を使い回す) */
 export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
   if (!dbPromise) {
     dbPromise = openDB<KichijitsuDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains("occurrences")) {
-          const store = db.createObjectStore("occurrences", { keyPath: "id" });
-          store.createIndex("startMs", "startMs");
-        }
-        if (!db.objectStoreNames.contains("allDayOccurrences")) {
-          // DB_VERSION 2 (フェーズ5) で追加。既存ユーザーもここを通って新規作成される
-          const store = db.createObjectStore("allDayOccurrences", { keyPath: "id" });
-          store.createIndex("startDate", "startDate");
-        }
-        if (!db.objectStoreNames.contains("tasks")) {
-          // DB_VERSION 3 (Google タスク連携、docs/google-tasks.md) で追加
-          const store = db.createObjectStore("tasks", { keyPath: "id" });
-          store.createIndex("dueDate", "dueDate");
-        }
-        if (!db.objectStoreNames.contains("series")) {
-          db.createObjectStore("series", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("overrides")) {
-          db.createObjectStore("overrides", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("githubItems")) {
-          // DB_VERSION 4 (GitHub 連携フェーズ①Part B) で追加。既存ユーザーもここを通って新規作成される
-          db.createObjectStore("githubItems", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("plannedBlocks")) {
-          // DB_VERSION 5 (GitHub 連携「時間計測」増分1) で追加。既存ユーザー(v4 以前)も
-          // ここを通って新規作成される。他ストアとは独立(Google 同期は触れない)
-          db.createObjectStore("plannedBlocks", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("timeEntries")) {
-          // DB_VERSION 6 (GitHub 連携「時間計測」増分2) で追加。既存ユーザー(v5 以前)も
-          // ここを通って新規作成される。plannedBlocks と同じく他ストアとは独立
-          db.createObjectStore("timeEntries", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("meta")) {
-          // out-of-line key: put 時に key を明示して渡す (keyPath なし)
-          db.createObjectStore("meta");
-        }
-      },
+      upgrade: upgradeKichijitsuSchema,
     });
   }
   return dbPromise;

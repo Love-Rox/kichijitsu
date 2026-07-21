@@ -59,7 +59,12 @@ import {
 } from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
-import { buildVisibleCalendarsRequest, mergeServerVisibleCalendars } from "./sync/visibleCalendars";
+import {
+  buildVisibleCalendarsRequest,
+  mergeServerVisibleCalendarsWithPending,
+  nextPendingVisiblePuts,
+} from "./sync/visibleCalendars";
+import { createSyncScheduler } from "./sync/syncScheduler";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
@@ -400,6 +405,14 @@ function App() {
   // getVisibleCalendars(db) での初回ロードが終わるまでは、下の永続化 effect を
   // 発火させない({} で上書きしてしまわないためのガード)
   const visibleCalendarsLoadedRef = useRef(false);
+  // PUT /api/visible-calendars の lost update 防止 (2026-07-21)。オフライン中/失敗時に
+  // その accountId の最新 calendarIds を記録しておき、checkMe (起動時・online 復帰時) の
+  // 先頭で再送してから /api/me をマージする(sync/visibleCalendars.ts 参照)
+  const pendingVisiblePutsRef = useRef<Map<string, string[]>>(new Map());
+  // syncCalendar (増分同期・全同期) の同一 (accountId, calendarId) 多重実行ガード (2026-07-21)。
+  // SSE hello/changed・起動時 runSync・カレンダー選択トグルなど複数経路から await なしで
+  // 多重に発火しうるため、キー単位で直列化する (sync/syncScheduler.ts 参照)
+  const syncSchedulerRef = useRef(createSyncScheduler());
   const accountAreaRef = useRef<HTMLDivElement>(null);
   // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
   // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
@@ -455,28 +468,48 @@ function App() {
   );
 
   // PUT /api/visible-calendars — カレンダー選択をサーバーに保存する (端末間同期、2026-07-20)。
-  // handleToggleCalendar のトグル時と、fetchCalendarsFor の初回 primary デフォルト選択時に呼ぶ。
-  // fire-and-forget: UI/IndexedDB は既に楽観的更新済みなので、失敗してもロールバックしない
-  // (選択はローカルに残るため動作は継続でき、オフライン表示は checkedFetch の markOffline に委ねる)
-  const putVisibleCalendars = useCallback(
-    (accountId: string, calendarIds: string[]) => {
-      checkedFetch("/api/visible-calendars", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildVisibleCalendarsRequest(accountId, calendarIds)),
-      })
-        .then((res) => {
-          if (!res.ok) {
-            console.warn(
-              `kichijitsu: PUT /api/visible-calendars failed (${accountId}): ${res.status}`,
-            );
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: PUT /api/visible-calendars failed", err);
+  // 失敗(fetch 例外・非2xx)したら pendingVisiblePutsRef に記録し、checkMe が online 復帰時に
+  // 再送する(lost update 防止、2026-07-21。sync/visibleCalendars.ts の nextPendingVisiblePuts
+  // 参照)。成否を呼び出し側が判定できるよう boolean を返す
+  const putVisibleCalendarsOnce = useCallback(
+    async (accountId: string, calendarIds: string[]): Promise<boolean> => {
+      let ok: boolean;
+      try {
+        const res = await checkedFetch("/api/visible-calendars", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildVisibleCalendarsRequest(accountId, calendarIds)),
         });
+        ok = res.ok;
+        if (!ok) {
+          console.warn(
+            `kichijitsu: PUT /api/visible-calendars failed (${accountId}): ${res.status}`,
+          );
+        }
+      } catch (err) {
+        ok = false;
+        console.warn("kichijitsu: PUT /api/visible-calendars failed", err);
+      }
+      pendingVisiblePutsRef.current = nextPendingVisiblePuts(
+        pendingVisiblePutsRef.current,
+        accountId,
+        calendarIds,
+        ok ? "success" : "failure",
+      );
+      return ok;
     },
     [checkedFetch],
+  );
+
+  // handleToggleCalendar のトグル時と、fetchCalendarsFor の初回 primary デフォルト選択時に
+  // 呼ぶ fire-and-forget 版: UI/IndexedDB は既に楽観的更新済みなので、失敗してもロールバックしない
+  // (選択はローカルに残るため動作は継続でき、オフライン表示は checkedFetch の markOffline に委ねる。
+  // 失敗の追跡は putVisibleCalendarsOnce 内の pendingVisiblePutsRef が担う)
+  const putVisibleCalendars = useCallback(
+    (accountId: string, calendarIds: string[]) => {
+      void putVisibleCalendarsOnce(accountId, calendarIds);
+    },
+    [putVisibleCalendarsOnce],
   );
 
   // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
@@ -637,6 +670,19 @@ function App() {
   // fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)。
   // 起動時に1回、加えてブラウザの online イベントでも再確認する(オフライン復帰時)
   const checkMe = useCallback(async () => {
+    // /api/me を取得する前に、オフライン中/失敗で溜まった pending な PUT
+    // /api/visible-calendars を先に再送する(lost update 防止、2026-07-21)。
+    // ここで直近のローカル選択をサーバーに反映してから「サーバー勝ち」マージに
+    // 入らないと、オフライン中に変えた選択が古いサーバー値に潰されてしまう
+    const pendingEntries = [...pendingVisiblePutsRef.current.entries()];
+    if (pendingEntries.length > 0) {
+      await Promise.all(
+        pendingEntries.map(([accountId, calendarIds]) =>
+          putVisibleCalendarsOnce(accountId, calendarIds),
+        ),
+      );
+    }
+
     try {
       const res = await checkedFetch("/api/me");
       if (!res.ok) {
@@ -646,14 +692,19 @@ function App() {
       const data = (await res.json()) as MeResponse;
       setMe(data);
       // サーバーに configured なエントリを取り込む(サーバーが正)。無いアカウントは
-      // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す
-      // (mergeServerVisibleCalendars 参照。init effect の IndexedDB ロードとの解決順序に
-      // 依存しない — どちらが先でも既存のレース対策(prev 優先マージ)と両立する)
-      setVisibleCalendarsState((prev) => mergeServerVisibleCalendars(prev, data.visibleCalendars));
+      // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す。
+      // 再送してもなお失敗が残っている accountId(pendingVisiblePutsRef に残存)は、
+      // サーバー勝ちマージのあとでローカル値に復元する(mergeServerVisibleCalendarsWithPending
+      // 参照。init effect の IndexedDB ロードとの解決順序に依存しない — どちらが先でも
+      // 既存のレース対策(prev 優先マージ)と両立する)
+      const stillPending = [...pendingVisiblePutsRef.current.keys()];
+      setVisibleCalendarsState((prev) =>
+        mergeServerVisibleCalendarsWithPending(prev, data.visibleCalendars, stillPending),
+      );
     } catch {
       setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
     }
-  }, [checkedFetch]);
+  }, [checkedFetch, putVisibleCalendarsOnce]);
 
   useEffect(() => {
     checkMe();
@@ -1110,9 +1161,9 @@ function App() {
     };
   }, [panelOpen, checkedFetch]);
 
-  // 1つの (accountId, calendarId) を同期する共通処理。runSync のループと、
-  // カレンダーを新規選択した直後の即時同期の両方から使う
-  const syncCalendar = useCallback(
+  // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
+  // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)
+  const syncCalendarOnce = useCallback(
     async (accountId: string, calendarId: string, defaultColor?: string) => {
       if (!db) return;
       const syncRes = await checkedFetch("/api/sync", {
@@ -1131,6 +1182,19 @@ function App() {
       });
     },
     [db, store, allDayStore, checkedFetch],
+  );
+
+  // 1つの (accountId, calendarId) を同期する共通処理。runSync のループ、SSE hello/changed、
+  // カレンダーを新規選択した直後の即時同期など複数経路から await なしで多重に発火しうるため、
+  // syncSchedulerRef (キー = `${accountId}:${calendarId}`) で直列化する。同一カレンダーの
+  // 増分同期と全同期(410 フォールバック)が交錯して IndexedDB の削除→再投入が競合するのを防ぐ
+  // (2026-07-21、sync/syncScheduler.ts 参照)
+  const syncCalendar = useCallback(
+    (accountId: string, calendarId: string, defaultColor?: string) =>
+      syncSchedulerRef.current.schedule(`${accountId}:${calendarId}`, () =>
+        syncCalendarOnce(accountId, calendarId, defaultColor),
+      ),
+    [syncCalendarOnce],
   );
 
   // 1つの (accountId, taskListId) を同期する共通処理(docs/google-tasks.md、syncCalendar のタスク版)。
