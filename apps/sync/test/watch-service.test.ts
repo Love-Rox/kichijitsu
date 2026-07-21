@@ -3,6 +3,8 @@ import {
   buildRenewedWatchRow,
   buildWatchRow,
   selectWatchesNeedingRenewal,
+  shouldAttemptWatchRepair,
+  shouldEnsureWatch,
   type WatchRow,
 } from "../src/core/watch-service";
 
@@ -120,5 +122,54 @@ describe("selectWatchesNeedingRenewal", () => {
     expect(
       selectWatchesNeedingRenewal(watches, NOW, 3 * 60 * 60 * 1000).map((w) => w.channel_id),
     ).toEqual(["in-two-hours"]);
+  });
+});
+
+describe("shouldEnsureWatch", () => {
+  const NOW = 1_700_000_000_000;
+
+  it("returns true when there is no existing row (watches lost, e.g. profile churn)", () => {
+    expect(shouldEnsureWatch(null, "profile-1", NOW)).toBe(true);
+  });
+
+  it("returns true when the existing row belongs to a different profile", () => {
+    expect(
+      shouldEnsureWatch(
+        { profile_id: "old-profile", expiration_ms: NOW + 1_000 },
+        "profile-1",
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true when the existing row has already expired", () => {
+    expect(
+      shouldEnsureWatch({ profile_id: "profile-1", expiration_ms: NOW - 1 }, "profile-1", NOW),
+    ).toBe(true);
+  });
+
+  it("returns false when the existing row matches the current profile and has not expired", () => {
+    expect(
+      shouldEnsureWatch({ profile_id: "profile-1", expiration_ms: NOW + 1_000 }, "profile-1", NOW),
+    ).toBe(false);
+  });
+});
+
+describe("shouldAttemptWatchRepair", () => {
+  const NOW = 1_700_000_000_000;
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+  it("returns true when there has been no previous attempt", () => {
+    expect(shouldAttemptWatchRepair(undefined, NOW)).toBe(true);
+  });
+
+  it("returns false when the last attempt was within the last 6 hours", () => {
+    expect(shouldAttemptWatchRepair(NOW - SIX_HOURS_MS + 1, NOW)).toBe(false);
+    expect(shouldAttemptWatchRepair(NOW - 1, NOW)).toBe(false);
+    expect(shouldAttemptWatchRepair(NOW, NOW)).toBe(false);
+  });
+
+  it("returns true when the last attempt was more than 6 hours ago", () => {
+    expect(shouldAttemptWatchRepair(NOW - SIX_HOURS_MS - 1, NOW)).toBe(true);
   });
 });

@@ -56,7 +56,7 @@ import {
   shouldClearSessionAfterDisconnect,
   type AccountMembership,
 } from "../accounts";
-import { buildWatchRow } from "../core/watch-service";
+import { buildWatchRow, shouldAttemptWatchRepair, shouldEnsureWatch } from "../core/watch-service";
 import {
   aggregateVisibleCalendars,
   buildCalendarPrefsRow,
@@ -615,6 +615,14 @@ apiRoutes.post("/api/sync", requireAuth, async (c) => {
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.sync(body.accountId, body.calendarId, body.deviceId);
+  if (result.ok) {
+    // watch 自己修復 (best-effort)。正経路は選択トグル時の POST /api/watch のみなので、
+    // watches 行の消失/取り違え (プロファイル作り直し事故など) を放置すると手動でトグルし
+    // 直すまで直らない — ここで同期成功のたびに検知して直す。レスポンスはブロックしない。
+    c.executionCtx.waitUntil(
+      repairWatchIfNeeded(c.env, body.accountId, body.calendarId, profileId, Date.now()),
+    );
+  }
   return respondFromRpcResult(c, result);
 });
 
@@ -1142,9 +1150,15 @@ async function loadBlockRules(env: Env, profileId: string): Promise<BlockRuleDTO
 }
 
 /**
- * watch 登録の本体。既存 watch があれば Google を呼ばずに何もしない (true を返す)。
+ * watch 登録の本体。既存行が現プロファイルに紐づき、かつ未失効ならその行を信頼して Google を
+ * 呼ばずに何もしない (true を返す)。既存行が古いプロファイルに紐づく、または失効している場合は
+ * Cron の再登録 (renewWatch, ../index.ts) と同じ順序 — 古い channel を stop → 新しい channel を
+ * 登録 → (account_id, calendar_id) の unique index に触れるため削除+挿入を1つの batch に
+ * まとめる — で張り替える (POST /api/sync 成功後の自己修復 (下記 repairWatchIfNeeded) は
+ * この張り替えに乗っかる)。
  * それ以外の失敗 (アクセストークン取得不可・Google API エラー・localhost 拒否など) は
- * すべて best-effort として飲み込み false を返す — 呼び出し元はこれを 200 として返す。
+ * すべて best-effort として飲み込み false を返す — 呼び出し元はこれを 200 として返す
+ * (POST /api/watch) か、ログするだけ (repairWatchIfNeeded) にする。
  */
 async function enableWatch(
   env: Env,
@@ -1153,11 +1167,29 @@ async function enableWatch(
   profileId: string,
 ): Promise<boolean> {
   const existing = await env.DB.prepare(
-    "SELECT 1 FROM watches WHERE account_id = ? AND calendar_id = ?",
+    "SELECT channel_id, resource_id, profile_id, expiration_ms FROM watches WHERE account_id = ? AND calendar_id = ?",
   )
     .bind(accountId, calendarId)
-    .first();
-  if (existing) {
+    .first<{
+      channel_id: string;
+      resource_id: string | null;
+      profile_id: string;
+      expiration_ms: number | null;
+    }>();
+
+  const now = Date.now();
+  // expiration_ms が null (Google が expiration を返さなかった watch) は「いつ切れるか
+  // 分からない」行なので、既に切れている (0 < now) 扱いにして張り替え側に倒す — Cron の
+  // selectWatchesNeedingRenewal とは逆の安全側 (張り替えは stop→re-register の二重登録耐性が
+  // あるだけの best-effort 操作であり、Cron の「触らず待つ」判断とは前提が違う)。
+  if (
+    existing &&
+    !shouldEnsureWatch(
+      { profile_id: existing.profile_id, expiration_ms: existing.expiration_ms ?? 0 },
+      profileId,
+      now,
+    )
+  ) {
     return true;
   }
 
@@ -1171,6 +1203,18 @@ async function enableWatch(
       return false;
     }
 
+    if (existing?.resource_id) {
+      const stopped = await stopWatch(fetch, tokenResult.data, {
+        channelId: existing.channel_id,
+        resourceId: existing.resource_id,
+      });
+      if (!stopped) {
+        console.warn(
+          `watch registration: failed to stop stale channel ${existing.channel_id} for account=${accountId} calendar=${calendarId} (continuing to re-register anyway)`,
+        );
+      }
+    }
+
     const channelId = crypto.randomUUID();
     const channelToken = await computeChannelToken(env.SESSION_SECRET, channelId);
     const registered = await registerWatch(fetch, tokenResult.data, {
@@ -1180,27 +1224,31 @@ async function enableWatch(
       token: channelToken,
     });
 
-    const row = buildWatchRow(
-      { accountId, calendarId },
-      profileId,
-      channelId,
-      registered,
-      Date.now(),
-    );
-    await env.DB.prepare(
+    const row = buildWatchRow({ accountId, calendarId }, profileId, channelId, registered, now);
+    const insert = env.DB.prepare(
       `INSERT INTO watches (channel_id, resource_id, account_id, calendar_id, profile_id, expiration_ms, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        row.channel_id,
-        row.resource_id,
-        row.account_id,
-        row.calendar_id,
-        row.profile_id,
-        row.expiration_ms,
-        row.created_at,
-      )
-      .run();
+    ).bind(
+      row.channel_id,
+      row.resource_id,
+      row.account_id,
+      row.calendar_id,
+      row.profile_id,
+      row.expiration_ms,
+      row.created_at,
+    );
+
+    if (existing) {
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM watches WHERE account_id = ? AND calendar_id = ?").bind(
+          accountId,
+          calendarId,
+        ),
+        insert,
+      ]);
+    } else {
+      await insert.run();
+    }
 
     return true;
   } catch (err) {
@@ -1209,6 +1257,59 @@ async function enableWatch(
       err,
     );
     return false;
+  }
+}
+
+/** キー = `${accountId}:${calendarId}`、値 = 最終「登録試行」時刻 (ms)。isolate 単位で揮発する
+ * best-effort のスロットルであり、D1 に永続化するほどの重要性は無い (押しても実害は
+ * 「次の isolate でもう1回試す」程度)。 */
+const lastWatchRepairAttempt = new Map<string, number>();
+
+/**
+ * POST /api/sync 成功後の watch 自己修復 (best-effort)。
+ *
+ * watch 登録の正経路はクライアントがカレンダー選択をトグルした時の POST /api/watch
+ * (enabled:true) であり、これはそれを補うだけの自己修復 — プロファイル作り直し事故などで
+ * watches 行が失われた/古いプロファイルに紐づいたまま残ったケースを、次の同期成功時に検知
+ * して直す。呼び出し元 (POST /api/sync) は waitUntil に渡すので、レスポンスはブロックしない。
+ */
+async function repairWatchIfNeeded(
+  env: Env,
+  accountId: string,
+  calendarId: string,
+  profileId: string,
+  now: number,
+): Promise<void> {
+  const existing = await env.DB.prepare(
+    "SELECT profile_id, expiration_ms FROM watches WHERE account_id = ? AND calendar_id = ?",
+  )
+    .bind(accountId, calendarId)
+    .first<{ profile_id: string; expiration_ms: number | null }>();
+
+  const row = existing
+    ? { profile_id: existing.profile_id, expiration_ms: existing.expiration_ms ?? 0 }
+    : null;
+  if (!shouldEnsureWatch(row, profileId, now)) {
+    return;
+  }
+
+  // push 非対応カレンダー (祝日カレンダーなど) は登録の度に失敗するので、同期の度に Google を
+  // 叩き続けないようスロットルする。
+  const key = `${accountId}:${calendarId}`;
+  if (!shouldAttemptWatchRepair(lastWatchRepairAttempt.get(key), now)) {
+    return;
+  }
+  lastWatchRepairAttempt.set(key, now);
+
+  try {
+    await enableWatch(env, accountId, calendarId, profileId);
+  } catch (err) {
+    // enableWatch は内部で失敗を飲み込み false を返す設計だが、念のため二重に守る
+    // (ここでの失敗は best-effort であり /api/sync のレスポンスに影響させない)。
+    console.warn(
+      `watch self-repair failed (best-effort) for account=${accountId} calendar=${calendarId}`,
+      err,
+    );
   }
 }
 
