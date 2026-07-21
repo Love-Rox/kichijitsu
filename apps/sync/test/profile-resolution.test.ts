@@ -19,15 +19,13 @@ describe("resolveLoginProfile (login モードのプロファイル解決)", () 
 
   it(
     "接続アカウント (他人のプロファイルに is_owner=0 で属する) でログイン: " +
-      "他人の束を復活させず、自分自身の新規プロファイルを作る (今回のバグ修正の核心)",
+      "プロファイルを作らず、ログインを拒否する (2026-07-21 のバグ修正の核心)",
     () => {
       const resolution = resolveLoginProfile(
         { profileId: "someone-elses-profile", isOwner: false },
         NEW_PROFILE_ID,
       );
-      expect(resolution).toEqual({ kind: "new-profile", profileId: NEW_PROFILE_ID });
-      // 明示的に: 他人のプロファイル id がそのまま返ってこないことを確認する
-      expect(resolution.profileId).not.toBe("someone-elses-profile");
+      expect(resolution).toEqual({ kind: "reject-connection-login" });
     },
   );
 });

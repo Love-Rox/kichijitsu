@@ -23,6 +23,39 @@ import { resolveLoginProfile } from "../profile-resolution";
 
 export const authRoutes = new Hono<AppEnv>();
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * login モードで「接続アカウント (is_owner=0) によるログイン」を拒否したときに返す
+ * 案内ページ。email は Google の ID トークンから取ったもの (このアプリの入力ではないが、
+ * 万一 `<`/`&` 等を含んでいてもレスポンス HTML を壊さないよう escapeHtml を通す)。
+ */
+export function renderConnectionLoginRejectionPage(email: string, appUrl: string): string {
+  const safeEmail = escapeHtml(email);
+  const safeAppUrl = escapeHtml(appUrl);
+  return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>ログインできません - kichijitsu</title>
+  </head>
+  <body>
+    <h1>ログインできません</h1>
+    <p>このアカウント (${safeEmail}) は既存プロファイルの接続アカウントです。プロファイルのオーナーアカウントでログインしてください。</p>
+    <p>このアカウントを独立したプロファイルにしたい場合は、先にオーナーでログインして設定からこのアカウントの接続を解除してください。</p>
+    <p><a href="${safeAppUrl}">トップページに戻る</a></p>
+  </body>
+</html>
+`;
+}
+
 function redirectUriFor(env: { OAUTH_REDIRECT_URL?: string }, requestUrl: string): string {
   // 通常はリクエスト URL から導出する (本番では https://kichijitsu.love-rox.cc/auth/callback)。
   // ただし wrangler dev は wrangler.jsonc に routes があるとリクエスト URL を本番ルートの
@@ -153,13 +186,23 @@ authRoutes.get("/auth/callback", async (c) => {
   //   最小変更に留める。
   //
   // - login モード (通常、add でない): このアカウントが「どこかのプロファイルのオーナー」
-  //   なら、そのプロファイルへログインする (= 自分の身元で戻ってきた)。オーナーでない
-  //   (未接続の新規アカウント、または他プロファイルの接続に過ぎない) 場合は、この
-  //   アカウント自身をオーナーとする新規プロファイルを作る。「接続に過ぎないアカウントで
-  //   他人のプロファイルを丸ごと復活させる」経路はここで断つ — 修正前はここで
-  //   `existing?.profile_id` をそのまま採用していたため、スマホで接続アカウントとして
-  //   ログインすると、そのアカウントが足された先のプロファイル (= 他の Google アカウントも
-  //   含む束) が丸ごと復活してしまっていた (今回のバグの本体)。
+  //   なら、そのプロファイルへログインする (= 自分の身元で戻ってきた)。未連携の新規
+  //   アカウントなら、このアカウント自身をオーナーとする新規プロファイルを作る。
+  //   他プロファイルへの「接続」(is_owner=0) に過ぎないアカウントの場合は、ログインを
+  //   拒否する (プロファイルもアカウント行も一切変更しない)。
+  //
+  //   2026-07-20 に一度、「オーナーでないなら新規プロファイルを作る」に直した (それまでは
+  //   `existing?.profile_id` をそのまま採用しており、接続アカウントでログインすると
+  //   その接続先プロファイルの束が丸ごと復活してしまっていた)。しかしこの「新規プロファイル
+  //   を作る」対応にも欠陥が残っていた: 下の UPSERT は accounts.id (PK) 単位で
+  //   profile_id/is_owner を上書きするため、既存の接続アカウント行を元プロファイルから
+  //   新プロファイルへ引き剥がしてしまう。元プロファイル (別端末でログイン中の可能性がある)
+  //   はそのアカウントを失いカレンダーが消え、新端末は空プロファイルになる、という事故が
+  //   2026-07-21 に本番で実際に発生した (今回のバグの本体)。
+  //
+  //   そのため 2026-07-21 に再修正: 接続アカウントでの login はプロファイル解決自体を
+  //   せず (`reject-connection-login`)、UPSERT にも到達させずにここでエラーページを返す。
+  //   詳細な分岐ルールは src/profile-resolution.ts のコメント参照。
   let profileId: string;
   if (state.mode === "add") {
     profileId = state.profileId;
@@ -168,6 +211,12 @@ authRoutes.get("/auth/callback", async (c) => {
       existing ? { profileId: existing.profile_id, isOwner: existing.is_owner === 1 } : null,
       crypto.randomUUID(),
     );
+    if (resolution.kind === "reject-connection-login") {
+      // 接続アカウント (is_owner=0) での直接ログインは拒否する。refresh_token の
+      // 保存はもちろん、accounts 行の書き換えも一切行わない (email はここまでで OAuth
+      // から取得済みの値をそのまま案内に使うだけ)。
+      return c.html(renderConnectionLoginRejectionPage(email, c.env.APP_URL), 409);
+    }
     profileId = resolution.profileId;
   }
   // login モードでは、ログインに使ったアカウント自身が常にそのプロファイルのオーナー
