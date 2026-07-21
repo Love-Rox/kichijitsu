@@ -10,6 +10,7 @@ import { fetchCalendarList } from "../google/calendar-list";
 import { refreshAccessToken } from "../google/oauth";
 import { hasUpdatesSince } from "../google/poll-check";
 import { syncCalendar, type SyncCoreDeps } from "../core/sync";
+import { resolveSyncTokenRead, V2_TOKEN_MAX_AGE_MS } from "../core/sync-token-store";
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../core/patch-event";
 import { createEventWithRetry, type CreateEventCoreDeps } from "../core/create-event";
 import { deleteEventWithRetry, type DeleteEventCoreDeps } from "../core/delete-event";
@@ -64,7 +65,11 @@ interface PollWatermarkRow extends Record<string, SqlStorageValue> {
  * `env.USER_SYNC.getByName(accountId)` で常に同じインスタンスに到達する。
  *
  * 保持するもの:
- * - calendarId ごとの Google Calendar syncToken
+ * - (calendarId, deviceId) ごとの Google Calendar syncToken (sync_tokens_v2、2026-07-21
+ *   端末ごと syncToken)。各端末がローカルレプリカ (IndexedDB) を持つ設計のため、
+ *   差分は端末ごとに独立して配られなければならない — calendarId だけをキーにした旧
+ *   sync_tokens (全端末共有) は、新規端末の初回同期を全同期にしないための seed 専用
+ *   として読み取り専用で残す (readSyncToken/writeSyncToken 参照)
  * - キャッシュした access_token とその有効期限 (D1 の refresh_token から都度取り直すのを避ける)
  */
 export class UserSyncDO extends DurableObject<Env> {
@@ -84,6 +89,22 @@ export class UserSyncDO extends DurableObject<Env> {
         CREATE TABLE IF NOT EXISTS sync_tokens (
           calendar_id TEXT PRIMARY KEY,
           sync_token TEXT
+        )
+      `);
+      // 端末ごと syncToken (2026-07-21、design flaw 修正): 上の sync_tokens は
+      // calendar_id だけをキーにしており全端末で共有されていた — 端末Aが同期すると
+      // トークンが進み、その差分は A の IndexedDB にしか適用されないため、端末Bは
+      // その差分を永久に取りこぼす欠陥があった。以後の書き込みは device_id ごとに
+      // 分離したこちらのテーブルへ行う (readSyncToken/writeSyncToken 参照)。旧テーブルは
+      // 「新規端末の初回同期を全同期にしない」ための seed 専用として読み取り専用で残す
+      // (以後は書き込まない)。
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS sync_tokens_v2 (
+          calendar_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          sync_token TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (calendar_id, device_id)
         )
       `);
       // ポーリングフォールバック (ProfileHubDO 経由で SSE 接続数が 0→1/1→0 になった時に
@@ -106,8 +127,17 @@ export class UserSyncDO extends DurableObject<Env> {
     });
   }
 
-  async sync(accountId: string, calendarId: string): Promise<RpcResult<SyncResponse>> {
-    return runRpc(() => syncCalendar(this.buildDeps(accountId), calendarId));
+  /**
+   * deviceId 省略 (旧クライアントの in-flight リクエスト、または未対応呼び出し元) は
+   * レガシー共有トークン (sync_tokens) を従来どおり読み書きする後方互換パス。
+   * deviceId 指定時は端末ごとの sync_tokens_v2 を使う (readSyncToken/writeSyncToken 参照)。
+   */
+  async sync(
+    accountId: string,
+    calendarId: string,
+    deviceId?: string,
+  ): Promise<RpcResult<SyncResponse>> {
+    return runRpc(() => syncCalendar(this.buildDeps(accountId, deviceId), calendarId));
   }
 
   async listCalendars(accountId: string): Promise<RpcResult<CalendarListEntryDTO[]>> {
@@ -295,6 +325,7 @@ export class UserSyncDO extends DurableObject<Env> {
     return runRpc(async () => {
       this.ctx.storage.sql.exec("DELETE FROM token_cache");
       this.ctx.storage.sql.exec("DELETE FROM sync_tokens");
+      this.ctx.storage.sql.exec("DELETE FROM sync_tokens_v2");
       this.ctx.storage.sql.exec("DELETE FROM polling_state");
       this.ctx.storage.sql.exec("DELETE FROM poll_watermarks");
       await this.ctx.storage.deleteAlarm();
@@ -330,8 +361,9 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   /**
-   * ポーリングフォールバック本体。直近 sync 済み (= sync_tokens に行がある) カレンダー
-   * ごとに軽量チェック (hasUpdatesSince, syncToken を消費しない) を行い、変化があれば
+   * ポーリングフォールバック本体。直近 sync 済み (= sync_tokens または sync_tokens_v2 に
+   * 行がある、2026-07-21 端末ごと syncToken 以降は後者が主) カレンダーごとに軽量チェック
+   * (hasUpdatesSince, syncToken を消費しない) を行い、変化があれば
    * ProfileHubDO.notifyChanged を呼ぶ。disablePolling で無効化された後にたまたま発火した
    * 場合は何もせず再スケジュールもしない (deleteAlarm 済みのはずだが、実行と解除が
    * 競合した場合の保険)。
@@ -344,8 +376,14 @@ export class UserSyncDO extends DurableObject<Env> {
     const accountId = state.account_id;
     const profileId = state.profile_id;
 
+    // 端末ごと syncToken (2026-07-21) 以降、レガシー sync_tokens には新規カレンダーの行が
+    // 増えなくなった (writeSyncToken が凍結、seed 専用) ので、sync_tokens_v2 側の
+    // calendar_id も合わせて見ないと、v2 のみで同期されているカレンダーがポーリング
+    // フォールバック対象から漏れてしまう。
     const calendarIds = this.ctx.storage.sql
-      .exec<{ calendar_id: string }>("SELECT calendar_id FROM sync_tokens")
+      .exec<{ calendar_id: string }>(
+        "SELECT calendar_id FROM sync_tokens UNION SELECT calendar_id FROM sync_tokens_v2",
+      )
       .toArray()
       .map((row) => row.calendar_id);
 
@@ -420,14 +458,19 @@ export class UserSyncDO extends DurableObject<Env> {
     );
   }
 
-  private buildDeps(accountId: string): SyncCoreDeps {
+  /**
+   * deviceId を read/write クロージャに束ねる (core/sync.ts の SyncCoreDeps 形状自体は
+   * 変えない — calendarId だけを引数に取る getSyncToken/saveSyncToken のシグネチャは
+   * そのまま、この DO 側で deviceId を閉じ込める)。
+   */
+  private buildDeps(accountId: string, deviceId?: string): SyncCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
       forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
-      getSyncToken: (calendarId) => Promise.resolve(this.readSyncToken(calendarId)),
+      getSyncToken: (calendarId) => Promise.resolve(this.readSyncToken(calendarId, deviceId)),
       saveSyncToken: (calendarId, syncToken) =>
-        Promise.resolve(this.writeSyncToken(calendarId, syncToken)),
+        Promise.resolve(this.writeSyncToken(calendarId, deviceId, syncToken)),
     };
   }
 
@@ -516,19 +559,78 @@ export class UserSyncDO extends DurableObject<Env> {
     );
   }
 
-  private readSyncToken(calendarId: string): string | null {
+  /**
+   * 端末ごと syncToken (2026-07-21)。分岐の判定ロジック自体は sync-token-store.ts の
+   * resolveSyncTokenRead (純関数・テスト済み) に切り出してある — ここでは行取得のみ行う。
+   * deviceId 無し (旧クライアント) はレガシー共有テーブルのみを見る。deviceId 有りは
+   * sync_tokens_v2 を優先し、無ければレガシー行を「この端末の初回同期用の seed」として使う
+   * (Google の syncToken は複数クライアントで fork でき、以後は端末ごとに独立して進む)。
+   */
+  private readSyncToken(calendarId: string, deviceId?: string): string | null {
+    const legacyRow = this.readLegacySyncTokenRow(calendarId);
+    const v2Row = deviceId === undefined ? null : this.readV2SyncTokenRow(calendarId, deviceId);
+    return resolveSyncTokenRead(deviceId !== undefined, v2Row, legacyRow);
+  }
+
+  private readLegacySyncTokenRow(calendarId: string): SyncTokenRow | null {
     const rows = this.ctx.storage.sql
       .exec<SyncTokenRow>("SELECT sync_token FROM sync_tokens WHERE calendar_id = ?", calendarId)
       .toArray();
-    return rows[0]?.sync_token ?? null;
+    return rows[0] ?? null;
   }
 
-  private writeSyncToken(calendarId: string, syncToken: string | null): void {
+  private readV2SyncTokenRow(calendarId: string, deviceId: string): SyncTokenRow | null {
+    const rows = this.ctx.storage.sql
+      .exec<SyncTokenRow>(
+        "SELECT sync_token FROM sync_tokens_v2 WHERE calendar_id = ? AND device_id = ?",
+        calendarId,
+        deviceId,
+      )
+      .toArray();
+    return rows[0] ?? null;
+  }
+
+  /**
+   * deviceId 無し (旧クライアント) はレガシー共有テーブルへ従来どおり書く。deviceId 有りは
+   * sync_tokens_v2 へ upsert し、レガシー表へは二度と書かない (seed 専用として凍結する —
+   * 他端末が読む「初回 seed」の値を勝手に進めてしまわないため)。書き込みのたびに、この
+   * calendar の古い (60日超更新無し) v2 行を軽く掃除する (消えた端末のトークンを溜めない)。
+   */
+  private writeSyncToken(
+    calendarId: string,
+    deviceId: string | undefined,
+    syncToken: string | null,
+  ): void {
+    if (deviceId === undefined) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO sync_tokens (calendar_id, sync_token) VALUES (?, ?)
+         ON CONFLICT(calendar_id) DO UPDATE SET sync_token = excluded.sync_token`,
+        calendarId,
+        syncToken,
+      );
+      return;
+    }
+
     this.ctx.storage.sql.exec(
-      `INSERT INTO sync_tokens (calendar_id, sync_token) VALUES (?, ?)
-       ON CONFLICT(calendar_id) DO UPDATE SET sync_token = excluded.sync_token`,
+      `INSERT INTO sync_tokens_v2 (calendar_id, device_id, sync_token, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(calendar_id, device_id) DO UPDATE SET
+         sync_token = excluded.sync_token,
+         updated_at = excluded.updated_at`,
       calendarId,
+      deviceId,
       syncToken,
+      Date.now(),
+    );
+    this.pruneStaleV2SyncTokens(calendarId);
+  }
+
+  /** この calendar の sync_tokens_v2 のうち、V2_TOKEN_MAX_AGE_MS (60日) 超更新の無い行を削除する。 */
+  private pruneStaleV2SyncTokens(calendarId: string): void {
+    const cutoff = Date.now() - V2_TOKEN_MAX_AGE_MS;
+    this.ctx.storage.sql.exec(
+      "DELETE FROM sync_tokens_v2 WHERE calendar_id = ? AND updated_at < ?",
+      calendarId,
+      cutoff,
     );
   }
 }

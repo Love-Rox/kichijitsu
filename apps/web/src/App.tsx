@@ -65,6 +65,7 @@ import {
   nextPendingVisiblePuts,
 } from "./sync/visibleCalendars";
 import { createSyncScheduler } from "./sync/syncScheduler";
+import { buildSyncRequest } from "./sync/syncRequest";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
@@ -115,6 +116,7 @@ import {
   getAllTimeEntries,
   getExpansionState,
   getOccurrencesBetween,
+  getOrCreateDeviceId,
   getOverride,
   getVisibleCalendars,
   openKichijitsuDB,
@@ -413,6 +415,14 @@ function App() {
   // SSE hello/changed・起動時 runSync・カレンダー選択トグルなど複数経路から await なしで
   // 多重に発火しうるため、キー単位で直列化する (sync/syncScheduler.ts 参照)
   const syncSchedulerRef = useRef(createSyncScheduler());
+  // 端末ごと syncToken (2026-07-21): この端末の deviceId (IndexedDB meta に永続化、
+  // db/database.ts の getOrCreateDeviceId 参照)。init effect で db を開いた直後に取得して
+  // ここへ入れる。POST /api/sync の body に含めることで、サーバー (UserSyncDO) が
+  // (calendar_id, device_id) 単位で syncToken を管理できるようにする — 端末Aの同期が
+  // 進めたトークンで端末Bが差分を取りこぼす設計欠陥の修正 (sync/syncRequest.ts 参照)。
+  // 理論上 db より先に syncCalendarOnce が走ることは無いが、念のため null 許容にしてあり、
+  // null のままなら (旧クライアントと同じ) レガシー共有トークン動作にフォールバックする
+  const deviceIdRef = useRef<string | null>(null);
   const accountAreaRef = useRef<HTMLDivElement>(null);
   // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
   // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
@@ -526,6 +536,12 @@ function App() {
     async function init() {
       const database = await openKichijitsuDB();
       if (cancelled) return;
+
+      // 端末ごと syncToken (2026-07-21): db を開いた直後に deviceId を取得/生成しておく。
+      // 以後の syncCalendarOnce (POST /api/sync) がこれを body に含める
+      const deviceId = await getOrCreateDeviceId(database);
+      if (cancelled) return;
+      deviceIdRef.current = deviceId;
 
       // レガシー掃除(一回きり・冪等): ID スコープ化 (2026-07-19) 以前の旧形式
       // Google データ (`g:<eventId>`、accountId/calendarId フィールドなし) は
@@ -1169,7 +1185,9 @@ function App() {
       const syncRes = await checkedFetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, calendarId } satisfies SyncRequest),
+        body: JSON.stringify(
+          buildSyncRequest(accountId, calendarId, deviceIdRef.current) satisfies SyncRequest,
+        ),
       });
       if (!syncRes.ok) {
         throw new Error(`POST /api/sync failed (${accountId}/${calendarId}): ${syncRes.status}`);

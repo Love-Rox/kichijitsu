@@ -614,7 +614,7 @@ apiRoutes.post("/api/sync", requireAuth, async (c) => {
   }
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
-  const result = await stub.sync(body.accountId, body.calendarId);
+  const result = await stub.sync(body.accountId, body.calendarId, body.deviceId);
   return respondFromRpcResult(c, result);
 });
 

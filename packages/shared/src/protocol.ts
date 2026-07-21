@@ -254,6 +254,13 @@ export interface CalendarListEntryDTO {
 export interface SyncRequest {
   accountId: string;
   calendarId: string;
+  /**
+   * 端末ごとの同期トークンのキー (2026-07-21、端末ごと syncToken)。クライアント側で
+   * 永続生成する UUID (ブラウザプロファイル/Tauri webview ごとに1つ)。
+   * 未指定はレガシー共有トークン (全端末で1本、移行期のみ) を使う後方互換パス —
+   * 旧クライアントの in-flight リクエストが 400 にならないよう optional にしてある。
+   */
+  deviceId?: string;
 }
 
 /** DELETE /api/account の body。accountId 指定でそのアカウントのみ解除、省略で全解除 */

@@ -88,7 +88,7 @@ export interface KichijitsuDB extends DBSchema {
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
-    value: ExpansionState | VisibleCalendarsMap;
+    value: ExpansionState | VisibleCalendarsMap | string;
   };
 }
 
@@ -97,6 +97,13 @@ const DB_NAME = "kichijitsu";
 export const DB_VERSION = 6;
 const META_EXPANSION_KEY = "expansion";
 const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
+/**
+ * 端末ごと syncToken (2026-07-21): サーバー (UserSyncDO) の sync_tokens_v2 が
+ * (calendar_id, device_id) 単位でトークンを持つようになったのに対応し、クライアント側で
+ * この端末を識別する UUID を1つ永続化する。ブラウザプロファイル/Tauri webview ごとに
+ * IndexedDB は独立しているため、これが実質「端末」の粒度になる。
+ */
+const META_DEVICE_ID_KEY = "deviceId";
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
@@ -420,6 +427,21 @@ export async function setVisibleCalendars(
   visibleCalendars: VisibleCalendarsMap,
 ): Promise<void> {
   await db.put("meta", visibleCalendars, META_VISIBLE_CALENDARS_KEY);
+}
+
+/**
+ * この端末の deviceId を返す。無ければ crypto.randomUUID() で生成して meta ストアに
+ * 保存してから返す (端末ごと syncToken、2026-07-21)。以後この IndexedDB が存続する限り
+ * 同じ値を返し続ける — 一度発行した deviceId を変えると、サーバー側 (sync_tokens_v2) は
+ * 別端末として扱い、この端末はまた最初から (レガシー共有トークンを seed として)
+ * 同期し直すことになる。
+ */
+export async function getOrCreateDeviceId(db: IDBPDatabase<KichijitsuDB>): Promise<string> {
+  const existing = await db.get("meta", META_DEVICE_ID_KEY);
+  if (typeof existing === "string" && existing.length > 0) return existing;
+  const id = crypto.randomUUID();
+  await db.put("meta", id, META_DEVICE_ID_KEY);
+  return id;
 }
 
 export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {
