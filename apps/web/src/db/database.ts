@@ -88,7 +88,7 @@ export interface KichijitsuDB extends DBSchema {
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
-    value: ExpansionState | VisibleCalendarsMap | string;
+    value: ExpansionState | VisibleCalendarsMap | string | string[];
   };
 }
 
@@ -104,6 +104,12 @@ const META_VISIBLE_CALENDARS_KEY = "visibleCalendars";
  * IndexedDB は独立しているため、これが実質「端末」の粒度になる。
  */
 const META_DEVICE_ID_KEY = "deviceId";
+/**
+ * タスクリスト表示 ON/OFF (左ペイン増分2、2026-07-22)。カレンダー選択 (visibleCalendars) と
+ * 非対称に、サーバー同期はせずこの端末だけのローカル永続にする(v1、詳細は
+ * getHiddenTaskLists のコメント参照)。
+ */
+const META_HIDDEN_TASK_LISTS_KEY = "hiddenTaskLists";
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
@@ -442,6 +448,37 @@ export async function getOrCreateDeviceId(db: IDBPDatabase<KichijitsuDB>): Promi
   const id = crypto.randomUUID();
   await db.put("meta", id, META_DEVICE_ID_KEY);
   return id;
+}
+
+/**
+ * タスクリスト表示 ON/OFF (左ペイン増分2、2026-07-22、docs/google-tasks.md の TODO 解消)。
+ * カレンダーの visibleCalendars (「表示中の id 配列」を保存) とは意図的に逆で、
+ * 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を保存する。
+ *
+ * こうする理由: v1 の既存挙動(取得できた全タスクリストを常時表示)と自然に互換に
+ * なるようにするため。「表示中の集合」を保存する方式だと、新しく増えたタスクリスト
+ * (未知の id)は保存済み集合に無い=デフォルト非表示になってしまい、visibleCalendars と
+ * 同じ「新規は追加操作するまで見えない」挙動になる。タスクリストは逆に「明示的に
+ * OFF にしない限り常に見える」を既定にしたいため、保存するのを OFF 側の集合にする
+ * (未保存 = 空集合 = 何も隠していない = 全 ON)。
+ *
+ * サーバー同期は行わない(v1、カレンダー選択と非対称。この端末のみのローカル設定 ――
+ * 将来 PUT /api/visible-task-lists 相当を作って端末間同期する余地は残してあるが、
+ * 今回はスコープ外)。表示フィルタのみで、タスクの同期(syncTaskList)自体はこの値と
+ * 無関係に続行する(App.tsx の selectedTaskListTargets 参照 ―― 表示 OFF でも裏で最新化
+ * しておくことで、再度 ON にした瞬間に古いデータが見えるのを防ぐ)。
+ */
+export async function getHiddenTaskLists(db: IDBPDatabase<KichijitsuDB>): Promise<Set<string>> {
+  const value = await db.get("meta", META_HIDDEN_TASK_LISTS_KEY);
+  if (!Array.isArray(value)) return new Set();
+  return new Set(value.filter((v): v is string => typeof v === "string"));
+}
+
+export async function setHiddenTaskLists(
+  db: IDBPDatabase<KichijitsuDB>,
+  hidden: ReadonlySet<string>,
+): Promise<void> {
+  await db.put("meta", [...hidden], META_HIDDEN_TASK_LISTS_KEY);
 }
 
 export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {

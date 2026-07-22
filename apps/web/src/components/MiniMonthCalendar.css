@@ -1,0 +1,116 @@
+/*
+ * ミニ月カレンダー(左ペイン増分2、2026-07-22)。CalendarPane 最上部に常設する
+ * 小さな月グリッド。配色は MonthView.css/CalendarPane.css と揃える
+ * (アクセント #d7402e、薄墨 #8a8478、地色 #faf7f2、罫線 #e5e7eb/#f0ece3)。
+ */
+.mini-month {
+  flex: none;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.mini-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mini-month-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.mini-month-nav-btn {
+  border: none;
+  background: none;
+  color: #8a8478;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mini-month-nav-btn:hover {
+  color: #24211e;
+  background: #f0ece3;
+}
+
+.mini-month-nav-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.mini-month-weekday-header,
+.mini-month-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.mini-month-weekday {
+  text-align: center;
+  font-size: 9px;
+  color: #8a8478;
+  padding-bottom: 2px;
+}
+
+.mini-month-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: none;
+  background: none;
+  padding: 1px;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.mini-month-day:hover {
+  background: #f0ece3;
+}
+
+.mini-month-day:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+/* 当月外(前後月の埋め日)は淡色にして後退させる(MonthView.css の月外表現と揃える) */
+.mini-month-day--outside .mini-month-day-num {
+  color: #c9c2b4;
+}
+
+/* メインが現在表示中の範囲(タイムラインの表示日 or 月) ―― 淡いハイライト */
+.mini-month-day--active {
+  background: rgba(215, 64, 46, 0.08);
+}
+
+.mini-month-day-num {
+  font-size: 10.5px;
+  color: #24211e;
+}
+
+/*
+ * 今日バッジ = MonthView の枡バッジ(brand/README.md、month-cell-date.is-today)を
+ * さらに縮小したもの ―― WeekGrid 版と違い、この縮尺では傾け(-8°)ずに正立のまま使う
+ * (MonthView と同じ判断: 小さすぎる面積で傾けると視認性が落ちるため)。
+ */
+.mini-month-day-num.is-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 30%;
+  background: #d7402e;
+  color: #faf7f2;
+  font-weight: 600;
+}
+
+.mini-month-day--outside .mini-month-day-num.is-today {
+  color: #faf7f2;
+}

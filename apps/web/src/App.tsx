@@ -116,6 +116,7 @@ import {
   getAllTasks,
   getAllTimeEntries,
   getExpansionState,
+  getHiddenTaskLists,
   getOccurrencesBetween,
   getOrCreateDeviceId,
   getOverride,
@@ -129,6 +130,7 @@ import {
   putSeries,
   putTask,
   putTimeEntry,
+  setHiddenTaskLists,
   setVisibleCalendars,
   type KichijitsuDB,
   type VisibleCalendarsMap,
@@ -139,6 +141,7 @@ import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
 import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
 import { stepAnchor } from "./layout/dayGrid";
 import { effectivePaneMode, shouldCloseOtherPaneOnOpen, type PaneMode } from "./layout/paneMode";
+import { resolveMiniMonthNavigation } from "./layout/miniMonth";
 import "./App.css";
 
 /**
@@ -387,9 +390,19 @@ function App() {
   >({});
   const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({});
   // アカウントごとのタスクリスト一覧(docs/google-tasks.md)。tasks スコープ未付与(403)の
-  // アカウントはエントリが付かないまま = タスク機能オフとして扱う(v1: 表示 ON/OFF トグル無し、
-  // 取得できた全タスクリストを常時表示する。TODO: カレンダー同様の選択 UI)
+  // アカウントはエントリが付かないまま = タスク機能オフとして扱う。同期対象
+  // (selectedTaskListTargets)は常にここの全件 ―― 表示 ON/OFF (hiddenTaskLists、下)とは
+  // 独立していて、非表示にしても同期は止めない(左ペイン増分2、db/database.ts の
+  // getHiddenTaskLists コメント参照)
   const [taskListsByAccount, setTaskListsByAccount] = useState<Record<string, TaskListDTO[]>>({});
+  // タスクリスト表示 ON/OFF(左ペイン増分2、2026-07-22)。visibleCalendars とは逆に
+  // 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を持つ(デフォルト全 ON、
+  // db/database.ts の getHiddenTaskLists 参照)。カレンダー選択と非対称にサーバー同期は
+  // 行わずこの端末のみのローカル設定(将来 PUT /api/visible-task-lists 相当を足す余地はある)
+  const [hiddenTaskLists, setHiddenTaskListsState] = useState<Set<string>>(new Set());
+  // 上の hiddenTaskLists 永続化 effect が、init effect の IndexedDB 読み込み完了前に
+  // 空集合で上書きしてしまわないためのガード(visibleCalendarsLoadedRef と同じ役割)
+  const hiddenTaskListsLoadedRef = useRef(false);
   const [panelOpen, setPanelOpen] = useState(false);
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false);
@@ -718,6 +731,14 @@ function App() {
         // 先に解決してもデフォルト選択が失われないようにする
         setVisibleCalendarsState((prev) => ({ ...storedVisible, ...prev }));
         visibleCalendarsLoadedRef.current = true;
+      }
+
+      // タスクリスト表示 ON/OFF(左ペイン増分2): サーバー同期が無くこの端末の IndexedDB が
+      // 唯一の正なので、visibleCalendars のような server/prev マージは不要 ―― 素直に読み込むだけ
+      const storedHiddenTaskLists = await getHiddenTaskLists(database);
+      if (!cancelled) {
+        setHiddenTaskListsState(storedHiddenTaskLists);
+        hiddenTaskListsLoadedRef.current = true;
       }
 
       if (!cancelled) setDb(database);
@@ -1105,6 +1126,15 @@ function App() {
     });
   }, [db, visibleCalendars]);
 
+  // hiddenTaskLists(左ペイン増分2)が変わるたびに IndexedDB meta へ永続化する。
+  // visibleCalendars の永続化 effect と同じ流儀(初回ロード完了までは待つ)
+  useEffect(() => {
+    if (!db || !hiddenTaskListsLoadedRef.current) return;
+    setHiddenTaskLists(db, hiddenTaskLists).catch((err) => {
+      console.error("kichijitsu: failed to persist hiddenTaskLists", err);
+    });
+  }, [db, hiddenTaskLists]);
+
   // アカウント一覧ぶんのカレンダー一覧を取得し、state に反映する共通処理。
   // 「me.accounts が増えたときの初回フェッチ」と「設定パネルを開いたときの
   // 未取得/取得失敗アカウントのリトライ」の両方から使う。
@@ -1480,6 +1510,23 @@ function App() {
       }
     },
     [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch, putVisibleCalendars],
+  );
+
+  // 左ペイン(CalendarPane、増分2)でのタスクリスト表示チェック操作。カレンダー選択
+  // (handleToggleCalendar)と違いサーバー同期は行わず、ローカルの hiddenTaskLists
+  // (「明示的に OFF にした集合」)を更新するだけ ―― タスクの同期(syncTaskList)自体は
+  // 表示 ON/OFF に関係なく続行する(selectedTaskListTargets 参照、再 ON 時の即時性を優先)
+  const handleToggleTaskList = useCallback(
+    (accountId: string, taskListId: string, nextChecked: boolean) => {
+      const key = `${accountId}:${taskListId}`;
+      setHiddenTaskListsState((prev) => {
+        const next = new Set(prev);
+        if (nextChecked) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    },
+    [],
   );
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
@@ -2249,6 +2296,23 @@ function App() {
     [withNavLock],
   );
 
+  // 左ペインのミニ月カレンダー(左ペイン増分2)での日付クリック。handleNavigateToDay と
+  // 違い view 自体は切り替えない ―― 「今の表示形式のまま、その日/月へ動く」というミニ
+  // カレンダー本来の役割(月表示中に day1 へ飛ばされると、ミニカレンダーで月をブラウズ
+  // しているだけのつもりが表示形式まで変わってしまい驚きが大きいため)。view に応じて
+  // timelineStart/monthCursor のどちらをどう動かすかは layout/miniMonth.ts の
+  // resolveMiniMonthNavigation(switchView/goToToday と同じ規則)に委譲する
+  const handleMiniMonthNavigate = useCallback(
+    (date: Temporal.PlainDate) => {
+      withNavLock(() => {
+        const target = resolveMiniMonthNavigation(view, date);
+        if (target.kind === "month") setMonthCursor(target.date);
+        else setTimelineStart(target.date);
+      });
+    },
+    [view, withNavLock],
+  );
+
   // 'n' ショートカット(新規予定作成、フェーズ6)。理想は「今日の次の30分枠に作成入力を
   // 自動で開く」ことだが、作成入力(タイトル入力欄・draft state)は DayColumn.tsx が
   // ローカルに持っており、App からは直接開けない。ここでは簡易実装として「今日を含む
@@ -2649,40 +2713,13 @@ function App() {
            * 件数バッジは0件のときは出さない。
            */}
           {/*
-           * GitHub 実績オーバーレイの表示 ON/OFF トグル(フェーズ③Part B)。作業キューと同じく
-           * GitHub 未連携(me.github===null)では出さない。押すたびに handleToggleActivityVisible が
-           * githubActivity の取得/クリアを連動させる(WeekGrid 側はこの state を見るだけ)。
+           * GitHub 実績オーバーレイ・CI/Actions 実行オーバーレイの表示 ON/OFF トグルは
+           * 左ペイン増分2(2026-07-22)で CalendarPane の GitHub セクションへ移設した
+           * (ツールバー煩雑さの解消。state 自体は activityVisible/ciVisible としてここに残り、
+           * CalendarPane にそのまま渡すだけ)。右ペイン(GitHubPane、作業キュー)の開閉トグルは
+           * ペインを開いていなくても件数バッジで状況が見える方が有用なため、対象外として
+           * 引き続きツールバーに残す(意図的な非対称、下のボタン参照)。
            */}
-          {me.github && (
-            <button
-              type="button"
-              className={
-                activityVisible ? "toolbar-activity-btn is-active" : "toolbar-activity-btn"
-              }
-              onClick={handleToggleActivityVisible}
-              aria-pressed={activityVisible}
-              aria-label="GitHub 実績表示"
-              title="GitHub 実績表示の切り替え"
-            >
-              実績
-            </button>
-          )}
-          {/*
-           * GitHub CI/Actions 実行オーバーレイの表示 ON/OFF トグル(フェーズ④b)。「実績」
-           * ボタンと同じ流儀(GitHub 未連携では出さない、押すたびに取得/クリアが連動する)。
-           */}
-          {me.github && (
-            <button
-              type="button"
-              className={ciVisible ? "toolbar-activity-btn is-active" : "toolbar-activity-btn"}
-              onClick={handleToggleCiVisible}
-              aria-pressed={ciVisible}
-              aria-label="GitHub CI 表示"
-              title="GitHub CI/Actions 実行表示の切り替え"
-            >
-              CI
-            </button>
-          )}
           {me.github && (
             <button
               type="button"
@@ -2702,7 +2739,7 @@ function App() {
           )}
           {/*
            * 手動タイマー・予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2)。
-           * ローカルのみのデータのため GitHub 未連携でも(連携解除後でも)出す — 「実績」「作業キュー」
+           * ローカルのみのデータのため GitHub 未連携でも(連携解除後でも)出す — 「作業キュー」
            * ボタンと違い me.github ゲートは掛けない。データは全ビュー(週/3日/1日/月)共通で
            * plannedStore/timeEntryStore から読むため、view 切替の影響を受けない。
            */}
@@ -2759,6 +2796,20 @@ function App() {
             calendarsByAccount={calendarsByAccount}
             visibleCalendars={visibleCalendars}
             onToggleCalendar={handleToggleCalendar}
+            view={view}
+            timelineStart={timelineStart}
+            dayCount={dayCount}
+            monthCursor={monthCursor}
+            timeZone={timeZone}
+            onNavigateDate={handleMiniMonthNavigate}
+            taskListsByAccount={taskListsByAccount}
+            hiddenTaskListKeys={hiddenTaskLists}
+            onToggleTaskList={handleToggleTaskList}
+            githubLogin={me.github?.login ?? null}
+            activityVisible={activityVisible}
+            onToggleActivityVisible={handleToggleActivityVisible}
+            ciVisible={ciVisible}
+            onToggleCiVisible={handleToggleCiVisible}
           />
         )}
         <div className="app-main-calendar">
@@ -2787,6 +2838,7 @@ function App() {
               writeTarget={defaultWriteTarget}
               onCreateEvent={handleCreate}
               onToggleTask={handleToggleTask}
+              hiddenTaskListKeys={hiddenTaskLists}
               // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
               // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
               longPressCreate={isNarrow}

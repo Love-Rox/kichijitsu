@@ -141,6 +141,13 @@ interface WeekGridProps {
   /** タスク行の枡チェックボックスのタップで呼ぶ(完了⇔未完了トグル、docs/google-tasks.md) */
   onToggleTask: (task: TaskItem) => void;
   /**
+   * タスクリスト表示 ON/OFF(左ペイン増分2、2026-07-22)。明示的に非表示にした
+   * `${accountId}:${taskListId}` の集合(db/database.ts の getHiddenTaskLists と同じ形、
+   * デフォルト全 ON)。visibleCalendarKeys とは判定方向が逆(こちらは「入っていたら隠す」)
+   * なので、TaskItem に対しては has() の結果をそのまま除外条件に使う。
+   */
+  hiddenTaskListKeys: Set<string>;
+  /**
    * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
    * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
    * 省略時は false(既存のデスクトップ向け即時クリック挙動を維持)
@@ -200,6 +207,7 @@ export function WeekGrid({
   writeTarget,
   onCreateEvent,
   onToggleTask,
+  hiddenTaskListKeys,
   longPressCreate = false,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -465,8 +473,14 @@ export function WeekGrid({
   // 終日レーンと同じ日付範囲([fromDate, toDate] inclusive、表示中3パネルぶん)を TaskStore に
   // 問い合わせる。タスクは複数日にまたがらない(due は単一の日付)ため、終日バーのような
   // packDayBars は不要 — 日ごとに単純にリストアップするだけでよい。
-  // v1 はタスクリストの表示 ON/OFF が無いため取得済み全タスクを表示する(TODO: カレンダーと同様のトグル対応)
-  const tasksRaw = useTasks(taskStore, allDayFromDate, allDayToDate);
+  // タスクリスト表示 ON/OFF(左ペイン増分2): hiddenTaskListKeys に入っている
+  // (accountId, taskListId) のタスクだけを除外する(visibleCalendarKeys と違い、
+  // タスクは source 分岐が無く常にこの1本のフィルタだけを通る)。
+  const tasksRawAll = useTasks(taskStore, allDayFromDate, allDayToDate);
+  const tasksRaw = useMemo(
+    () => tasksRawAll.filter((t) => !hiddenTaskListKeys.has(`${t.accountId}:${t.taskListId}`)),
+    [tasksRawAll, hiddenTaskListKeys],
+  );
 
   const taskPanels = useMemo(
     () =>

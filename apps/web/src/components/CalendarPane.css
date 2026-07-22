@@ -236,3 +236,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/*
+ * GitHub セクション(左ペイン最下部、増分2、2026-07-22)。アカウントセクションと同じ
+ * 区切り線・間隔(.calendar-pane-account + .calendar-pane-account 参照)でペイン最後の
+ * ブロックとして分ける。
+ */
+.calendar-pane-github {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f0ece3;
+}
+
+.calendar-pane-github-status {
+  font-size: 12px;
+  color: #55504a;
+  margin: 4px 0 6px;
+}

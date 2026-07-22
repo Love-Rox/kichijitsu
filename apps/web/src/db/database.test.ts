@@ -2,7 +2,13 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vite-plus/test";
 import { openDB } from "idb";
 import type { IDBPDatabase } from "idb";
-import { DB_VERSION, getOrCreateDeviceId, upgradeKichijitsuSchema } from "./database";
+import {
+  DB_VERSION,
+  getHiddenTaskLists,
+  getOrCreateDeviceId,
+  setHiddenTaskLists,
+  upgradeKichijitsuSchema,
+} from "./database";
 import type { KichijitsuDB } from "./database";
 
 /**
@@ -46,5 +52,39 @@ describe("getOrCreateDeviceId", () => {
     const id = await getOrCreateDeviceId(db);
 
     expect(id).toBe("existing-device-id");
+  });
+});
+
+/**
+ * タスクリスト表示 ON/OFF (左ペイン増分2、2026-07-22) の永続化。visibleCalendars とは逆に
+ * 「明示的に OFF にしたリストの集合」を保存する設計(database.ts の getHiddenTaskLists
+ * コメント参照) ―― 未保存 = 空集合 = 全 ON がデフォルトになることをここで確認する。
+ */
+describe("getHiddenTaskLists / setHiddenTaskLists", () => {
+  it("未保存なら空集合を返す(デフォルト全 ON)", async () => {
+    const db = await openTestDB();
+
+    const hidden = await getHiddenTaskLists(db);
+
+    expect(hidden.size).toBe(0);
+  });
+
+  it("保存した集合をそのまま読み戻す", async () => {
+    const db = await openTestDB();
+
+    await setHiddenTaskLists(db, new Set(["acc-1:list-1", "acc-1:list-2"]));
+    const hidden = await getHiddenTaskLists(db);
+
+    expect([...hidden].sort()).toEqual(["acc-1:list-1", "acc-1:list-2"]);
+  });
+
+  it("空集合で上書き保存すると全 ON に戻る", async () => {
+    const db = await openTestDB();
+    await setHiddenTaskLists(db, new Set(["acc-1:list-1"]));
+
+    await setHiddenTaskLists(db, new Set());
+    const hidden = await getHiddenTaskLists(db);
+
+    expect(hidden.size).toBe(0);
   });
 });
