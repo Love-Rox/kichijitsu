@@ -1,6 +1,11 @@
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import react from "@vitejs/plugin-react";
+
+// マルチページビルド用の入力解決 (プロジェクトルート基準の絶対パスを要求する
+// rollupOptions.input 向け)。
+const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 /**
  * ビルド番号表示 (ユーザー要望、2026-07-22)。リモート URL 方式のデスクトップアプリでは
@@ -27,6 +32,18 @@ export default defineConfig({
   define: {
     __BUILD_SHA__: JSON.stringify(BUILD_SHA),
     __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
+  // マルチページ化 (2026-07-22): トップ (/) はプロダクト紹介ランディング (静的 HTML)、
+  // アプリ本体は /app へ移設。base はデフォルト "/" のままなので共有 assets は
+  // /assets/ 配下に出力される。Cloudflare 側の配信は wrangler.jsonc の assets
+  // (html_handling: auto-trailing-slash) が /app → /app/ → dist/app/index.html を解決する。
+  build: {
+    rollupOptions: {
+      input: {
+        landing: r("./index.html"),
+        app: r("./app/index.html"),
+      },
+    },
   },
   lint: {
     plugins: ["react", "typescript", "oxc"],

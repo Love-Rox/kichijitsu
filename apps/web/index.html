@@ -1,20 +1,755 @@
 <!doctype html>
 <!-- UI は現状日本語のみ。多言語対応時は起動時に navigator.language から解決して
-     document.documentElement.lang を書き換える (docs/i18n.md 参照) -->
+     document.documentElement.lang を書き換える (docs/i18n.md 参照、アプリ本体 apps/web/app/index.html と同じ方針)。 -->
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#FAF7F2" />
+    <title>kichijitsu ― 思い立ったが吉日。ローカルファーストな Google カレンダークライアント</title>
+    <meta
+      name="description"
+      content="Google カレンダーを、あなたの手元に。予定はブラウザ(IndexedDB)に置く、ローカルファーストの新しいカレンダー。GitHub 連携・MCP サーバー・デスクトップ版を備えた MIT ライセンスのオープンソースソフトウェア。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="kichijitsu" />
-    <title>kichijitsu</title>
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="kichijitsu ― 思い立ったが吉日。" />
+    <meta
+      property="og:description"
+      content="Google カレンダーを、あなたの手元に。予定はブラウザに置く、ローカルファーストの新しいカレンダー。"
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Hallmark · macrostructure: Marquee Hero · genre: editorial(暦) · theme: custom(brand-locked) · tone: craft/almanac */
+      /* Hallmark · pre-emit critique: P5 H4 E4 S4 R5 V4 */
+      /*
+       * kichijitsu プロダクト紹介ランディング。
+       * ブランド仕様は /brand/README.md が正。トークンはそこで定義された色・意匠の
+       * 語彙 (枡・傾き-8°・朱は1グループにつき原則1つ) をそのまま CSS カスタムプロパティ化した
+       * ものであり、このファイル固有の値を新規に発明していない (custom-theme ではあるが
+       * "brand-locked" = 既存ブランドに従属する、という意味のスタンプ)。
+       */
+
+      :root {
+        /* --- 色 (brand/README.md のトークン表そのまま。生値の直書き禁止、常に var() 経由) --- */
+        --paper: #faf7f2;
+        --ink: #24211e;
+        --sub: #8a8478;
+        --masu: #dcd6c9;
+        --aka: #d7402e;
+        --aka-ink: #b8321f;
+        /* ボタン等アクセント塗りの上に載せる文字色。--paper (#faf7f2) は僅かにクリーム寄りで
+           --aka 地に対するコントラストが不足する (実測 ~4.1:1、AA 未達) ため、
+           オンアクセント専用トークンとして純白を切る。--paper とは意図的に別トークン。 */
+        --on-aka: #ffffff;
+
+        /* --- フォント --- */
+        --font-display: "Zen Old Mincho", "Yu Mincho", serif;
+        --font-body: "Inter", system-ui, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+
+        /* --- 4pt スペーススケール (semantic) --- */
+        --space-3xs: 0.25rem;
+        --space-2xs: 0.5rem;
+        --space-xs: 0.75rem;
+        --space-sm: 1rem;
+        --space-md: 1.5rem;
+        --space-lg: 2rem;
+        --space-xl: 3rem;
+        --space-2xl: 4rem;
+        --space-3xl: 6rem;
+        --space-4xl: 8rem;
+
+        /* --- タイプスケール --- */
+        --text-xs: 0.75rem;
+        --text-sm: 0.875rem;
+        --text-base: 1rem;
+        --text-md: 1.125rem;
+        --text-lg: 1.375rem;
+        --text-xl: 1.75rem;
+        --text-2xl: 2.375rem;
+        --text-display-s: clamp(1.875rem, 1.3rem + 2.4vw, 2.75rem);
+        --text-display: clamp(2.5rem, 1.6rem + 4vw, 4.5rem);
+
+        /* --- 罫線・角丸 --- */
+        --rule-hair: 1px;
+        --radius-masu: 25%; /* 正方形の幅/高さに対する相対比率なので、どのサイズでも同じ丸みになる */
+        --radius-card: 0.875rem;
+        --radius-pill: 999px;
+
+        /* --- イージング・時間 (MasuIndicator.css の意匠と共通の cubic-bezier を踏襲) --- */
+        --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+        --dur-stamp: 420ms;
+        --dur-hover: 160ms;
+
+        --container-max: 71.5rem;
+        --gutter: clamp(1rem, 4vw, 3.5rem);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        overflow-x: clip;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        overflow-x: clip;
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--font-body);
+        font-size: var(--text-base);
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      img,
+      svg {
+        max-width: 100%;
+        display: block;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-style: normal; /* 見出しはローマン体のみ。斜体見出し禁止 (Hallmark) */
+        line-height: 1.25;
+        margin: 0;
+        overflow-wrap: anywhere;
+        min-width: 0;
+        text-wrap: balance; /* 「日。」だけが孤立して次行に落ちる等の不揃いな折返しを防ぐ */
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .container {
+        max-width: var(--container-max);
+        margin-inline: auto;
+        padding-inline: var(--gutter);
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--aka-ink);
+        outline-offset: 3px;
+        transition: none; /* フォーカスリングの出現はアニメーションしない */
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ===== 枡の週ストリップ (シグネチャー意匠) ===== */
+      .masu-strip {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--strip-gap, 0.5em);
+      }
+
+      .masu-strip__cell {
+        width: var(--strip-cell, 2.5rem);
+        height: var(--strip-cell, 2.5rem);
+        flex: none;
+        border-radius: var(--radius-masu);
+        border: max(1.5px, 0.09em) solid var(--masu);
+        background: transparent;
+      }
+
+      .masu-strip__cell--kichi {
+        border: none;
+        background: var(--aka);
+        transform: rotate(-8deg);
+        animation: kichi-stamp var(--dur-stamp) var(--ease-out) 1 both;
+      }
+
+      @keyframes kichi-stamp {
+        0% {
+          opacity: 0;
+          transform: scale(1.18) rotate(-2deg);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) rotate(-8deg);
+        }
+      }
+
+      .masu-strip--lg {
+        --strip-cell: clamp(2.25rem, 1.6rem + 2.6vw, 3.5rem);
+        --strip-gap: 0.55em;
+      }
+
+      .masu-strip--sm {
+        --strip-cell: 0.875rem;
+        --strip-gap: 0.4em;
+      }
+
+      .masu-mark {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: var(--radius-masu);
+        border: 1.5px solid var(--masu);
+        flex: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .masu-strip__cell--kichi {
+          animation: none;
+          opacity: 1;
+          transform: rotate(-8deg);
+        }
+      }
+
+      /* ===== ナビ (masthead) ===== */
+      .nav {
+        padding-block: var(--space-md);
+      }
+
+      .nav__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-sm);
+      }
+
+      .nav__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-md);
+        letter-spacing: -0.01em;
+        text-decoration: none;
+        color: var(--ink);
+        min-width: 0;
+        flex-shrink: 1;
+      }
+
+      /* ナビは横幅が特に狭いので、フッター/セクション見出しの --sm より
+         さらにコンパクトな専用サイズにする (狭幅での折返し・重なり防止)。 */
+      .nav__brand .masu-strip {
+        --strip-cell: 0.5rem;
+        --strip-gap: 0.1875rem;
+        gap: var(--strip-gap);
+      }
+
+      .nav__brand-word {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
+      @media (max-width: 26em) {
+        .nav__brand {
+          font-size: var(--text-sm);
+          gap: var(--space-3xs);
+        }
+
+        .nav__row {
+          gap: var(--space-xs);
+        }
+      }
+
+      .nav__actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex: none;
+      }
+
+      .nav__github {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-3xs);
+        text-decoration: none;
+        color: var(--ink);
+        font-size: var(--text-sm);
+        font-weight: 500;
+        white-space: nowrap;
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .nav__github:hover {
+        border-color: var(--ink);
+      }
+
+      .nav__github svg {
+        width: 1.125rem;
+        height: 1.125rem;
+        flex: none;
+      }
+
+      @media (max-width: 30em) {
+        .nav__github-label {
+          display: none;
+        }
+      }
+
+      /* ===== ボタン ===== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2xs);
+        white-space: nowrap;
+        border-radius: var(--radius-pill);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 0.7em 1.4em;
+        border: 1.5px solid transparent;
+        transition:
+          background-color var(--dur-hover) var(--ease-out),
+          border-color var(--dur-hover) var(--ease-out),
+          color var(--dur-hover) var(--ease-out),
+          transform var(--dur-hover) var(--ease-out);
+      }
+
+      .btn--solid {
+        background: var(--aka);
+        color: var(--on-aka);
+      }
+
+      .btn--solid:hover {
+        background: var(--aka-ink);
+        transform: translateY(-1px);
+      }
+
+      .btn--outline {
+        background: transparent;
+        border-color: var(--ink);
+        color: var(--ink);
+      }
+
+      .btn--outline:hover {
+        border-color: var(--aka-ink);
+        color: var(--aka-ink);
+        transform: translateY(-1px);
+      }
+
+      .btn--sm {
+        font-size: var(--text-xs);
+        padding: 0.55em 1.1em;
+      }
+
+      /* ===== ヒーロー ===== */
+      .hero {
+        padding-block: var(--space-2xl) var(--space-3xl);
+        text-align: center;
+      }
+
+      .hero__strip {
+        display: flex;
+        justify-content: center;
+        margin-bottom: var(--space-lg);
+      }
+
+      .hero__title {
+        font-size: var(--text-display);
+        letter-spacing: -0.01em;
+        max-width: 16ch;
+        margin-inline: auto;
+      }
+
+      .hero__sub {
+        margin: var(--space-md) auto 0;
+        max-width: 40ch;
+        font-size: var(--text-md);
+        color: var(--ink);
+        line-height: 1.75;
+      }
+
+      .hero__aside {
+        margin: var(--space-xs) auto 0;
+        font-size: var(--text-xs);
+        color: var(--sub);
+      }
+
+      .hero__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--space-sm);
+        margin-top: var(--space-xl);
+      }
+
+      /* ===== セクション共通 ===== */
+      .section {
+        padding-block: var(--space-3xl);
+        border-top: var(--rule-hair) solid var(--masu);
+      }
+
+      .section__head {
+        display: grid;
+        justify-items: center;
+        gap: var(--space-sm);
+        text-align: center;
+        margin-bottom: var(--space-2xl);
+      }
+
+      .section__title {
+        font-size: var(--text-display-s);
+        max-width: 22ch;
+      }
+
+      .section__lede {
+        max-width: 52ch;
+        font-size: var(--text-md);
+        line-height: 1.8;
+      }
+
+      /* ===== 特徴グリッド ===== */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-lg);
+      }
+
+      @media (max-width: 56.25em) {
+        .features {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 35em) {
+        .features {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .feature-card {
+        padding: var(--space-lg);
+        border: var(--rule-hair) solid var(--masu);
+        border-radius: var(--radius-card);
+        display: grid;
+        gap: var(--space-sm);
+        align-content: start;
+        transition:
+          transform var(--dur-hover) var(--ease-out),
+          border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .feature-card:hover {
+        transform: translateY(-3px);
+        border-color: var(--aka-ink);
+      }
+
+      .feature-card__title {
+        font-size: var(--text-lg);
+      }
+
+      .feature-card__body {
+        font-size: var(--text-sm);
+        line-height: 1.75;
+        color: var(--ink);
+      }
+
+      /* ===== OSS セクション ===== */
+      .oss {
+        text-align: center;
+        display: grid;
+        justify-items: center;
+        gap: var(--space-lg);
+      }
+
+      .oss__body {
+        max-width: 52ch;
+        font-size: var(--text-md);
+        line-height: 1.85;
+      }
+
+      /* ===== 最終 CTA ===== */
+      .final-cta {
+        text-align: center;
+        padding-block: var(--space-3xl) var(--space-4xl);
+      }
+
+      .final-cta__title {
+        font-size: var(--text-display-s);
+        max-width: 20ch;
+        margin-inline: auto;
+      }
+
+      .final-cta__actions {
+        margin-top: var(--space-lg);
+      }
+
+      /* ===== フッター ===== */
+      .footer {
+        border-top: var(--rule-hair) solid var(--masu);
+        padding-block: var(--space-xl);
+      }
+
+      .footer__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .footer__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-weight: 600;
+        font-size: var(--text-sm);
+      }
+
+      .footer__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: var(--text-sm);
+      }
+
+      .footer__links a {
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .footer__links a:hover {
+        border-color: var(--ink);
+      }
+
+      .footer__meta {
+        font-size: var(--text-xs);
+        color: var(--sub);
+        white-space: nowrap;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        .btn,
+        .feature-card,
+        .nav__github,
+        .footer__links a {
+          transition-duration: 1ms;
+        }
+
+        .btn--solid:hover,
+        .btn--outline:hover,
+        .feature-card:hover {
+          transform: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <span class="masu-strip masu-strip--sm" aria-hidden="true">
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+          </span>
+          <span class="nav__brand-word">kichijitsu</span>
+        </a>
+        <div class="nav__actions">
+          <a
+            class="nav__github"
+            href="https://github.com/Love-Rox/kichijitsu"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path
+                d="M8 0C3.58 0 0 3.67 0 8.2c0 3.62 2.29 6.7 5.47 7.78.4.08.55-.18.55-.4 0-.2-.01-.86-.01-1.56-2.01.38-2.53-.5-2.7-.96-.09-.24-.48-.96-.82-1.16-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.1-1.78-.2-3.64-.91-3.64-4.02 0-.89.31-1.61.82-2.18-.08-.2-.36-1.03.08-2.15 0 0 .67-.22 2.2.83a7.4 7.4 0 0 1 2-.28c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.83 2.2-.83.44 1.12.16 1.95.08 2.15.51.57.82 1.28.82 2.18 0 3.12-1.87 3.82-3.65 4.02.29.26.54.76.54 1.53 0 1.11-.01 2-.01 2.27 0 .22.15.48.55.4A8.2 8.2 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
+              />
+            </svg>
+            <span class="nav__github-label">GitHub</span>
+          </a>
+          <a class="btn btn--solid btn--sm" href="/app">アプリを開く</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero container">
+        <div class="hero__strip">
+          <span class="masu-strip masu-strip--lg" aria-hidden="true">
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+          </span>
+        </div>
+        <h1 class="hero__title">思い立ったが吉日。</h1>
+        <p class="hero__sub">
+          Google
+          カレンダーを、あなたの手元に。予定はブラウザに置く、ローカルファーストの新しいカレンダー。
+        </p>
+        <p class="hero__aside">暦の「吉日」から。</p>
+        <div class="hero__actions">
+          <a class="btn btn--solid" href="/app">アプリを開く</a>
+          <a
+            class="btn btn--outline"
+            href="https://github.com/Love-Rox/kichijitsu"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub で見る</a
+          >
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="features-title">
+        <div class="container">
+          <div class="section__head">
+            <span class="masu-strip masu-strip--sm" aria-hidden="true">
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+            </span>
+            <h2 class="section__title" id="features-title">kichijitsu にできること。</h2>
+          </div>
+          <div class="features">
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">ローカルファースト</h3>
+              <p class="feature-card__body">
+                予定はブラウザの手元(IndexedDB)に複製。サーバーは正本を持たず、オフラインでも開ける。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">GitHub 連携</h3>
+              <p class="feature-card__body">
+                issue・PR を作業キューに。予定と実績を突き合わせ、かけた時間を可視化する。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">MCP サーバー</h3>
+              <p class="feature-card__body">
+                Claude などのエージェントが予定を読み書きできる公式 API。空き時間の提案も。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">デスクトップ版</h3>
+              <p class="feature-card__body">
+                Tauri 製アプリを Homebrew で。トレイ常駐・グローバルショートカット・ウィンドウ記憶。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">不在・参加ステータス</h3>
+              <p class="feature-card__body">
+                不在(OOO)は端のレールに、未返信・仮・不参加を見た目で区別して表示。
+              </p>
+            </article>
+            <article class="feature-card">
+              <span class="masu-mark" aria-hidden="true"></span>
+              <h3 class="feature-card__title">カレンダーブロック</h3>
+              <p class="feature-card__body">別カレンダーへ予定を自動ミラー。多重予約を防ぐ。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="oss-title">
+        <div class="container oss">
+          <span class="masu-strip masu-strip--sm" aria-hidden="true">
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+          </span>
+          <h2 class="section__title" id="oss-title">オープンソース、セルフホスト可能。</h2>
+          <p class="oss__body">
+            MIT ライセンスのオープンソース。自分の Cloudflare
+            アカウントにデプロイして、自前で運用することもできる。
+          </p>
+          <a
+            class="btn btn--outline"
+            href="https://github.com/Love-Rox/kichijitsu"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub で見る</a
+          >
+        </div>
+      </section>
+
+      <section class="final-cta container">
+        <h2 class="final-cta__title">思い立ったが、その日が吉日。</h2>
+        <div class="final-cta__actions">
+          <a class="btn btn--solid" href="/app">アプリを開く</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <span class="masu-mark" aria-hidden="true"></span>
+          kichijitsu
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
   </body>
 </html>

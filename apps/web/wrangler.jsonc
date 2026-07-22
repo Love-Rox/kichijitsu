@@ -10,8 +10,15 @@
   },
   "assets": {
     "directory": "./dist",
-    // SPA: 静的ファイルに一致しないパスは index.html にフォールバックさせる
-    // (クライアントサイドルーティングのため)。
+    // マルチページ化 (2026-07-22): dist/index.html (ランディング) と dist/app/index.html
+    // (React アプリ) の2エントリになった (apps/web/vite.config.ts の rollupOptions.input 参照)。
+    // html_handling はデフォルト "auto-trailing-slash" のままでよい: /app (トレイリングスラッシュ
+    // 無し) は /app/ へリダイレクトされ、dist/app/index.html が解決される。
+    // not_found_handling は "single-page-application" のまま維持するが、意味が変わる点に注意:
+    // クライアントサイドルーティングのフォールバックではなく、単に「未知パスは 200 でランディング
+    // (dist/index.html) を返す」設定として使っている (素の 404 でも良いが、ランディングの方が
+    // ユーザー体験として自然なためこちらを選択)。/app 配下は実ファイルとして直接解決されるので
+    // このフォールバックの対象にはならない。
     "not_found_handling": "single-page-application",
   },
   // Custom Domain: kichijitsu.love-rox.cc の DNS レコードは Cloudflare が自動管理する。

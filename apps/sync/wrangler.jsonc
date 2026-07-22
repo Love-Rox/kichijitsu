@@ -36,7 +36,9 @@
   // ALLOWED_EMAILS` で設定する。未設定 (undefined) は「全許可」(isEmailAllowed 参照)。
   // ローカルは .dev.vars の ALLOWED_EMAILS= が使われる。
   "vars": {
-    "APP_URL": "https://kichijitsu.love-rox.cc",
+    // マルチページ化 (2026-07-22): トップ (/) はランディング、アプリ本体は /app に移設。
+    // ログイン後の戻り先はアプリなので APP_URL は /app を指す。
+    "APP_URL": "https://kichijitsu.love-rox.cc/app",
     "OAUTH_REDIRECT_URL": "",
     "GITHUB_REDIRECT_URL": "",
     "WEBHOOK_BASE_URL": "https://kichijitsu.love-rox.cc",

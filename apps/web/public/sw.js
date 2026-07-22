@@ -48,19 +48,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ナビゲーションリクエスト: network-first。SPA なので全ルート同一シェル ("/")
-  // をオフラインフォールバックとして使う。
+  // ナビゲーションリクエスト: network-first。マルチページ化 (2026-07-22) により
+  // シェルは2つある: "/app" (React アプリ、状態ベースの単一URL) と "/" (静的ランディング)。
+  // パスが /app 配下ならアプリのシェルを、それ以外はランディングをオフラインフォールバックに使う。
   if (request.mode === "navigate") {
+    const shellKey = url.pathname.startsWith("/app") ? "/app" : "/";
     event.respondWith(
       (async () => {
         try {
           const response = await fetch(request);
           const cache = await caches.open(SHELL_CACHE);
-          void cache.put("/", response.clone());
+          void cache.put(shellKey, response.clone());
           return response;
         } catch {
           const cache = await caches.open(SHELL_CACHE);
-          const cached = await cache.match("/");
+          const cached = await cache.match(shellKey);
           if (cached) return cached;
           throw new Error("offline and no cached shell available");
         }
