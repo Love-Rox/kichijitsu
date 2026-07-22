@@ -473,6 +473,20 @@
         color: var(--ink);
       }
 
+      .feature-card__body a {
+        display: inline-block;
+        margin-top: var(--space-3xs);
+        color: var(--aka-ink);
+        font-weight: 500;
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .feature-card__body a:hover {
+        border-color: var(--aka-ink);
+      }
+
       /* ===== OSS セクション ===== */
       .oss {
         text-align: center;
@@ -485,6 +499,13 @@
         max-width: 52ch;
         font-size: var(--text-md);
         line-height: 1.85;
+      }
+
+      .oss__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--space-sm);
       }
 
       /* ===== 最終 CTA ===== */
@@ -671,6 +692,7 @@
               <h3 class="feature-card__title">MCP サーバー</h3>
               <p class="feature-card__body">
                 Claude などのエージェントが予定を読み書きできる公式 API。空き時間の提案も。
+                <a href="/mcp/">接続ガイド →</a>
               </p>
             </article>
             <article class="feature-card">
@@ -712,13 +734,16 @@
             MIT ライセンスのオープンソース。自分の Cloudflare
             アカウントにデプロイして、自前で運用することもできる。
           </p>
-          <a
-            class="btn btn--outline"
-            href="https://github.com/Love-Rox/kichijitsu"
-            target="_blank"
-            rel="noopener noreferrer"
-            >GitHub で見る</a
-          >
+          <div class="oss__actions">
+            <a
+              class="btn btn--outline"
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub で見る</a
+            >
+            <a class="btn btn--outline" href="/self-hosting/">セルフホスト手順</a>
+          </div>
         </div>
       </section>
 
@@ -739,6 +764,8 @@
         <ul class="footer__links">
           <li><a href="/privacy.html">プライバシー</a></li>
           <li><a href="/terms.html">規約</a></li>
+          <li><a href="/mcp/">MCP ガイド</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
           <li>
             <a
               href="https://github.com/Love-Rox/kichijitsu"

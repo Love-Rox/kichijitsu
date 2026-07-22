@@ -42,6 +42,11 @@ export default defineConfig({
       input: {
         landing: r("./index.html"),
         app: r("./app/index.html"),
+        // MCP 接続ガイド / セルフホスト手順 (2026-07-22 追加)。どちらも静的な読み物ページで、
+        // Cloudflare assets の auto-trailing-slash により /mcp/ /self-hosting/ で解決される
+        // (wrangler.jsonc 側の変更は不要、既存の /app と同じ仕組み)。
+        mcp: r("./mcp/index.html"),
+        selfHosting: r("./self-hosting/index.html"),
       },
     },
   },

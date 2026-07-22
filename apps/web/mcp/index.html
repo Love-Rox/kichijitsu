@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP 接続ガイド | kichijitsu</title>
+    <meta
+      name="description"
+      content="kichijitsu の MCP サーバーに Claude Code / Claude Desktop を接続する手順。使えるツール一覧、hook からの作業時間記録、運用上の注意まで。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="MCP 接続ガイド | kichijitsu" />
+    <meta
+      property="og:description"
+      content="Claude などのエージェントが kichijitsu のカレンダーを読み書きできる MCP サーバーへの接続手順。"
+    />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Hallmark · macrostructure: Long Document · genre: documentation(技術ガイド) · theme: custom(brand-locked) · tone: reference/guide */
+      /* Hallmark · pre-emit critique: P4 H5 E4 S5 R5 V4 */
+      /*
+       * kichijitsu MCP 接続ガイド。トークン・色・タイプスケール等のトークンは
+       * apps/web/index.html (ランディング) の :root ブロックをそのまま再利用する
+       * (ブランド仕様は /brand/README.md が正、生値の直書きは禁止)。
+       * ランディングと違い読み物中心の構成なので、レイアウト部分だけ
+       * 「1カラム・目次つき・pre は素のコードブロック」の Long Document 向けに新規追加している。
+       */
+
+      :root {
+        /* --- 色 (brand/README.md のトークン表そのまま。生値の直書き禁止、常に var() 経由) --- */
+        --paper: #faf7f2;
+        --ink: #24211e;
+        --sub: #8a8478;
+        --masu: #dcd6c9;
+        --aka: #d7402e;
+        --aka-ink: #b8321f;
+        --on-aka: #ffffff;
+
+        /* --- フォント --- */
+        --font-display: "Zen Old Mincho", "Yu Mincho", serif;
+        --font-body: "Inter", system-ui, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+        --font-mono:
+          ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+        /* --- 4pt スペーススケール (semantic) --- */
+        --space-3xs: 0.25rem;
+        --space-2xs: 0.5rem;
+        --space-xs: 0.75rem;
+        --space-sm: 1rem;
+        --space-md: 1.5rem;
+        --space-lg: 2rem;
+        --space-xl: 3rem;
+        --space-2xl: 4rem;
+        --space-3xl: 6rem;
+        --space-4xl: 8rem;
+
+        /* --- タイプスケール --- */
+        --text-xs: 0.75rem;
+        --text-sm: 0.875rem;
+        --text-base: 1rem;
+        --text-md: 1.125rem;
+        --text-lg: 1.375rem;
+        --text-xl: 1.75rem;
+        --text-2xl: 2.375rem;
+        --text-display-s: clamp(1.875rem, 1.3rem + 2.4vw, 2.75rem);
+        --text-display: clamp(2.5rem, 1.6rem + 4vw, 4.5rem);
+
+        /* --- 罫線・角丸 --- */
+        --rule-hair: 1px;
+        --radius-masu: 25%;
+        --radius-card: 0.875rem;
+        --radius-pill: 999px;
+
+        /* --- イージング・時間 --- */
+        --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+        --dur-stamp: 420ms;
+        --dur-hover: 160ms;
+
+        --container-max: 71.5rem;
+        --gutter: clamp(1rem, 4vw, 3.5rem);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        overflow-x: clip;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        overflow-x: clip;
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--font-body);
+        font-size: var(--text-base);
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      img,
+      svg {
+        max-width: 100%;
+        display: block;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-style: normal; /* 見出しはローマン体のみ。斜体見出し禁止 (Hallmark) */
+        line-height: 1.3;
+        margin: 0;
+        overflow-wrap: anywhere;
+        min-width: 0;
+        text-wrap: balance;
+      }
+
+      p,
+      ul,
+      ol {
+        margin: 0;
+      }
+
+      .container {
+        max-width: var(--container-max);
+        margin-inline: auto;
+        padding-inline: var(--gutter);
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--aka-ink);
+        outline-offset: 3px;
+        transition: none;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ===== 枡の週ストリップ (シグネチャー意匠、ナビ専用の小サイズのみ使用) ===== */
+      .masu-strip {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--strip-gap, 0.5em);
+      }
+
+      .masu-strip__cell {
+        width: var(--strip-cell, 2.5rem);
+        height: var(--strip-cell, 2.5rem);
+        flex: none;
+        border-radius: var(--radius-masu);
+        border: max(1.5px, 0.09em) solid var(--masu);
+        background: transparent;
+      }
+
+      .masu-strip__cell--kichi {
+        border: none;
+        background: var(--aka);
+        transform: rotate(-8deg);
+      }
+
+      .masu-strip--sm {
+        --strip-cell: 0.875rem;
+        --strip-gap: 0.4em;
+      }
+
+      .masu-mark {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: var(--radius-masu);
+        border: 1.5px solid var(--masu);
+        flex: none;
+      }
+
+      /* ===== ナビ (masthead、ランディングと共通の意匠) ===== */
+      .nav {
+        padding-block: var(--space-md);
+        border-bottom: var(--rule-hair) solid var(--masu);
+      }
+
+      .nav__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-sm);
+      }
+
+      .nav__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-md);
+        letter-spacing: -0.01em;
+        text-decoration: none;
+        color: var(--ink);
+        min-width: 0;
+        flex-shrink: 1;
+      }
+
+      .nav__brand .masu-strip {
+        --strip-cell: 0.5rem;
+        --strip-gap: 0.1875rem;
+        gap: var(--strip-gap);
+      }
+
+      .nav__brand-word {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
+      @media (max-width: 26em) {
+        .nav__brand {
+          font-size: var(--text-sm);
+          gap: var(--space-3xs);
+        }
+
+        .nav__row {
+          gap: var(--space-xs);
+        }
+      }
+
+      /* ===== ボタン ===== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2xs);
+        white-space: nowrap;
+        border-radius: var(--radius-pill);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 0.7em 1.4em;
+        border: 1.5px solid transparent;
+        transition:
+          background-color var(--dur-hover) var(--ease-out),
+          border-color var(--dur-hover) var(--ease-out),
+          color var(--dur-hover) var(--ease-out),
+          transform var(--dur-hover) var(--ease-out);
+      }
+
+      .btn--solid {
+        background: var(--aka);
+        color: var(--on-aka);
+      }
+
+      .btn--solid:hover {
+        background: var(--aka-ink);
+        transform: translateY(-1px);
+      }
+
+      .btn--sm {
+        font-size: var(--text-xs);
+        padding: 0.55em 1.1em;
+      }
+
+      /* ===== ドキュメントヘッダー ===== */
+      .doc-header {
+        padding-block: var(--space-2xl) var(--space-xl);
+        border-bottom: var(--rule-hair) solid var(--masu);
+      }
+
+      .doc-header__inner {
+        max-width: 72ch;
+      }
+
+      .doc-header__kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-size: var(--text-xs);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        color: var(--aka-ink);
+        text-transform: uppercase;
+      }
+
+      .doc-header__title {
+        margin-top: var(--space-sm);
+        font-size: var(--text-display-s);
+        max-width: 20ch;
+      }
+
+      .doc-header__lede {
+        margin-top: var(--space-md);
+        font-size: var(--text-md);
+        line-height: 1.85;
+        color: var(--ink);
+        max-width: 60ch;
+      }
+
+      /* ===== 本文コンテナ (読み物なので 72ch キャップ) ===== */
+      .doc-main {
+        padding-block: var(--space-xl) var(--space-3xl);
+      }
+
+      .doc-body {
+        max-width: 72ch;
+      }
+
+      /* ===== 目次 ===== */
+      .doc-toc {
+        border: var(--rule-hair) solid var(--masu);
+        border-radius: var(--radius-card);
+        padding: var(--space-lg);
+        margin-bottom: var(--space-2xl);
+      }
+
+      .doc-toc__title {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        color: var(--sub);
+        letter-spacing: 0.04em;
+        margin: 0 0 var(--space-sm);
+      }
+
+      .doc-toc__list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: var(--space-2xs);
+        counter-reset: toc;
+      }
+
+      .doc-toc__list li {
+        counter-increment: toc;
+      }
+
+      .doc-toc__list a {
+        display: inline-flex;
+        gap: var(--space-2xs);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        font-size: var(--text-sm);
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .doc-toc__list a::before {
+        content: counter(toc) ".";
+        color: var(--sub);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .doc-toc__list a:hover {
+        border-color: var(--ink);
+      }
+
+      /* ===== セクション ===== */
+      .doc-section {
+        padding-block: var(--space-xl);
+        border-top: var(--rule-hair) solid var(--masu);
+      }
+
+      .doc-section:first-of-type {
+        padding-top: 0;
+        border-top: none;
+      }
+
+      .doc-section h2 {
+        font-size: var(--text-xl);
+        scroll-margin-top: var(--space-lg);
+        max-width: 24ch;
+      }
+
+      .doc-section h3 {
+        font-size: var(--text-md);
+        margin-top: var(--space-lg);
+        scroll-margin-top: var(--space-lg);
+      }
+
+      .doc-section p,
+      .doc-section ul,
+      .doc-section ol {
+        margin-top: var(--space-sm);
+        font-size: var(--text-base);
+        line-height: 1.85;
+      }
+
+      .doc-section ul,
+      .doc-section ol {
+        padding-left: 1.3em;
+        display: grid;
+        gap: var(--space-2xs);
+      }
+
+      .doc-section li::marker {
+        color: var(--aka-ink);
+        font-weight: 600;
+      }
+
+      .doc-section strong {
+        font-weight: 600;
+      }
+
+      .doc-section code {
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+        background: color-mix(in srgb, var(--masu) 55%, var(--paper));
+        border-radius: 0.3em;
+        padding: 0.1em 0.4em;
+        overflow-wrap: anywhere;
+      }
+
+      /* ===== ステップ (番号つき手順) ===== */
+      .steps {
+        counter-reset: step;
+        display: grid;
+        gap: var(--space-lg);
+        margin-top: var(--space-md);
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: var(--space-sm);
+        align-items: start;
+      }
+
+      .step__num {
+        counter-increment: step;
+        display: grid;
+        place-items: center;
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 50%;
+        background: var(--aka);
+        color: var(--on-aka);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: var(--text-sm);
+        flex: none;
+      }
+
+      .step__num::before {
+        content: counter(step);
+      }
+
+      .step__body h3 {
+        margin-top: 0;
+        font-size: var(--text-md);
+      }
+
+      .step__body p,
+      .step__body ul,
+      .step__body ol {
+        margin-top: var(--space-2xs);
+        font-size: var(--text-sm);
+        line-height: 1.8;
+      }
+
+      /* ===== コードブロック (装飾なしのヘアライン枠 + masu 背景) ===== */
+      pre {
+        margin: var(--space-sm) 0 0;
+        padding: var(--space-md);
+        border: var(--rule-hair) solid var(--masu);
+        border-radius: var(--radius-card);
+        background: color-mix(in srgb, var(--masu) 38%, var(--paper));
+        overflow-x: auto;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        line-height: 1.7;
+        white-space: pre;
+        color: var(--ink);
+      }
+
+      /* ===== テーブル ===== */
+      .table-scroll {
+        margin-top: var(--space-sm);
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--text-sm);
+        min-width: 32rem;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: var(--space-2xs) var(--space-sm);
+        border: var(--rule-hair) solid var(--masu);
+        vertical-align: top;
+        line-height: 1.7;
+      }
+
+      th {
+        background: color-mix(in srgb, var(--masu) 45%, var(--paper));
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      td code {
+        font-family: var(--font-mono);
+        font-size: 0.85em;
+        background: color-mix(in srgb, var(--masu) 55%, var(--paper));
+        border-radius: 0.3em;
+        padding: 0.1em 0.35em;
+        /* テーブル内は折返しでトークンが割れるより、行全体が横スクロールする方が読みやすい
+           (.doc-section code の overflow-wrap: anywhere をここだけ打ち消す) */
+        white-space: nowrap;
+        overflow-wrap: normal;
+      }
+
+      /* ===== 注意書き (callout) ===== */
+      .callout {
+        margin-top: var(--space-md);
+        padding: var(--space-sm) var(--space-md);
+        border-left: 3px solid var(--aka);
+        background: color-mix(in srgb, var(--masu) 30%, var(--paper));
+        border-radius: 0 var(--radius-card) var(--radius-card) 0;
+      }
+
+      .callout p {
+        margin-top: 0;
+        font-size: var(--text-sm);
+      }
+
+      .callout p + p {
+        margin-top: var(--space-2xs);
+      }
+
+      /* ===== ページ内ナビ (前後リンク) ===== */
+      .doc-pagelinks {
+        margin-top: var(--space-2xl);
+        padding-top: var(--space-xl);
+        border-top: var(--rule-hair) solid var(--masu);
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+      }
+
+      .doc-pagelinks a {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        text-decoration: none;
+        border: var(--rule-hair) solid var(--masu);
+        border-radius: var(--radius-pill);
+        padding: 0.55em 1.1em;
+        font-size: var(--text-sm);
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .doc-pagelinks a:hover {
+        border-color: var(--aka-ink);
+        color: var(--aka-ink);
+      }
+
+      /* ===== フッター (ランディングと共通) ===== */
+      .footer {
+        border-top: var(--rule-hair) solid var(--masu);
+        padding-block: var(--space-xl);
+      }
+
+      .footer__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .footer__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-weight: 600;
+        font-size: var(--text-sm);
+      }
+
+      .footer__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: var(--text-sm);
+      }
+
+      .footer__links a {
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .footer__links a:hover {
+        border-color: var(--ink);
+      }
+
+      .footer__meta {
+        font-size: var(--text-xs);
+        color: var(--sub);
+        white-space: nowrap;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        .btn,
+        .doc-pagelinks a,
+        .footer__links a {
+          transition-duration: 1ms;
+        }
+
+        .btn--solid:hover {
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <span class="masu-strip masu-strip--sm" aria-hidden="true">
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+            <span class="masu-strip__cell"></span>
+            <span class="masu-strip__cell"></span>
+          </span>
+          <span class="nav__brand-word">kichijitsu</span>
+        </a>
+        <a class="btn btn--solid btn--sm" href="/app">アプリを開く</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Guide</span>
+        <h1 class="doc-header__title">MCP 接続ガイド</h1>
+        <p class="doc-header__lede">
+          Claude などのエージェントが、あなたに代わってカレンダーを読み書きできるようにする。
+          kichijitsu が備える「公式 API」の接続手順と、使えるツールをまとめた。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#what">MCP とは</a></li>
+            <li><a href="#connect">接続手順</a></li>
+            <li><a href="#tools">使えるツール一覧</a></li>
+            <li><a href="#hooks">hook からの作業時間記録</a></li>
+            <li><a href="#operations">運用の注意</a></li>
+            <li><a href="#security">トークンの取り扱い</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="what" aria-labelledby="what-title">
+          <h2 id="what-title">MCP とは</h2>
+          <p>
+            MCP (Model Context Protocol) は、Claude
+            のようなエージェントがユーザーに代わって外部のツールやデータへアクセスするための、
+            クライアント/サーバー共通の規格。kichijitsu
+            はこれを使って、カレンダーを読み書きできる「公式 API」を提供している。
+          </p>
+          <p>
+            サーバーは
+            <strong>read-through 原則</strong
+            >を守っており、予定そのものを永続化することはない。ツールが呼ばれるたびに Google
+            から取得して返すか、その場で書き戻すだけ。エージェントは予定の一覧・検索に加えて、
+            空き時間の提案や予定の作成・変更・削除まで行える — Notion Calendar には無い、kichijitsu
+            の差別化要素の一つ。
+          </p>
+        </section>
+
+        <section class="doc-section" id="connect" aria-labelledby="connect-title">
+          <h2 id="connect-title">接続手順</h2>
+          <p>MCP サーバーのエンドポイントは <code>https://kichijitsu.love-rox.cc/mcp</code> 。</p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>MCP トークンを発行する</h3>
+                <p>
+                  kichijitsu アプリ右上の設定(歯車アイコン)を開き、「MCP トークン」セクションの「+
+                  トークンを発行」から発行する(ラベルは任意)。生の値は発行直後に一度だけ表示され、以降は二度と表示されない。その場でコピーしておくこと。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>Claude Code へ登録する</h3>
+                <p>発行したトークンを使って、ターミナルから1回登録すればよい。</p>
+                <pre><code>claude mcp add --transport http kichijitsu https://kichijitsu.love-rox.cc/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre>
+                <p>登録後は Claude Code を再起動してから使い始めること。</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>Claude Desktop へ登録する</h3>
+                <p>
+                  Claude Desktop はリモートの Streamable HTTP MCP
+                  サーバーを直接サポートしていないため、橋渡し役の
+                  <code>mcp-remote</code> パッケージを経由する。設定ファイル (macOS では
+                  <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>)
+                  に以下を追加する。
+                </p>
+                <pre><code>{
+  "mcpServers": {
+    "kichijitsu": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://kichijitsu.love-rox.cc/mcp",
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer &lt;token&gt;"
+      }
+    }
+  }
+}</code></pre>
+                <p>
+                  <code>Authorization:${AUTH_HEADER}</code>のように
+                  <code>:</code> の前後にスペースを入れない書き方は、Claude Desktop (Windows)
+                  が引数中のスペースを正しく渡せない既知の問題を避けるための
+                  <code>mcp-remote</code> 側の回避策。値は <code>env</code>
+                  側に置けばスペースを含めてよい。設定を保存したら Claude Desktop を再起動する。
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="doc-section" id="tools" aria-labelledby="tools-title">
+          <h2 id="tools-title">使えるツール一覧</h2>
+          <p>
+            現在 8
+            つのツールを公開している。書き込み系はエージェント側でユーザーへの実行前確認を前提にした説明になっている。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ツール</th>
+                  <th>種別</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>list_events</code></td>
+                  <td>読み取り</td>
+                  <td>期間を指定して予定一覧を返す。繰り返し予定は展開済みで返る。</td>
+                </tr>
+                <tr>
+                  <td><code>search_events</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    キーワードで予定を検索する。期間省略時は今日の30日前〜90日後を対象にする。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>suggest_free_slots</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    指定した期間・所要時間から空き時間の候補を、早い順に返す。エージェント利用の主役。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>create_event</code></td>
+                  <td>書き込み</td>
+                  <td>新しい予定を作成する。実行前にユーザーへの確認が前提。</td>
+                </tr>
+                <tr>
+                  <td><code>update_event</code></td>
+                  <td>書き込み</td>
+                  <td>
+                    既存の予定の日時を変更する(タイトルなど時刻以外は変更できない)。実行前にユーザーへの確認が前提。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>delete_event</code></td>
+                  <td>書き込み</td>
+                  <td>予定を削除する。取り消せない操作。実行前にユーザーへの確認が前提。</td>
+                </tr>
+                <tr>
+                  <td><code>log_work_interval</code></td>
+                  <td>記録</td>
+                  <td>
+                    作業実績を記録する。Google カレンダーには書き込まず、kichijitsu 側に保存する。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>work_summary</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    <code>log_work_interval</code> で記録した実績を、repo/issue 単位で集計して返す。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="hooks" aria-labelledby="hooks-title">
+          <h2 id="hooks-title">hook からの作業時間記録</h2>
+          <p>
+            Claude Code の SessionStart/Stop hook のような非対話のシェルからは、MCP 接続を経由せず
+            <code>curl</code> 一発で作業実績を記録できる。認証は MCP トークンの Bearer
+            で、値は設定ファイルに直書きせず環境変数から読むこと。
+          </p>
+          <pre><code>curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals \
+  -H "Authorization: Bearer ${KICHIJITSU_MCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start": "'"$SESSION_START_ISO"'",
+    "end": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+    "repo": "Love-Rox/kichijitsu",
+    "branch": "'"$(git branch --show-current)"'",
+    "agent": "claude-code"
+  }'</code></pre>
+          <p>
+            成功すると <code>{ calendarId, eventId }</code> を 200 で返す。認証失敗は 401、
+            <code>start &gt;= end</code>・<code>repo</code> 欠落などの入力不正は 400、Google
+            側の失敗は 502 になる。
+          </p>
+        </section>
+
+        <section class="doc-section" id="operations" aria-labelledby="operations-title">
+          <h2 id="operations-title">運用の注意</h2>
+          <p>
+            <strong>デプロイ後・トークン再発行後は、MCP クライアントの再起動が必要</strong
+            >になる。McpAgent は Durable Object
+            なので、接続を保持しているインスタンスはデプロイ後も旧コードのまま動き続ける
+            (ツールのスキーマもクライアントが接続時にキャッシュする)。反映を確認するときは、まず
+            Claude Code / Claude Desktop を再起動してから検証すること。
+          </p>
+          <p>
+            同様に、トークンを再発行(＝旧トークンを失効)した場合も、起動中のセッションは旧トークンを掴んだまま
+            401 が続く。Claude Code はこれを
+            <code>requires re-authorization (token expired)</code> と表示するが、kichijitsu の MCP
+            トークンに
+            <strong>有効期限は無い</strong
+            >。この表示が出たら、実際は「トークンが失効/未登録」か「クライアントのセッションが古い」のどちらか。
+          </p>
+          <p>
+            サーバー側で認証が通ったことがあるかどうかは <code>last_used_at</code>
+            で客観的に判定できる(null のままなら、クライアントが新しいトークンをまだ送れていない)。
+          </p>
+        </section>
+
+        <section class="doc-section" id="security" aria-labelledby="security-title">
+          <h2 id="security-title">トークンの取り扱い</h2>
+          <div class="callout">
+            <p>
+              MCP
+              トークンはあなたのカレンダーを読み書きできる秘密情報。パスワードと同じ扱いにすること。
+            </p>
+            <p>
+              発行直後の画面以外に生の値が表示されることは無い。設定ファイルやスクリプトに直書きせず、環境変数(例:
+              <code>KICHIJITSU_MCP_TOKEN</code
+              >)から読み込むこと。リポジトリにコミットしない、他人と共有しない、流出した場合は設定画面から即座に失効させること。
+            </p>
+          </div>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/self-hosting/">セルフホスト手順を見る</a>
+          <a href="/app">アプリを開く</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <span class="masu-mark" aria-hidden="true"></span>
+          kichijitsu
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

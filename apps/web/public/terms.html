@@ -46,9 +46,56 @@
         color: #8a8478;
         font-size: 12px;
       }
+      .site-nav {
+        max-width: 720px;
+        margin: 0 auto 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .site-nav a {
+        text-decoration: none;
+        color: inherit;
+      }
+      .site-nav .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+      .site-nav .brand .mark {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        background: #d7402e;
+        display: inline-block;
+        transform: rotate(-8deg);
+      }
+      .site-nav .open-app {
+        font-size: 13px;
+        font-weight: 600;
+        color: #fff;
+        background: #d7402e;
+        padding: 8px 16px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .site-nav .open-app:hover {
+        background: #b8321f;
+      }
+      .site-nav .open-app:focus-visible,
+      .site-nav .brand:focus-visible {
+        outline: 2px solid #b8321f;
+        outline-offset: 2px;
+      }
     </style>
   </head>
   <body>
+    <header class="site-nav">
+      <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>kichijitsu</a>
+      <a class="open-app" href="/app/">アプリを開く</a>
+    </header>
     <main>
       <h1>利用規約 <small>kichijitsu Terms of Service</small></h1>
       <p class="updated">最終更新: 2026-07-19</p>
