@@ -16,6 +16,11 @@
 // - ネイティブ通知: プラグインを配線し、起動時に1回テスト通知を出す
 //   ところまで（実際のリマインダー通知はフロントから Tauri コマンドを
 //   呼ぶ配線が要るため次増分 TODO。下記 setup() 内コメント参照）
+// - アプリ内リロード: リモート URL 方式（上記）のため web 側を再デプロイしても
+//   webview は起動時のページを保持し続け、手動リロード手段が無いと最新化されない。
+//   トレイの「再読み込み」メニューと、グローバルショートカット CmdOrCtrl+R
+//   （誤爆防止のフォーカス/表示ガード付き）の2経路でメインウィンドウの
+//   webview に `location.reload()` を評価させる（下記 reload_main_window 参照）。
 //
 // 増分2b: gh プロバイダ（薄い実証＝作業キューのみ）。認証が取りづらい org でも、
 // 手元の `gh` CLI 認証で GitHub データを取れるようにする
@@ -165,6 +170,16 @@ async fn gh_api(endpoint: String) -> Result<String, String> {
 #[cfg(desktop)]
 const TOGGLE_WINDOW_SHORTCUT: &str = "CmdOrCtrl+Shift+K";
 
+/// メインウィンドウの webview をリロードするグローバルショートカット。
+///
+/// `CmdOrCtrl+R` はブラウザやエディタなど他アプリでも頻用される一般的な
+/// 組み合わせなので、グローバル登録すると kichijitsu が前面にいないときの
+/// 押下まで拾ってしまう(誤爆)。そのためハンドラ側では
+/// `reload_main_window_if_focused` を通し、ウィンドウがフォーカス中または
+/// 表示中のときだけ実際にリロードする(setup() 内の登録箇所を参照)。
+#[cfg(desktop)]
+const RELOAD_SHORTCUT: &str = "CmdOrCtrl+R";
+
 /// メインウィンドウの表示状態をトグルする。
 ///
 /// 隠れている（または最小化されている）場合は表示して前面に出し、
@@ -184,6 +199,56 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// メインウィンドウの webview をリロードする際に評価する JS。
+///
+/// 単純な `location.reload()` だけでは不十分だった: このアプリの web 側
+/// (`public/sw.js`)は Service Worker を持ち、CSS/JS 資産を cache-first で
+/// 返す。そのため `location.reload()` で HTML は最新化されても、資産は
+/// Service Worker の Cache Storage に載ったままの古いものが返り続け、
+/// 実際に更新が反映されない問題が起きた。
+///
+/// この IIFE は `caches`(Cache Storage API)が使える場合に `kichijitsu-`
+/// プレフィックスのキャッシュだけを全削除してから `location.reload()` する。
+/// Service Worker 自体は unregister しない(オフライン継続のため、SW の
+/// 存在は保ったまま中身のキャッシュだけ破棄する)。`kichijitsu-` 以外の
+/// プレフィックスのキャッシュ(将来 SW が増えた場合など)には触れない。
+/// `caches` 不在や削除失敗は無視して(best-effort)必ず `location.reload()`
+/// まで到達させる。
+const RELOAD_JS: &str = r#"(async () => { try { if (self.caches) { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('kichijitsu-')).map(k => caches.delete(k))); } } catch (e) {} location.reload(); })()"#;
+
+/// メインウィンドウの webview をリロードする。
+///
+/// このアプリはリモート URL 方式(ファイル先頭コメント参照)で、webview は
+/// 起動時に読み込んだページを保持し続ける。web 側を再デプロイしても自動では
+/// 反映されないため、`RELOAD_JS`(キャッシュ破棄付きハードリロード。コメント
+/// 参照)を評価させて最新の HTML とそれが指す最新ハッシュ付きアセットを
+/// 取得し直させる。ウィンドウが見つからない場合は何もしない(best-effort。
+/// トレイメニュー/グローバルショートカットのどちらから呼ばれても失敗時に
+/// パニックさせたくない)。
+fn reload_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.eval(RELOAD_JS);
+}
+
+/// ウィンドウがフォーカス中または表示中のときだけ `reload_main_window` を呼ぶ。
+///
+/// `CmdOrCtrl+R` グローバルショートカットのハンドラ専用のガード。トレイの
+/// 「再読み込み」メニュー(ユーザーが明示的にクリックした操作)はこのガードを
+/// 経由せず常にリロードしてよいため呼ばない(RELOAD_SHORTCUT のコメント参照)。
+#[cfg(desktop)]
+fn reload_main_window_if_focused(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let is_focused = window.is_focused().unwrap_or(false);
+    let is_visible = window.is_visible().unwrap_or(false);
+    if is_focused || is_visible {
+        reload_main_window(app);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -192,8 +257,9 @@ pub fn run() {
         .setup(|app| {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
+            let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &quit_i])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -203,6 +269,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "toggle" => toggle_main_window(app),
+                    "reload" => reload_main_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -226,16 +293,29 @@ pub fn run() {
             {
                 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-                app.handle().plugin(
-                    tauri_plugin_global_shortcut::Builder::new()
-                        .with_handler(|app, _shortcut, event| {
-                            if event.state() == ShortcutState::Pressed {
-                                toggle_main_window(app);
-                            }
-                        })
-                        .build(),
-                )?;
-                app.global_shortcut().register(TOGGLE_WINDOW_SHORTCUT)?;
+                // ショートカットごとに `on_shortcut` で個別ハンドラを登録する。
+                // ビルダー側の `with_handler`(旧実装)は登録済みの全ショートカット
+                // に対して一律に発火するため、トグルとリロードのように挙動が
+                // 異なる複数のショートカットを扱うには使えない
+                // (両方のキー入力で同じハンドラが呼ばれてしまう)。
+                app.handle()
+                    .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+
+                app.global_shortcut()
+                    .on_shortcut(TOGGLE_WINDOW_SHORTCUT, |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            toggle_main_window(app);
+                        }
+                    })?;
+
+                // CmdOrCtrl+R (RELOAD_SHORTCUT のコメント参照): 誤爆防止のため
+                // フォーカス/表示ガード付きの reload_main_window_if_focused を通す。
+                app.global_shortcut()
+                    .on_shortcut(RELOAD_SHORTCUT, |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            reload_main_window_if_focused(app);
+                        }
+                    })?;
             }
 
             // --- ネイティブ通知: 配線の土台のみ ---
