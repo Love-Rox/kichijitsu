@@ -33,11 +33,6 @@ import {
  *    縦スクロール・長押し作成・(desktop の)即時作成ドラッグはそのまま自然に進行する。
  */
 
-/** 追従中の水平オフセット(px)。0 に戻すとストリップが基準位置に戻る */
-export type SetDragDxPx = (px: number) => void;
-/** WeekGrid.tsx が持つ instant state のセッター。true=transition なし(指追従用)、false=transition あり(snap 用) */
-export type SetInstant = (instant: boolean) => void;
-
 export interface UseSwipeNavigationOptions {
   /**
    * このジェスチャを有効化するかどうか。WeekGrid.tsx からは
@@ -52,12 +47,12 @@ export interface UseSwipeNavigationOptions {
   enabled: boolean;
   /** 1パネルぶんの表示幅(px)を測るための ref(days-viewport 要素を想定) */
   viewportRef: RefObject<HTMLElement | null>;
-  /** 横スワイプが確定し、pointerup で prev/next が決まったときに呼ばれる */
-  onNavigate: (direction: "prev" | "next") => void;
-  /** 追従中の transform オフセットを反映する(WeekGrid.tsx の state セッター) */
-  setDragDxPx: SetDragDxPx;
-  /** 指追従中は true(transition 無効)、確定/キャンセル時は false(transition 復帰)にする */
-  setInstant: SetInstant;
+  /** 横スワイプが確定した瞬間(指追従の開始)。WeekGrid は transition を切って 1:1 追従にする */
+  onSwipeStart: () => void;
+  /** 追従中、pointerdown からの水平移動量(px)を反映する。WeekGrid は --swipe-dx を命令的にセット */
+  onSwipeMove: (dxPx: number) => void;
+  /** 指を離した/中断したときの決着。"prev"/"next"=隣パネルへ確定、"stay"=元位置へ戻す */
+  onSwipeEnd: (outcome: "prev" | "next" | "stay") => void;
 }
 
 /** pointerdown からの追跡状態。React state ではなく ref で持つ(pointermove のたびに
@@ -92,9 +87,9 @@ export interface SwipeNavigationHandlers {
 export function useSwipeNavigation({
   enabled,
   viewportRef,
-  onNavigate,
-  setDragDxPx,
-  setInstant,
+  onSwipeStart,
+  onSwipeMove,
+  onSwipeEnd,
 }: UseSwipeNavigationOptions): SwipeNavigationHandlers {
   const trackRef = useRef<TrackState | null>(null);
 
@@ -137,14 +132,14 @@ export function useSwipeNavigation({
           reset(); // 縦優勢: 以後は一切介入しない(スクロール/長押し作成に委ねる)
           return;
         }
-        // "horizontal" 確定: ここで初めてポインタを掴み、指追従の transition を切る
+        // "horizontal" 確定: ここで初めてポインタを掴み、指追従を開始する(WeekGrid が transition を切る)
         t.axis = "horizontal";
         try {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         } catch {
           /* 既にポインタが離れている等は無視(DayColumn と同じ流儀) */
         }
-        setInstant(true);
+        onSwipeStart();
       }
 
       if (t.axis !== "horizontal") return;
@@ -154,7 +149,7 @@ export function useSwipeNavigation({
       while (t.samples.length > 2 && t.samples[0].time < cutoff) {
         t.samples.shift();
       }
-      setDragDxPx(dx);
+      onSwipeMove(dx);
     }
 
     function finish(e: ReactPointerEvent<HTMLElement>, commit: boolean) {
@@ -171,8 +166,7 @@ export function useSwipeNavigation({
 
       if (!commit) {
         // pointercancel 等: 位置を戻すだけ(前後どちらへも確定しない)
-        setInstant(false);
-        setDragDxPx(0);
+        onSwipeEnd("stay");
         return;
       }
 
@@ -186,18 +180,9 @@ export function useSwipeNavigation({
         panelWidthPx: t.panelWidthPx,
         velocityPxPerMs,
       });
-
-      // transition を復帰させる: "stay" はここで自前で 0 へスナップバックする(要件どおり
-      // 「戻す場合は translateX を 0 に戻すだけ」)。"prev"/"next" は WeekGrid.tsx 側の
-      // weekStart 変更検知 useEffect が phase 切り替えと同時に dragDxPx も 0 へ戻すため、
-      // ここでは onNavigate を呼ぶだけでよい(二重に戻すと逆に一瞬中央へ戻ってから
-      // スライドし直す不自然な動きになるため、意図的に setDragDxPx を呼ばない)。
-      setInstant(false);
-      if (outcome === "stay") {
-        setDragDxPx(0);
-        return;
-      }
-      onNavigate(outcome);
+      // outcome の適用(transition 復帰・--swipe-dx=0 へのスナップ・確定時のナビゲーション)は
+      // WeekGrid の handleSwipeEnd 側で行う。純ロジックはここで outcome を決めるところまで。
+      onSwipeEnd(outcome);
     }
 
     return {
@@ -208,5 +193,5 @@ export function useSwipeNavigation({
     };
     // trackRef は ref なので依存に含めない(同一インスタンスを使い続ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, viewportRef, onNavigate, setDragDxPx, setInstant]);
+  }, [enabled, viewportRef, onSwipeStart, onSwipeMove, onSwipeEnd]);
 }
