@@ -779,13 +779,29 @@ export function EventDetailCard({
   }
 
   return (
-    <div
-      ref={ref}
-      className="event-detail-popover"
-      style={{ left, top }}
-      role="dialog"
-      aria-label={subject.title}
-    >
+    <>
+      {/*
+       * 透明バックドロップ (2026-07-22): 詳細ポップオーバー/編集フォームが開いている間、
+       * 外側クリックを「閉じるだけ」にする。pointerdown を stopPropagation して下のグリッド
+       * (空き領域クリックでの新規作成・別予定のオープン) へ伝播させない ―― 以前は
+       * useCloseOnOutsideOrEscape の document リスナーだけで閉じており、同じクリックが
+       * グリッドにも当たって「閉じると同時に別操作が走る」不便があった (ユーザー指摘)。
+       * 画面は暗くしない (background: transparent) ので、ポップオーバーの軽さは保つ。
+       */}
+      <div
+        className="event-detail-backdrop"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      <div
+        ref={ref}
+        className="event-detail-popover"
+        style={{ left, top }}
+        role="dialog"
+        aria-label={subject.title}
+      >
       <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
         ×
       </button>
@@ -860,7 +876,8 @@ export function EventDetailCard({
           {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

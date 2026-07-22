@@ -1547,6 +1547,19 @@
  * EventBlock.tsx から document.body へ createPortal している(週ストリップの
  * transform 祖先に position:fixed の containing block を奪われないため)。
  */
+/*
+ * 詳細ポップオーバー/編集フォームの透明バックドロップ (2026-07-22)。ビューポート全面を覆い、
+ * 外側クリックを受け止めて「閉じるだけ」にする(EventBlock.tsx の onPointerDown が
+ * stopPropagation+onClose)。画面は暗くしない(transparent)。ポップオーバー(z:1000)の
+ * すぐ下(z:999)に敷き、グリッドより前面に出すことで外側クリックがグリッドに届かないようにする。
+ */
+.event-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
 .event-detail-popover {
   position: fixed;
   z-index: 1000;
