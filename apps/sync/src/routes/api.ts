@@ -37,6 +37,8 @@ import type {
   TasksSyncResponse,
   VisibleCalendarsRequest,
   WatchRequest,
+  WorkLogCreateRequest,
+  WorkLogCreateResponse,
   WorkLogDTO,
   WorkLogsResponse,
 } from "@kichijitsu/shared";
@@ -75,7 +77,14 @@ import {
 } from "../core/block-rules";
 import { computeChannelToken } from "../watch-token";
 import { generateMcpToken, hashMcpToken } from "../mcp-token";
-import { listWorkLogsForProfile } from "../core/work-log";
+import {
+  buildWorkLogRow,
+  deleteWorkLog,
+  insertWorkLog,
+  listWorkLogsForProfile,
+  resolveManualWorkLogAgent,
+  validateWorkLogInput,
+} from "../core/work-log";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-do";
 import type { RpcResult } from "../rpc-result";
 
@@ -573,6 +582,71 @@ apiRoutes.get("/api/work-logs", requireAuth, async (c) => {
   }));
 
   return c.json<WorkLogsResponse>({ workLogs });
+});
+
+// 実績の手動追加 (TimeReportOverlay「実績を手動で追加」フォーム、2026-07-22)。
+// POST /api/work-intervals (routes/work-intervals.ts, Bearer 認証, hook 用) とは認証経路が別 —
+// こちらはセッション cookie (requireAuth) で、body の形は WorkIntervalRequest と同じ ISO 文字列の
+// start/end (web 側が datetime-local → ISO に変換して送る、sync/workLogEntry.ts 参照)。
+// owner アカウント解決は行わない — work-intervals.ts と同じ理由 (Google アカウントに紐付かない
+// アプリ固有データなので、profileId だけで書ける)。agent 未指定時は resolveManualWorkLogAgent が
+// "manual" を補い、これを見て web 側が hook 記録と手動記録を区別する。
+apiRoutes.post("/api/work-logs", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  let body: WorkLogCreateRequest;
+  try {
+    body = await c.req.json<WorkLogCreateRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (
+    typeof body?.start !== "string" ||
+    typeof body?.end !== "string" ||
+    typeof body?.repo !== "string"
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const validationError = validateWorkLogInput({
+    startIso: body.start,
+    endIso: body.end,
+    repo: body.repo,
+  });
+  if (validationError) {
+    return c.json<ApiError>({ error: validationError }, 400);
+  }
+
+  const row = buildWorkLogRow(
+    crypto.randomUUID(),
+    profileId,
+    {
+      startIso: body.start,
+      endIso: body.end,
+      repo: body.repo,
+      branch: body.branch,
+      issueRef: body.issueRef,
+      agent: resolveManualWorkLogAgent(body.agent),
+    },
+    Date.now(),
+  );
+  await insertWorkLog(c.env, row);
+
+  return c.json<WorkLogCreateResponse>({ id: row.id }, 200);
+});
+
+// 実績の手動削除 (手入力の訂正用、2026-07-22)。対象は id が指すプロファイル自身の work_log 行のみ
+// — 他プロファイルの id は「無い id」と区別せず 403 にする (block-rules/mcp-tokens と同じ方針)。
+// 所有チェック・DELETE 本体は core/work-log.ts の deleteWorkLog に切り出してある。
+apiRoutes.delete("/api/work-logs/:id", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  const id = c.req.param("id");
+
+  const result = await deleteWorkLog(c.env, profileId, id);
+  if (result === "not_found") {
+    return c.json<ApiError>({ error: "work_log_not_found" }, 403);
+  }
+  return c.body(null, 204);
 });
 
 apiRoutes.get("/api/calendars", requireAuth, async (c) => {

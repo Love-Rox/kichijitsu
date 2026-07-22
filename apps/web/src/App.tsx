@@ -33,6 +33,7 @@ import type {
   TasksSyncRequest,
   TasksSyncResponse,
   WatchRequest,
+  WorkLogCreateRequest,
   WorkLogDTO,
   WorkLogsResponse,
 } from "@kichijitsu/shared";
@@ -2302,19 +2303,23 @@ function App() {
   // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
   // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
   // needsActualsData のときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
-  // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空のまま
+  // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空配列を返す
   // (レポート表示自体は継続できる、他の実績経路と同じ「取りこぼしより安全側」の方針)。
+  // TimeReportOverlay の手動追加/削除ハンドラ(下の handleCreateWorkLog/handleDeleteWorkLog)からも
+  // 再取得のために呼ぶ、2026-07-22。
+  const fetchWorkLogs = useCallback(async (): Promise<WorkLogDTO[]> => {
+    const res = await checkedFetch("/api/work-logs");
+    if (!res.ok) return [];
+    const data = (await res.json()) as WorkLogsResponse;
+    return data.workLogs;
+  }, [checkedFetch]);
+
   useEffect(() => {
     if (!needsActualsData) return;
     let cancelled = false;
-    checkedFetch("/api/work-logs")
-      .then(async (res) => {
-        if (!res.ok) {
-          if (!cancelled) setReportWorkLogs([]);
-          return;
-        }
-        const data = (await res.json()) as WorkLogsResponse;
-        if (!cancelled) setReportWorkLogs(data.workLogs);
+    fetchWorkLogs()
+      .then((workLogs) => {
+        if (!cancelled) setReportWorkLogs(workLogs);
       })
       .catch((err) => {
         console.warn("kichijitsu: GET /api/work-logs failed", err);
@@ -2323,7 +2328,53 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [needsActualsData, checkedFetch]);
+  }, [needsActualsData, fetchWorkLogs]);
+
+  // TimeReportOverlay の手動追加フォーム/削除ボタンから、書き込み成功後の再取得に使う
+  // (キャンセルガードは持たない — ユーザー操作起点の一回限りの呼び出しで、上の effect と違って
+  // 依存の変化で何度も走ることが無いため実害が薄い、handleCreateBlockRule 等と同じ判断)。
+  const refetchWorkLogs = useCallback(async () => {
+    try {
+      setReportWorkLogs(await fetchWorkLogs());
+    } catch (err) {
+      console.warn("kichijitsu: GET /api/work-logs (refetch) failed", err);
+    }
+  }, [fetchWorkLogs]);
+
+  // TimeReportOverlay「実績を手動で追加」フォームから呼ぶ(2026-07-22)。POST /api/work-logs は
+  // POST /api/block-rules 等と同じくセッション cookie 認証。成功後は一覧を再取得して即反映する
+  // (サーバーは {id} しか返さないため、楽観的にローカルへ1件追加するより取り直す方が単純)。
+  // 失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateBlockRule と同じ流儀)。
+  const handleCreateWorkLog = useCallback(
+    async (req: WorkLogCreateRequest) => {
+      const res = await checkedFetch("/api/work-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req satisfies WorkLogCreateRequest),
+      });
+      if (!res.ok) {
+        throw new Error(`POST /api/work-logs failed: ${res.status}`);
+      }
+      await refetchWorkLogs();
+    },
+    [checkedFetch, refetchWorkLogs],
+  );
+
+  // TimeReportOverlay の実績ログ一覧、手動エントリ(agent: manual)の削除ボタンから呼ぶ
+  // (2026-07-22)。204 で成功、失敗時は throw して一覧側の行ごとの確認 UI にエラー表示を委ねる
+  // (handleDeleteBlockRule と同じ流儀)。
+  const handleDeleteWorkLog = useCallback(
+    async (id: string) => {
+      const res = await checkedFetch(`/api/work-logs/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        throw new Error(`DELETE /api/work-logs/${id} failed: ${res.status}`);
+      }
+      await refetchWorkLogs();
+    },
+    [checkedFetch, refetchWorkLogs],
+  );
 
   const reportHookActualByLinkedItem = useMemo(
     () =>
@@ -3179,9 +3230,13 @@ function App() {
           plannedBlocks={reportPlannedBlocks}
           timeEntries={reportTimeEntries}
           nowMs={timerNowMs}
+          timeZone={timeZone}
           estimatedByKey={me.github ? prCommitEstimates : {}}
           estimatesLoading={prCommitEstimatesLoading}
           hookActualByLinkedItem={reportHookActualByLinkedItem}
+          workLogs={reportWorkLogs}
+          onCreateWorkLog={handleCreateWorkLog}
+          onDeleteWorkLog={handleDeleteWorkLog}
           onClose={() => setReportOpen(false)}
         />
       )}

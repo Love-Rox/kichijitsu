@@ -56,4 +56,6 @@ export type {
   WorkIntervalResponse,
   WorkLogDTO,
   WorkLogsResponse,
+  WorkLogCreateRequest,
+  WorkLogCreateResponse,
 } from "./protocol";

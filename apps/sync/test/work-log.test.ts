@@ -3,6 +3,7 @@ import {
   aggregateWorkLogs,
   buildWorkLogRow,
   NO_ISSUE_LABEL,
+  resolveManualWorkLogAgent,
   validateWorkLogInput,
   type WorkLogInput,
   type WorkLogListRow,
@@ -98,6 +99,28 @@ describe("buildWorkLogRow", () => {
     expect(full.branch).toBe("feat/x");
     expect(full.issueRef).toBe("42");
     expect(full.agent).toBe("claude-code");
+  });
+});
+
+describe("resolveManualWorkLogAgent", () => {
+  it("returns 'manual' when agent is undefined", () => {
+    expect(resolveManualWorkLogAgent(undefined)).toBe("manual");
+  });
+
+  it("returns 'manual' for an empty string", () => {
+    expect(resolveManualWorkLogAgent("")).toBe("manual");
+  });
+
+  it("returns 'manual' for a whitespace-only string", () => {
+    expect(resolveManualWorkLogAgent("   ")).toBe("manual");
+  });
+
+  it("trims and returns a given agent as-is", () => {
+    expect(resolveManualWorkLogAgent("  claude-code  ")).toBe("claude-code");
+  });
+
+  it("passes through a plain agent unchanged", () => {
+    expect(resolveManualWorkLogAgent("codex-cli")).toBe("codex-cli");
   });
 });
 

@@ -609,3 +609,25 @@ export interface WorkLogDTO {
 export interface WorkLogsResponse {
   workLogs: WorkLogDTO[];
 }
+
+/**
+ * POST /api/work-logs (cookie 認証、手動入力用) — TimeReportOverlay の「実績を手動で追加」フォームが
+ * 呼ぶ、work-log の書き込み経路その2 (hook 用の POST /api/work-intervals は Bearer 認証で別経路の
+ * まま変更していない)。body は WorkIntervalRequest と同じ ISO 文字列の start/end
+ * (web 側は datetime-local の値を apps/web/src/sync/workLogEntry.ts で ISO に変換してから送る —
+ * サーバー側の検証・保存 (core/work-log.ts の validateWorkLogInput/buildWorkLogRow) を hook 経路と
+ * そのまま共有するため)。agent を省略するとサーバー側 (resolveManualWorkLogAgent) が "manual" を
+ * 補い、これが hook 記録 (agent: "claude-code" 等) と手動記録を見分ける目印になる。
+ */
+export interface WorkLogCreateRequest {
+  start: string;
+  end: string;
+  repo: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+  timeZone?: string;
+}
+export interface WorkLogCreateResponse {
+  id: string;
+}
