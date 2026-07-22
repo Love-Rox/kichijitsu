@@ -58,6 +58,44 @@ function tauriInvoke(cmd: string, args: Record<string, unknown>): Promise<unknow
 }
 
 /**
+ * gh のパス上書き(設定画面「gh のパス」、Tauri のみ)の localStorage キー。
+ * 空/未設定なら Rust 側 (select_gh_binary) の自動検出にフォールバックする。GUI 起動で PATH に
+ * gh が無い環境向けの v0.1.6 自動検出(resolve_gh_path)でも拾えない非標準の場所(nvm/asdf 配下や
+ * 独自インストール等)に置いている人向けの手動指定。
+ */
+const GH_PATH_STORAGE_KEY = "kichijitsu:ghPath";
+
+/** 保存された gh パス上書きを読む(前後空白は除去、未設定は空文字)。 */
+export function getGhPathOverride(): string {
+  try {
+    return window.localStorage.getItem(GH_PATH_STORAGE_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** gh パス上書きを保存する。空文字なら削除して自動検出に戻す。 */
+export function setGhPathOverride(path: string): void {
+  try {
+    const trimmed = path.trim();
+    if (trimmed) window.localStorage.setItem(GH_PATH_STORAGE_KEY, trimmed);
+    else window.localStorage.removeItem(GH_PATH_STORAGE_KEY);
+  } catch {
+    /* localStorage 不可(プライベートモード等)は握りつぶす — 上書きが効かないだけ */
+  }
+}
+
+/**
+ * `gh_api` command 呼び出しの共通ラッパー。設定の gh パス上書き(getGhPathOverride)があれば
+ * `ghPath`(Tauri v2 が Rust の `gh_path: Option<String>` にマップ)を添えて渡す。空なら付けない
+ * (Rust 側の自動検出に委ねる)。旧デスクトップ(gh_path 未対応)では余分な引数は無視されるため安全。
+ */
+function ghApiInvoke(endpoint: string): Promise<unknown> {
+  const ghPath = getGhPathOverride();
+  return tauriInvoke("gh_api", ghPath ? { endpoint, ghPath } : { endpoint });
+}
+
+/**
  * 作業キューを構成する3クエリ (sync 側 core/github-queue.ts と同一。`@me` は gh が
  * 認証ユーザーに解決する)。gh の endpoint は `gh api <endpoint>` の第1引数。
  */
@@ -153,7 +191,7 @@ export async function fetchWorkQueueViaGh(): Promise<GitHubWorkItemDTO[]> {
 
   for (const { kind, endpoint } of WORK_QUEUE_ENDPOINTS) {
     try {
-      const stdout = (await tauriInvoke("gh_api", { endpoint })) as string;
+      const stdout = (await ghApiInvoke(endpoint)) as string;
       const body = JSON.parse(stdout) as GhSearchResponse;
       results.push({ kind, body });
     } catch (err) {
@@ -194,9 +232,9 @@ const MAX_REPOS = 50;
  * 「本当はもっとあるかもしれない」ことだけ warn する。
  */
 async function discoverRepos(): Promise<GhRepoRef[]> {
-  const stdout = (await tauriInvoke("gh_api", {
-    endpoint: `user/repos?per_page=${MAX_REPOS}&sort=updated`,
-  })) as string;
+  const stdout = (await ghApiInvoke(
+    `user/repos?per_page=${MAX_REPOS}&sort=updated`,
+  )) as string;
   const raw = JSON.parse(stdout) as GhRawRepo[];
 
   if (raw.length >= MAX_REPOS) {
@@ -212,7 +250,7 @@ async function discoverRepos(): Promise<GhRepoRef[]> {
 
 /** `gh api user` から認証ユーザーの login を解決する。activity/pr-commits で共用する。 */
 async function resolveGhLogin(): Promise<string> {
-  const stdout = (await tauriInvoke("gh_api", { endpoint: "user" })) as string;
+  const stdout = (await ghApiInvoke("user")) as string;
   const body = JSON.parse(stdout) as { login: string };
   return body.login;
 }
@@ -237,7 +275,7 @@ async function paginateGhApi<T>(
 
   for (let page = 1; page <= maxPages; page++) {
     const endpoint = `${endpointBase}${sep}per_page=${GH_PER_PAGE}&page=${page}`;
-    const stdout = (await tauriInvoke("gh_api", { endpoint })) as string;
+    const stdout = (await ghApiInvoke(endpoint)) as string;
     const body = JSON.parse(stdout) as unknown;
     const pageItems = extractItems(body);
     results.push(...pageItems);
