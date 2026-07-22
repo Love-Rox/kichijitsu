@@ -165,6 +165,7 @@ import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
 import { stepAnchor } from "./layout/dayGrid";
 import { effectivePaneMode, shouldCloseOtherPaneOnOpen, type PaneMode } from "./layout/paneMode";
 import { resolveMiniMonthNavigation } from "./layout/miniMonth";
+import { addToSet, removeFromSet } from "./layout/setOps";
 import "./App.css";
 
 /**
@@ -395,6 +396,14 @@ function App() {
   // 独立していて、非表示にしても同期は止めない(左ペイン増分2、db/database.ts の
   // getHiddenTaskLists コメント参照)
   const [taskListsByAccount, setTaskListsByAccount] = useState<Record<string, TaskListDTO[]>>({});
+  // tasks スコープ未付与のアカウント id 集合(docs/google-tasks.md、2026-07-20 追加の
+  // .../auth/tasks スコープより前に連携した、または granular consent で外したアカウント)。
+  // GET /api/tasklists が 403 を返したアカウントをここに覚えておき、設定モーダルで
+  // 「再連携」導線を出す(そのまま静かにスキップするだけだとタスクが無言で消え、原因に
+  // 気づけないため)。200 で取れたアカウントは外す ―― 再連携でスコープを得たら消える。
+  const [tasksScopeMissingAccounts, setTasksScopeMissingAccounts] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   // タスクリスト表示 ON/OFF(左ペイン増分2、2026-07-22)。visibleCalendars とは逆に
   // 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を持つ(デフォルト全 ON、
   // db/database.ts の getHiddenTaskLists 参照)。カレンダー選択と非対称にサーバー同期は
@@ -1239,7 +1248,13 @@ function App() {
           const res = await checkedFetch(
             `/api/tasklists?accountId=${encodeURIComponent(account.id)}`,
           );
-          if (res.status === 403) continue; // tasks スコープ未付与: 静かにスキップ
+          if (res.status === 403) {
+            // tasks スコープ未付与: タスク一覧の取得自体は静かにスキップしつつ、
+            // 設定モーダルの再連携導線用にアカウント id を覚えておく(挙動は従来どおり)。
+            if (isCancelled()) return;
+            setTasksScopeMissingAccounts((prev) => addToSet(prev, account.id));
+            continue;
+          }
           if (!res.ok) {
             console.warn(`kichijitsu: GET /api/tasklists failed (${account.id}): ${res.status}`);
             continue;
@@ -1247,6 +1262,8 @@ function App() {
           const data = (await res.json()) as TaskListsResponse;
           if (isCancelled()) return;
           setTaskListsByAccount((prev) => ({ ...prev, [account.id]: data.taskLists }));
+          // スコープを得られた(200)ので未付与集合から外す ―― 再連携後の再取得で消える
+          setTasksScopeMissingAccounts((prev) => removeFromSet(prev, account.id));
         } catch (err) {
           console.warn("kichijitsu: failed to load task lists", err);
         }
@@ -1674,6 +1691,7 @@ function App() {
         return rest;
       });
       fetchedTaskAccountsRef.current.delete(accountId);
+      setTasksScopeMissingAccounts((prev) => removeFromSet(prev, accountId));
       for (const key of [...autoSyncedTaskListsRef.current]) {
         if (key.startsWith(`${accountId}:`)) autoSyncedTaskListsRef.current.delete(key);
       }
@@ -3192,6 +3210,13 @@ function App() {
           accounts={me.accounts}
           onDisconnectAccount={handleDisconnectAccount}
           onAddAccount={() => {
+            window.location.href = "/auth/login?add=1";
+          }}
+          tasksScopeMissingAccounts={tasksScopeMissingAccounts}
+          onReconnectAccount={() => {
+            // 同じ Google アカウントを選び直せば prompt=consent (apps/sync の oauth.ts) で
+            // 同意画面が再表示され、2026-07-20 追加の tasks スコープが付与される。
+            // 遷移先は「+ アカウントを追加」と同じ /auth/login?add=1(同一アカウント選択=再同意)。
             window.location.href = "/auth/login?add=1";
           }}
           onOpenBlockRules={() => {

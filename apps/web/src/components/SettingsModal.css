@@ -156,6 +156,19 @@
   text-decoration: underline;
 }
 
+/*
+ * tasks スコープ未付与アカウントの再連携ヒント(docs/google-tasks.md、2026-07-20 追加スコープ)。
+ * GitHub の再連携ヒント (.settings-modal-github-expired) と同じレイアウト・朱色で揃える。
+ */
+.settings-modal-tasks-scope-missing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #d7402e;
+}
+
 /* GitHub 連携セクション本体 */
 .settings-modal-github-connected {
   display: flex;

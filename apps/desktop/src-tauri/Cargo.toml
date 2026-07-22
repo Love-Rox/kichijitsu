@@ -3,7 +3,7 @@ name = "kichijitsu-desktop"
 # バージョンは tauri.conf.json / package.json と必ず揃えること。
 # app_version コマンドは env!("CARGO_PKG_VERSION")(= この値)を返すため、
 # ここがズレると設定画面の「アプリ vX.Y.Z」表示が実バージョンと食い違う。
-version = "0.1.5"
+version = "0.1.6"
 description = "kichijitsu desktop shell (reads the production web app via a remote URL webview)"
 authors = ["Love-Rox"]
 license = ""

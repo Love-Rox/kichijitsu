@@ -120,12 +120,54 @@ fn is_allowed_gh_endpoint(endpoint: &str) -> bool {
     }
 }
 
+/// GUI アプリ(Dock/Finder 起動)は最小 PATH しか持たず、Homebrew 等の bin ディレクトリを
+/// 含まない。そこで `gh` の実体を、よくあるインストール先を順に見て解決する。見つからなければ
+/// `"gh"`(PATH 頼み)にフォールバックする。
+///
+/// macOS の GUI プロセスの PATH は通常 `/usr/bin:/bin:/usr/sbin:/sbin` だけで、
+/// Homebrew(Apple Silicon の `/opt/homebrew/bin`、Intel の `/usr/local/bin`)が入らない。
+/// ターミナルでは `gh` が動くのにデスクトップアプリからは「gh 不在」で失敗する典型原因。
+/// 候補パスは他 OS では単に存在せず、最後の `"gh"` フォールバックに落ちるだけなので無害。
+fn resolve_gh_path() -> std::path::PathBuf {
+    const CANDIDATES: &[&str] = &[
+        "/opt/homebrew/bin/gh", // macOS (Apple Silicon) Homebrew
+        "/usr/local/bin/gh",    // macOS (Intel) Homebrew / 一般的な /usr/local
+        "/usr/bin/gh",          // Linux 等のパッケージ
+    ];
+    for c in CANDIDATES {
+        let p = std::path::Path::new(c);
+        if p.exists() {
+            return p.to_path_buf();
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let p = std::path::Path::new(&home).join(".local/bin/gh");
+        if p.exists() {
+            return p;
+        }
+    }
+    std::path::PathBuf::from("gh")
+}
+
+/// 子プロセス(gh、および gh が内部で呼ぶ git 等)向けに、Homebrew 等の bin を先頭に補った
+/// PATH を作る。GUI 起動時の痩せた PATH でも gh とその依存が見つかるようにする。
+fn augmented_path() -> String {
+    let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
+    match std::env::var("PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{extra}:{existing}"),
+        _ => extra.to_string(),
+    }
+}
+
 /// `gh api <endpoint>` を実行し stdout(GitHub REST の生 JSON 文字列)を返す。
 ///
-/// - **非シェル実行**: `std::process::Command::new("gh").arg("api").arg(endpoint)` で
+/// - **非シェル実行**: `std::process::Command::new(<gh の実体パス>).arg("api").arg(endpoint)` で
 ///   直接プロセスを起動する。シェル(`sh -c`)を介さないため、`endpoint` に何が来ても
 ///   シェルインジェクションは起きない。呼べるのは常に `gh api <一引数>` だけで、
 ///   任意コマンド実行はできない(`endpoint` は search クエリ等の API パスのみを想定)。
+/// - **PATH 解決**: GUI アプリの痩せた PATH では bare `"gh"` の spawn が「不在」で失敗するため、
+///   `resolve_gh_path()` で実体を解決し、`augmented_path()` で子プロセスの PATH も補う
+///   (macOS の Dock 起動で Homebrew の gh が見つからない問題への対処)。
 /// - **ホワイトリスト**: プロセス起動前に `is_allowed_gh_endpoint` で `endpoint` の
 ///   形状を検査する。web 側がリモート URL 経由で XSS を受けても、任意の GitHub
 ///   API を叩けないようにするための境界(ファイル先頭コメント・
@@ -143,9 +185,10 @@ async fn gh_api(endpoint: String) -> Result<String, String> {
         ));
     }
 
-    let output = std::process::Command::new("gh")
+    let output = std::process::Command::new(resolve_gh_path())
         .arg("api")
         .arg(&endpoint)
+        .env("PATH", augmented_path())
         .output()
         .map_err(|e| {
             format!("gh の起動に失敗しました({e})。gh CLI が未インストールの可能性があります")

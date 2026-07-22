@@ -10,6 +10,19 @@ export interface SettingsModalProps {
   /** 成功すれば解決、失敗すれば reject する。エラー表示はこのコンポーネント側(行ごとの確認 UI)が持つ */
   onDisconnectAccount: (accountId: string) => Promise<void>;
   onAddAccount: () => void;
+  /**
+   * tasks スコープ未付与のアカウント id 集合(docs/google-tasks.md、2026-07-20 追加の
+   * .../auth/tasks スコープ)。GET /api/tasklists が 403 を返したアカウントが入る。
+   * このセットに含まれる行に「タスクを表示するには再連携が必要です」ヒント + 再連携導線を出す。
+   * undefined(呼び出し元が未対応)なら空集合扱いで何も出さない。
+   */
+  tasksScopeMissingAccounts?: ReadonlySet<string>;
+  /**
+   * 「再連携」ボタンから呼ぶ(App.tsx 側で /auth/login?add=1 へ遷移する)。同じ Google
+   * アカウントを選び直せば prompt=consent で同意画面が再表示され tasks スコープが付く。
+   * undefined なら再連携ボタンを出さない(ヒント文だけになる)。
+   */
+  onReconnectAccount?: () => void;
   /** カレンダーブロック設定オーバーレイ(docs/blocking.md)を開く導線。App.tsx 側で開閉制御する */
   onOpenBlockRules?: () => void;
   /**
@@ -56,6 +69,8 @@ export function SettingsModal({
   accounts,
   onDisconnectAccount,
   onAddAccount,
+  tasksScopeMissingAccounts,
+  onReconnectAccount,
   onOpenBlockRules,
   githubLogin,
   githubAuthExpired,
@@ -118,6 +133,20 @@ export function SettingsModal({
             <div className="settings-modal-account" key={account.id}>
               <div className="settings-modal-account-header">{account.email}</div>
               <AccountDisconnectControl accountId={account.id} onDisconnect={onDisconnectAccount} />
+              {tasksScopeMissingAccounts?.has(account.id) && (
+                <p className="settings-modal-tasks-scope-missing">
+                  タスクを表示するには再連携が必要です。
+                  {onReconnectAccount && (
+                    <button
+                      type="button"
+                      className="settings-modal-text-btn"
+                      onClick={onReconnectAccount}
+                    >
+                      再連携
+                    </button>
+                  )}
+                </p>
+              )}
             </div>
           ))}
           <button type="button" className="settings-modal-add-account" onClick={onAddAccount}>
