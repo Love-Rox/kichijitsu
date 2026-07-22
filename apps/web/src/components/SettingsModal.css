@@ -336,3 +336,49 @@
     max-height: min(92vh, 720px);
   }
 }
+
+/* gh のパス上書き(GitHub セクション内・デスクトップのみ、2026-07-23) */
+.settings-modal-gh-path {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9e4da;
+}
+
+.settings-modal-gh-path-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+  margin-bottom: 6px;
+}
+
+.settings-modal-gh-path-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-modal-gh-path-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid #dcd6c9;
+  border-radius: 8px;
+  background: #fff;
+  color: #24211e;
+}
+
+.settings-modal-gh-path-input:focus-visible {
+  outline: 2px solid #d7402e;
+  outline-offset: 1px;
+  border-color: #d7402e;
+}
+
+.settings-modal-gh-path-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #8a8478;
+}

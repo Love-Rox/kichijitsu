@@ -159,33 +159,53 @@ fn augmented_path() -> String {
     }
 }
 
+/// 使用する gh バイナリを決める。設定画面(web 側 localStorage)で明示パスが指定されていれば
+/// (`gh_path`、Tauri のみ表示の「gh のパス」入力)それを検証して使い、空/未指定なら
+/// `resolve_gh_path()` の自動検出にフォールバックする。指定されたのに実在しない場合は、
+/// spawn の分かりにくいエラーにせず「指定した gh のパスが存在しません」と明示して返す。
+fn select_gh_binary(override_path: Option<String>) -> Result<std::path::PathBuf, String> {
+    if let Some(p) = override_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            let path = std::path::PathBuf::from(trimmed);
+            if !path.exists() {
+                return Err(format!("指定した gh のパスが存在しません: {trimmed}"));
+            }
+            return Ok(path);
+        }
+    }
+    Ok(resolve_gh_path())
+}
+
 /// `gh api <endpoint>` を実行し stdout(GitHub REST の生 JSON 文字列)を返す。
 ///
 /// - **非シェル実行**: `std::process::Command::new(<gh の実体パス>).arg("api").arg(endpoint)` で
 ///   直接プロセスを起動する。シェル(`sh -c`)を介さないため、`endpoint` に何が来ても
 ///   シェルインジェクションは起きない。呼べるのは常に `gh api <一引数>` だけで、
 ///   任意コマンド実行はできない(`endpoint` は search クエリ等の API パスのみを想定)。
-/// - **PATH 解決**: GUI アプリの痩せた PATH では bare `"gh"` の spawn が「不在」で失敗するため、
-///   `resolve_gh_path()` で実体を解決し、`augmented_path()` で子プロセスの PATH も補う
-///   (macOS の Dock 起動で Homebrew の gh が見つからない問題への対処)。
+/// - **パス解決**: `gh_path`(設定画面での上書き、任意)があればそれを、無ければ
+///   `resolve_gh_path()` で実体を解決し(`select_gh_binary`)、`augmented_path()` で子プロセスの
+///   PATH も補う(macOS の Dock 起動で Homebrew の gh が見つからない問題への対処)。
 /// - **ホワイトリスト**: プロセス起動前に `is_allowed_gh_endpoint` で `endpoint` の
 ///   形状を検査する。web 側がリモート URL 経由で XSS を受けても、任意の GitHub
 ///   API を叩けないようにするための境界(ファイル先頭コメント・
-///   `is_allowed_gh_endpoint` のドキュメントコメント参照)。
+///   `is_allowed_gh_endpoint` のドキュメントコメント参照)。`gh_path` は任意コマンド実行には
+///   使えない(あくまで `gh` バイナリの場所指定であり、endpoint 側の制約は不変)。
 /// - `gh` 不在は spawn 失敗として、未ログイン等の API エラーは非0終了の stderr として
 ///   分かるエラーメッセージにして Err で返す(web 側はフォールバックできる)。
 ///
 /// 注: これはアプリ自前の command なので、Tauri v2 では capability(ACL)の追加許可は
 /// 不要(プラグイン command と違い application command は invoke 可能)。
 #[tauri::command]
-async fn gh_api(endpoint: String) -> Result<String, String> {
+async fn gh_api(endpoint: String, gh_path: Option<String>) -> Result<String, String> {
     if !is_allowed_gh_endpoint(&endpoint) {
         return Err(format!(
             "gh api endpoint がホワイトリスト外のため拒否しました: {endpoint}"
         ));
     }
 
-    let output = std::process::Command::new(resolve_gh_path())
+    let gh_bin = select_gh_binary(gh_path)?;
+    let output = std::process::Command::new(gh_bin)
         .arg("api")
         .arg(&endpoint)
         .env("PATH", augmented_path())

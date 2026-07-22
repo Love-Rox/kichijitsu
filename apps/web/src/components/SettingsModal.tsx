@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
 import { mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
+import { getGhPathOverride, isTauri, setGhPathOverride } from "../sync/githubProvider";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
 import "./SettingsModal.css";
@@ -186,6 +187,9 @@ export function SettingsModal({
                 </button>
               </p>
             )}
+            {/* デスクトップ(Tauri)のみ: gh のパスを手動指定できる。GUI 起動で PATH に gh が無く、
+                自動検出(resolve_gh_path)でも拾えない非標準の場所に置いている人向け。 */}
+            {isTauri() && <GhPathOverrideControl />}
           </section>
         )}
 
@@ -356,6 +360,55 @@ function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise
       </button>
       {state === "error" && <span className="settings-modal-error">解除失敗</span>}
     </span>
+  );
+}
+
+/**
+ * gh のパス上書き(デスクトップ=Tauri のみ、GitHub セクション内)。ローカル gh CLI 経由で GitHub
+ * データを取るデスクトップ版で、GUI 起動時に PATH へ gh が無く、自動検出(Rust の resolve_gh_path)
+ * でも拾えない非標準の場所(nvm/asdf 配下・独自インストール等)に gh を置いている人向けの手動指定。
+ * 値は localStorage(getGhPathOverride/setGhPathOverride)に保存し、次の GitHub 取得(再読み込み・
+ * 更新ボタン)から効く。空にすると自動検出へ戻る。
+ */
+function GhPathOverrideControl() {
+  const [value, setValue] = useState(() => getGhPathOverride());
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    setGhPathOverride(value);
+    setSaved(true);
+  };
+
+  return (
+    <div className="settings-modal-gh-path">
+      <label className="settings-modal-gh-path-label" htmlFor="settings-gh-path">
+        gh のパス(任意)
+      </label>
+      <div className="settings-modal-gh-path-row">
+        <input
+          id="settings-gh-path"
+          type="text"
+          className="settings-modal-gh-path-input"
+          placeholder="空=自動検出 (例: /opt/homebrew/bin/gh)"
+          value={value}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          onChange={(e) => {
+            setValue(e.target.value);
+            setSaved(false);
+          }}
+        />
+        <button type="button" className="settings-modal-text-btn" onClick={save}>
+          保存
+        </button>
+      </div>
+      <p className="settings-modal-gh-path-hint">
+        {saved
+          ? "保存しました。再読み込み(⌘R)で GitHub 表示に反映されます。"
+          : "GitHub が表示されないとき、gh の場所を手動指定できます。空欄で自動検出に戻ります。"}
+      </p>
+    </div>
   );
 }
 
