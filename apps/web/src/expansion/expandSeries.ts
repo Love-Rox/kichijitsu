@@ -298,6 +298,9 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     // 不在レール表示 (2026-07-22 バグ修正)。override 側で明示的に立っていればそれを優先し、
     // 無ければシリーズ全体の値を使う (hasCustomColor と同じフォールバックの形)。
     const isOutOfOffice = override?.patch?.isOutOfOffice ?? series.isOutOfOffice;
+    // 勤務場所の控えめ表示 (2026-07-22)。isOutOfOffice と全く同じフォールバックの形
+    // (override 側にキーがあればそれを優先し、無ければシリーズ全体の値を使う)。
+    const isWorkingLocation = override?.patch?.isWorkingLocation ?? series.isWorkingLocation;
     // 参加ステータス表示 (RSVP、2026-07-22)。isOutOfOffice と全く同じフォールバックの形
     // (override 側にキーがあればそれを優先し、無ければシリーズ全体の値を使う)。
     const responseStatus = override?.patch?.responseStatus ?? series.responseStatus;
@@ -325,6 +328,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       description,
       originalStartMs,
       ...(isOutOfOffice ? { isOutOfOffice: true } : {}),
+      ...(isWorkingLocation ? { isWorkingLocation: true } : {}),
       ...(responseStatus ? { responseStatus } : {}),
       ...(isOrganizer ? { isOrganizer: true } : {}),
       ...(hasConference ? { hasConference: true } : {}),

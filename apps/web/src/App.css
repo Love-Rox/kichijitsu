@@ -82,15 +82,17 @@
   gap: 12px;
 }
 
-/* position: relative は CalendarSettingsPanel (.calendar-panel) の絶対配置アンカー */
 .toolbar-account {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* アカウント表示部(クリックでカレンダー設定パネルを開閉)。1件なら email、複数なら件数表示 */
+/*
+ * アカウント表示部(クリックで設定モーダル SettingsModal を開閉)。1件なら email、複数なら
+ * 件数表示。SettingsModal は画面中央固定のモーダル(UI 改善、2026-07-22)になったため、
+ * かつてこの要素が担っていた絶対配置ポップオーバーのアンカー(position: relative)は不要になった。
+ */
 .account-summary {
   display: inline-flex;
   align-items: center;
@@ -340,7 +342,8 @@
  * 視覚的高さを目安に、副次要素(ワードマーク・オフライン文言・アカウント email 文言・
  * ?ヘルプ)を隠して主要動線(ロゴ枡・←今日→・検索・ビュー切替・同期・アカウント⚙・
  * カレンダー開閉)だけを1行に残す。プライバシー/規約は増分3(2026-07-22)で CalendarPane
- * フッターおよび CalendarSettingsPanel 下部(.calendar-panel-legal)へ移設してあるので、
+ * フッターおよび設定モーダル下部(SettingsModal.css の .settings-modal-legal、旧
+ * CalendarSettingsPanel の .calendar-panel-legal)へ移設してあるので、
  * ログイン済みならヘッダーから消してもリンク自体は失われない。App.tsx
  * useMediaQuery('(max-width: 640px)') と揃える。
  *

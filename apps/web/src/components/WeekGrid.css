@@ -187,6 +187,26 @@
   border: 1.5px solid var(--rsvp-color, currentColor);
 }
 
+/*
+ * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22、ユーザー要望「主張しすぎ。他の予定を
+ * 邪魔しないくらいに」)。色チップ(背景・左ボーダー)を一切持たせず、薄墨の小さなテキストのみ
+ * にする ―― カレンダー色を使わない点は .month-chip--ooo と同じ考え方だが、あちらと違い
+ * 背景も枠も無しの「地の文に近い」見た目にする(不在のように「場が空いていない」ことを
+ * 強く主張する必要が無いため)。PlaceIcon はタイトル側 (AllDayBar.tsx) で先頭に差し込む。
+ */
+.allday-bar--working-location {
+  border-left: none;
+  padding-left: 2px;
+}
+
+.allday-bar--working-location .allday-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #8a8478;
+}
+
 /* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
 .allday-overflow {
   box-sizing: border-box;
@@ -694,8 +714,14 @@
  * 背景透明+全周ボーダーに切り替え済みなので、ここでは tentative/declined の2つだけを
  * クラスで表現する(要件どおり: tentative=半透明、declined=タイトル打ち消し線+全体を淡色に)。
  */
+/*
+ * tentative (仮の参加) は要素全体の opacity では下のカード(同じカレンダー色で重なると
+ * 特に)が透けて読みづらくなるため、カード自体は不透明のまま、背景色の上に白半透明を
+ * 重ねて色だけを淡く洗う (ユーザー要望 2026-07-22)。左ボーダーのカレンダー色は
+ * EventBlock.tsx の style 計算でそのまま残るので、淡くしても所属は判別できる。
+ */
 .event--rsvp-tentative {
-  opacity: 0.55;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5));
 }
 
 .event--rsvp-declined {
@@ -704,6 +730,15 @@
 
 .event--rsvp-declined .event-title {
   text-decoration: line-through;
+}
+
+/*
+ * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。稀に時刻付きで届いた場合の保険
+ * (要件どおり opacity 0.5 + 枠なし)。背景・左ボーダーは EventBlock.tsx 側の style 計算で
+ * transparent/none に差し替え済み ―― このクラスは文字自体を薄くする opacity のみを担う。
+ */
+.event--working-location {
+  opacity: 0.5;
 }
 
 .event-header-row {

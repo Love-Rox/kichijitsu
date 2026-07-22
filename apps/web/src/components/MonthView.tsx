@@ -29,6 +29,7 @@ import {
 import { resolveDisplayColor } from "../layout/eventColors";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
+import { PlaceIcon } from "./icons";
 import "./MonthView.css";
 
 interface MonthViewProps {
@@ -218,13 +219,18 @@ export function MonthView({
                       // 付けて視覚的にも見分けられるようにする(要件: カードとしての
                       // 描画だけを変える。検索結果・詳細表示は従来どおり)
                       const isOoo = chip.group.primary.isOutOfOffice === true;
+                      // 勤務場所の控えめ表示 (2026-07-22、ユーザー要望)。OOO と同じく専用の
+                      // 配色分岐にする ―― 通常チップの色を殺して薄墨固定にし、先頭に PlaceIcon を
+                      // 添えるだけに留める(色チップ・強い枠は使わない、要件「色なし・小さく」)。
+                      const isWorkingLocation = chip.group.primary.isWorkingLocation === true;
                       const color = resolveDisplayColor(chip.group.primary, calendarLookup);
                       // 参加ステータス表示 (RSVP、2026-07-22)。月表示にはレール概念が無いため
                       // EventBlock ほど作り込まず、declined の line-through+淡色と needsAction の
                       // 輪郭表現(塗りなし・カレンダー色の枠)だけを最小限適用する(要件どおり)。
-                      // OOO 予定は attendees を持たないのが通常なので、isOoo を優先し RSVP 装飾とは
-                      // 排他的に扱う(理論上の重複ケースでも OOO の見た目を優先する)。
-                      const responseStatus = isOoo ? undefined : chip.group.primary.responseStatus;
+                      // OOO/勤務場所は attendees を持たないのが通常なので、そちらを優先し RSVP
+                      // 装飾とは排他的に扱う(理論上の重複ケースでも OOO/勤務場所の見た目を優先)。
+                      const responseStatus =
+                        isOoo || isWorkingLocation ? undefined : chip.group.primary.responseStatus;
                       const isDeclined = responseStatus === "declined";
                       const isNeedsAction = responseStatus === "needsAction";
                       return (
@@ -235,13 +241,14 @@ export function MonthView({
                             "month-chip",
                             `month-chip--${chip.kind}`,
                             isOoo ? "month-chip--ooo" : "",
+                            isWorkingLocation ? "month-chip--working-location" : "",
                             isDeclined ? "month-chip--declined" : "",
                             isNeedsAction ? "month-chip--needs-action" : "",
                           ]
                             .filter(Boolean)
                             .join(" ")}
                           style={
-                            isOoo
+                            isOoo || isWorkingLocation
                               ? undefined
                               : isNeedsAction
                                 ? ({ "--rsvp-color": color } as CSSProperties)
@@ -258,6 +265,7 @@ export function MonthView({
                               {formatTime(chip.startMs, timeZone)}
                             </span>
                           )}
+                          {isWorkingLocation && <PlaceIcon width={9} height={9} />}
                           <span className="month-chip-title">
                             {isOoo ? `× ${chip.title}` : chip.title}
                           </span>

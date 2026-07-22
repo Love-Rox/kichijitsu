@@ -76,7 +76,7 @@ import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
 import { MasuIndicator } from "./components/MasuIndicator";
 import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
-import { CalendarSettingsPanel } from "./components/CalendarSettingsPanel";
+import { SettingsModal } from "./components/SettingsModal";
 import { CalendarPane } from "./components/CalendarPane";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
@@ -498,7 +498,6 @@ function App() {
   // 理論上 db より先に syncCalendarOnce が走ることは無いが、念のため null 許容にしてあり、
   // null のままなら (旧クライアントと同じ) レガシー共有トークン動作にフォールバックする
   const deviceIdRef = useRef<string | null>(null);
-  const accountAreaRef = useRef<HTMLDivElement>(null);
   // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
   // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
   // レンダーごとに更新するだけで、これ自体は再レンダーを起こさない)
@@ -2420,10 +2419,10 @@ function App() {
   // キー→アクションの対応表自体は keyboard/shortcuts.ts の純関数 (resolveShortcut) に
   // 切り出してあり、テストはそちらで行う。ここでは:
   //   1. 入力中(input/textarea/contenteditable)なら常に無視
-  //   2. Escape は最前面のオーバーレイ(ヘルプ)だけを閉じる。詳細ポップオーバー・設定パネルは
-  //      各自の Escape リスナー (useCloseOnOutsideOrEscape / 下の panelOpen effect) が
-  //      既に閉じるので、ここでは二重に処理しない
-  //   3. それ以外のショートカットは、詳細ポップオーバー・設定パネル・ヘルプが開いている間は
+  //   2. Escape は最前面のオーバーレイ(ヘルプ)だけを閉じる。詳細ポップオーバー・設定モーダルは
+  //      各自の Escape リスナー (useCloseOnOutsideOrEscape、SettingsModal も含め全オーバーレイが
+  //      共通で使う) が既に閉じるので、ここでは二重に処理しない
+  //   3. それ以外のショートカットは、詳細ポップオーバー・設定モーダル・ヘルプが開いている間は
   //      発火させない(作成入力は <input> なので 1. のガードで既にカバーされている)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -2438,9 +2437,9 @@ function App() {
         return;
       }
 
-      // 他のオーバーレイ(詳細ポップオーバー・設定パネル・予定検索・ヘルプ自身など)が
+      // 他のオーバーレイ(詳細ポップオーバー・設定モーダル・予定検索・ヘルプ自身など)が
       // 開いている間は無視する。個別に state/class を列挙せず role="dialog" を共通の
-      // 目印にする(EventDetailCard/CalendarSettingsPanel/SearchOverlay/KeyboardHelpOverlay は
+      // 目印にする(EventDetailCard/SettingsModal/SearchOverlay/KeyboardHelpOverlay は
       // いずれも role="dialog" を持つ、既存の流儀)。これにより新しいオーバーレイが増えても
       // ここを更新し忘れる心配がない。
       if (document.querySelector('[role="dialog"]')) return;
@@ -2470,24 +2469,11 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [goToPrev, goToNext, goToToday, switchView, handleNewEventShortcut, isNarrow, helpOpen]);
 
-  // カレンダー設定パネル: 外側クリック・Escape で閉じる
-  useEffect(() => {
-    if (!panelOpen) return;
-    function onPointerDown(e: MouseEvent) {
-      if (accountAreaRef.current && !accountAreaRef.current.contains(e.target as Node)) {
-        setPanelOpen(false);
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setPanelOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [panelOpen]);
+  // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
+  // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した
+  // (BlockRulesOverlay/TimeReportOverlay と同じ流儀)。旧アンカー式ポップオーバー時代は
+  // ツールバーのボタン領域 (accountAreaRef) を基準にした専用リスナーがここに必要だったが、
+  // 中央固定モーダルになったことで App.tsx 側の個別対応は不要になった。
 
   // WeekGrid に渡す「選択中カレンダー」キー集合 (`${accountId}:${calendarId}`)
   const visibleCalendarKeys = useMemo(() => {
@@ -2675,7 +2661,7 @@ function App() {
               <span className="offline-indicator-label">オフライン</span>
             </span>
           )}
-          <div className="toolbar-account" ref={accountAreaRef}>
+          <div className="toolbar-account">
             {me.accounts.length > 0 ? (
               <>
                 <button
@@ -2730,28 +2716,6 @@ function App() {
                 </button>
                 {syncStatus === "error" && <span className="sync-error">同期失敗</span>}
                 {saveError && <span className="sync-error">保存失敗（元に戻しました）</span>}
-                {panelOpen && (
-                  <CalendarSettingsPanel
-                    accounts={me.accounts}
-                    onDisconnectAccount={handleDisconnectAccount}
-                    onAddAccount={() => {
-                      window.location.href = "/auth/login?add=1";
-                    }}
-                    onOpenBlockRules={() => {
-                      setPanelOpen(false);
-                      setBlockOverlayOpen(true);
-                    }}
-                    githubLogin={me.github?.login ?? null}
-                    githubAuthExpired={githubAuthExpired}
-                    onConnectGitHub={() => {
-                      window.location.href = "/auth/github/login";
-                    }}
-                    onDisconnectGitHub={handleDisconnectGitHub}
-                    mcpTokens={mcpTokens}
-                    onCreateMcpToken={handleCreateMcpToken}
-                    onDeleteMcpToken={handleDeleteMcpToken}
-                  />
-                )}
               </>
             ) : (
               <button
@@ -2961,6 +2925,36 @@ function App() {
         )}
       </main>
       {helpOpen && <KeyboardHelpOverlay onClose={() => setHelpOpen(false)} />}
+      {/*
+       * 設定モーダル(UI 改善、2026-07-22、ユーザー要望「中央配置の設定モーダルへ格上げ」)。
+       * 旧 CalendarSettingsPanel はツールバーの .toolbar-account 内にアンカー式ポップオーバーと
+       * して描画していたが、中央固定モーダルになったことでアンカー位置計算が不要になり、
+       * BlockRulesOverlay/SearchOverlay/TimeReportOverlay と同じくオーバーレイ群として
+       * ここ(App 直下)へ移した。開閉制御(panelOpen)自体は変更していない。
+       */}
+      {panelOpen && me.accounts.length > 0 && (
+        <SettingsModal
+          accounts={me.accounts}
+          onDisconnectAccount={handleDisconnectAccount}
+          onAddAccount={() => {
+            window.location.href = "/auth/login?add=1";
+          }}
+          onOpenBlockRules={() => {
+            setPanelOpen(false);
+            setBlockOverlayOpen(true);
+          }}
+          githubLogin={me.github?.login ?? null}
+          githubAuthExpired={githubAuthExpired}
+          onConnectGitHub={() => {
+            window.location.href = "/auth/github/login";
+          }}
+          onDisconnectGitHub={handleDisconnectGitHub}
+          mcpTokens={mcpTokens}
+          onCreateMcpToken={handleCreateMcpToken}
+          onDeleteMcpToken={handleDeleteMcpToken}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
       {blockOverlayOpen && me.connected && (
         <BlockRulesOverlay
           accounts={me.accounts}

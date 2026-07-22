@@ -153,11 +153,50 @@
   margin-top: 8px;
 }
 
-.calendar-pane-group-title {
+/*
+ * グループ見出し(マイカレンダー/他のカレンダー/タスクリスト、折りたたみトグルを兼ねる、
+ * 2026-07-22)。.calendar-pane-account-header(アカウント折りたたみ)と全く同じ appearance
+ * リセット・▸/▾ の折りたたみインジケーターの流儀を、一回り小さいグループ単位に適用する。
+ */
+.calendar-pane-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 2px 0;
   margin: 0 0 2px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-pane-group-header:hover .calendar-pane-group-title {
+  color: #24211e;
+}
+
+.calendar-pane-group-caret {
+  font-size: 8px;
+  color: #8a8478;
+  flex: none;
+}
+
+.calendar-pane-group-title {
+  margin: 0;
   font-size: 11px;
   font-weight: 600;
   color: #8a8478;
+}
+
+/*
+ * 「表示」セクション(DisplaySettingsSection)の見出しは折りたたみ不可のため、旧来どおり
+ * <h4> 単体のまま使う(グループ折りたたみの対象は「マイカレンダー」「他のカレンダー」
+ * 「タスクリスト」の3つのみ、CalendarPane.tsx コメント参照)。<h4> のブラウザ既定余白を
+ * 打ち消して旧来の見た目(margin: 0 0 2px)を保つ。
+ */
+h4.calendar-pane-group-title {
+  margin: 0 0 2px;
 }
 
 .calendar-pane-list {

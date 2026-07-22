@@ -1,0 +1,318 @@
+/*
+ * 設定モーダル(UI 改善、2026-07-22)。BlockRulesOverlay.css/TimeReportOverlay.css と同じ
+ * 画面中央固定のモーダル構成・ブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
+ * 生成り #faf7f2)を踏襲する。旧 CalendarSettingsPanel.css のアンカー式ポップオーバー
+ * (position: absolute, width: 300px)は廃止 ―― 幅は要件どおり max-width 560px 程度に広げ、
+ * 縦スクロール可・狭幅ではほぼ全幅にする。
+ */
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.settings-modal-card {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  padding: 20px;
+  text-align: left;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.settings-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.settings-modal-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.settings-modal-close:hover {
+  color: #24211e;
+}
+
+/* セクション見出し付き区切り(BlockRulesOverlay の .block-rules-section と同じ流儀) */
+.settings-modal-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0ece3;
+}
+
+.settings-modal-section:first-of-type {
+  margin-top: 12px;
+}
+
+.settings-modal-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.settings-modal-section-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #55504a;
+}
+
+.settings-modal-empty {
+  font-size: 12px;
+  color: #8a8478;
+  margin: 4px 0 10px;
+}
+
+.settings-modal-account + .settings-modal-account {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f7f4ee;
+}
+
+.settings-modal-account-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #24211e;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-modal-disconnect-row,
+.settings-modal-disconnect-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #55504a;
+}
+
+.settings-modal-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.settings-modal-text-btn:hover:not(:disabled) {
+  color: #24211e;
+}
+
+.settings-modal-text-btn:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.settings-modal-error {
+  font-size: 11px;
+  color: #ef4444;
+}
+
+.settings-modal-add-account {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border: none;
+  border-top: 1px solid #f0ece3;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: #d7402e;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-modal-add-account:hover {
+  text-decoration: underline;
+}
+
+/* GitHub 連携セクション本体 */
+.settings-modal-github-connected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #24211e;
+}
+
+.settings-modal-github-login {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.settings-modal-github-expired {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #d7402e;
+}
+
+/* MCP トークンセクション本体 */
+.settings-modal-mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-modal-mcp-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.settings-modal-mcp-item + .settings-modal-mcp-item {
+  border-top: 1px solid #f7f4ee;
+}
+
+.settings-modal-mcp-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-modal-mcp-item-label {
+  font-size: 13px;
+  color: #24211e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-modal-mcp-item-meta {
+  font-size: 11px;
+  color: #8a8478;
+}
+
+.settings-modal-mcp-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.settings-modal-mcp-label-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #24211e;
+}
+
+.settings-modal-mcp-created {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #f0ece3;
+  border-radius: 6px;
+  background: #fbfaf7;
+}
+
+.settings-modal-mcp-warning {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #d7402e;
+}
+
+.settings-modal-mcp-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-modal-mcp-token-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #24211e;
+  background: #f0ece3;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.settings-modal-mcp-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #8a8478;
+  line-height: 1.5;
+}
+
+.settings-modal-mcp-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+/* プライバシー/規約リンク(旧 .calendar-panel-legal と同内容) */
+.settings-modal-legal {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0ece3;
+}
+
+.settings-modal-legal a {
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: none;
+}
+
+.settings-modal-legal a:hover {
+  color: #24211e;
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .settings-modal-backdrop {
+    padding: 16px;
+  }
+
+  .settings-modal-card {
+    width: calc(100vw - 24px);
+    padding: 14px;
+    max-height: min(92vh, 720px);
+  }
+}

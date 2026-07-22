@@ -676,6 +676,108 @@ describe("mapGoogleEvents: isOutOfOffice (不在レール表示、2026-07-22)", 
   });
 });
 
+describe("mapGoogleEvents: isWorkingLocation (勤務場所の控えめ表示、2026-07-22)", () => {
+  it("eventType==='workingLocation' の単発イベントは isWorkingLocation: true になる", () => {
+    const wl = baseEvent({ id: "wl-single", summary: "在宅勤務", eventType: "workingLocation" });
+
+    const result = mapGoogleEvents([wl], ctx);
+
+    expect(result.singles[0].isWorkingLocation).toBe(true);
+  });
+
+  it("eventType が無い/'default' の単発イベントは isWorkingLocation: undefined のまま", () => {
+    const noType = baseEvent({ id: "no-type-single-wl" });
+    const defaultType = baseEvent({ id: "default-type-single-wl", eventType: "default" });
+
+    const result = mapGoogleEvents([noType, defaultType], ctx);
+
+    expect(result.singles[0].isWorkingLocation).toBeUndefined();
+    expect(result.singles[1].isWorkingLocation).toBeUndefined();
+  });
+
+  it("eventType==='workingLocation' の終日イベント (start.date のみ、通常はこの形で届く) は isWorkingLocation: true になる", () => {
+    const wlAllDay = baseEvent({
+      id: "wl-allday",
+      summary: "オフィス勤務",
+      start: { date: "2026-07-20" },
+      end: { date: "2026-07-21" },
+      eventType: "workingLocation",
+    });
+
+    const result = mapGoogleEvents([wlAllDay], ctx);
+
+    expect(result.allDays).toHaveLength(1);
+    expect(result.allDays[0].isWorkingLocation).toBe(true);
+  });
+
+  it("eventType が無い終日イベントは isWorkingLocation: undefined のまま", () => {
+    const plainAllDay = baseEvent({
+      id: "plain-allday-wl",
+      start: { date: "2026-07-20" },
+      end: { date: "2026-07-21" },
+    });
+
+    const result = mapGoogleEvents([plainAllDay], ctx);
+
+    expect(result.allDays[0].isWorkingLocation).toBeUndefined();
+  });
+
+  it("eventType==='workingLocation' の繰り返し親イベントは EventSeries.isWorkingLocation: true になる", () => {
+    const wlSeries = baseEvent({
+      id: "wl-series",
+      summary: "定期在宅",
+      eventType: "workingLocation",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+
+    const result = mapGoogleEvents([wlSeries], ctx);
+
+    expect(result.series).toHaveLength(1);
+    expect(result.series[0].isWorkingLocation).toBe(true);
+  });
+
+  it("eventType が無い/'default' の繰り返し親イベントは EventSeries.isWorkingLocation: undefined のまま", () => {
+    const plainSeries = baseEvent({
+      id: "plain-series-wl",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+
+    const result = mapGoogleEvents([plainSeries], ctx);
+
+    expect(result.series[0].isWorkingLocation).toBeUndefined();
+  });
+
+  it("eventType==='workingLocation' の例外インスタンスは InstanceOverride.patch.isWorkingLocation: true になる", () => {
+    const wlException = baseEvent({
+      id: "wl-exception",
+      eventType: "workingLocation",
+      recurringEventId: "wl-series",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T18:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([wlException], ctx);
+
+    expect(result.overrides).toHaveLength(1);
+    expect(result.overrides[0].patch).toMatchObject({ isWorkingLocation: true });
+  });
+
+  it("eventType が無い例外インスタンスは patch に isWorkingLocation キー自体を持たない", () => {
+    const plainException = baseEvent({
+      id: "plain-exception-wl",
+      recurringEventId: "series-evt",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T14:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T15:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([plainException], ctx);
+
+    expect(result.overrides[0].patch).not.toHaveProperty("isWorkingLocation");
+  });
+});
+
 describe("mapGoogleEvents: 参加ステータス表示 (RSVP、2026-07-22)", () => {
   it("単発イベントの selfResponseStatus/isOrganizer/hasConference を occurrence へ写す", () => {
     const evt = baseEvent({

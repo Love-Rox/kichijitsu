@@ -5,6 +5,7 @@ import type { VisibleCalendarsMap } from "../db/database";
 import { groupCalendarsByAccess } from "../sync/calendarGroups";
 import type { DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import type { View } from "../keyboard/shortcuts";
+import { calendarPaneGroupKey, toggleSetMember } from "../layout/calendarPaneGroups";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import "./CalendarPane.css";
 
@@ -103,6 +104,36 @@ function saveCollapsedAccounts(collapsed: Set<string>): void {
 }
 
 /**
+ * グループ折りたたみ(マイカレンダー/他のカレンダー/タスクリスト、2026-07-22)の永続化キー。
+ * アカウント折りたたみ(COLLAPSED_ACCOUNTS_STORAGE_KEY)とは別キーで保存する ―― 前者は
+ * accountId 単独をキーにした Set、こちらは `${accountId}:${kind}` の複合キーにした Set
+ * (layout/calendarPaneGroups.ts の calendarPaneGroupKey 参照)で、意味が異なるため
+ * 同じ配列に混ぜない。
+ */
+const COLLAPSED_GROUPS_STORAGE_KEY = "kichijitsu:calendarPaneCollapsedGroups";
+
+/** 保存された折りたたみ済みグループキー集合を読む。loadCollapsedAccounts と同じ読み込み流儀 */
+function loadCollapsedGroups(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedGroups(collapsed: Set<string>): void {
+  try {
+    window.localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify([...collapsed]));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * 左ペイン「カレンダー」(カレンダーナビゲーション増分1、2026-07-22)。Notion Calendar に倣い、
  * これまで設定パネル(CalendarSettingsPanel)内に埋もれていたカレンダーの表示 ON/OFF 選択を
  * 独立した常設ペインへ切り出す。役割分担は「選択=左ペイン / 連携管理=設定パネル」
@@ -184,6 +215,22 @@ export function CalendarPane({
     });
   }
 
+  /**
+   * グループ折りたたみ(マイカレンダー/他のカレンダー/タスクリスト、2026-07-22)。アカウント
+   * 折りたたみ(collapsedAccounts、上)と同じ役割分担で、こちらはグループ単位の開閉だけを持つ
+   * 独立した state ―― アカウントごと畳んだ状態とグループごと畳んだ状態は両立する(アカウントを
+   * 畳めばグループの開閉状態自体は変わらないまま非表示になり、再展開すれば元の開閉状態で戻る)。
+   */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => loadCollapsedGroups());
+
+  function toggleGroupCollapsed(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = toggleSetMember(prev, key);
+      saveCollapsedGroups(next);
+      return next;
+    });
+  }
+
   return (
     <div className="calendar-pane calendar-pane--docked" aria-label="カレンダー">
       <div className="calendar-pane-header">
@@ -231,6 +278,8 @@ export function CalendarPane({
             taskLists={taskListsByAccount[account.id] ?? []}
             hiddenTaskListKeys={hiddenTaskListKeys}
             onToggleTaskList={onToggleTaskList}
+            collapsedGroups={collapsedGroups}
+            onToggleGroupCollapsed={toggleGroupCollapsed}
           />
         ))}
 
@@ -338,6 +387,9 @@ interface AccountSectionProps {
   taskLists: TaskListDTO[];
   hiddenTaskListKeys: Set<string>;
   onToggleTaskList: (accountId: string, taskListId: string, nextChecked: boolean) => void;
+  // ---- グループ折りたたみ(マイ/他のカレンダー・タスクリスト、2026-07-22) ----
+  collapsedGroups: Set<string>;
+  onToggleGroupCollapsed: (key: string) => void;
 }
 
 /**
@@ -348,6 +400,12 @@ interface AccountSectionProps {
  * 左ペイン増分2で「他のカレンダー」の下にタスクリストグループを追加した(要件どおり
  * アカウントセクション内 ―― タスクリストもアカウント単位の概念のため)。折りたたみの
  * 対象にもカレンダーと同じくタスクリストを含める(collapsed 中は一切描画しない)。
+ *
+ * グループ折りたたみ(2026-07-22、ユーザー要望): 「マイカレンダー」「他のカレンダー」
+ * 「タスクリスト」の3グループ見出しも、この AccountSection の折りたたみとは独立に
+ * それぞれクリックで開閉できる(collapsedGroups/onToggleGroupCollapsed を
+ * CalendarGroup/TaskListGroup へそのまま渡すだけ ―― キー生成は各コンポーネント側で
+ * calendarPaneGroupKey(account.id, kind) を呼ぶ)。
  */
 function AccountSection({
   account,
@@ -359,6 +417,8 @@ function AccountSection({
   taskLists,
   hiddenTaskListKeys,
   onToggleTaskList,
+  collapsedGroups,
+  onToggleGroupCollapsed,
 }: AccountSectionProps) {
   const { mine, others } = groupCalendarsByAccess(calendars);
 
@@ -386,6 +446,10 @@ function AccountSection({
               accountId={account.id}
               visible={visible}
               onToggleCalendar={onToggleCalendar}
+              collapsed={collapsedGroups.has(calendarPaneGroupKey(account.id, "mine"))}
+              onToggleCollapsed={() =>
+                onToggleGroupCollapsed(calendarPaneGroupKey(account.id, "mine"))
+              }
             />
             <CalendarGroup
               label="他のカレンダー"
@@ -393,6 +457,10 @@ function AccountSection({
               accountId={account.id}
               visible={visible}
               onToggleCalendar={onToggleCalendar}
+              collapsed={collapsedGroups.has(calendarPaneGroupKey(account.id, "others"))}
+              onToggleCollapsed={() =>
+                onToggleGroupCollapsed(calendarPaneGroupKey(account.id, "others"))
+              }
             />
           </>
         ))}
@@ -402,6 +470,10 @@ function AccountSection({
           taskLists={taskLists}
           hiddenTaskListKeys={hiddenTaskListKeys}
           onToggleTaskList={onToggleTaskList}
+          collapsed={collapsedGroups.has(calendarPaneGroupKey(account.id, "tasks"))}
+          onToggleCollapsed={() =>
+            onToggleGroupCollapsed(calendarPaneGroupKey(account.id, "tasks"))
+          }
         />
       )}
     </div>
@@ -414,50 +486,77 @@ interface CalendarGroupProps {
   accountId: string;
   visible: string[];
   onToggleCalendar: (accountId: string, calendarId: string, nextChecked: boolean) => void;
+  /** グループ折りたたみ(2026-07-22)。開閉状態自体は呼び出し側(AccountSection)が持つ */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
-/** マイカレンダー/他のカレンダーの片方のグループ。空グループは見出しごと出さない(空の「他のカレンダー」等でノイズを増やさない) */
+/**
+ * マイカレンダー/他のカレンダーの片方のグループ。空グループは見出しごと出さない(空の
+ * 「他のカレンダー」等でノイズを増やさない)。
+ *
+ * グループ折りたたみ(2026-07-22、ユーザー要望): 見出し(旧 <h4>)をクリック可能な
+ * <button> にし、AccountSection の見出し(▸/▾ の折りたたみインジケーター)と同じ記号・
+ * 同じ操作感で開閉できるようにする。折りたたみ中はカレンダー一覧の <ul> 自体を描画しない
+ * (件数が多いグループでのスクロール量を減らす、AccountSection と同じ考え方)。
+ */
 function CalendarGroup({
   label,
   calendars,
   accountId,
   visible,
   onToggleCalendar,
+  collapsed,
+  onToggleCollapsed,
 }: CalendarGroupProps) {
   if (calendars.length === 0) return null;
 
   return (
     <div className="calendar-pane-group">
-      <h4 className="calendar-pane-group-title">{label}</h4>
-      <ul className="calendar-pane-list">
-        {calendars.map((cal) => {
-          const checked = visible.includes(cal.id);
-          return (
-            <li className="calendar-pane-item" key={cal.id}>
-              <button
-                type="button"
-                className="calendar-pane-checkbox"
-                aria-pressed={checked}
-                aria-label={`${cal.summary}を${checked ? "非表示" : "表示"}にする`}
-                onClick={() => onToggleCalendar(accountId, cal.id, !checked)}
-              >
-                {/*
+      <button
+        type="button"
+        className="calendar-pane-group-header"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+      >
+        <span className="calendar-pane-group-caret" aria-hidden="true">
+          {collapsed ? "▸" : "▾"}
+        </span>
+        <span className="calendar-pane-group-title">{label}</span>
+      </button>
+      {!collapsed && (
+        <ul className="calendar-pane-list">
+          {calendars.map((cal) => {
+            const checked = visible.includes(cal.id);
+            return (
+              <li className="calendar-pane-item" key={cal.id}>
+                <button
+                  type="button"
+                  className="calendar-pane-checkbox"
+                  aria-pressed={checked}
+                  aria-label={`${cal.summary}を${checked ? "非表示" : "表示"}にする`}
+                  onClick={() => onToggleCalendar(accountId, cal.id, !checked)}
+                >
+                  {/*
                   brand/README.md「機能色の例外」: カレンダー選択のようにデータ自体が色を持つ
                   文脈では、選択済み枡の塗りをそのデータの色にしてよい(傾き -8° は維持)。
                   CalendarSettingsPanel の旧チェックボックス実装をそのまま踏襲。
                 */}
-                <span
-                  className={checked ? "masu masu--kichi" : "masu masu--empty"}
-                  style={
-                    checked && cal.backgroundColor ? { background: cal.backgroundColor } : undefined
-                  }
-                />
-              </button>
-              <span className="calendar-pane-cal-name">{cal.summary}</span>
-            </li>
-          );
-        })}
-      </ul>
+                  <span
+                    className={checked ? "masu masu--kichi" : "masu masu--empty"}
+                    style={
+                      checked && cal.backgroundColor
+                        ? { background: cal.backgroundColor }
+                        : undefined
+                    }
+                  />
+                </button>
+                <span className="calendar-pane-cal-name">{cal.summary}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -467,6 +566,9 @@ interface TaskListGroupProps {
   taskLists: TaskListDTO[];
   hiddenTaskListKeys: Set<string>;
   onToggleTaskList: (accountId: string, taskListId: string, nextChecked: boolean) => void;
+  /** グループ折りたたみ(2026-07-22)。CalendarGroup と同じ流儀 */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 /**
@@ -486,31 +588,45 @@ function TaskListGroup({
   taskLists,
   hiddenTaskListKeys,
   onToggleTaskList,
+  collapsed,
+  onToggleCollapsed,
 }: TaskListGroupProps) {
   if (taskLists.length === 0) return null;
 
   return (
     <div className="calendar-pane-group">
-      <h4 className="calendar-pane-group-title">タスクリスト</h4>
-      <ul className="calendar-pane-list">
-        {taskLists.map((list) => {
-          const checked = !hiddenTaskListKeys.has(`${accountId}:${list.id}`);
-          return (
-            <li className="calendar-pane-item" key={list.id}>
-              <button
-                type="button"
-                className="calendar-pane-checkbox"
-                aria-pressed={checked}
-                aria-label={`${list.title}を${checked ? "非表示" : "表示"}にする`}
-                onClick={() => onToggleTaskList(accountId, list.id, !checked)}
-              >
-                <span className={checked ? "masu masu--kichi" : "masu masu--empty"} />
-              </button>
-              <span className="calendar-pane-cal-name">{list.title}</span>
-            </li>
-          );
-        })}
-      </ul>
+      <button
+        type="button"
+        className="calendar-pane-group-header"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+      >
+        <span className="calendar-pane-group-caret" aria-hidden="true">
+          {collapsed ? "▸" : "▾"}
+        </span>
+        <span className="calendar-pane-group-title">タスクリスト</span>
+      </button>
+      {!collapsed && (
+        <ul className="calendar-pane-list">
+          {taskLists.map((list) => {
+            const checked = !hiddenTaskListKeys.has(`${accountId}:${list.id}`);
+            return (
+              <li className="calendar-pane-item" key={list.id}>
+                <button
+                  type="button"
+                  className="calendar-pane-checkbox"
+                  aria-pressed={checked}
+                  aria-label={`${list.title}を${checked ? "非表示" : "表示"}にする`}
+                  onClick={() => onToggleTaskList(accountId, list.id, !checked)}
+                >
+                  <span className={checked ? "masu masu--kichi" : "masu masu--empty"} />
+                </button>
+                <span className="calendar-pane-cal-name">{list.title}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

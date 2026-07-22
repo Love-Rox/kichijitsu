@@ -80,6 +80,17 @@ export interface Occurrence {
    * true なら EventBlock/EventDetailCard がビデオアイコン(会議リンクあり)を出す。
    */
   hasConference?: boolean;
+  /**
+   * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。Google の
+   * eventType==='workingLocation' な予定かどうか。true は mapGoogle.ts が付与する
+   * (isOutOfOffice と全く同じ伝播: buildSingle/buildAllDay/buildSeries/buildOverride の
+   * 4パス、繰り返しにも対応)。isOutOfOffice と違い専用レールへは分離しない ―― 通常の
+   * カード/バーとして packColumns/packDayBars の行詰めに乗せてよいが、UI 側
+   * (AllDayBar.tsx/MonthView.tsx/EventBlock.tsx) がこのフラグを見て「主張しすぎない」
+   * 控えめな見た目に差し替える(色チップ・左ボーダー・背景なしの薄墨テキストのみ、
+   * ユーザー要望「他の予定を邪魔しないくらいに」)。
+   */
+  isWorkingLocation?: boolean;
 }
 
 /**
@@ -120,6 +131,8 @@ export interface AllDayOccurrence {
   isOrganizer?: boolean;
   /** Occurrence.hasConference と同じ意味 (参加ステータス表示、2026-07-22)。 */
   hasConference?: boolean;
+  /** Occurrence.isWorkingLocation と同じ意味 (勤務場所の控えめ表示、2026-07-22)。 */
+  isWorkingLocation?: boolean;
 }
 
 /**

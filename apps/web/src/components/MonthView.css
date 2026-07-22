@@ -159,6 +159,19 @@
 }
 
 /*
+ * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22、ユーザー要望「主張しすぎ。他の予定を
+ * 邪魔しないくらいに」)。.month-chip--ooo と違い背景色すら持たせず、枠も消して地の文に近い
+ * 薄墨の小さな表示にする(先頭の PlaceIcon は MonthView.tsx 側で差し込む)。
+ */
+.month-chip--working-location {
+  background: none;
+  border-left: none;
+  padding-left: 4px;
+  color: #8a8478;
+  font-size: 10px;
+}
+
+/*
  * 参加ステータス表示 (RSVP、2026-07-22)。EventBlock (.event--rsvp-*) と対になる、
  * 月表示チップの最小限の表現(要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。
  */

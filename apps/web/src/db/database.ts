@@ -143,10 +143,18 @@ const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
  * 世代の意味:
  *   1 = eventType (不在レール表示、2026-07-22、旧 oooBackfillDone===true と同値)
  *   2 = RSVP 表示 (selfResponseStatus/isOrganizer/hasConference、2026-07-22)
+ *   3 = isWorkingLocation (勤務場所の控えめ表示、2026-07-22)。eventType 自体は世代1の
+ *       時点で既にサーバー応答に載って行き渡っている(GoogleEventDTO.eventType は
+ *       events.list が常に返すフィールドのため)が、mapGoogle.ts が occurrence/
+ *       series/override へ isWorkingLocation として「写す」処理は今回追加したもの ――
+ *       世代1・2の時点で既に同期済みだった occurrence にはこのフラグがまだ乗っていない。
+ *       eventType 自体のバックフィルとは別に、このフィールドぶんだけ改めて forceFull
+ *       同期で行き渡らせる必要があるため世代を1つ上げる(RSVP フィールド追加のときと
+ *       全く同じ理由、上の世代2のコメント参照)。
  */
 const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone"; // 旧キー。getSyncBackfillVersion の移行判定でのみ読む
 const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
-export const CURRENT_SYNC_BACKFILL_VERSION = 2;
+export const CURRENT_SYNC_BACKFILL_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 

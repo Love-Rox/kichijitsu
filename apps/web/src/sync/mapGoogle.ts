@@ -112,6 +112,21 @@ function isOutOfOfficeEvent(event: GoogleEventDTO): boolean {
 }
 
 /**
+ * event が Google の「勤務場所」予定 (eventType==='workingLocation') かどうか。true なら
+ * buildSingle/buildAllDay/buildSeries/buildOverride が occurrence.isWorkingLocation = true を
+ * 立てる(isOutOfOfficeEvent と全く同じ4パス・同じフォールバック伝播、model/types.ts の
+ * Occurrence.isWorkingLocation コメント参照)。
+ *
+ * isOutOfOffice と違い、このフラグは専用レールへの分離には使わない(UI 側は通常の
+ * カード/バーとして packColumns/packDayBars の行詰めに乗せたうえで、控えめな見た目
+ * (色チップ・左ボーダー・背景なしの薄墨小テキスト)に差し替えるだけ ―― ユーザー要望
+ * 「主張しすぎ。他の予定を邪魔しないくらいに」)。
+ */
+function isWorkingLocationEvent(event: GoogleEventDTO): boolean {
+  return event.eventType === "workingLocation";
+}
+
+/**
  * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO の3つの派生フィールド
  * (selfResponseStatus/isOrganizer/hasConference) を、値がある分だけスプレッドできる
  * オブジェクトの断片にまとめる。isMirror/isOutOfOffice と同じ「値が無ければキー自体を
@@ -289,6 +304,7 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     rrule: rruleLine,
     exdatesMs,
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...(isWorkingLocationEvent(event) ? { isWorkingLocation: true } : {}),
     ...rsvpFields(event),
   };
 }
@@ -324,6 +340,9 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   }
   if (isOutOfOfficeEvent(event)) {
     patch.isOutOfOffice = true;
+  }
+  if (isWorkingLocationEvent(event)) {
+    patch.isWorkingLocation = true;
   }
   Object.assign(patch, rsvpFields(event));
 
@@ -367,6 +386,7 @@ function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurr
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...(isWorkingLocationEvent(event) ? { isWorkingLocation: true } : {}),
     ...rsvpFields(event),
   };
 }
@@ -397,6 +417,7 @@ function buildSingle(
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...(isWorkingLocationEvent(event) ? { isWorkingLocation: true } : {}),
     ...rsvpFields(event),
   };
 }

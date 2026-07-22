@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
 import { mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
-import "./CalendarSettingsPanel.css";
+import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import "./SettingsModal.css";
 
-interface CalendarSettingsPanelProps {
+export interface SettingsModalProps {
   accounts: AccountDTO[];
   /** 成功すれば解決、失敗すれば reject する。エラー表示はこのコンポーネント側(行ごとの確認 UI)が持つ */
   onDisconnectAccount: (accountId: string) => Promise<void>;
@@ -30,19 +31,27 @@ interface CalendarSettingsPanelProps {
   onCreateMcpToken?: (label: string | undefined) => Promise<McpTokenCreateResponse>;
   /** 行ごとの「失効」確定で呼ぶ。成功すれば解決、失敗すれば reject する */
   onDeleteMcpToken?: (id: string) => Promise<void>;
+  onClose: () => void;
 }
 
 /**
- * ツールバーのアカウント表示部から開くポップオーバー(App.tsx から開閉制御される)。
+ * 設定モーダル(UI 改善、2026-07-22、ユーザー要望)。ツールバーの「アカウント連携中」ボタンから
+ * 開いていたアンカー式ポップオーバー(旧 CalendarSettingsPanel、300px の絶対配置)を、
+ * BlockRulesOverlay/TimeReportOverlay と同じ「画面中央固定のモーダルダイアログ」に格上げした。
+ * アンカー位置計算(ツールバーのボタン位置に追従させる)が不要になったぶん実装は単純になり、
+ * 幅の制約(旧 300px)から解放されて各セクションを見出し付きでゆったり並べられる。
  *
- * カレンダーナビゲーション増分1(2026-07-22)で「選択=左ペイン(CalendarPane) /
- * 連携管理=設定パネル(このコンポーネント)」に役割分担した ―― 元々ここにあった
- * カレンダーごとの表示 ON/OFF チェック群(枡チェックボックス一覧)は CalendarPane.tsx へ
- * 丸ごと移設済み。このパネルはアカウントの追加/解除・GitHub 連携・MCP トークン等、
- * 「連携そのものを管理する」操作専用に痩せさせてある(calendarsByAccount/
- * visibleCalendars/onToggleCalendar は不要になったため props からも削除した)。
+ * 中身は CalendarSettingsPanel の内容をそのまま移植 ―― ロジック・子コンポーネント
+ * (AccountDisconnectControl/GitHubDisconnectControl/McpTokensSection 以下)は無変更、
+ * 「アカウント」「GitHub」「MCP トークン」「カレンダーブロック」の4セクションに
+ * 見出し(BlockRulesOverlay と同じ .settings-modal-section-title)を付けて区切っただけ。
+ * カレンダーごとの表示 ON/OFF は引き続きここには無い(カレンダーナビゲーション増分1で
+ * CalendarPane.tsx へ移設済み ―― 「選択=左ペイン / 連携管理=設定モーダル」の役割分担は不変)。
+ *
+ * 開閉: BlockRulesOverlay/TimeReportOverlay と同じ useCloseOnOutsideOrEscape で
+ * 外側クリック・Escape に対応する(App.tsx 側の個別リスナーは不要になった)。
  */
-export function CalendarSettingsPanel({
+export function SettingsModal({
   accounts,
   onDisconnectAccount,
   onAddAccount,
@@ -54,78 +63,123 @@ export function CalendarSettingsPanel({
   mcpTokens,
   onCreateMcpToken,
   onDeleteMcpToken,
-}: CalendarSettingsPanelProps) {
+  onClose,
+}: SettingsModalProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideOrEscape(true, cardRef, onClose);
+
   return (
-    <div className="calendar-panel" role="dialog" aria-label="カレンダー設定">
-      {accounts.length === 0 && (
-        <p className="calendar-panel-empty">連携中のアカウントがありません</p>
-      )}
-      {accounts.map((account) => (
-        <div className="calendar-panel-account" key={account.id}>
-          <div className="calendar-panel-account-header">{account.email}</div>
-          <AccountDisconnectControl accountId={account.id} onDisconnect={onDisconnectAccount} />
+    <div className="settings-modal-backdrop">
+      <div
+        className="settings-modal-card"
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="設定"
+      >
+        <div className="settings-modal-header">
+          <span className="settings-modal-title">設定</span>
+          <button
+            type="button"
+            className="settings-modal-close"
+            onClick={onClose}
+            aria-label="閉じる"
+          >
+            ×
+          </button>
         </div>
-      ))}
-      <button type="button" className="calendar-panel-add-account" onClick={onAddAccount}>
-        + アカウントを追加
-      </button>
-      {/* カレンダーナビゲーション増分1: 表示選択が左ペインへ移ったことの案内(1行) */}
-      {accounts.length > 0 && (
-        <p className="calendar-panel-nav-hint">カレンダーの表示選択は左のカレンダーペインへ</p>
-      )}
-      {onOpenBlockRules && (
-        <button type="button" className="calendar-panel-add-account" onClick={onOpenBlockRules}>
-          予定のブロックを設定
-        </button>
-      )}
-      {/*
-       * GitHub 連携 (docs/github-integration.md フェーズ①Part B)。Google アカウントとは
-       * 独立した連携なので、アカウント一覧とは別セクションとして「+ アカウントを追加」の下、
-       * 凡例フッターの手前に置く。onConnectGitHub が無ければ(呼び出し元が未対応)何も描画しない
-       */}
-      {onConnectGitHub && (
-        <div className="calendar-panel-github">
-          <div className="calendar-panel-account-header">GitHub</div>
-          {githubLogin ? (
-            <div className="calendar-panel-github-connected">
-              <span className="calendar-panel-github-login">@{githubLogin}</span>
-              {onDisconnectGitHub && <GitHubDisconnectControl onDisconnect={onDisconnectGitHub} />}
+
+        <section className="settings-modal-section">
+          <h3 className="settings-modal-section-title">アカウント</h3>
+          {accounts.length === 0 && (
+            <p className="settings-modal-empty">連携中のアカウントがありません</p>
+          )}
+          {accounts.map((account) => (
+            <div className="settings-modal-account" key={account.id}>
+              <div className="settings-modal-account-header">{account.email}</div>
+              <AccountDisconnectControl accountId={account.id} onDisconnect={onDisconnectAccount} />
             </div>
-          ) : (
-            <button type="button" className="calendar-panel-add-account" onClick={onConnectGitHub}>
-              + GitHub と連携
-            </button>
-          )}
-          {githubAuthExpired && (
-            <p className="calendar-panel-github-expired">
-              GitHub の認可が切れました。
-              <button type="button" className="calendar-panel-text-btn" onClick={onConnectGitHub}>
-                再連携
+          ))}
+          <button type="button" className="settings-modal-add-account" onClick={onAddAccount}>
+            + アカウントを追加
+          </button>
+        </section>
+
+        {/*
+         * GitHub 連携 (docs/github-integration.md フェーズ①Part B)。Google アカウントとは
+         * 独立した連携なので独立したセクションにする。onConnectGitHub が無ければ
+         * (呼び出し元が未対応)何も描画しない(旧 CalendarSettingsPanel と同じパターン)
+         */}
+        {onConnectGitHub && (
+          <section className="settings-modal-section">
+            <h3 className="settings-modal-section-title">GitHub</h3>
+            {githubLogin ? (
+              <div className="settings-modal-github-connected">
+                <span className="settings-modal-github-login">@{githubLogin}</span>
+                {onDisconnectGitHub && (
+                  <GitHubDisconnectControl onDisconnect={onDisconnectGitHub} />
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="settings-modal-add-account"
+                onClick={onConnectGitHub}
+              >
+                + GitHub と連携
               </button>
+            )}
+            {githubAuthExpired && (
+              <p className="settings-modal-github-expired">
+                GitHub の認可が切れました。
+                <button type="button" className="settings-modal-text-btn" onClick={onConnectGitHub}>
+                  再連携
+                </button>
+              </p>
+            )}
+          </section>
+        )}
+
+        {/*
+         * MCP トークン (docs/mcp.md Part A、2026-07-20)。mcpTokens が undefined
+         * (呼び出し元が未対応) なら何も描画しない(GitHub セクションと同じパターン)
+         */}
+        {mcpTokens && (
+          <section className="settings-modal-section">
+            <h3 className="settings-modal-section-title">MCP トークン</h3>
+            <McpTokensSection
+              tokens={mcpTokens}
+              onCreate={onCreateMcpToken}
+              onDelete={onDeleteMcpToken}
+            />
+          </section>
+        )}
+
+        {/*
+         * カレンダーブロック (docs/blocking.md)。設定モーダルからは既存の BlockRulesOverlay を
+         * 開く入口だけを置く(ルール一覧・作成フォームはそちらに任せる ―― 設定モーダルの
+         * 幅に収める必要が無くなった今も、二重に持たせず単一の入口を保つ)。
+         */}
+        {onOpenBlockRules && (
+          <section className="settings-modal-section">
+            <h3 className="settings-modal-section-title">カレンダーブロック</h3>
+            <p className="settings-modal-section-desc">
+              選んだカレンダーの予定を、別のカレンダーに「予定あり」として自動でコピーします。
             </p>
-          )}
+            <button type="button" className="settings-modal-add-account" onClick={onOpenBlockRules}>
+              予定のブロックを設定
+            </button>
+          </section>
+        )}
+
+        {/*
+         * Google 審査要件の導線(プライバシーポリシー・規約)。旧 CalendarSettingsPanel と
+         * 同じくモーダル下部に集約する。
+         */}
+        <div className="settings-modal-legal">
+          <a href="/privacy.html">プライバシー</a>
+          <a href="/terms.html">規約</a>
         </div>
-      )}
-      {/*
-       * MCP トークン (docs/mcp.md Part A、2026-07-20)。Claude 等の MCP クライアントから
-       * kichijitsu を叩くための長期トークンの発行/一覧/失効。GitHub セクションと同じく、
-       * mcpTokens が undefined (呼び出し元が未対応) なら何も描画しない
-       */}
-      {mcpTokens && (
-        <McpTokensSection
-          tokens={mcpTokens}
-          onCreate={onCreateMcpToken}
-          onDelete={onDeleteMcpToken}
-        />
-      )}
-      {/*
-       * Google 審査要件の導線(プライバシーポリシー・規約)。狭幅ヘッダーではスペース確保のため
-       * ヘッダー直下のリンク (.toolbar-legal) を隠す代わりに、設定パネル下部へ集約する
-       * (App.tsx 参照)。パネルは幅に余裕があるため常時表示でよい。
-       */}
-      <div className="calendar-panel-legal">
-        <a href="/privacy.html">プライバシー</a>
-        <a href="/terms.html">規約</a>
       </div>
     </div>
   );
@@ -134,9 +188,9 @@ export function CalendarSettingsPanel({
 type DisconnectRowState = "idle" | "confirming" | "disconnecting" | "error";
 
 /**
- * アカウント1件ぶんの「連携解除」導線。App.tsx の旧単一アカウント実装と同じ
- * 「window.confirm を使わないインライン2段階確認」を、行ごとに独立した
- * ローカル state として持つ(アカウントが複数あっても他の行に影響しない)。
+ * アカウント1件ぶんの「連携解除」導線。window.confirm を使わないインライン2段階確認を、
+ * 行ごとに独立したローカル state として持つ(アカウントが複数あっても他の行に影響しない)。
+ * 旧 CalendarSettingsPanel.tsx の AccountDisconnectControl から無変更で移植。
  */
 function AccountDisconnectControl({
   accountId,
@@ -149,11 +203,11 @@ function AccountDisconnectControl({
 
   if (state === "confirming" || state === "disconnecting") {
     return (
-      <span className="calendar-panel-disconnect-confirm">
+      <span className="settings-modal-disconnect-confirm">
         連携解除しますか？
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => {
             setState("disconnecting");
@@ -169,7 +223,7 @@ function AccountDisconnectControl({
         </button>
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => setState("idle")}
         >
@@ -180,15 +234,15 @@ function AccountDisconnectControl({
   }
 
   return (
-    <span className="calendar-panel-disconnect-row">
+    <span className="settings-modal-disconnect-row">
       <button
         type="button"
-        className="calendar-panel-text-btn"
+        className="settings-modal-text-btn"
         onClick={() => setState("confirming")}
       >
         連携解除
       </button>
-      {state === "error" && <span className="calendar-panel-error">解除失敗</span>}
+      {state === "error" && <span className="settings-modal-error">解除失敗</span>}
     </span>
   );
 }
@@ -202,11 +256,11 @@ function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise
 
   if (state === "confirming" || state === "disconnecting") {
     return (
-      <span className="calendar-panel-disconnect-confirm">
+      <span className="settings-modal-disconnect-confirm">
         連携解除しますか？
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => {
             setState("disconnecting");
@@ -222,7 +276,7 @@ function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise
         </button>
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => setState("idle")}
         >
@@ -233,15 +287,15 @@ function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise
   }
 
   return (
-    <span className="calendar-panel-disconnect-row">
+    <span className="settings-modal-disconnect-row">
       <button
         type="button"
-        className="calendar-panel-text-btn"
+        className="settings-modal-text-btn"
         onClick={() => setState("confirming")}
       >
         連携解除
       </button>
-      {state === "error" && <span className="calendar-panel-error">解除失敗</span>}
+      {state === "error" && <span className="settings-modal-error">解除失敗</span>}
     </span>
   );
 }
@@ -250,6 +304,8 @@ function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise
  * MCP トークン (docs/mcp.md Part A、2026-07-20) セクション本体。一覧 + 発行導線を持つ。
  * 「発行直後だけ生値を表示する」状態はこのコンポーネントがローカルに持つ — サーバーは
  * 二度と生値を返さないため、閉じたら (state をクリアしたら) 本当に消える。
+ * 見出し(「MCP トークン」)は呼び出し側 (SettingsModal) の settings-modal-section-title が
+ * 担うため、旧 CalendarSettingsPanel と違いここでは自前の見出しを持たない。
  */
 function McpTokensSection({
   tokens,
@@ -261,17 +317,16 @@ function McpTokensSection({
   onDelete?: (id: string) => Promise<void>;
 }) {
   return (
-    <div className="calendar-panel-mcp">
-      <div className="calendar-panel-account-header">MCP トークン</div>
+    <div className="settings-modal-mcp">
       {tokens.length === 0 ? (
-        <p className="calendar-panel-empty">発行済みのトークンはありません</p>
+        <p className="settings-modal-empty">発行済みのトークンはありません</p>
       ) : (
-        <ul className="calendar-panel-mcp-list">
+        <ul className="settings-modal-mcp-list">
           {tokens.map((token) => (
-            <li className="calendar-panel-mcp-item" key={token.id}>
-              <div className="calendar-panel-mcp-item-main">
-                <span className="calendar-panel-mcp-item-label">{mcpTokenLabel(token)}</span>
-                <span className="calendar-panel-mcp-item-meta">
+            <li className="settings-modal-mcp-item" key={token.id}>
+              <div className="settings-modal-mcp-item-main">
+                <span className="settings-modal-mcp-item-label">{mcpTokenLabel(token)}</span>
+                <span className="settings-modal-mcp-item-meta">
                   発行: {new Date(token.createdAt).toLocaleString()} / 最終利用:{" "}
                   {mcpTokenLastUsedLabel(token)}
                 </span>
@@ -301,11 +356,11 @@ function McpTokenDeleteControl({
 
   if (state === "confirming" || state === "disconnecting") {
     return (
-      <span className="calendar-panel-disconnect-confirm">
+      <span className="settings-modal-disconnect-confirm">
         失効しますか？
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => {
             setState("disconnecting");
@@ -320,7 +375,7 @@ function McpTokenDeleteControl({
         </button>
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={state === "disconnecting"}
           onClick={() => setState("idle")}
         >
@@ -331,15 +386,15 @@ function McpTokenDeleteControl({
   }
 
   return (
-    <span className="calendar-panel-disconnect-row">
+    <span className="settings-modal-disconnect-row">
       <button
         type="button"
-        className="calendar-panel-text-btn"
+        className="settings-modal-text-btn"
         onClick={() => setState("confirming")}
       >
         失効
       </button>
-      {state === "error" && <span className="calendar-panel-error">失効失敗</span>}
+      {state === "error" && <span className="settings-modal-error">失効失敗</span>}
     </span>
   );
 }
@@ -366,15 +421,15 @@ function McpTokenCreateControl({
   if (state.kind === "created") {
     const { result } = state;
     return (
-      <div className="calendar-panel-mcp-created">
-        <p className="calendar-panel-mcp-warning">
+      <div className="settings-modal-mcp-created">
+        <p className="settings-modal-mcp-warning">
           この値は二度と表示されません。今すぐコピーしてください。
         </p>
-        <div className="calendar-panel-mcp-token-row">
-          <code className="calendar-panel-mcp-token-value">{result.token}</code>
+        <div className="settings-modal-mcp-token-row">
+          <code className="settings-modal-mcp-token-value">{result.token}</code>
           <button
             type="button"
-            className="calendar-panel-text-btn"
+            className="settings-modal-text-btn"
             onClick={() => {
               navigator.clipboard.writeText(result.token).catch((err) => {
                 console.error("kichijitsu: clipboard write failed", err);
@@ -384,14 +439,14 @@ function McpTokenCreateControl({
             コピー
           </button>
         </div>
-        <p className="calendar-panel-mcp-hint">
+        <p className="settings-modal-mcp-hint">
           Claude 等の MCP クライアント設定で、この値を{" "}
           <code>Authorization: Bearer &lt;token&gt;</code> として{" "}
           <code>https://kichijitsu.love-rox.cc/mcp</code> に登録してください。
         </p>
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           onClick={() => setState({ kind: "idle" })}
         >
           閉じる
@@ -403,10 +458,10 @@ function McpTokenCreateControl({
   if (state.kind === "entering-label" || state.kind === "creating") {
     const disabled = state.kind === "creating";
     return (
-      <div className="calendar-panel-mcp-form">
+      <div className="settings-modal-mcp-form">
         <input
           type="text"
-          className="calendar-panel-mcp-label-input"
+          className="settings-modal-mcp-label-input"
           placeholder="ラベル(任意)"
           value={state.kind === "entering-label" ? state.label : ""}
           disabled={disabled}
@@ -414,7 +469,7 @@ function McpTokenCreateControl({
         />
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={disabled}
           onClick={() => {
             const label = state.kind === "entering-label" ? state.label.trim() : "";
@@ -431,7 +486,7 @@ function McpTokenCreateControl({
         </button>
         <button
           type="button"
-          className="calendar-panel-text-btn"
+          className="settings-modal-text-btn"
           disabled={disabled}
           onClick={() => setState({ kind: "idle" })}
         >
@@ -445,12 +500,12 @@ function McpTokenCreateControl({
     <div>
       <button
         type="button"
-        className="calendar-panel-add-account"
+        className="settings-modal-add-account"
         onClick={() => setState({ kind: "entering-label", label: "" })}
       >
         + トークンを発行
       </button>
-      {state.kind === "error" && <span className="calendar-panel-error">発行失敗</span>}
+      {state.kind === "error" && <span className="settings-modal-error">発行失敗</span>}
     </div>
   );
 }

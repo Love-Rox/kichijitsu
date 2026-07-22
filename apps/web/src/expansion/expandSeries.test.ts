@@ -165,6 +165,85 @@ describe("expandSeries", () => {
     });
   });
 
+  describe("isWorkingLocation の伝播 (勤務場所の控えめ表示、2026-07-22)", () => {
+    it("series.isWorkingLocation: true を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({ isWorkingLocation: true, rrule: "FREQ=DAILY;COUNT=2" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.isWorkingLocation).toBe(true);
+      }
+    });
+
+    it("series.isWorkingLocation が無ければ occurrence.isWorkingLocation は undefined のまま", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0].isWorkingLocation).toBeUndefined();
+    });
+
+    it("override.patch.isWorkingLocation が立っていればシリーズ側の値より優先する(この回だけ勤務場所)", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=2" }); // シリーズ自体は勤務場所ではない
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { isWorkingLocation: true },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.isWorkingLocation).toBeUndefined();
+      expect(patched!.isWorkingLocation).toBe(true);
+    });
+
+    it("シリーズが勤務場所でも override.patch に isWorkingLocation キーが無ければシリーズ側の値にフォールバックする", () => {
+      const series = baseSeries({ isWorkingLocation: true, rrule: "FREQ=DAILY;COUNT=2" });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { title: "Rescheduled" }, // isWorkingLocation には触れない
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(patched!.isWorkingLocation).toBe(true);
+    });
+  });
+
   describe("RSVP フィールドの伝播 (参加ステータス表示、2026-07-22)", () => {
     it("series.responseStatus/isOrganizer/hasConference を展開後の全 occurrence へそのまま伝播する", () => {
       const series = baseSeries({

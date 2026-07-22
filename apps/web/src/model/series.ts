@@ -43,6 +43,13 @@ export interface EventSeries {
   isOrganizer?: boolean;
   /** Occurrence.hasConference と同じ意味(参加ステータス表示、2026-07-22)。isOutOfOffice と同じ伝播。 */
   hasConference?: boolean;
+  /**
+   * 勤務場所の控えめ表示 (2026-07-22)。Occurrence.isWorkingLocation と同じ意味 ――
+   * mapGoogle.ts の buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま
+   * 引き継ぐ(isOutOfOffice と同じ伝播の仕方: override 側に値があればそれを優先し、
+   * 無ければこのシリーズ全体の値にフォールバックする)。
+   */
+  isWorkingLocation?: boolean;
   /** 初回開始のローカル日時 (タイムゾーンオフセットなしの ISO)。例 "2026-07-20T10:00" */
   dtstartIso: string;
   /** IANA タイムゾーン。例 "Asia/Tokyo" */
@@ -93,6 +100,12 @@ export interface InstanceOverride {
     isOrganizer?: boolean;
     /** isOutOfOffice と同じ流儀(この例外インスタンス自体が hasConference===true のときのみ true をセット) */
     hasConference?: boolean;
+    /**
+     * 勤務場所の控えめ表示 (2026-07-22)。isOutOfOffice と同じ流儀(この例外インスタンス自体が
+     * eventType==='workingLocation' のときのみ true をセットする。立てないときはキー自体を
+     * 省略し、expandSeries 側でシリーズの isWorkingLocation にフォールバックさせる)。
+     */
+    isWorkingLocation?: boolean;
   } | null;
 }
 

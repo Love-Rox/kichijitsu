@@ -415,7 +415,13 @@ export function EventBlock({
   //   - needsAction: 塗りなし・カレンダー色の実線枠(下の style 計算で反映)
   //   - tentative: 半透明(event--rsvp-tentative、CSS 側で opacity)
   //   - declined: タイトル打ち消し線 + 全体を淡色に(event--rsvp-declined)
-  const responseStatus = isBusy ? undefined : occurrence.responseStatus;
+  // 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。ほぼ終日イベントとして届くため
+  // 主戦場は AllDayBar 側だが、稀に時刻付きで届いた場合(要件どおり)の保険としてここでも
+  // 最小限の控えめな表現を用意する: opacity を落とし枠を消すだけ(色チップ・ハッチ等の
+  // 通常/Busy の装飾は一切足さない)。Busy プレースホルダとは通常同時に起きないが、
+  // 起きても Busy の描画を優先する(isBusy 由来の除外と同じ考え方)。
+  const isWorkingLocation = !isBusy && occurrence.isWorkingLocation === true;
+  const responseStatus = isBusy || isWorkingLocation ? undefined : occurrence.responseStatus;
   const isNeedsAction = responseStatus === "needsAction";
   const isTentative = responseStatus === "tentative";
   const isDeclined = responseStatus === "declined";
@@ -457,10 +463,12 @@ export function EventBlock({
             backgroundColor: "transparent",
             border: `1.5px solid ${displayColor}`,
           } as CSSProperties)
-        : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
-            borderLeftColor: displayColor,
-          }),
+        : isWorkingLocation
+          ? ({ backgroundColor: "transparent", border: "none" } as CSSProperties)
+          : {
+              backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
+              borderLeftColor: displayColor,
+            }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
     ...(hasStripes
       ? {
@@ -483,6 +491,7 @@ export function EventBlock({
           isBusy ? "event--busy" : "",
           isTentative ? "event--rsvp-tentative" : "",
           isDeclined ? "event--rsvp-declined" : "",
+          isWorkingLocation ? "event--working-location" : "",
         ]
           .filter(Boolean)
           .join(" ")}
