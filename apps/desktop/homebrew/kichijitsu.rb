@@ -9,10 +9,10 @@
 # 保つこと。
 
 cask "kichijitsu" do
-  version "0.1.5"
+  version "0.1.6"
   # version を上げたら、実 DMG の sha256 に差し替える。
   # 取得方法: shasum -a 256 kichijitsu_#{version}_universal.dmg
-  sha256 "dd8e88f0adce795ab4c09bc56b0b4afa91d9e7f8e9d4e36e1a10bc49fd7167e9"
+  sha256 "f7a225a83bd59584cb1c58ca5cf6be263927325643a4df6e42fd04630a1f6cbe"
 
   url "https://github.com/Love-Rox/kichijitsu/releases/download/v#{version}/kichijitsu_#{version}_universal.dmg"
   name "kichijitsu"
