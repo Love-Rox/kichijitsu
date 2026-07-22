@@ -1,14 +1,8 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
-import {
-  formatAllDayDateRange,
-  formatDetailDateTime,
-  formatRange,
-  minutesToPx,
-} from "../layout/gridMetrics";
+import { formatDetailDateTime, formatRange, minutesToPx } from "../layout/gridMetrics";
 import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
@@ -22,11 +16,6 @@ const PLACE_ICON_SIZE_PX = 12;
  */
 const MIN_BAND_HEIGHT_PX = 16;
 
-/** WorkingLocationRailItem.subject が時刻予定(Occurrence)かどうかの構造的ガード(OooRailLine.tsx と同じ) */
-function isTimedSubject(subject: Occurrence | AllDayOccurrence): subject is Occurrence {
-  return "startMs" in subject;
-}
-
 interface WorkingLocationRailBandProps {
   item: WorkingLocationRailItem;
   timeZone: string;
@@ -35,7 +24,10 @@ interface WorkingLocationRailBandProps {
 }
 
 /**
- * 勤務場所(workingLocation)レールの1本(DayColumn.tsx から使う、2026-07-22 帯化)。
+ * 勤務場所(workingLocation)レールの1本(DayColumn.tsx から使う)。時刻予定専用
+ * (2026-07-22 終日レーンへ統合 ―― 終日の勤務場所はこのコンポーネントに来なくなり、
+ * AllDayBar.tsx 側の通常フロー(`.allday-bar--working-location`)で表示される。
+ * item.subject/groupMembers も Occurrence 限定の型になっている、layout/workingLocationRail.ts 参照)。
  *
  * 経緯: 直前(点ピン版、旧 WorkingLocationRailPin.tsx)は「勤務場所は一点の情報」という
  * 判断で開始時刻ちょうどの位置に PlaceIcon を1個置くだけだった。しかしユーザーから
@@ -92,9 +84,7 @@ export function WorkingLocationRailBand({
     // 勤務場所の「場所」は title 自体が表す(例: 自宅/オフィス、要件どおり)。location
     // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない
     // (旧点ピン版からの決定を維持)。
-    const rangeLabel = isTimedSubject(subject)
-      ? formatRange(subject.startMs, subject.endMs, timeZone)
-      : formatAllDayDateRange(subject.startDate, subject.endDate);
+    const rangeLabel = formatRange(subject.startMs, subject.endMs, timeZone);
     fillTooltipContent(el, subject.title, rangeLabel);
     el.style.display = "block";
     positionTooltip(el, clientX, clientY);
@@ -132,9 +122,7 @@ export function WorkingLocationRailBand({
 
   useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null));
 
-  const dateTimeLabel = isTimedSubject(subject)
-    ? formatDetailDateTime(subject.startMs, subject.endMs, timeZone)
-    : formatAllDayDateRange(subject.startDate, subject.endDate);
+  const dateTimeLabel = formatDetailDateTime(subject.startMs, subject.endMs, timeZone);
 
   return (
     <>

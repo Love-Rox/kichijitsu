@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
-import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
+import type { OccurrenceGroup } from "./groupDuplicates";
 import {
-  allDayWorkingLocationRailItems,
   isWorkingLocation,
-  splitWorkingLocationAllDayGroups,
   splitWorkingLocationGroups,
   timedWorkingLocationRailItems,
 } from "./workingLocationRail";
@@ -44,10 +41,6 @@ function group(primary: Occurrence): OccurrenceGroup {
   return { primary, members: [primary] };
 }
 
-function allDayGroup(primary: AllDayOccurrence): AllDayOccurrenceGroup {
-  return { primary, members: [primary] };
-}
-
 describe("isWorkingLocation", () => {
   it("isWorkingLocation: true のときだけ true を返す", () => {
     expect(isWorkingLocation({ isWorkingLocation: true })).toBe(true);
@@ -60,6 +53,16 @@ describe("isWorkingLocation", () => {
     // 有無はこの関数の入力にすら含まれない ―― 呼び出し側 (splitWorkingLocationGroups) が
     // occurrence.location を一切参照しないことを型レベルでも保証している。
     expect(isWorkingLocation(occ({ location: "会議室A" }))).toBe(false);
+  });
+
+  it("終日予定(AllDayOccurrence)にも構造的に同じ判定を適用できる(AllDayBar.tsx が直接呼ぶ想定)", () => {
+    // このファイルはもう終日専用の split/rail 関数を持たない(2026-07-22 終日レーンへ統合)。
+    // 終日の勤務場所判定は AllDayBar.tsx がこの isWorkingLocation を直接呼ぶだけなので、
+    // AllDayOccurrence 形の入力でも正しく判定できることをここで固定しておく。
+    expect(isWorkingLocation(allDayOcc({ isWorkingLocation: true }))).toBe(true);
+    expect(isWorkingLocation(allDayOcc({ isWorkingLocation: false }))).toBe(false);
+    // location だけがあり isWorkingLocation でない終日予定も対象外(取り違え再発防止、時刻予定と対称)
+    expect(isWorkingLocation(allDayOcc({ location: "実家" }))).toBe(false);
   });
 });
 
@@ -91,21 +94,6 @@ describe("splitWorkingLocationGroups", () => {
 
     expect(cardGroups).toEqual([a, b]);
     expect(workingLocationGroups).toEqual([]);
-  });
-});
-
-describe("splitWorkingLocationAllDayGroups", () => {
-  it("勤務場所の終日 group を barGroups(AllDayBar 表示用)から除外し、workingLocationGroups へ振り分ける", () => {
-    const normal = allDayGroup(allDayOcc({ id: "normal-allday" }));
-    const workingLoc = allDayGroup(allDayOcc({ id: "wl-allday", isWorkingLocation: true }));
-
-    const { barGroups, workingLocationGroups } = splitWorkingLocationAllDayGroups([
-      normal,
-      workingLoc,
-    ]);
-
-    expect(barGroups).toEqual([normal]);
-    expect(workingLocationGroups).toEqual([workingLoc]);
   });
 });
 
@@ -168,32 +156,14 @@ describe("timedWorkingLocationRailItems", () => {
   });
 });
 
-describe("allDayWorkingLocationRailItems", () => {
-  it("day を含む終日勤務場所をその日の全高帯(startMinutes: 0, endMinutes: 1440)にする(帯化)", () => {
-    const o = allDayOcc({
-      id: "wl-allday-1",
-      isWorkingLocation: true,
-      startDate: "2026-07-20",
-      endDate: "2026-07-22",
-    });
-    const day = Temporal.PlainDate.from("2026-07-21");
-
-    const items = allDayWorkingLocationRailItems([allDayGroup(o)], day);
-
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: "wl-allday-1", startMinutes: 0, endMinutes: 24 * 60 });
-    expect(items[0].subject).toBe(o);
-  });
-
-  it("day を含まない終日勤務場所は除外する", () => {
-    const o = allDayOcc({
-      id: "wl-allday-2",
-      isWorkingLocation: true,
-      startDate: "2026-07-20",
-      endDate: "2026-07-20",
-    });
-    const day = Temporal.PlainDate.from("2026-07-21");
-
-    expect(allDayWorkingLocationRailItems([allDayGroup(o)], day)).toEqual([]);
+describe("終日の勤務場所はレールを経由しない(2026-07-22 終日レーンへ統合)", () => {
+  it("このファイルは終日専用の split/rail 関数を持たない ―― timedWorkingLocationRailItems/splitWorkingLocationGroups は OccurrenceGroup[](時刻予定)のみを受け取る型なので、AllDayOccurrenceGroup を渡すコードは型検査で弾かれる", () => {
+    // 実行時アサーションではなくコンパイル時の保証だが、意図を明示するためテストとして残す。
+    // 終日の勤務場所は WeekGrid.tsx が barGroups から分離しなくなり、他の終日予定と同じ
+    // 経路(packDayBars → AllDayBar)を通る。AllDayBar.tsx は isWorkingLocation(occurrence)
+    // (上の describe で固定した挙動)だけを見て `.allday-bar--working-location` の見た目に
+    // 分岐させる ―― この層に「終日用のレール項目」という概念自体がもう存在しない。
+    const wl = allDayOcc({ id: "wl-allday", isWorkingLocation: true });
+    expect(isWorkingLocation(wl)).toBe(true);
   });
 });

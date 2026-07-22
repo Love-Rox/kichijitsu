@@ -9,14 +9,19 @@ import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { AllDayOccurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { formatAllDayDateRange } from "../layout/gridMetrics";
+import { isWorkingLocation } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { resolveDisplayColor } from "../layout/eventColors";
+import { PlaceIcon } from "./icons";
 import {
   draftFromAllDayOccurrence,
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+
+/** 終日レーンの勤務場所バー先頭に置く地図ピンの大きさ(px)。時刻予定側の帯上端ピンと揃える */
+const WORKING_LOCATION_ICON_SIZE_PX = 11;
 
 const HOVER_DELAY_MS = 400;
 
@@ -63,6 +68,13 @@ export function AllDayBar({
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
+  // 勤務場所(workingLocation、2026-07-22 終日レーンへ統合): WeekGrid 側はもう終日の
+  // 勤務場所を barGroups から分離しない(layout/workingLocationRail.ts 参照)ため、この
+  // コンポーネントにも occurrence.isWorkingLocation===true な occurrence が普通に渡ってくる。
+  // showTooltip/style/JSX の各所で isWorkingLoc を見て見た目だけ分岐させる(判定関数
+  // isWorkingLocation は時刻予定側の layout/workingLocationRail.ts と共通)。
+  const isWorkingLoc = isWorkingLocation(occurrence);
+
   function hideTooltip() {
     if (hoverTimeoutRef.current !== undefined) {
       window.clearTimeout(hoverTimeoutRef.current);
@@ -76,11 +88,13 @@ export function AllDayBar({
 
   function showTooltip(clientX: number, clientY: number) {
     const el = getSharedTooltipEl();
+    // 勤務場所は WorkingLocationRailBand.tsx と同じ決定で location 補足行を出さない
+    // (title 自体が場所を表す。例: 自宅/オフィス。location フィールドは通常使わない)。
     fillTooltipContent(
       el,
       occurrence.title,
       formatAllDayDateRange(occurrence.startDate, occurrence.endDate),
-      occurrence.location,
+      isWorkingLoc ? undefined : occurrence.location,
     );
     el.style.display = "block";
     positionTooltip(el, clientX, clientY);
@@ -119,28 +133,32 @@ export function AllDayBar({
     : [];
 
   // 表示色バグ修正 (2026-07-20): EventBlock と同様、生の occurrence.color ではなく
-  // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)
+  // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)。
+  // 勤務場所(isWorkingLoc)はこの色を使わない(下記 style 参照)ので計算しても無駄になるが、
+  // event-group-dots(集約時の所属カレンダー色内訳)は勤務場所でも出しうるため常に計算しておく。
   const displayColor = resolveDisplayColor(occurrence, calendarLookup);
-  // 勤務場所 (workingLocation) は WeekGrid 側で packDayBars の入力から除外され、専用の
-  // 地図ピンレール(layout/workingLocationRail.ts)へ振り分けられるため、このコンポーネントに
-  // occurrence.isWorkingLocation===true が渡ってくることはない(2026-07-22 作り直し ――
-  // 直前のコミットにあった「薄墨の小テキストのみ」の控えめ表示は、対象が location フィールドの
-  // 取り違えだったため撤去した)。
   // 参加ステータス表示 (RSVP、2026-07-22)。EventBlock/MonthView と対になる最小限の表現
   // (要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。ここに渡る occurrence は
   // WeekGrid 側で不在(OOO)分を既に分離済み(splitOutOfOfficeAllDayGroups)なので、isOutOfOffice
-  // との排他判定は不要(EventBlock/MonthView と違い isOoo チェックを持たない)。
+  // との排他判定は不要(EventBlock/MonthView と違い isOoo チェックを持たない)。勤務場所は通常
+  // RSVP を持たないため isWorkingLoc と同時に立つことは実質無いが、念のため isWorkingLoc を
+  // 優先し(下記 style)、declined/needsAction の色上書きとは排他にしてある。
   const isDeclined = occurrence.responseStatus === "declined";
   const isNeedsAction = occurrence.responseStatus === "needsAction";
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
-    ...(isNeedsAction
-      ? ({ "--rsvp-color": displayColor } as CSSProperties)
-      : {
-          backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
-          borderLeftColor: displayColor,
-        }),
+    // 勤務場所(2026-07-22 終日レーンへ統合): カレンダー色を一切使わず、WeekGrid.css の
+    // .allday-bar--working-location 側で薄墨枡色(#DCD6C9)の固定背景・ボーダー無しを
+    // 敷く(時刻予定側の .day-workloc-band と同じ色)。inline style は座標系だけに留める。
+    ...(isWorkingLoc
+      ? {}
+      : isNeedsAction
+        ? ({ "--rsvp-color": displayColor } as CSSProperties)
+        : {
+            backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
+            borderLeftColor: displayColor,
+          }),
   };
 
   return (
@@ -148,6 +166,7 @@ export function AllDayBar({
       <div
         className={[
           "allday-bar",
+          isWorkingLoc ? "allday-bar--working-location" : "",
           isDeclined ? "allday-bar--declined" : "",
           isNeedsAction ? "allday-bar--needs-action" : "",
         ]
@@ -159,6 +178,16 @@ export function AllDayBar({
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
       >
+        {isWorkingLoc && (
+          // 先頭の地図ピン(墨色、WeekGrid.css の .allday-bar-working-location-icon が
+          // 色を指定する)。時刻予定側の帯上端ピン(WorkingLocationRailBand.tsx)と同じ
+          // 「勤務場所である」ことを示す視覚的な印。
+          <PlaceIcon
+            width={WORKING_LOCATION_ICON_SIZE_PX}
+            height={WORKING_LOCATION_ICON_SIZE_PX}
+            className="allday-bar-working-location-icon"
+          />
+        )}
         <span className="allday-bar-title">{occurrence.title}</span>
         {showGroupDots && (
           <span className="event-group-dots" aria-hidden="true">

@@ -187,6 +187,36 @@
   border: 1.5px solid var(--rsvp-color, currentColor);
 }
 
+/*
+ * 勤務場所 (workingLocation) の終日バー (2026-07-22 終日レーンへ統合)。
+ *
+ * 経緯: 従来は終日の勤務場所も帯化して左端レール (.day-workloc-band) に全高帯として
+ * 出していたが、「その日いっぱい何も予定が無いように見える」「他の終日予定(祝日等)と
+ * 並べて一覧したい」というユーザー要望を受け、終日レーンの通常の並び
+ * (packDayBars/AllDayBar) に統合し直した。ただし「勤務場所である」ことは一目で分かるよう、
+ * カレンダー色を使わない専用スタイルにする(AllDayBar.tsx が isWorkingLocation(occurrence)
+ * の結果でこのクラスを付け外しし、通常バーの backgroundColor/borderLeftColor インライン
+ * 指定は isWorkingLoc の間一切渡さないので、ここで固定値を敷ける):
+ * - 背景: brand の薄墨枡色 (#DCD6C9、.day-workloc-band と同じ色) を敷く。他の終日予定
+ *   (カレンダー色を18%だけ混ぜた薄い背景)に埋もれない程度の濃さを保ちつつ、
+ *   ユーザー方針どおりカレンダー色/朱のような強い主張はしない。
+ * - 左ボーダー: 通常バーは所属カレンダー色の左ボーダー(3px)を立てるが、勤務場所は
+ *   カレンダーに紐づく情報ではないので消す。border-left 分の視覚的インデントは
+ *   padding-left で補う(通常バーの border 3px + padding 4px ≈ 7px に近づける)。
+ * - 先頭アイコン: 墨色 (#24211e、.day-workloc-band-icon と同じ) の地図ピン (PlaceIcon) を
+ *   タイトルの前に置く(下記 .allday-bar-working-location-icon)。
+ */
+.allday-bar--working-location {
+  background-color: #dcd6c9;
+  border-left: none;
+  padding-left: 7px;
+}
+
+.allday-bar-working-location-icon {
+  flex: 0 0 auto;
+  color: #24211e;
+}
+
 /* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
 .allday-overflow {
   box-sizing: border-box;
@@ -1280,14 +1310,16 @@
 }
 
 /*
- * 勤務場所レール (帯表示、2026-07-22 帯化)。Google の勤務場所予定
- * (eventType==='workingLocation') について、不在(OOO)レールと全く同じ「日カラム左端に
- * 時間範囲ぶんの角丸矩形バーを敷く」形で表示する(ユーザー要望「OOO のように帯で表示
- * したい」、旧・点ピン版 .day-workloc-pin から作り替え)。予定カード/終日バーは持たず
+ * 勤務場所レール (帯表示、時刻予定専用)。Google の勤務場所予定
+ * (eventType==='workingLocation') のうち時刻予定側について、不在(OOO)レールと全く同じ
+ * 「日カラム左端に時間範囲ぶんの角丸矩形バーを敷く」形で表示する(ユーザー要望「OOO の
+ * ように帯で表示したい」、旧・点ピン版 .day-workloc-pin から作り替え)。予定カードは持たず
  * (専用レールへ完全に振り分け済み、layout/workingLocationRail.ts 参照)、この帯だけが
- * レールの内容そのものになる。left は DayColumn.tsx が workingLocationRailLeftPx
- * (gridMetrics.ts)の結果をインラインで渡す(OOO バーが同じ日にあるかどうかで 0px/14px に
- * 切り替わる ―― CSS の条件分岐では表現できないため JS 側で計算する)。
+ * レールの内容そのものになる。終日の勤務場所はこのレールに出ない(2026-07-22 終日レーンへ
+ * 統合 ―― .allday-bar--working-location 側の通常フローで表示、詳細は同クラスのコメント)。
+ * left は DayColumn.tsx が workingLocationRailLeftPx (gridMetrics.ts)の結果をインラインで
+ * 渡す(OOO バーが同じ日にあるかどうかで 0px/14px に切り替わる ―― CSS の条件分岐では
+ * 表現できないため JS 側で計算する)。
  */
 .day-workloc-rail {
   position: absolute;
@@ -1301,10 +1333,11 @@
  * 帯本体。OOO 帯 (.day-ooo-line) と全く同じ形・同じ当たり判定パターン(実体は
  * pointer-events: none、hit-test は下記 ::before が担う)だが、配色は意図的に差別化する ――
  * OOO はカレンダー色(occurrence ごとの inline style)で「どのカレンダーの不在か」を主張
- * するが、勤務場所は時刻・終日を問わずほぼ毎日出うる情報なので、朱・カレンダー色は使わず
- * brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を低 opacity で敷くだけの
- * 「地の薄い帯」にする(ユーザー方針)。値がイベントごとに変わらないため、ここでは固定値の
- * まま CSS に置く(OOO のように JS 側から backgroundColor を渡す必要が無い)。
+ * するが、勤務場所はほぼ毎日出うる情報なので、朱・カレンダー色は使わず brand の薄墨枡色
+ * (#DCD6C9、brand/README.md「ふつうの日の枡」)を低 opacity で敷くだけの「地の薄い帯」に
+ * する(ユーザー方針。終日レーン側の .allday-bar--working-location も同じ色を使う)。
+ * 値がイベントごとに変わらないため、ここでは固定値のまま CSS に置く(OOO のように JS 側
+ * から backgroundColor を渡す必要が無い)。
  */
 .day-workloc-band {
   position: absolute;

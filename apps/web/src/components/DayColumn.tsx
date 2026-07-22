@@ -135,14 +135,13 @@ interface DayColumnProps {
    */
   oooItems: OooRailItem[];
   /**
-   * 勤務場所(workingLocation)レール(帯表示、2026-07-22 帯化)。この日ぶんの勤務場所
-   * アイテム(WeekGrid 側で isWorkingLocation===true な occurrence/終日 occurrence を
-   * packColumns の入力・AllDayBar のチップから除外して集めたもの、layout/workingLocationRail.ts
-   * 参照)。OOO と同じく packColumns の入力からは除外する ―― カード(またはバー)としては
-   * 描画せず、このレールの帯だけで表す。`.day-workloc-rail`(左端、OOO が無い日は最左・
-   * ある日は OOO バーの内側)に描画する。OOO 帯と同じく startMinutes/endMinutes の範囲を
-   * 持ち、時刻予定由来は開始〜終了時刻の範囲、終日由来は startMinutes:0/endMinutes:1440
-   * (その日いっぱいの全高帯)になる。
+   * 勤務場所(workingLocation)レール(帯表示、時刻予定専用)。この日ぶんの時刻予定の
+   * 勤務場所アイテム(WeekGrid 側で isWorkingLocation===true な occurrence を packColumns の
+   * 入力から除外して集めたもの、layout/workingLocationRail.ts 参照)。OOO と同じく
+   * packColumns の入力からは除外する ―― カードとしては描画せず、このレールの帯だけで表す。
+   * `.day-workloc-rail`(左端、OOO が無い日は最左・ある日は OOO バーの内側)に描画する。
+   * 終日の勤務場所はこのレールに出さない(2026-07-22 終日レーンへ統合 ―― AllDayBar 側の
+   * 通常フローで他の終日予定と並べて表示する。詳細は layout/workingLocationRail.ts 冒頭コメント)。
    */
   workingLocationItems: WorkingLocationRailItem[];
   /**
@@ -232,10 +231,10 @@ export function DayColumn({
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
 
-  // 左端レールの左インセット一般化(勤務場所レール、2026-07-22 帯化): 不在(OOO)帯・
-  // 勤務場所帯のどちらか(または両方)がこの日にあるとき、EventBlock の左インセットを広げて
-  // 予定カードと重ならないようにする(gridMetrics.ts の dayColumnLeftInsetPx 参照)。
-  // どちらも無い日は従来の DAY_COLUMN_INSET_PX のまま。
+  // 左端レールの左インセット一般化: 不在(OOO)帯・勤務場所帯(時刻予定側のみ、2026-07-22
+  // 終日レーンへ統合済み)のどちらか(または両方)がこの日にあるとき、EventBlock の
+  // 左インセットを広げて予定カードと重ならないようにする(gridMetrics.ts の
+  // dayColumnLeftInsetPx 参照)。どちらも無い日は従来の DAY_COLUMN_INSET_PX のまま。
   const eventLeftInsetPx = dayColumnLeftInsetPx(
     oooItems.length > 0,
     workingLocationItems.length > 0,
@@ -578,12 +577,12 @@ export function DayColumn({
         </div>
       )}
       {workingLocationItems.length > 0 && (
-        // 勤務場所レール(帯表示、2026-07-22 帯化)。OOO バーとの視覚衝突回避:
+        // 勤務場所レール(帯表示、時刻予定専用。終日はここに出ない ―― AllDayBar 側の
+        // 通常フローで表示、2026-07-22 終日レーンへ統合)。OOO バーとの視覚衝突回避:
         // OOO が無い日はレール最左(left: 0、OOO バーと同じガター)、ある日は OOO バーの
         // 幅ぶん内側へずらす(workingLocationRailLeftPx、gridMetrics.ts)。左インセット
         // (eventLeftInsetPx、上記)側も両レールぶんまとめて広げてあるので、OOO・勤務場所帯・
-        // 予定カードの3者が同時に出ても重ならない。終日由来の帯は startMinutes:0/
-        // endMinutes:1440 固定なので常に日カラムの全高を占める(OOO の終日不在と同じ形)。
+        // 予定カードの3者が同時に出ても重ならない。
         // z-index は day-ooo-line と同じ 1(.now-line(2)・.day-ci-mark/.day-activity-mark(3)
         // より下、WeekGrid.css 側で指定)
         <div
