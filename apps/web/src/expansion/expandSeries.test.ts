@@ -165,6 +165,101 @@ describe("expandSeries", () => {
     });
   });
 
+  describe("RSVP フィールドの伝播 (参加ステータス表示、2026-07-22)", () => {
+    it("series.responseStatus/isOrganizer/hasConference を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({
+        responseStatus: "tentative",
+        isOrganizer: true,
+        hasConference: true,
+        rrule: "FREQ=DAILY;COUNT=2",
+      });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.responseStatus).toBe("tentative");
+        expect(occ.isOrganizer).toBe(true);
+        expect(occ.hasConference).toBe(true);
+      }
+    });
+
+    it("series に RSVP フィールドが無ければ occurrence 側も undefined のまま", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0].responseStatus).toBeUndefined();
+      expect(result[0].isOrganizer).toBeUndefined();
+      expect(result[0].hasConference).toBeUndefined();
+    });
+
+    it("override.patch.responseStatus が立っていればシリーズ側の値より優先する(この回だけ応答が違う)", () => {
+      const series = baseSeries({ responseStatus: "accepted", rrule: "FREQ=DAILY;COUNT=2" });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { responseStatus: "declined" },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.responseStatus).toBe("accepted");
+      expect(patched!.responseStatus).toBe("declined");
+    });
+
+    it("override.patch に RSVP フィールドが無ければシリーズ側の値にフォールバックする", () => {
+      const series = baseSeries({
+        responseStatus: "accepted",
+        isOrganizer: true,
+        hasConference: true,
+        rrule: "FREQ=DAILY;COUNT=2",
+      });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { title: "Rescheduled" }, // RSVP フィールドには触れない
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(patched!.responseStatus).toBe("accepted");
+      expect(patched!.isOrganizer).toBe(true);
+      expect(patched!.hasConference).toBe(true);
+    });
+  });
+
   it("FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)", () => {
     // 2026-01-05 は月曜
     const series = baseSeries({

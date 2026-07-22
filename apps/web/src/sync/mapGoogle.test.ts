@@ -675,3 +675,109 @@ describe("mapGoogleEvents: isOutOfOffice (不在レール表示、2026-07-22)", 
     expect(result.overrides[0].patch).not.toHaveProperty("isOutOfOffice");
   });
 });
+
+describe("mapGoogleEvents: 参加ステータス表示 (RSVP、2026-07-22)", () => {
+  it("単発イベントの selfResponseStatus/isOrganizer/hasConference を occurrence へ写す", () => {
+    const evt = baseEvent({
+      id: "rsvp-single",
+      selfResponseStatus: "tentative",
+      isOrganizer: true,
+      hasConference: true,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.singles[0].responseStatus).toBe("tentative");
+    expect(result.singles[0].isOrganizer).toBe(true);
+    expect(result.singles[0].hasConference).toBe(true);
+  });
+
+  it("attendees の無い単発イベント(selfResponseStatus undefined)は responseStatus も undefined のまま(従来どおり通常表示)", () => {
+    const evt = baseEvent({ id: "no-rsvp-single" });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.singles[0].responseStatus).toBeUndefined();
+    expect(result.singles[0].isOrganizer).toBeUndefined();
+    expect(result.singles[0].hasConference).toBeUndefined();
+  });
+
+  it("isOrganizer/hasConference が false 相当 (未設定) なら occurrence にキー自体を持たせない", () => {
+    const evt = baseEvent({ id: "no-organizer-single", selfResponseStatus: "declined" });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.singles[0]).not.toHaveProperty("isOrganizer");
+    expect(result.singles[0]).not.toHaveProperty("hasConference");
+  });
+
+  it("終日イベント (start.date のみ) にも同じ3フィールドを写す", () => {
+    const evt = baseEvent({
+      id: "rsvp-allday",
+      start: { date: "2026-07-20" },
+      end: { date: "2026-07-21" },
+      selfResponseStatus: "accepted",
+      isOrganizer: true,
+      hasConference: true,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.allDays[0].responseStatus).toBe("accepted");
+    expect(result.allDays[0].isOrganizer).toBe(true);
+    expect(result.allDays[0].hasConference).toBe(true);
+  });
+
+  it("繰り返し親イベントは EventSeries に同じ3フィールドを写す", () => {
+    const evt = baseEvent({
+      id: "rsvp-series",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+      selfResponseStatus: "declined",
+      isOrganizer: true,
+      hasConference: true,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.series[0].responseStatus).toBe("declined");
+    expect(result.series[0].isOrganizer).toBe(true);
+    expect(result.series[0].hasConference).toBe(true);
+  });
+
+  it("例外インスタンスは InstanceOverride.patch に同じ3フィールドを写す", () => {
+    const evt = baseEvent({
+      id: "rsvp-exception",
+      recurringEventId: "rsvp-series",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T18:00:00+09:00", timeZone: "Asia/Tokyo" },
+      selfResponseStatus: "needsAction",
+      isOrganizer: true,
+      hasConference: true,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.overrides[0].patch).toMatchObject({
+      responseStatus: "needsAction",
+      isOrganizer: true,
+      hasConference: true,
+    });
+  });
+
+  it("RSVP 情報の無い例外インスタンスは patch にキー自体を持たない(展開時にシリーズ側へフォールバックさせるため)", () => {
+    const evt = baseEvent({
+      id: "no-rsvp-exception",
+      recurringEventId: "series-evt",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T14:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T15:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.overrides[0].patch).not.toHaveProperty("responseStatus");
+    expect(result.overrides[0].patch).not.toHaveProperty("isOrganizer");
+    expect(result.overrides[0].patch).not.toHaveProperty("hasConference");
+  });
+});

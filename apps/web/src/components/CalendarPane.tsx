@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { AccountDTO, CalendarListEntryDTO, TaskListDTO } from "@kichijitsu/shared";
 import type { VisibleCalendarsMap } from "../db/database";
 import { groupCalendarsByAccess } from "../sync/calendarGroups";
+import type { DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import type { View } from "../keyboard/shortcuts";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import "./CalendarPane.css";
@@ -20,6 +21,14 @@ export interface CalendarPaneProps {
    * このコンポーネントは「選択」の見た目だけを担当する)。
    */
   onToggleCalendar: (accountId: string, calendarId: string, nextChecked: boolean) => void;
+
+  // ---- 表示セクション(参加ステータス表示、2026-07-22) ----
+  /** 「不参加を表示」設定。App.tsx の declinedVisibility state をそのまま渡す */
+  declinedVisibility: DeclinedVisibilitySettings;
+  /** 「不参加の予定を表示」チェックのトグル */
+  onToggleShowDeclined: () => void;
+  /** サブオプション「自分が主催の予定は残す」チェックのトグル(showDeclined が false のときのみ意味を持つ) */
+  onToggleKeepOrganizerDeclined: () => void;
 
   // ---- ミニ月カレンダー(左ペイン増分2、2026-07-22) ----
   /** 現在の表示形式。ミニカレンダーが「メインの表示中の範囲」を淡くハイライトするのに使う */
@@ -114,13 +123,17 @@ function saveCollapsedAccounts(collapsed: Set<string>): void {
  * (カレンダー色)+カレンダー名で、トグルは onToggleCalendar(App.tsx の handleToggleCalendar)を
  * そのまま呼ぶだけ ―― データ変更ロジックはこのコンポーネントには一切無い。
  *
- * ペイン内は body 上から以下のセクション構成(増分2→増分3で拡張):
+ * ペイン内は body 上から以下のセクション構成(増分2→増分3で拡張、参加ステータス表示 2026-07-22 で
+ * 「表示」セクションを追加):
  *   1. ミニ月カレンダー(MiniMonthCalendar) ―― タイムラインナビゲーション
- *   2. カレンダー選択(上記、増分1からの既存部分)
- *   3. アカウントごとのタスクリスト選択(TaskListGroup、AccountSection 内)
- *   4. GitHub セクション(GitHubSection、body 最下部) ―― 接続状態表示 + 表示トグル +
+ *   2. 表示セクション(DisplaySettingsSection、下記) ―― 「不参加を表示」ON/OFF + サブオプション
+ *      「自分が主催の予定は残す」。カレンダー選択より前に置く(全カレンダー横断の表示設定のため、
+ *      個別カレンダーの選択より上位の概念として扱う)
+ *   3. カレンダー選択(上記、増分1からの既存部分)
+ *   4. アカウントごとのタスクリスト選択(TaskListGroup、AccountSection 内)
+ *   5. GitHub セクション(GitHubSection、body 最下部) ―― 接続状態表示 + 表示トグル +
  *      作業キュー導線 + 時間記録(レポート)導線(増分3でツールバーから移設)
- *   5. フッター(プライバシー/規約リンク、増分3でツールバーから移設。body の外 ―― スクロール
+ *   6. フッター(プライバシー/規約リンク、増分3でツールバーから移設。body の外 ―― スクロール
  *      に埋もれず常に見える位置に固定する)
  * body 自体は calendar-pane-body の overflow-y: auto で縦スクロールする(CalendarPane.css)ため、
  * セクションがどれだけ増えても狭幅 docked 内に収まる。
@@ -131,6 +144,9 @@ export function CalendarPane({
   calendarsByAccount,
   visibleCalendars,
   onToggleCalendar,
+  declinedVisibility,
+  onToggleShowDeclined,
+  onToggleKeepOrganizerDeclined,
   view,
   timelineStart,
   dayCount,
@@ -194,6 +210,12 @@ export function CalendarPane({
           onNavigateDate={onNavigateDate}
         />
 
+        <DisplaySettingsSection
+          declinedVisibility={declinedVisibility}
+          onToggleShowDeclined={onToggleShowDeclined}
+          onToggleKeepOrganizerDeclined={onToggleKeepOrganizerDeclined}
+        />
+
         {accounts.length === 0 && (
           <p className="calendar-pane-empty-all">連携中のアカウントがありません</p>
         )}
@@ -238,6 +260,69 @@ export function CalendarPane({
         <a href="/privacy.html">プライバシー</a>
         <a href="/terms.html">規約</a>
       </div>
+    </div>
+  );
+}
+
+interface DisplaySettingsSectionProps {
+  declinedVisibility: DeclinedVisibilitySettings;
+  onToggleShowDeclined: () => void;
+  onToggleKeepOrganizerDeclined: () => void;
+}
+
+/**
+ * 「表示」セクション(参加ステータス表示、2026-07-22)。ミニ月カレンダーとカレンダー選択の
+ * 間に置く ―― 個別カレンダーの選択より上位の、全カレンダー横断の表示設定という位置づけ。
+ *
+ * 「不参加の予定を表示」チェック(既定 ON = 現状維持)を OFF にすると、declined な予定が
+ * WeekGrid/MonthView/AllDayBar/OOO レールから除外される(App.tsx の declinedVisibility state →
+ * shouldHideDeclined、sync/declinedVisibility.ts)。サブオプション「自分が主催の予定は残す」
+ * (既定 ON)は「不参加の予定を表示」が OFF のときだけ意味を持つため、その場合のみ描画する
+ * (TaskListGroup と同じ「見た目・操作感を CalendarGroup に揃える」流儀。カレンダーのような
+ * backgroundColor は無いので枡は常に既定色 masu--kichi のまま)。
+ */
+function DisplaySettingsSection({
+  declinedVisibility,
+  onToggleShowDeclined,
+  onToggleKeepOrganizerDeclined,
+}: DisplaySettingsSectionProps) {
+  return (
+    <div className="calendar-pane-group">
+      <h4 className="calendar-pane-group-title">表示</h4>
+      <ul className="calendar-pane-list">
+        <li className="calendar-pane-item">
+          <button
+            type="button"
+            className="calendar-pane-checkbox"
+            aria-pressed={declinedVisibility.showDeclined}
+            aria-label={`不参加の予定を${declinedVisibility.showDeclined ? "非表示" : "表示"}にする`}
+            onClick={onToggleShowDeclined}
+          >
+            <span
+              className={declinedVisibility.showDeclined ? "masu masu--kichi" : "masu masu--empty"}
+            />
+          </button>
+          <span className="calendar-pane-cal-name">不参加の予定を表示</span>
+        </li>
+        {!declinedVisibility.showDeclined && (
+          <li className="calendar-pane-item">
+            <button
+              type="button"
+              className="calendar-pane-checkbox"
+              aria-pressed={declinedVisibility.keepOrganizerDeclined}
+              aria-label={`自分が主催の予定を${declinedVisibility.keepOrganizerDeclined ? "非表示に含める" : "表示に残す"}`}
+              onClick={onToggleKeepOrganizerDeclined}
+            >
+              <span
+                className={
+                  declinedVisibility.keepOrganizerDeclined ? "masu masu--kichi" : "masu masu--empty"
+                }
+              />
+            </button>
+            <span className="calendar-pane-cal-name">自分が主催の予定は残す</span>
+          </li>
+        )}
+      </ul>
     </div>
   );
 }

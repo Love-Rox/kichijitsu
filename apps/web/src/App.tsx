@@ -66,7 +66,11 @@ import {
 } from "./sync/visibleCalendars";
 import { createSyncScheduler } from "./sync/syncScheduler";
 import { buildSyncRequest } from "./sync/syncRequest";
-import { decideOooBackfillTargets } from "./sync/oooBackfill";
+import { decideSyncBackfillTargets } from "./sync/syncBackfill";
+import {
+  DEFAULT_DECLINED_VISIBILITY,
+  type DeclinedVisibilitySettings,
+} from "./sync/declinedVisibility";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
@@ -105,6 +109,7 @@ import { GitHubStore } from "./store/githubStore";
 import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
 import { TimeEntryStore, useRunningTimeEntries, useTimeEntries } from "./store/timeEntryStore";
 import {
+  CURRENT_SYNC_BACKFILL_VERSION,
   cleanupDemoData,
   cleanupLegacyGoogleData,
   clearGitHubItems,
@@ -117,12 +122,13 @@ import {
   getAllPlannedBlocks,
   getAllTasks,
   getAllTimeEntries,
+  getDeclinedVisibilitySettings,
   getExpansionState,
   getHiddenTaskLists,
   getOccurrencesBetween,
-  getOooBackfillDone,
   getOrCreateDeviceId,
   getOverride,
+  getSyncBackfillVersion,
   getVisibleCalendars,
   openKichijitsuDB,
   putGitHubItems,
@@ -133,8 +139,9 @@ import {
   putSeries,
   putTask,
   putTimeEntry,
+  setDeclinedVisibilitySettings,
   setHiddenTaskLists,
-  setOooBackfillDone,
+  setSyncBackfillVersion,
   setVisibleCalendars,
   type KichijitsuDB,
   type VisibleCalendarsMap,
@@ -384,6 +391,15 @@ function App() {
   // 上の hiddenTaskLists 永続化 effect が、init effect の IndexedDB 読み込み完了前に
   // 空集合で上書きしてしまわないためのガード(visibleCalendarsLoadedRef と同じ役割)
   const hiddenTaskListsLoadedRef = useRef(false);
+  // 「不参加を表示」設定(参加ステータス表示、2026-07-22)。左ペイン(CalendarPane)の
+  // 「表示」セクションで ON/OFF する。hiddenTaskLists と同じ流儀 ―― この端末のみの
+  // ローカル設定で、サーバー同期はしない(db/database.ts の getDeclinedVisibilitySettings 参照)
+  const [declinedVisibility, setDeclinedVisibilityState] = useState<DeclinedVisibilitySettings>(
+    DEFAULT_DECLINED_VISIBILITY,
+  );
+  // 上の declinedVisibility 永続化 effect が、init effect の IndexedDB 読み込み完了前に
+  // 既定値で上書きしてしまわないためのガード(hiddenTaskListsLoadedRef と同じ役割)
+  const declinedVisibilityLoadedRef = useRef(false);
   const [panelOpen, setPanelOpen] = useState(false);
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false);
@@ -720,6 +736,14 @@ function App() {
       if (!cancelled) {
         setHiddenTaskListsState(storedHiddenTaskLists);
         hiddenTaskListsLoadedRef.current = true;
+      }
+
+      // 「不参加を表示」設定(参加ステータス表示): hiddenTaskLists と同じくこの端末の
+      // IndexedDB が唯一の正なので、素直に読み込むだけでよい
+      const storedDeclinedVisibility = await getDeclinedVisibilitySettings(database);
+      if (!cancelled) {
+        setDeclinedVisibilityState(storedDeclinedVisibility);
+        declinedVisibilityLoadedRef.current = true;
       }
 
       if (!cancelled) setDb(database);
@@ -1116,6 +1140,15 @@ function App() {
     });
   }, [db, hiddenTaskLists]);
 
+  // declinedVisibility(参加ステータス表示)が変わるたびに IndexedDB meta へ永続化する。
+  // hiddenTaskLists の永続化 effect と同じ流儀(初回ロード完了までは待つ)
+  useEffect(() => {
+    if (!db || !declinedVisibilityLoadedRef.current) return;
+    setDeclinedVisibilitySettings(db, declinedVisibility).catch((err) => {
+      console.error("kichijitsu: failed to persist declinedVisibility", err);
+    });
+  }, [db, declinedVisibility]);
+
   // アカウント一覧ぶんのカレンダー一覧を取得し、state に反映する共通処理。
   // 「me.accounts が増えたときの初回フェッチ」と「設定パネルを開いたときの
   // 未取得/取得失敗アカウントのリトライ」の両方から使う。
@@ -1255,8 +1288,8 @@ function App() {
 
   // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
   // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)。
-  // forceFull (2026-07-22、eventType 一度きりバックフィル用) は通常同期では省略して
-  // false 扱いにする — runOooBackfillIfNeeded だけが明示的に true を渡す
+  // forceFull (2026-07-22、同期バックフィル用) は通常同期では省略して
+  // false 扱いにする — runSyncBackfillIfNeeded だけが明示的に true を渡す
   const syncCalendarOnce = useCallback(
     async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
       if (!db) return;
@@ -1293,7 +1326,7 @@ function App() {
   // forceFull はそのまま syncCalendarOnce に通す — ただし schedule() は同一キーの走行中は
   // 新しい run を無視して既存の run を再実行するだけ(sync/syncScheduler.ts の runLoop 参照)
   // なので、理論上「非 forceFull の同期が走行中に forceFull の要求が来る」と forceFull が
-  // 無視されて通常の再実行になり得る。runOooBackfillIfNeeded は起動時の runSync 完了を
+  // 無視されて通常の再実行になり得る。runSyncBackfillIfNeeded は起動時の runSync 完了を
   // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
   const syncCalendar = useCallback(
     (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
@@ -1385,21 +1418,25 @@ function App() {
     setSyncStatus(hadError ? "error" : "idle");
   }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
 
-  // eventType 一度きりバックフィル (2026-07-22、繰り返し不在バグ修正と対になる修正)。
-  // 起動時の自動同期 (runSync、下の useEffect) が終わった直後に1回だけ呼ぶ:
-  // runSync 自体を forceFull にはしない(手動「同期」ボタンや SSE hello/changed からも
-  // runSync/syncCalendar 経由の通常同期が随時走るため、runSync 自体を forceFull 化すると
-  // 毎回全同期になってしまう。起動直後の1回だけ、という条件を素直に表せるのはこちらの
-  // 「runSync の後に別途走らせる」方式のほうだった)。
+  // 同期バックフィル (2026-07-22、旧 runOooBackfillIfNeeded の一般化。db/database.ts の
+  // CURRENT_SYNC_BACKFILL_VERSION コメント参照)。起動時の自動同期 (runSync、下の useEffect) が
+  // 終わった直後に1回だけ呼ぶ: runSync 自体を forceFull にはしない(手動「同期」ボタンや
+  // SSE hello/changed からも runSync/syncCalendar 経由の通常同期が随時走るため、runSync 自体を
+  // forceFull 化すると毎回全同期になってしまう。起動直後の1回だけ、という条件を素直に表せるのは
+  // こちらの「runSync の後に別途走らせる」方式のほうだった)。
   //
   // 選択中の全 (accountId, calendarId) を forceFull: true で同期し、1つも失敗しなければ
-  // 完了フラグを立てる。一部でも失敗したらフラグは立てず、次回起動時にまた全対象を
-  // 再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
-  // setOooBackfillDone コメント参照)。
-  const runOooBackfillIfNeeded = useCallback(async () => {
+  // 現行世代 (CURRENT_SYNC_BACKFILL_VERSION) を保存する。一部でも失敗したら保存せず、次回起動時に
+  // また全対象を再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
+  // setSyncBackfillVersion コメント参照)。
+  const runSyncBackfillIfNeeded = useCallback(async () => {
     if (!db) return;
-    const alreadyDone = await getOooBackfillDone(db);
-    const targets = decideOooBackfillTargets(alreadyDone, selectedTargets());
+    const savedVersion = await getSyncBackfillVersion(db);
+    const targets = decideSyncBackfillTargets(
+      savedVersion,
+      CURRENT_SYNC_BACKFILL_VERSION,
+      selectedTargets(),
+    );
     if (targets.length === 0) return;
 
     const results = await Promise.allSettled(
@@ -1407,14 +1444,11 @@ function App() {
     );
     const allOk = results.every((r) => r.status === "fulfilled");
     if (allOk) {
-      await setOooBackfillDone(db);
+      await setSyncBackfillVersion(db, CURRENT_SYNC_BACKFILL_VERSION);
     } else {
       for (const result of results) {
         if (result.status === "rejected") {
-          console.error(
-            "kichijitsu: oooBackfill sync failed, will retry next launch",
-            result.reason,
-          );
+          console.error("kichijitsu: sync backfill failed, will retry next launch", result.reason);
         }
       }
     }
@@ -1473,15 +1507,15 @@ function App() {
   });
 
   // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
-  // 完了後に続けて runOooBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
+  // 完了後に続けて runSyncBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
   // (runSync 自体)とバックフィルの forceFull 同期が同時に飛んで syncScheduler 上で
   // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある
   useEffect(() => {
     if (!db || me.accounts.length === 0 || Object.keys(visibleCalendars).length === 0) return;
     if (autoSyncedRef.current) return;
     autoSyncedRef.current = true;
-    runSync().then(() => runOooBackfillIfNeeded());
-  }, [db, me.accounts, visibleCalendars, runSync, runOooBackfillIfNeeded]);
+    runSync().then(() => runSyncBackfillIfNeeded());
+  }, [db, me.accounts, visibleCalendars, runSync, runSyncBackfillIfNeeded]);
 
   // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
   // (docs/google-tasks.md)。fetchTaskListsFor の完了タイミングは calendarsByAccount/visibleCalendars の
@@ -1559,6 +1593,23 @@ function App() {
     },
     [],
   );
+
+  // 左ペイン(CalendarPane)の「表示」セクションにある2チェックの操作(参加ステータス表示、
+  // 2026-07-22)。hiddenTaskLists と同じくローカル state を直接更新するだけ(サーバー同期無し)。
+  // 「不参加を表示」チェック本体。
+  const handleToggleShowDeclined = useCallback(() => {
+    setDeclinedVisibilityState((prev) => ({ ...prev, showDeclined: !prev.showDeclined }));
+  }, []);
+
+  // サブオプション「自分が主催の予定は残す」。showDeclined が true のときは意味を持たない
+  // (shouldHideDeclined 参照)が、状態自体は独立して保持する(再度 showDeclined を OFF にした
+  // ときに前回の選択を覚えていてほしいため)。
+  const handleToggleKeepOrganizerDeclined = useCallback(() => {
+    setDeclinedVisibilityState((prev) => ({
+      ...prev,
+      keepOrganizerDeclined: !prev.keepOrganizerDeclined,
+    }));
+  }, []);
 
   // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
   // DELETE /api/account に任せ、成功したらそのアカウントに関する状態(accounts・カレンダー一覧・
@@ -2807,6 +2858,9 @@ function App() {
             taskListsByAccount={taskListsByAccount}
             hiddenTaskListKeys={hiddenTaskLists}
             onToggleTaskList={handleToggleTaskList}
+            declinedVisibility={declinedVisibility}
+            onToggleShowDeclined={handleToggleShowDeclined}
+            onToggleKeepOrganizerDeclined={handleToggleKeepOrganizerDeclined}
             githubLogin={me.github?.login ?? null}
             activityVisible={activityVisible}
             onToggleActivityVisible={handleToggleActivityVisible}
@@ -2846,6 +2900,7 @@ function App() {
               onCreateEvent={handleCreate}
               onToggleTask={handleToggleTask}
               hiddenTaskListKeys={hiddenTaskLists}
+              declinedVisibility={declinedVisibility}
               // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
               // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
               longPressCreate={isNarrow}
@@ -2862,6 +2917,7 @@ function App() {
               writeTarget={defaultWriteTarget}
               onCreateEvent={handleCreate}
               onNavigateToDay={handleNavigateToDay}
+              declinedVisibility={declinedVisibility}
             />
           )}
           {initIndicator.visible && (

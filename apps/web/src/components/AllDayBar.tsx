@@ -106,17 +106,33 @@ export function AllDayBar({
   // 表示色バグ修正 (2026-07-20): EventBlock と同様、生の occurrence.color ではなく
   // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)
   const displayColor = resolveDisplayColor(occurrence, calendarLookup);
+  // 参加ステータス表示 (RSVP、2026-07-22)。EventBlock/MonthView と対になる最小限の表現
+  // (要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。ここに渡る occurrence は
+  // WeekGrid 側で不在(OOO)分を既に分離済み(splitOutOfOfficeAllDayGroups)なので、isOutOfOffice
+  // との排他判定は不要(EventBlock/MonthView と違い isOoo チェックを持たない)。
+  const isDeclined = occurrence.responseStatus === "declined";
+  const isNeedsAction = occurrence.responseStatus === "needsAction";
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
-    backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
-    borderLeftColor: displayColor,
+    ...(isNeedsAction
+      ? ({ "--rsvp-color": displayColor } as CSSProperties)
+      : {
+          backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
+          borderLeftColor: displayColor,
+        }),
   };
 
   return (
     <>
       <div
-        className="allday-bar"
+        className={[
+          "allday-bar",
+          isDeclined ? "allday-bar--declined" : "",
+          isNeedsAction ? "allday-bar--needs-action" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         style={style}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}

@@ -181,3 +181,53 @@ export function SearchIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, classN
     </svg>
   );
 }
+
+/**
+ * ビデオカメラ(参加ステータス表示、2026-07-22)。会議リンク (conferenceData/hangoutLink) が
+ * ある予定を示す。EventBlock のタイトル行と EventDetailCard の両方で使う
+ * (occurrence.hasConference が true のときのみ表示、apps/web/src/components/EventBlock.tsx 参照)。
+ */
+export function VideoIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="1.5" y="4" width="9" height="8" rx="1.4" />
+      <path d="M10.5 6.8l3.3-2.1a.6.6 0 0 1 .92.5v5.6a.6.6 0 0 1-.92.5l-3.3-2.1Z" />
+    </svg>
+  );
+}
+
+/**
+ * 建物/場所ピン(参加ステータス表示、2026-07-22)。location が非空の予定を示す
+ * (現地開催の近似 ―― Google API は attendee 単位の参加手段を公開していないため、
+ * イベント側の location 有無で代用する。EventBlock.tsx のコメント参照)。
+ */
+export function PlaceIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 14.2c2.9-3.1 4.8-5.7 4.8-8A4.8 4.8 0 1 0 3.2 6.2c0 2.3 1.9 4.9 4.8 8Z" />
+      <circle cx="8" cy="6.2" r="1.8" />
+    </svg>
+  );
+}

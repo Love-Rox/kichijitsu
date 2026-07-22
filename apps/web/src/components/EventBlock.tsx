@@ -25,6 +25,7 @@ import {
   resolveBusyColor,
   resolveDisplayColor,
 } from "../layout/eventColors";
+import { PlaceIcon, VideoIcon } from "./icons";
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
@@ -407,6 +408,25 @@ export function EventBlock({
   // カレンダー色を優先するため、初回同期時に defaultColor が未定義だった occurrence でも
   // パネルの色と一致する(再同期不要)。イベント個別色 (hasCustomColor) は尊重される。
   const displayColor = isBusy ? undefined : resolveDisplayColor(occurrence, calendarLookup);
+  // 参加ステータス表示 (RSVP、2026-07-22)。Busy プレースホルダには適用しない(要件)。
+  // 不在(OOO)は DayColumn 側で専用レールへ振り分け済みでそもそもこのコンポーネントに
+  // 来ないため、ここでの排他判定は不要。attendees の無い自分の予定 (responseStatus
+  // undefined) は accepted と同じ扱い(通常表示のまま何も変えない)。
+  //   - needsAction: 塗りなし・カレンダー色の実線枠(下の style 計算で反映)
+  //   - tentative: 半透明(event--rsvp-tentative、CSS 側で opacity)
+  //   - declined: タイトル打ち消し線 + 全体を淡色に(event--rsvp-declined)
+  const responseStatus = isBusy ? undefined : occurrence.responseStatus;
+  const isNeedsAction = responseStatus === "needsAction";
+  const isTentative = responseStatus === "tentative";
+  const isDeclined = responseStatus === "declined";
+  // オンライン/現地の手段表示 (2026-07-22)。Google API は「自分がオンライン/現地のどちらで
+  // 参加するか」という attendee 単位の情報を公開していないため、イベント側の手段の有無
+  // (会議リンク・location)で近似する(ユーザー決定、詳細は apps/sync の deriveHasConference・
+  // packages/shared/src/protocol.ts の GoogleEventDTO.hasConference コメント参照)。
+  // Busy プレースホルダには適用しない(中身の無いブロックのため)。
+  const showVideoIcon = !isBusy && occurrence.hasConference === true;
+  const showPlaceIcon = !isBusy && !!occurrence.location;
+  const hasMeansIcons = showVideoIcon || showPlaceIcon;
   // 左インセットだけ日ごとに可変(不在レール矩形化、2026-07-22)。右は常に DAY_COLUMN_INSET_PX。
   const leftInsetPx = leftInsetPxProp ?? DAY_COLUMN_INSET_PX;
   const usableWidthExpr = `(100% - ${leftInsetPx}px - ${DAY_COLUMN_INSET_PX}px)`;
@@ -428,12 +448,19 @@ export function EventBlock({
     // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと
     // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
     // Busy は背景を独自指定せず、色付きハッチ(CSS 側 .event--busy + --busy-color)に任せる。
+    // needsAction (RSVP 未返信、2026-07-22) は「輪郭のみ・塗りなし」を要件どおり表現するため、
+    // 左ボーダーのみの通常カードとは別に全周 1.5px のカレンダー色枠に切り替える。
     ...(isBusy
       ? ({ borderLeftColor: busyColor, "--busy-color": busyColor } as CSSProperties)
-      : {
-          backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
-          borderLeftColor: displayColor,
-        }),
+      : isNeedsAction
+        ? ({
+            backgroundColor: "transparent",
+            border: `1.5px solid ${displayColor}`,
+          } as CSSProperties)
+        : {
+            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
+            borderLeftColor: displayColor,
+          }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
     ...(hasStripes
       ? {
@@ -450,7 +477,13 @@ export function EventBlock({
     <>
       <div
         ref={elRef}
-        className={["event", isCompact ? "event--compact" : "", isBusy ? "event--busy" : ""]
+        className={[
+          "event",
+          isCompact ? "event--compact" : "",
+          isBusy ? "event--busy" : "",
+          isTentative ? "event--rsvp-tentative" : "",
+          isDeclined ? "event--rsvp-declined" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={style}
@@ -501,12 +534,26 @@ export function EventBlock({
         {isCompact ? (
           <span className="event-line">
             <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+            {hasMeansIcons && (
+              // オンライン/現地の手段アイコン(2026-07-22)。ドラッグ/クリックの判定を
+              // 奪わないよう pointer-events:none(CSS 側、.event-means-icons)
+              <span className="event-means-icons" aria-hidden="true">
+                {showVideoIcon && <VideoIcon width={10} height={10} />}
+                {showPlaceIcon && <PlaceIcon width={10} height={10} />}
+              </span>
+            )}
             <span className="event-title">{occurrence.title}</span>
           </span>
         ) : (
           <>
             <span className="event-header-row">
               <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
+              {hasMeansIcons && (
+                <span className="event-means-icons" aria-hidden="true">
+                  {showVideoIcon && <VideoIcon width={10} height={10} />}
+                  {showPlaceIcon && <PlaceIcon width={10} height={10} />}
+                </span>
+              )}
             </span>
             <span className="event-title">{occurrence.title}</span>
           </>
@@ -546,6 +593,11 @@ export interface EventDetailSubject {
   calendarId?: string;
   /** Occurrence.isMirror / AllDayOccurrence.isMirror と同じ意味(自動生成 mirror かどうか) */
   isMirror?: boolean;
+  /**
+   * Occurrence.hasConference / AllDayOccurrence.hasConference と同じ意味(参加ステータス表示、
+   * 2026-07-22)。true なら「オンライン会議あり」を表示する(下の EventDetailCard 参照)。
+   */
+  hasConference?: boolean;
 }
 
 export interface EventDetailCardProps {
@@ -627,7 +679,23 @@ export function EventDetailCard({
           他のカレンダーの予定から自動でブロックされた時間です
         </div>
       )}
-      {subject.location && <div className="event-detail-location">{subject.location}</div>}
+      {/*
+       * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。EventBlock のタイトル行の
+       * 小アイコンと同じ判定基準(occurrence.hasConference/location)を、詳細ポップオーバーでは
+       * テキストラベル付きで表示する(要件:「オンライン会議あり / 場所: {location}」)。
+       */}
+      {subject.hasConference === true && (
+        <div className="event-detail-conference">
+          <VideoIcon width={12} height={12} />
+          オンライン会議あり
+        </div>
+      )}
+      {subject.location && (
+        <div className="event-detail-location">
+          <PlaceIcon width={12} height={12} />
+          場所: {subject.location}
+        </div>
+      )}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
       {subject.link?.url && (
         <a

@@ -32,6 +32,17 @@ export interface EventSeries {
    * (hasCustomColor と同じ伝播の仕方)。
    */
   isOutOfOffice?: boolean;
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。Occurrence.responseStatus と同じ意味 ―― mapGoogle.ts
+   * の buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま引き継ぐ
+   * (isOutOfOffice と同じ伝播の仕方: override 側に値があればそれを優先し、無ければこの
+   * シリーズ全体の値にフォールバックする)。
+   */
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /** Occurrence.isOrganizer と同じ意味(参加ステータス表示、2026-07-22)。isOutOfOffice と同じ伝播。 */
+  isOrganizer?: boolean;
+  /** Occurrence.hasConference と同じ意味(参加ステータス表示、2026-07-22)。isOutOfOffice と同じ伝播。 */
+  hasConference?: boolean;
   /** 初回開始のローカル日時 (タイムゾーンオフセットなしの ISO)。例 "2026-07-20T10:00" */
   dtstartIso: string;
   /** IANA タイムゾーン。例 "Asia/Tokyo" */
@@ -72,6 +83,16 @@ export interface InstanceOverride {
      * キー自体を省略し、expandSeries 側でシリーズの isOutOfOffice にフォールバックさせる。
      */
     isOutOfOffice?: boolean;
+    /**
+     * 参加ステータス表示 (RSVP、2026-07-22)。この例外インスタンス自体が持つ selfResponseStatus
+     * を上書きするときのみセットする(isOutOfOffice と同じ流儀: セットしないケースでは
+     * キー自体を省略し、expandSeries 側でシリーズの responseStatus にフォールバックさせる)。
+     */
+    responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+    /** isOutOfOffice と同じ流儀(この例外インスタンス自体が isOrganizer===true のときのみ true をセット) */
+    isOrganizer?: boolean;
+    /** isOutOfOffice と同じ流儀(この例外インスタンス自体が hasConference===true のときのみ true をセット) */
+    hasConference?: boolean;
   } | null;
 }
 

@@ -61,6 +61,25 @@ export interface Occurrence {
    * 繰り返しで来た場合はこのフラグが立たず、従来通りの予定カードとして描画される)。
    */
   isOutOfOffice?: boolean;
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO.selfResponseStatus をそのまま写す
+   * (isOutOfOffice と同じ流儀: 判定の複雑さを model 層に持ち込まず、mapGoogle.ts が既に
+   * 解決済みの値をそのまま渡す)。attendees の無い自分の予定は undefined のまま ―― UI
+   * (EventBlock.tsx) はこの場合、参加ステータスによる表示の出し分けを一切行わない
+   * (要件: 「attendees の無い自分の予定は従来どおり通常表示」)。
+   */
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO.isOrganizer をそのまま写す。
+   * 「不参加を表示」フィルタのサブオプション「自分が主催の予定は残す」の判定
+   * (sync/declinedVisibility.ts の shouldHideDeclined) に使う。
+   */
+  isOrganizer?: boolean;
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO.hasConference をそのまま写す。
+   * true なら EventBlock/EventDetailCard がビデオアイコン(会議リンクあり)を出す。
+   */
+  hasConference?: boolean;
 }
 
 /**
@@ -95,6 +114,12 @@ export interface AllDayOccurrence {
   isMirror?: boolean;
   /** Occurrence.isOutOfOffice と同じ意味 (不在レール表示、2026-07-22)。 */
   isOutOfOffice?: boolean;
+  /** Occurrence.responseStatus と同じ意味 (参加ステータス表示、2026-07-22)。 */
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /** Occurrence.isOrganizer と同じ意味 (参加ステータス表示、2026-07-22)。 */
+  isOrganizer?: boolean;
+  /** Occurrence.hasConference と同じ意味 (参加ステータス表示、2026-07-22)。 */
+  hasConference?: boolean;
 }
 
 /**

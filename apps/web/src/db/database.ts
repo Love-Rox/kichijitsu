@@ -11,6 +11,10 @@ import type {
 import type { EventSeries, InstanceOverride } from "../model/series";
 import type { ExpansionState } from "../expansion/windowPolicy";
 import { DAY_MS } from "../expansion/windowPolicy";
+import {
+  DEFAULT_DECLINED_VISIBILITY,
+  type DeclinedVisibilitySettings,
+} from "../sync/declinedVisibility";
 
 /**
  * IndexedDB (idb ラッパー) の薄いアクセス層。UI/展開ロジックはこれ経由でのみ
@@ -88,7 +92,14 @@ export interface KichijitsuDB extends DBSchema {
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
-    value: ExpansionState | VisibleCalendarsMap | string | string[] | boolean;
+    value:
+      | ExpansionState
+      | VisibleCalendarsMap
+      | DeclinedVisibilitySettings
+      | string
+      | string[]
+      | number
+      | boolean;
   };
 }
 
@@ -111,16 +122,31 @@ const META_DEVICE_ID_KEY = "deviceId";
  */
 const META_HIDDEN_TASK_LISTS_KEY = "hiddenTaskLists";
 /**
- * eventType 一度きりバックフィル完了フラグ (2026-07-22、繰り返し不在バグ修正と対の
- * もう1つの修正)。不在レール表示 (a00fa80) 導入前に同期済みだったイベントには
- * eventType が永久に付かない (変更の無いイベントは増分同期で再配信されないため) ので、
- * 初回起動時に選択中の全カレンダーを forceFull: true で1回ずつ同期して埋める
- * (App.tsx の runOooBackfillIfNeeded)。deviceId と同じく端末ごとの IndexedDB に
- * 保存する — 複数端末はそれぞれ自分の syncToken (v2) を持つ設計なので、
- * バックフィルも各端末が自分の分を1回ずつ実施するのが正しい (他端末の完了を
- * 「もう済んだ」と誤認してはいけない)。
+ * 「不参加 (declined) の予定を表示しない」設定 (参加ステータス表示、2026-07-22)。
+ * hiddenTaskLists と同じく、この端末だけのローカル永続(サーバー同期はしない)。
+ * 未保存時の既定値は sync/declinedVisibility.ts の DEFAULT_DECLINED_VISIBILITY
+ * (showDeclined: true = 現状維持)。
  */
-const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone";
+const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
+/**
+ * 同期バックフィル世代 (2026-07-22、旧 oooBackfillDone の一般化)。当初は eventType
+ * (不在レール表示、a00fa80) 専用の boolean フラグだったが、RSVP 表示 (selfResponseStatus/
+ * isOrganizer/hasConference) の追加で「クライアント側だけで新フィールドを増やすたびに、
+ * 過去に同期済みのイベントへ行き渡らせる」という同じ課題が再発したため、世代番号
+ * (syncBackfillVersion) に一般化した ―― 新フィールドを追加するたびに CURRENT_SYNC_BACKFILL_VERSION
+ * を1つ上げるだけで、App.tsx の runSyncBackfillIfNeeded が保存済み世代との差分を forceFull
+ * 同期で埋める(旧 runOooBackfillIfNeeded と同じ仕組み、対象は常に「保存済み世代 → 現行世代」への
+ * 1ジャンプ)。deviceId と同じく端末ごとの IndexedDB に保存する — 複数端末はそれぞれ自分の
+ * syncToken (v2) を持つ設計なので、バックフィルも各端末が自分の分を1回ずつ実施するのが正しい
+ * (他端末の完了を「もう済んだ」と誤認してはいけない)。
+ *
+ * 世代の意味:
+ *   1 = eventType (不在レール表示、2026-07-22、旧 oooBackfillDone===true と同値)
+ *   2 = RSVP 表示 (selfResponseStatus/isOrganizer/hasConference、2026-07-22)
+ */
+const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone"; // 旧キー。getSyncBackfillVersion の移行判定でのみ読む
+const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
+export const CURRENT_SYNC_BACKFILL_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
@@ -493,22 +519,56 @@ export async function setHiddenTaskLists(
 }
 
 /**
- * eventType 一度きりバックフィル (2026-07-22) が完了済みかどうか。未保存 (初回起動・
- * 旧バージョンからのアップグレード直後) は false = 未実施として扱う。
+ * 「不参加を表示」設定 (参加ステータス表示、2026-07-22) の読み出し。未保存なら
+ * DEFAULT_DECLINED_VISIBILITY (showDeclined: true = 現状維持) を返す。meta ストアは
+ * key ごとに value の形が異なる(他の設定と共存)ため、getExpansionState/
+ * getVisibleCalendars と同じく「それらしい形をしているか」を軽くチェックしてから返す。
  */
-export async function getOooBackfillDone(db: IDBPDatabase<KichijitsuDB>): Promise<boolean> {
-  const value = await db.get("meta", META_OOO_BACKFILL_DONE_KEY);
-  return value === true;
+export async function getDeclinedVisibilitySettings(
+  db: IDBPDatabase<KichijitsuDB>,
+): Promise<DeclinedVisibilitySettings> {
+  const value = await db.get("meta", META_DECLINED_VISIBILITY_KEY);
+  if (!value || typeof value !== "object" || !("showDeclined" in value)) {
+    return DEFAULT_DECLINED_VISIBILITY;
+  }
+  return value as DeclinedVisibilitySettings;
+}
+
+export async function setDeclinedVisibilitySettings(
+  db: IDBPDatabase<KichijitsuDB>,
+  settings: DeclinedVisibilitySettings,
+): Promise<void> {
+  await db.put("meta", settings, META_DECLINED_VISIBILITY_KEY);
+}
+
+/**
+ * 同期バックフィルの保存済み世代を返す (2026-07-22、旧 getOooBackfillDone の一般化)。
+ *
+ * 新キー (syncBackfillVersion) が無ければ、旧キー (oooBackfillDone、boolean) を移行判定する:
+ * 旧キーが true なら「eventType バックフィル (世代1) までは完了済み」とみなして 1 を返す
+ * (数値版導入前に完了していた端末が、RSVP 追加でまた eventType からやり直しにならないための
+ * 救済)。旧キーも無ければ 0 (何も完了していない)。この移行判定はここで新キーへ書き込むことは
+ * しない ―― setSyncBackfillVersion が呼ばれるまでは毎回この関数内で同じ判定を再実行するだけで、
+ * 副作用が無い(=何度呼んでも安全)。
+ */
+export async function getSyncBackfillVersion(db: IDBPDatabase<KichijitsuDB>): Promise<number> {
+  const value = await db.get("meta", META_SYNC_BACKFILL_VERSION_KEY);
+  if (typeof value === "number") return value;
+  const legacyDone = await db.get("meta", META_OOO_BACKFILL_DONE_KEY);
+  return legacyDone === true ? 1 : 0;
 }
 
 /**
  * バックフィル完了を記録する。App.tsx 側は「選択中の全カレンダーへの forceFull 同期が
  * 1つも失敗せず終わった」ときのみこれを呼ぶ — 一部失敗した場合は呼ばずに次回起動時の
- * 再試行に委ねる (完了フラグを早まって立てると、失敗したカレンダーだけ永久に
+ * 再試行に委ねる (完了世代を早まって進めると、失敗したカレンダーだけ永久に
  * バックフィルされないままになるため)。
  */
-export async function setOooBackfillDone(db: IDBPDatabase<KichijitsuDB>): Promise<void> {
-  await db.put("meta", true, META_OOO_BACKFILL_DONE_KEY);
+export async function setSyncBackfillVersion(
+  db: IDBPDatabase<KichijitsuDB>,
+  version: number,
+): Promise<void> {
+  await db.put("meta", version, META_SYNC_BACKFILL_VERSION_KEY);
 }
 
 export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {

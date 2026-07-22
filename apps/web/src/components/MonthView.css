@@ -158,6 +158,23 @@
   color: #6b665c;
 }
 
+/*
+ * 参加ステータス表示 (RSVP、2026-07-22)。EventBlock (.event--rsvp-*) と対になる、
+ * 月表示チップの最小限の表現(要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。
+ */
+.month-chip--declined {
+  opacity: 0.45;
+}
+
+.month-chip--declined .month-chip-title {
+  text-decoration: line-through;
+}
+
+.month-chip--needs-action {
+  background-color: transparent;
+  border: 1.5px solid var(--rsvp-color, currentColor);
+}
+
 .month-chip-overflow {
   flex: 0 0 auto;
   align-self: flex-start;

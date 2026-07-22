@@ -112,6 +112,27 @@ function isOutOfOfficeEvent(event: GoogleEventDTO): boolean {
 }
 
 /**
+ * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO の3つの派生フィールド
+ * (selfResponseStatus/isOrganizer/hasConference) を、値がある分だけスプレッドできる
+ * オブジェクトの断片にまとめる。isMirror/isOutOfOffice と同じ「値が無ければキー自体を
+ * 持たせない」流儀を3フィールドぶん都度書くと冗長なため、ここに1箇所へ集約した。
+ * buildSingle/buildAllDay/buildSeries の返り値と buildOverride の patch の両方から使う
+ * (patch 側は明示的に「セットしないときはキー省略」を要求するため、この関数の出力を
+ * そのまま Object.assign 的にスプレッドするだけで両方の要求を満たせる)。
+ */
+function rsvpFields(event: GoogleEventDTO): {
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  isOrganizer?: boolean;
+  hasConference?: boolean;
+} {
+  return {
+    ...(event.selfResponseStatus ? { responseStatus: event.selfResponseStatus } : {}),
+    ...(event.isOrganizer ? { isOrganizer: true as const } : {}),
+    ...(event.hasConference ? { hasConference: true as const } : {}),
+  };
+}
+
+/**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
  * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
@@ -268,6 +289,7 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     rrule: rruleLine,
     exdatesMs,
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...rsvpFields(event),
   };
 }
 
@@ -303,6 +325,7 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   if (isOutOfOfficeEvent(event)) {
     patch.isOutOfOffice = true;
   }
+  Object.assign(patch, rsvpFields(event));
 
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch };
 }
@@ -344,6 +367,7 @@ function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurr
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...rsvpFields(event),
   };
 }
 
@@ -373,6 +397,7 @@ function buildSingle(
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
+    ...rsvpFields(event),
   };
 }
 

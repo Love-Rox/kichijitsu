@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Temporal } from "@js-temporal/polyfill";
 import type { Occurrence } from "../model/types";
@@ -8,6 +8,7 @@ import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   groupDuplicateAllDayOccurrences,
   groupDuplicateOccurrences,
@@ -39,6 +40,8 @@ interface MonthViewProps {
   visibleCalendarKeys: Set<string>;
   calendarLookup: Map<string, CalendarInfo>;
   onDelete: (occurrence: Occurrence) => void;
+  /** 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。WeekGrid.declinedVisibility と同じ意味 */
+  declinedVisibility: DeclinedVisibilitySettings;
   /**
    * WeekGrid と揃えた共通 props(App.tsx から同じ形で渡ってくる)。月ビュー v1 では
    * ドラッグ移動・空き領域からの新規作成は対象外(week ビューでのみ行う設計、上位の
@@ -89,6 +92,7 @@ export function MonthView({
   calendarLookup,
   onDelete,
   onNavigateToDay,
+  declinedVisibility,
 }: MonthViewProps) {
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
@@ -102,12 +106,16 @@ export function MonthView({
     [monthCursor, timeZone],
   );
   const occurrences = useOccurrences(store, fromMs, toMs);
+  // カレンダー選択 + 「不参加を表示」フィルタ(参加ステータス表示、2026-07-22)。
+  // WeekGrid の visibleOccurrences と同じ組み立て方(唯一のフィルタ地点)。
   const visibleOccurrences = useMemo(
     () =>
       occurrences.filter(
-        (o) => o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+        (o) =>
+          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          !shouldHideDeclined(o, declinedVisibility),
       ),
-    [occurrences, visibleCalendarKeys],
+    [occurrences, visibleCalendarKeys, declinedVisibility],
   );
   const groupedOccurrences = useMemo(
     () => groupDuplicateOccurrences(visibleOccurrences),
@@ -120,9 +128,11 @@ export function MonthView({
   const visibleAllDayOccurrences = useMemo(
     () =>
       allDayOccurrencesRaw.filter(
-        (o) => o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+        (o) =>
+          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          !shouldHideDeclined(o, declinedVisibility),
       ),
-    [allDayOccurrencesRaw, visibleCalendarKeys],
+    [allDayOccurrencesRaw, visibleCalendarKeys, declinedVisibility],
   );
   const groupedAllDayOccurrences = useMemo(
     () => groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
@@ -209,18 +219,36 @@ export function MonthView({
                       // 描画だけを変える。検索結果・詳細表示は従来どおり)
                       const isOoo = chip.group.primary.isOutOfOffice === true;
                       const color = resolveDisplayColor(chip.group.primary, calendarLookup);
+                      // 参加ステータス表示 (RSVP、2026-07-22)。月表示にはレール概念が無いため
+                      // EventBlock ほど作り込まず、declined の line-through+淡色と needsAction の
+                      // 輪郭表現(塗りなし・カレンダー色の枠)だけを最小限適用する(要件どおり)。
+                      // OOO 予定は attendees を持たないのが通常なので、isOoo を優先し RSVP 装飾とは
+                      // 排他的に扱う(理論上の重複ケースでも OOO の見た目を優先する)。
+                      const responseStatus = isOoo ? undefined : chip.group.primary.responseStatus;
+                      const isDeclined = responseStatus === "declined";
+                      const isNeedsAction = responseStatus === "needsAction";
                       return (
                         <button
                           key={chip.key}
                           type="button"
-                          className={`month-chip month-chip--${chip.kind}${isOoo ? " month-chip--ooo" : ""}`}
+                          className={[
+                            "month-chip",
+                            `month-chip--${chip.kind}`,
+                            isOoo ? "month-chip--ooo" : "",
+                            isDeclined ? "month-chip--declined" : "",
+                            isNeedsAction ? "month-chip--needs-action" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
                           style={
                             isOoo
                               ? undefined
-                              : {
-                                  backgroundColor: `color-mix(in srgb, ${color} 16%, white)`,
-                                  borderLeftColor: color,
-                                }
+                              : isNeedsAction
+                                ? ({ "--rsvp-color": color } as CSSProperties)
+                                : {
+                                    backgroundColor: `color-mix(in srgb, ${color} 16%, white)`,
+                                    borderLeftColor: color,
+                                  }
                           }
                           onClick={(e) => openDetail(chip, e)}
                           title={chip.title}

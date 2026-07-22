@@ -298,6 +298,11 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     // 不在レール表示 (2026-07-22 バグ修正)。override 側で明示的に立っていればそれを優先し、
     // 無ければシリーズ全体の値を使う (hasCustomColor と同じフォールバックの形)。
     const isOutOfOffice = override?.patch?.isOutOfOffice ?? series.isOutOfOffice;
+    // 参加ステータス表示 (RSVP、2026-07-22)。isOutOfOffice と全く同じフォールバックの形
+    // (override 側にキーがあればそれを優先し、無ければシリーズ全体の値を使う)。
+    const responseStatus = override?.patch?.responseStatus ?? series.responseStatus;
+    const isOrganizer = override?.patch?.isOrganizer ?? series.isOrganizer;
+    const hasConference = override?.patch?.hasConference ?? series.hasConference;
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue;
@@ -320,6 +325,9 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       description,
       originalStartMs,
       ...(isOutOfOffice ? { isOutOfOffice: true } : {}),
+      ...(responseStatus ? { responseStatus } : {}),
+      ...(isOrganizer ? { isOrganizer: true } : {}),
+      ...(hasConference ? { hasConference: true } : {}),
     });
   }
 

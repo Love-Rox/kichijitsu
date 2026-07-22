@@ -16,6 +16,7 @@ import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
 import type { DroppedWorkItem } from "../sync/planned";
+import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import { layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
 import { layoutDayCiRuns } from "../sync/mapCiRuns";
@@ -148,6 +149,15 @@ interface WeekGridProps {
    */
   hiddenTaskListKeys: Set<string>;
   /**
+   * 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。showDeclined: false のとき、
+   * declined な occurrence/allDayOccurrence を visibleOccurrences/visibleAllDayOccurrences の
+   * 組み立て時点で除外する(shouldHideDeclined、sync/declinedVisibility.ts)。ここで除外した
+   * 分は packColumns の入力にも、oooRail.ts が visibleOccurrences から不在分を切り出す入力にも
+   * 含まれなくなる ―― WeekGrid/AllDayBar/OOO レールを1箇所のフィルタで一貫して除外できる
+   * (visibleCalendarKeys と同じ「occurrences を filter する時点で一度だけ効かせる」設計)。
+   */
+  declinedVisibility: DeclinedVisibilitySettings;
+  /**
    * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
    * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
    * 省略時は false(既存のデスクトップ向け即時クリック挙動を維持)
@@ -208,6 +218,7 @@ export function WeekGrid({
   onCreateEvent,
   onToggleTask,
   hiddenTaskListKeys,
+  declinedVisibility,
   longPressCreate = false,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -301,13 +312,18 @@ export function WeekGrid({
   const occurrences = useOccurrences(store, rangeStartMs, rangeEndMs);
 
   // カレンダー選択(マルチアカウント対応 2026-07-19): google 由来だけを
-  // visibleCalendarKeys でフィルタする。ローカルデータは常に表示する
+  // visibleCalendarKeys でフィルタする。ローカルデータは常に表示する。
+  // 「不参加を表示」設定(参加ステータス表示、2026-07-22): shouldHideDeclined が true を
+  // 返した occurrence はここで除外する ―― packColumns の入力からも oooRail.ts が拾う
+  // 不在分からも自動的に消える(このコンポーネントの唯一の occurrences フィルタ地点のため)
   const visibleOccurrences = useMemo(
     () =>
       occurrences.filter(
-        (o) => o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+        (o) =>
+          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          !shouldHideDeclined(o, declinedVisibility),
       ),
-    [occurrences, visibleCalendarKeys],
+    [occurrences, visibleCalendarKeys, declinedVisibility],
   );
 
   // 同一予定の集約(フェーズ5): iCalUID + startMs + endMs が一致する複数アカウント/
@@ -359,13 +375,15 @@ export function WeekGrid({
   );
   const allDayOccurrencesRaw = useAllDayOccurrences(allDayStore, allDayFromDate, allDayToDate);
 
-  // カレンダー選択・同一予定集約は時刻予定と同じ扱い(要望どおり)
+  // カレンダー選択・同一予定集約・「不参加を表示」フィルタは時刻予定と同じ扱い(要望どおり)
   const visibleAllDayOccurrences = useMemo(
     () =>
       allDayOccurrencesRaw.filter(
-        (o) => o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`),
+        (o) =>
+          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          !shouldHideDeclined(o, declinedVisibility),
       ),
-    [allDayOccurrencesRaw, visibleCalendarKeys],
+    [allDayOccurrencesRaw, visibleCalendarKeys, declinedVisibility],
   );
   // 不在(Out of Office、2026-07-22): 終日レーン(AllDayBar)のチップとしては出さず、
   // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで

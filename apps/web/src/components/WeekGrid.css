@@ -170,6 +170,23 @@
   flex: 1 1 auto;
 }
 
+/*
+ * 参加ステータス表示 (RSVP、2026-07-22)。.event--rsvp-* / .month-chip--declined 等と対になる、
+ * 終日レーンの最小限の表現(要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。
+ */
+.allday-bar--declined {
+  opacity: 0.45;
+}
+
+.allday-bar--declined .allday-bar-title {
+  text-decoration: line-through;
+}
+
+.allday-bar--needs-action {
+  background-color: transparent;
+  border: 1.5px solid var(--rsvp-color, currentColor);
+}
+
 /* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
 .allday-overflow {
   box-sizing: border-box;
@@ -672,6 +689,23 @@
   box-shadow: 0 4px 12px rgba(36, 33, 30, 0.2);
 }
 
+/*
+ * 参加ステータス表示 (RSVP、2026-07-22)。needsAction は上の style 計算(EventBlock.tsx)で
+ * 背景透明+全周ボーダーに切り替え済みなので、ここでは tentative/declined の2つだけを
+ * クラスで表現する(要件どおり: tentative=半透明、declined=タイトル打ち消し線+全体を淡色に)。
+ */
+.event--rsvp-tentative {
+  opacity: 0.55;
+}
+
+.event--rsvp-declined {
+  opacity: 0.45;
+}
+
+.event--rsvp-declined .event-title {
+  text-decoration: line-through;
+}
+
 .event-header-row {
   display: flex;
   align-items: center;
@@ -688,6 +722,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * オンライン/現地の手段アイコン (参加ステータス表示、2026-07-22)。会議リンクあり=ビデオ、
+ * location 非空=ピン、両方あれば両方を並べる。ドラッグ/クリックの邪魔をしないよう
+ * pointer-events:none(mirror タグ・busy バッジと同じ流儀)。
+ */
+.event-means-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  color: #8a8478;
+  pointer-events: none;
 }
 
 /*
@@ -1397,6 +1445,23 @@
 }
 
 .event-detail-location {
+  font-size: 12px;
+  color: #8a8478;
+  margin-bottom: 8px;
+}
+
+/*
+ * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。event-detail-location と
+ * 同じトーン・余白で揃え、アイコン+ラベルを横並びにする。
+ */
+.event-detail-conference,
+.event-detail-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-detail-conference {
   font-size: 12px;
   color: #8a8478;
   margin-bottom: 8px;

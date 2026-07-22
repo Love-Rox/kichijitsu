@@ -40,6 +40,31 @@ export interface GoogleEventDTO {
    * 読むために必要。private は自分専用、shared は招待先とも共有される拡張プロパティ
    */
   extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。event.attendees[] のうち self:true のエントリの
+   * responseStatus。attendees が無い予定 (自分だけの予定・招待者がいない予定など) は
+   * undefined ―― apps/web の EventBlock はこの場合を「従来どおりの通常表示」として扱う
+   * (ユーザー決定: attendees の無い自分の予定は表示を変えない)。attendees 配列自体は
+   * DTO に載せない(サーバーはイベント本体を保存しない設計のため、必要な派生値だけを
+   * 最小限持たせるリーン維持の方針。isOutOfOffice/isMirror と同じ考え方)。
+   */
+  selfResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。event.organizer.self===true かどうか。
+   * 「不参加 (declined) の非表示」フィルタのサブオプション「自分が主催の予定は残す」の
+   * 判定に使う (apps/web の shouldHideDeclined)。true のときのみセットする
+   * (false/undefined は「主催ではない」相当、isMirror と同じ bool の乗せ方)。
+   */
+  isOrganizer?: boolean;
+  /**
+   * 参加ステータス表示 (RSVP、2026-07-22)。会議リンク (event.conferenceData または
+   * event.hangoutLink) の有無。Google Calendar API は「自分がオンライン/現地のどちらで
+   * 参加するか」という attendee 単位の手段を公開していないため、イベント側に会議リンクが
+   * 存在するかどうかで近似する(ユーザー決定 2026-07-22、詳細は apps/sync の
+   * deriveHasConference 参照)。true のときのみセットする(実際の URL 等の中身は含めない
+   * ―― リーン維持)。
+   */
+  hasConference?: boolean;
 }
 
 /** 連携済みの Google アカウント1件。id は Google の sub */
