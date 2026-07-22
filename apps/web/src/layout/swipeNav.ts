@@ -11,13 +11,21 @@
 
 /** 「横方向が支配的」と確定するまでの最小移動量(px)。ごく僅かな指のブレでは反応しない */
 export const SWIPE_DIRECTION_MIN_PX = 10;
-/** |dx| が |dy| のこの倍数を超えたら横方向優勢、そうでなければ縦方向(スクロール等)優勢とみなす */
-export const SWIPE_DIRECTION_DOMINANCE = 1.5;
-/** 指を離した時、パネル幅に対してこの割合を超えて動いていれば前/次へ確定する(25%) */
-export const SWIPE_SNAP_DISTANCE_RATIO = 0.25;
-/** フリックとみなす速度の閾値(px/ms)。0.5px/ms ≒ 500px/s ―― 移動量が閾値未満でも
- * これを超える速さで離せば前/次へ確定する(要件の「フリック速度」対応) */
-export const SWIPE_FLICK_VELOCITY_PX_PER_MS = 0.5;
+/** |dx| が |dy| のこの倍数を超えたら横方向優勢、そうでなければ縦方向(スクロール等)優勢とみなす。
+ * スマホの親指スワイプは弧を描いて縦成分が乗りやすいため、やや緩め(1.25)にして「横に振ったのに
+ * 縦扱いで反応しない」を減らす ―― 縦スクロールは |dy| が圧倒的に大きく、この値でも安全に vertical へ倒れる */
+export const SWIPE_DIRECTION_DOMINANCE = 1.25;
+/** 指を離した時、パネル幅に対してこの割合を超えて動いていれば前/次へ確定する(18%)。
+ * 25% は「引ききらないと戻される」体感が強かったため緩和(スムーズさ優先、2026-07-22) */
+export const SWIPE_SNAP_DISTANCE_RATIO = 0.18;
+/** フリックとみなす速度の閾値(px/ms)。0.3px/ms ≒ 300px/s ―― 移動量が閾値未満でも
+ * これを超える速さで離せば前/次へ確定する(要件の「フリック速度」対応)。軽いフリックでも
+ * 効くよう 0.5→0.3 に緩和(2026-07-22) */
+export const SWIPE_FLICK_VELOCITY_PX_PER_MS = 0.3;
+/** フリック速度を「直近何ミリ秒ぶんのサンプルで測るか」のウィンドウ幅。pointerup 直前の
+ * 1サンプルだけだと、指を止めてから離したときに速度 0 と誤検出されフリックが効かないため、
+ * この時間窓の端点差分で平均速度を出す(computeTrailingVelocity 参照) */
+export const SWIPE_VELOCITY_WINDOW_MS = 100;
 
 export type SwipeAxis = "pending" | "horizontal" | "vertical";
 
@@ -33,6 +41,39 @@ export type SwipeAxis = "pending" | "horizontal" | "vertical";
  * - "vertical": 横方向が優勢でない(縦優勢、または閾値は超えたが横が明確でない) ―― 従来通り
  *   (縦スクロール・イベントドラッグ・新規作成)に委ねるべきサイン。
  */
+/** フリック速度算出用の1サンプル(pointermove/up 時のクライアント X 座標と時刻) */
+export interface SwipeSample {
+  x: number;
+  time: number;
+}
+
+/**
+ * 直近 windowMs ミリ秒ぶんのサンプルから、水平方向の平均速度(px/ms)を求める。
+ * pointerup 直前の1区間だけを見ると、指を止めてから離した場合に速度が 0 と誤検出され
+ * フリックが実質効かなくなる(旧実装の症状)。そこで「最新サンプルから windowMs 以内に
+ * 収まる最古サンプル」との端点差分で平均速度を出し、離す直前の勢いを安定して拾う。
+ *
+ * samples は時刻昇順(古い→新しい)を前提。2点未満、または端点の時間差が無いときは 0。
+ */
+export function computeTrailingVelocity(
+  samples: readonly SwipeSample[],
+  windowMs: number = SWIPE_VELOCITY_WINDOW_MS,
+): number {
+  if (samples.length < 2) return 0;
+  const newest = samples[samples.length - 1];
+  let oldest = newest;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (newest.time - samples[i].time <= windowMs) {
+      oldest = samples[i];
+    } else {
+      break; // それ以上遡ると窓の外(samples は昇順なので以降も全て窓外)
+    }
+  }
+  const dt = newest.time - oldest.time;
+  if (dt <= 0) return 0;
+  return (newest.x - oldest.x) / dt;
+}
+
 export function classifySwipeAxis(
   dx: number,
   dy: number,

@@ -1,6 +1,13 @@
 import { useMemo, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { classifySwipeAxis, resolveSwipeOutcome, type SwipeAxis } from "../layout/swipeNav";
+import {
+  classifySwipeAxis,
+  computeTrailingVelocity,
+  resolveSwipeOutcome,
+  SWIPE_VELOCITY_WINDOW_MS,
+  type SwipeAxis,
+  type SwipeSample,
+} from "../layout/swipeNav";
 
 /**
  * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)の DOM 配線。
@@ -59,13 +66,17 @@ interface TrackState {
   pointerId: number;
   startX: number;
   startY: number;
-  /** 直近の pointermove のクライアント座標・時刻(フリック速度算出用) */
-  lastX: number;
-  lastTime: number;
+  /** 横確定後の pointermove の (x, time) 履歴。末尾が最新(昇順)。フリック速度は
+   * 「離す直前の一定時間窓」で測るため、直近1点でなくこの履歴から算出する
+   * (computeTrailingVelocity)。古いサンプルは onPointerMove で間引く。 */
+  samples: SwipeSample[];
   axis: SwipeAxis;
   /** pointerdown 時点で測った1パネルぶんの表示幅(px) */
   panelWidthPx: number;
 }
+
+/** samples の肥大化を防ぐため、速度窓の2倍より古いサンプルは捨てる(端点差分に十分な余裕) */
+const SAMPLE_RETENTION_MS = SWIPE_VELOCITY_WINDOW_MS * 2;
 
 /** pointerdown 時、この中(またはその子孫)から始まったジェスチャはスワイプ候補にしない */
 const SWIPE_EXCLUDE_SELECTOR =
@@ -104,8 +115,7 @@ export function useSwipeNavigation({
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
-        lastX: e.clientX,
-        lastTime: e.timeStamp,
+        samples: [{ x: e.clientX, time: e.timeStamp }],
         axis: "pending",
         panelWidthPx: viewportRef.current?.clientWidth ?? 0,
       };
@@ -138,8 +148,12 @@ export function useSwipeNavigation({
       }
 
       if (t.axis !== "horizontal") return;
-      t.lastX = e.clientX;
-      t.lastTime = e.timeStamp;
+      // 速度算出用にサンプルを追記し、古すぎるものを間引く(端点差分で勢いを測る)
+      t.samples.push({ x: e.clientX, time: e.timeStamp });
+      const cutoff = e.timeStamp - SAMPLE_RETENTION_MS;
+      while (t.samples.length > 2 && t.samples[0].time < cutoff) {
+        t.samples.shift();
+      }
       setDragDxPx(dx);
     }
 
@@ -163,9 +177,10 @@ export function useSwipeNavigation({
       }
 
       const dx = e.clientX - t.startX;
-      // 直近のサンプル間の速度(px/ms)。フリック(速い離し)の検知に使う
-      const dt = Math.max(1, e.timeStamp - t.lastTime);
-      const velocityPxPerMs = (e.clientX - t.lastX) / dt;
+      // pointerup 地点も最新サンプルとして加え、離す直前の一定時間窓で速度(px/ms)を測る。
+      // 直近1点だけだと指を止めてから離したとき速度 0 になりフリックが効かないため。
+      t.samples.push({ x: e.clientX, time: e.timeStamp });
+      const velocityPxPerMs = computeTrailingVelocity(t.samples);
       const outcome = resolveSwipeOutcome({
         dxPx: dx,
         panelWidthPx: t.panelWidthPx,
