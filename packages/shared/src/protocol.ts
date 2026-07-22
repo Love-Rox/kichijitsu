@@ -356,12 +356,21 @@ export type ServerEvent =
   | { type: "changed"; accountId: string; calendarId: string };
 
 /**
- * POST /api/event/patch — 予定の時刻変更を Google へ書き戻す (フェーズ5)。
+ * POST /api/event/patch — 予定の変更を Google へ書き戻す (フェーズ5、2026-07-22 全項目編集に拡張)。
  * eventId は Google の生 event id。繰り返しシリーズの1回分 (この予定のみ) は
  * インスタンス ID (`<parentId>_<originalStart の UTC basic 形式 YYYYMMDDTHHMMSSZ>`)
  * をクライアント側で組み立てて渡す。
- * サーバーは events.patch に start/end (dateTime + timeZone) を渡すだけで、
- * 結果の正本は次の同期 (SSE changed → /api/sync) で還流する。
+ *
+ * サーバーは Google の `events.patch` (PATCH は指定した top-level フィールドのみを
+ * マージ更新し、未指定のフィールドは既存値を保持する) にそのまま渡す薄いプロキシであり、
+ * 結果の正本は返さない — 次の同期 (SSE changed → /api/sync) で還流する。
+ *
+ * startMs/endMs/timeZone は元々のフェーズ5 (時刻のみ書き換え) からの必須フィールドで、
+ * 後方互換のためそのまま残す。summary/location/description/isAllDay は編集フォームの
+ * 保存時に全項目を送る想定の optional 拡張 — 未指定のキーは PATCH body に含めない
+ * (google/patch-event.ts が JSON.stringify の undefined 省略を利用してそのまま Google に渡す)
+ * ので、Google 側で既存値が保持される。空文字は「クリア」の意図として明示的に送る
+ * (例: location: "" で場所を消せる)。
  */
 export interface EventPatchRequest {
   accountId: string;
@@ -369,11 +378,51 @@ export interface EventPatchRequest {
   eventId: string;
   startMs: number;
   endMs: number;
-  /** クライアントの IANA タイムゾーン (Google へ dateTime と共に渡す) */
+  /** クライアントの IANA タイムゾーン (Google へ dateTime と共に渡す。isAllDay の date 変換にも使う) */
   timeZone: string;
+  /** 指定時のみ更新 (未指定は既存値を保持)。空文字は「クリア」。 */
+  summary?: string;
+  /** 指定時のみ更新。空文字は「クリア」。 */
+  location?: string;
+  /** 指定時のみ更新。空文字は「クリア」。 */
+  description?: string;
+  /**
+   * true なら終日予定として start/end を Google の `date` (YYYY-MM-DD) 形式で送る
+   * (startMs/endMs を timeZone で日付に変換する、google/patch-event.ts の toDateOnly 参照)。
+   * false/未指定は従来どおり `dateTime` (時刻予定)。
+   */
+  isAllDay?: boolean;
 }
 
 export interface EventPatchResponse {
+  ok: boolean;
+}
+
+/**
+ * RSVP (自分の参加ステータス変更、2026-07-22) が取り得る値。Google の
+ * attendee.responseStatus の生文字列のうち kichijitsu が扱う4値
+ * (GoogleEventDTO.selfResponseStatus と同じ union)。
+ */
+export type RsvpResponseStatus = "accepted" | "declined" | "tentative" | "needsAction";
+
+/**
+ * POST /api/event/rsvp — 自分の参加ステータスを Google へ書き戻す (2026-07-22)。
+ * Google Calendar API に RSVP 専用エンドポイントは無く、`events.patch` で attendees
+ * 配列全体を送る必要がある (attendees はマージでなく全置換) ため、サーバー側で
+ * `events.get` → self attendee の responseStatus 差し替え → `events.patch` の
+ * read-modify-write を行う (core/rsvp-event.ts 参照)。sendUpdates=all を付けるので
+ * 主催者に通知が飛ぶ (RSVP としては自然な挙動)。
+ * self (attendee.self===true) が見つからない予定 (自分だけの予定・招待されていない予定)
+ * は 422 not_an_attendee を返す。
+ */
+export interface EventRsvpRequest {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+  responseStatus: RsvpResponseStatus;
+}
+
+export interface EventRsvpResponse {
   ok: boolean;
 }
 

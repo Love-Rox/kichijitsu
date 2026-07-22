@@ -14,11 +14,15 @@ export interface PatchEventCoreDeps {
 }
 
 /**
- * 予定の時刻変更を Google へ書き戻す。sync.ts の runSync と同様、401 のみ 1 回だけ
- * 強制リフレッシュして同じリクエストを再試行する。404 (イベントなし) / 403 / 412
- * (前提条件の不一致) や 401 リトライ後もなお失敗する場合は握りつぶさず GoogleApiError
- * として伝播させる — 呼び出し元 (route) がこれを 409 patch_failed 等にマップし、
- * クライアントに楽観更新のロールバックを促す。
+ * 予定の変更 (時刻 + 2026-07-22 以降は summary/location/description/isAllDay も可) を
+ * Google へ書き戻す。sync.ts の runSync と同様、401 のみ 1 回だけ強制リフレッシュして
+ * 同じリクエストを再試行する。404 (イベントなし) / 403 / 412 (前提条件の不一致) や
+ * 401 リトライ後もなお失敗する場合は握りつぶさず GoogleApiError として伝播させる —
+ * 呼び出し元 (route) がこれを 409 patch_failed 等にマップし、クライアントに楽観更新の
+ * ロールバックを促す。
+ *
+ * params の summary/location/description/isAllDay の扱いは google/patch-event.ts の
+ * patchEventTime のコメント参照 (指定したフィールドのみ PATCH body に含める)。
  *
  * 書き込みが成功しても戻り値は無い (void)。正本は次の同期 (Google からの
  * webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する設計であり、

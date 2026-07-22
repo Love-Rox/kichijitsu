@@ -29,3 +29,17 @@ export class NotConnectedError extends Error {
     this.name = "NotConnectedError";
   }
 }
+
+/**
+ * RSVP (2026-07-22): events.get で取得した event.attendees[] に self:true のエントリが
+ * 無い場合。自分だけの予定 (招待者がいない) や、そもそも自分が招待されていない予定
+ * (共有カレンダー越しに見えているだけ等) は RSVP のしようがないため、握りつぶさず
+ * 呼び出し元 (route) まで伝播させ、422 not_an_attendee として明確にエラーにする
+ * (rpc-result.ts の runRpc / routes/api.ts の /api/event/rsvp 参照)。
+ */
+export class NotAnAttendeeError extends Error {
+  constructor() {
+    super("Self attendee not found on this event (not invited, or an event with no attendees)");
+    this.name = "NotAnAttendeeError";
+  }
+}

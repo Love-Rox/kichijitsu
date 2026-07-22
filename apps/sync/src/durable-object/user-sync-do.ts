@@ -3,6 +3,7 @@ import type {
   CalendarListEntryDTO,
   GoogleEventDTO,
   GoogleTaskDTO,
+  RsvpResponseStatus,
   SyncResponse,
   TaskListDTO,
 } from "@kichijitsu/shared";
@@ -25,6 +26,7 @@ import {
 } from "../core/list-events";
 import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
 import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
+import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
 import type { MirrorEventBody } from "../core/block-reconcile";
 import type { RawEventTimeField } from "../google/patch-event-raw";
 import {
@@ -162,12 +164,17 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   /**
-   * POST /api/event/patch (フェーズ5): 予定の時刻変更を Google へ書き戻す。
-   * 成功しても戻り値は無い (void) — 正本は次の同期 (webhook/ポーリング → SSE
-   * 'changed' → クライアントの /api/sync) で還流する設計であり、ここで Google の
-   * 応答をクライアントへそのまま返すことはしない (patch-event.ts のコメント参照)。
-   * 404/403/412 等は runRpc が GoogleApiError として拾い、実 status のまま
-   * RpcResult に載せる。route 側でこれを見て 409 等にマップする。
+   * POST /api/event/patch (フェーズ5、2026-07-22 全項目編集に拡張): 予定の変更を
+   * Google へ書き戻す。成功しても戻り値は無い (void) — 正本は次の同期
+   * (webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する設計で
+   * あり、ここで Google の応答をクライアントへそのまま返すことはしない
+   * (patch-event.ts のコメント参照)。404/403/412 等は runRpc が GoogleApiError として
+   * 拾い、実 status のまま RpcResult に載せる。route 側でこれを見て 409 等にマップする。
+   *
+   * fields は 7 番目の optional 引数にした (position を増やすのではなく1つのオブジェクトに
+   * まとめる) — 既存呼び出し元 (MCP の update_event が6引数で呼ぶ) を壊さないための工夫。
+   * summary/location/description/isAllDay の扱いは google/patch-event.ts の
+   * patchEventTime のコメント参照 (指定したフィールドのみ書き換え)。
    */
   async patchEvent(
     accountId: string,
@@ -176,6 +183,12 @@ export class UserSyncDO extends DurableObject<Env> {
     startMs: number,
     endMs: number,
     timeZone: string,
+    fields?: {
+      summary?: string;
+      location?: string;
+      description?: string;
+      isAllDay?: boolean;
+    },
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
       patchEventTimeWithRetry(this.buildEventWriteDeps(accountId), {
@@ -184,6 +197,7 @@ export class UserSyncDO extends DurableObject<Env> {
         startMs,
         endMs,
         timeZone,
+        ...fields,
       }),
     );
   }
@@ -289,6 +303,29 @@ export class UserSyncDO extends DurableObject<Env> {
         eventId,
         start,
         end,
+      }),
+    );
+  }
+
+  /**
+   * POST /api/event/rsvp (2026-07-22): 自分の参加ステータス (RSVP) を Google へ書き戻す。
+   * events.get → self attendee 差し替え → events.patch (attendees 全置換) の
+   * read-modify-write を core/rsvp-event.ts が行う (詳細はそちらのコメント参照)。
+   * self attendee が見つからない予定は NotAnAttendeeError → runRpc が 422
+   * not_an_attendee として RpcResult に載せる。成功しても戻り値は無い (void) —
+   * 正本は次の同期で還流する設計 (patchEvent と同じ方針)。
+   */
+  async rsvpEvent(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    responseStatus: RsvpResponseStatus,
+  ): Promise<RpcResult<void>> {
+    return runRpc(() =>
+      rsvpEventWithRetry(this.buildEventWriteDeps(accountId), {
+        calendarId,
+        eventId,
+        responseStatus,
       }),
     );
   }
@@ -491,7 +528,7 @@ export class UserSyncDO extends DurableObject<Env> {
 
   /**
    * patch/create/delete (+ カレンダーブロック機能の listEventsInWindow/createMirrorEvent/
-   * patchEventRaw) の書き戻し RPC 共通の依存先。いずれも
+   * patchEventRaw、2026-07-22 RSVP の rsvpEvent) の書き戻し RPC 共通の依存先。いずれも
    * { fetch, getAccessToken, forceRefreshAccessToken } と構造的に同一なので、1つの実装を
    * 全員に渡す。
    */
@@ -502,7 +539,8 @@ export class UserSyncDO extends DurableObject<Env> {
     DeleteEventCoreDeps &
     ListEventsInWindowCoreDeps &
     InsertEventCoreDeps &
-    PatchEventRawCoreDeps {
+    PatchEventRawCoreDeps &
+    RsvpEventCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),

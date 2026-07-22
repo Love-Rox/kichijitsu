@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { patchEventTime, toRfc3339Utc } from "../src/google/patch-event";
+import { patchEventTime, toDateOnly, toRfc3339Utc } from "../src/google/patch-event";
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../src/core/patch-event";
 
 const PARAMS = {
@@ -55,6 +55,84 @@ describe("patchEventTime", () => {
     expect(url).toBe(
       "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events/event%20id%20with%20spaces",
     );
+  });
+
+  it("omits summary/location/description from the body when not provided (2026-07-22)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", PARAMS);
+
+    const requestInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody).not.toHaveProperty("summary");
+    expect(parsedBody).not.toHaveProperty("location");
+    expect(parsedBody).not.toHaveProperty("description");
+  });
+
+  it("includes only the provided fields (summary/location/description) in the merge body", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", { ...PARAMS, summary: "New title" });
+
+    const requestInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody.summary).toBe("New title");
+    expect(parsedBody).not.toHaveProperty("location");
+    expect(parsedBody).not.toHaveProperty("description");
+  });
+
+  it("sends an empty string as an explicit clear (not omitted)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", { ...PARAMS, location: "" });
+
+    const requestInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody).toHaveProperty("location", "");
+  });
+
+  it("sends start/end as date (not dateTime) when isAllDay is true", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", { ...PARAMS, isAllDay: true });
+
+    const requestInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody.start).toEqual({ date: toDateOnly(PARAMS.startMs, PARAMS.timeZone) });
+    expect(parsedBody.end).toEqual({ date: toDateOnly(PARAMS.endMs, PARAMS.timeZone) });
+  });
+
+  it("sends start/end as dateTime when isAllDay is false/omitted (default)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", PARAMS);
+
+    const requestInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody.start).toEqual({
+      dateTime: toRfc3339Utc(PARAMS.startMs),
+      timeZone: PARAMS.timeZone,
+    });
+  });
+});
+
+describe("toDateOnly", () => {
+  it("formats an epoch ms as YYYY-MM-DD in the given IANA time zone", () => {
+    // 2023-11-14T22:13:20.000Z is 2023-11-15 07:13:20 in Asia/Tokyo (UTC+9) — the date
+    // component flips across midnight depending on the time zone, which is exactly why
+    // this can't just reuse toRfc3339Utc's UTC date.
+    expect(toDateOnly(1_700_000_000_000, "Asia/Tokyo")).toBe("2023-11-15");
+    expect(toDateOnly(1_700_000_000_000, "UTC")).toBe("2023-11-14");
   });
 });
 

@@ -218,8 +218,12 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
       "update_event",
       {
         description:
-          "実行するとユーザーの Google カレンダーの既存の予定の日時が変更される。実行前にユーザーに確認すること。" +
-          "タイトルなど時刻以外のフィールドは変更できない（既存 RPC の制約）。",
+          "実行するとユーザーの Google カレンダーの既存の予定が変更される。実行前にユーザーに確認すること。" +
+          "start/end/timeZone は必須。summary/location/description は省略可能で、指定した" +
+          "フィールドのみが更新され、省略したフィールドは元の値のまま保持される " +
+          "(Google の events.patch のマージ更新の挙動)。空文字を指定するとそのフィールドを" +
+          'クリアできる (例: location: "" で場所を削除)。RSVP (自分の参加ステータス変更) は' +
+          "このツールでは行えない。終日予定への変更もこのツールでは行えない (時刻予定のみ)。",
         inputSchema: {
           accountId: z.string(),
           calendarId: z.string(),
@@ -227,9 +231,22 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
           start: z.string(),
           end: z.string(),
           timeZone: z.string(),
+          summary: z.string().optional(),
+          location: z.string().optional(),
+          description: z.string().optional(),
         },
       },
-      async ({ accountId, calendarId, eventId, start, end, timeZone }) => {
+      async ({
+        accountId,
+        calendarId,
+        eventId,
+        start,
+        end,
+        timeZone,
+        summary,
+        location,
+        description,
+      }) => {
         const profileId = this.requireProfileId();
         await this.requireAccountOwnership(profileId, accountId);
         const startMs = parseRequiredDate(start, "start");
@@ -243,6 +260,7 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
           startMs,
           endMs,
           timeZone,
+          { summary, location, description },
         );
         if (!result.ok) {
           throw new Error(`update_event failed: ${result.error} (status ${result.status})`);

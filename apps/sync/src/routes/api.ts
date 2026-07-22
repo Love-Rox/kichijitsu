@@ -15,6 +15,8 @@ import type {
   EventDeleteResponse,
   EventPatchRequest,
   EventPatchResponse,
+  EventRsvpRequest,
+  EventRsvpResponse,
   GitHubActivityResponse,
   GitHubCiRunsResponse,
   GitHubItemsResponse,
@@ -626,12 +628,15 @@ apiRoutes.post("/api/sync", requireAuth, async (c) => {
   return respondFromRpcResult(c, result);
 });
 
-// 予定の時刻変更を Google へ書き戻す (フェーズ5)。書き込み結果はレスポンスで返さない
-// (ok のみ) — 正本は次の同期 (webhook/ポーリング → SSE 'changed' → クライアントの
-// /api/sync) で還流する設計であり、ここで Google の応答をクライアントへ整形して
-// 返すことはしない。失敗理由 (404/403/412/401 リトライ失敗など) は問わず一律 409 に
+// 予定の変更を Google へ書き戻す (フェーズ5、2026-07-22 全項目編集に拡張)。書き込み結果は
+// レスポンスで返さない (ok のみ) — 正本は次の同期 (webhook/ポーリング → SSE 'changed' →
+// クライアントの /api/sync) で還流する設計であり、ここで Google の応答をクライアントへ
+// 整形して返すことはしない。失敗理由 (404/403/412/401 リトライ失敗など) は問わず一律 409 に
 // マップする: クライアントはこれを「反映できなかった」信号としてローカルの
 // 楽観更新をロールバックすればよく、理由ごとの分岐を必要としない。
+// summary/location/description/isAllDay は optional — 未指定の旧クライアント (時刻のみ
+// 送るリクエスト) もそのまま動く (後方互換)。指定された場合のみ型チェックする
+// (undefined を許容しつつ、指定した値の型は誤りを弾く)。
 apiRoutes.post("/api/event/patch", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   let body: EventPatchRequest;
@@ -646,7 +651,11 @@ apiRoutes.post("/api/event/patch", requireAuth, async (c) => {
     !body?.eventId ||
     typeof body.startMs !== "number" ||
     typeof body.endMs !== "number" ||
-    !body?.timeZone
+    !body?.timeZone ||
+    (body.summary !== undefined && typeof body.summary !== "string") ||
+    (body.location !== undefined && typeof body.location !== "string") ||
+    (body.description !== undefined && typeof body.description !== "string") ||
+    (body.isAllDay !== undefined && typeof body.isAllDay !== "boolean")
   ) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -666,6 +675,12 @@ apiRoutes.post("/api/event/patch", requireAuth, async (c) => {
     body.startMs,
     body.endMs,
     body.timeZone,
+    {
+      summary: body.summary,
+      location: body.location,
+      description: body.description,
+      isAllDay: body.isAllDay,
+    },
   );
   if (!result.ok) {
     console.warn(
@@ -675,6 +690,59 @@ apiRoutes.post("/api/event/patch", requireAuth, async (c) => {
   }
 
   return c.json<EventPatchResponse>({ ok: true });
+});
+
+// 自分の参加ステータス (RSVP) を Google へ書き戻す (2026-07-22)。認可チェック
+// (requireAuth + isAccountInProfile) は /api/event/patch と同じ。responseStatus は
+// Google の4値のみ許可する。self attendee が見つからない予定は RpcResult.error ===
+// "not_an_attendee" (core/rsvp-event.ts → NotAnAttendeeError → rpc-result.ts) として
+// 422 で明確に区別して返す — それ以外の失敗は /api/event/patch と同じ一律 409
+// (理由ごとの分岐をクライアントに要求しない方針)。
+apiRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  let body: EventRsvpRequest;
+  try {
+    body = await c.req.json<EventRsvpRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (
+    !body?.accountId ||
+    !body?.calendarId ||
+    !body?.eventId ||
+    (body.responseStatus !== "accepted" &&
+      body.responseStatus !== "declined" &&
+      body.responseStatus !== "tentative" &&
+      body.responseStatus !== "needsAction")
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
+    .bind(body.accountId)
+    .first<{ profile_id: string }>();
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: "account_not_found" }, 403);
+  }
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId);
+  const result = await stub.rsvpEvent(
+    body.accountId,
+    body.calendarId,
+    body.eventId,
+    body.responseStatus,
+  );
+  if (!result.ok) {
+    console.warn(
+      `event rsvp failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    );
+    if (result.error === "not_an_attendee") {
+      return c.json<ApiError>({ error: "not_an_attendee" }, 422);
+    }
+    return c.json<ApiError>({ error: "rsvp_failed" }, 409);
+  }
+
+  return c.json<EventRsvpResponse>({ ok: true });
 });
 
 // 新規予定を Google へ作成する (フェーズ5)。エラーの一律 409 マッピング方針は /api/event/patch
