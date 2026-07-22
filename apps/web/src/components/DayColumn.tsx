@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, PlannedBlock } from "../model/types";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventEditDraft } from "../sync/eventEdit";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
 import {
@@ -84,8 +86,13 @@ interface DayColumnProps {
   positioned: ReturnType<typeof packColumns<OccurrenceGroup>>;
   timeZone: string;
   weekDayStarts: readonly number[];
-  onCommit: (updated: Occurrence) => void;
+  /** kind (フェーズ2、2026-07-22): EventBlockProps.onCommit と同じ("move"/"resize") */
+  onCommit: (updated: Occurrence, kind: "move" | "resize") => void;
   onDelete: (occurrence: Occurrence) => void;
+  /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
+  onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
+  /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
+  onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   calendarLookup: Map<string, CalendarInfo>;
   /** 新規予定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
   writeTarget: WriteTargetCandidate | null;
@@ -185,6 +192,8 @@ export function DayColumn({
   weekDayStarts,
   onCommit,
   onDelete,
+  onSaveEdit,
+  onRsvp,
   calendarLookup,
   writeTarget,
   onCreateEvent,
@@ -491,6 +500,8 @@ export function DayColumn({
             weekDayStarts={weekDayStarts}
             onCommit={onCommit}
             onDelete={onDelete}
+            onSaveEdit={onSaveEdit}
+            onRsvp={onRsvp}
             calendarLookup={calendarLookup}
           />
         );

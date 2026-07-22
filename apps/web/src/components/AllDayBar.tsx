@@ -5,12 +5,18 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
+import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { AllDayOccurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { formatAllDayDateRange } from "../layout/gridMetrics";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { resolveDisplayColor } from "../layout/eventColors";
+import {
+  draftFromAllDayOccurrence,
+  isEditableEventSubject,
+  type EventEditDraft,
+} from "../sync/eventEdit";
 
 const HOVER_DELAY_MS = 400;
 
@@ -27,6 +33,12 @@ interface AllDayBarProps {
   colEnd: number;
   /** `${accountId}:${calendarId}` → カレンダー名/色。ツールチップ・詳細ポップオーバーで使う */
   calendarLookup: Map<string, CalendarInfo>;
+  /** IANA タイムゾーン。編集フォームの日時入力の変換に使う(フェーズ2、2026-07-22) */
+  timeZone: string;
+  /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる。EventBlock.onSaveEdit と同じ流儀 */
+  onSaveEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
+  /** 詳細ポップオーバーの RSVP ボタンから呼ばれる。EventBlock.onRsvp と同じ流儀 */
+  onRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
 }
 
 /**
@@ -42,6 +54,9 @@ export function AllDayBar({
   colStart,
   colEnd,
   calendarLookup,
+  timeZone,
+  onSaveEdit,
+  onRsvp,
 }: AllDayBarProps) {
   const hoverTimeoutRef = useRef<number | undefined>(undefined);
   const tooltipShownRef = useRef(false);
@@ -163,6 +178,16 @@ export function AllDayBar({
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
+            timeZone={timeZone}
+            editDraft={
+              isEditableEventSubject(occurrence)
+                ? draftFromAllDayOccurrence(occurrence, timeZone)
+                : undefined
+            }
+            canToggleAllDay={occurrence.seriesId === null}
+            onSaveEdit={(draft) => onSaveEdit(occurrence, draft)}
+            rsvpStatus={occurrence.responseStatus}
+            onRsvp={(status) => onRsvp(occurrence, status)}
           />,
           document.body,
         )}

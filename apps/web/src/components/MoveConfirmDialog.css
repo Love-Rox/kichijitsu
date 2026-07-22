@@ -1,0 +1,115 @@
+/*
+ * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。BlockRulesOverlay.css と同じ
+ * 画面中央のバックドロップ+カード構成・ブランドトークン(墨 #24211e・薄墨 #8a8478・
+ * 罫線 #e5e7eb・生成り #faf7f2・朱 --logo-aka)を踏襲する。朱は「移動する」ボタン
+ * (確定操作)にのみ使う(brand/README.md「朱の枡は1つのまとまりにつき基本1個」)。
+ * z-index は event-detail-popover (1000) より確実に上、block-rules-backdrop と同じ 2000 台
+ * (同時に開くことは無い設計だが、他のオーバーレイ相当の重なり順に揃えておく)。
+ */
+.move-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.move-confirm-card {
+  width: min(420px, calc(100vw - 32px));
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  padding: 20px;
+  text-align: left;
+  outline: none;
+}
+
+.move-confirm-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.move-confirm-range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+  font-size: 12px;
+  color: #55504a;
+}
+
+.move-confirm-from {
+  color: #8a8478;
+  text-decoration: line-through;
+}
+
+.move-confirm-arrow {
+  color: #b3ac9d;
+  flex: none;
+}
+
+.move-confirm-to {
+  color: #24211e;
+  font-weight: 600;
+}
+
+.move-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.move-confirm-confirm-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.move-confirm-cancel-btn {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #55504a;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.move-confirm-confirm-btn:focus-visible,
+.move-confirm-cancel-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .move-confirm-confirm-btn,
+  .move-confirm-cancel-btn {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+}
+
+@media (max-width: 640px) {
+  .move-confirm-backdrop {
+    padding: 16px;
+  }
+
+  .move-confirm-card {
+    padding: 14px;
+  }
+}

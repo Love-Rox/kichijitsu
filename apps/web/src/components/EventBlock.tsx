@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from "react";
+import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, OccurrenceLink } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
@@ -25,7 +26,14 @@ import {
   resolveBusyColor,
   resolveDisplayColor,
 } from "../layout/eventColors";
+import {
+  draftFromOccurrence,
+  isEditableEventSubject,
+  type EventEditDraft,
+} from "../sync/eventEdit";
+import { RsvpNotAttendeeError } from "../sync/eventRsvp";
 import { PlaceIcon, VideoIcon } from "./icons";
+import { EventEditForm } from "./EventEditForm";
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
 export interface CalendarInfo {
@@ -73,7 +81,12 @@ interface EventBlockProps {
   dayStartMs: number;
   /** このブロックが属する週の7日ぶんの 0:00 (epoch ms)。日をまたぐ移動の着地点計算に使う */
   weekDayStarts: readonly number[];
-  onCommit: (updated: Occurrence) => void;
+  /**
+   * ドラッグ確定時に呼ばれる。kind (フェーズ2、2026-07-22 移動確認ダイアログ) は
+   * "move"(ドラッグ移動)/"resize"(リサイズ)の区別 — WeekGrid.handleCommit がこれを見て
+   * "move" のときだけ確認ダイアログを挟む(リサイズは現状どおり即確定、ユーザー決定)。
+   */
+  onCommit: (updated: Occurrence, kind: "move" | "resize") => void;
   /** `${accountId}:${calendarId}` → カレンダー名/色。詳細ポップオーバーの「どのカレンダーか」表示用 */
   calendarLookup: Map<string, CalendarInfo>;
   /**
@@ -82,6 +95,16 @@ interface EventBlockProps {
    * ローカル予定は当面削除 UI を出さない(将来対応)。
    */
   onDelete: (occurrence: Occurrence) => void;
+  /**
+   * 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22)。
+   * 成功で resolve、失敗で reject(EventEditForm がエラー表示してフォームを開いたままにする)。
+   */
+  onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
+  /**
+   * 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22)。
+   * 422 (not_an_attendee) は RsvpNotAttendeeError を reject する取り決め(sync/eventRsvp.ts 参照)。
+   */
+  onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
 }
 
 interface DragState {
@@ -144,6 +167,8 @@ export function EventBlock({
   onCommit,
   calendarLookup,
   onDelete,
+  onSaveEdit,
+  onRsvp,
 }: EventBlockProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -374,9 +399,9 @@ export function EventBlock({
     el.style.transform = "";
 
     if (ds.kind === "move") {
-      onCommit({ ...occurrence, startMs: ds.pendingStartMs, endMs: ds.pendingEndMs });
+      onCommit({ ...occurrence, startMs: ds.pendingStartMs, endMs: ds.pendingEndMs }, "move");
     } else {
-      onCommit({ ...occurrence, endMs: ds.pendingEndMs });
+      onCommit({ ...occurrence, endMs: ds.pendingEndMs }, "resize");
     }
     dragRef.current = null;
   }
@@ -603,6 +628,14 @@ export function EventBlock({
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
             onDelete={occurrence.source === "google" ? () => onDelete(occurrence) : undefined}
+            timeZone={timeZone}
+            editDraft={
+              isEditableEventSubject(occurrence) ? draftFromOccurrence(occurrence) : undefined
+            }
+            canToggleAllDay={occurrence.seriesId === null}
+            onSaveEdit={(draft) => onSaveEdit(occurrence, draft)}
+            rsvpStatus={occurrence.responseStatus}
+            onRsvp={(status) => onRsvp(occurrence, status)}
           />,
           document.body,
         )}
@@ -651,6 +684,23 @@ export interface EventDetailCardProps {
    * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
    */
   onDelete?: () => void;
+  /**
+   * 編集フォーム(フェーズ2、2026-07-22)。指定されていれば「編集」ボタンを表示する
+   * (呼び出し側が sync/eventEdit.ts の isEditableEventSubject で判定済みの draft を渡す —
+   * このコンポーネント自身は Occurrence/AllDayOccurrence どちらが元かを知らない)。
+   * 日時入力の変換に必要な timeZone とセットで渡す。
+   */
+  editDraft?: EventEditDraft;
+  timeZone?: string;
+  /** シリーズ由来 (seriesId !== null) の予定は終日トグルを出さない(v1 未対応、EventEditForm.tsx 参照) */
+  canToggleAllDay?: boolean;
+  onSaveEdit?: (draft: EventEditDraft) => Promise<void>;
+  /**
+   * RSVP (フェーズ2、2026-07-22)。attendees の無い予定 (responseStatus undefined) は
+   * ボタンを出さない ―― 呼び出し側が occurrence.responseStatus をそのまま渡す。
+   */
+  rsvpStatus?: RsvpResponseStatus;
+  onRsvp?: (status: RsvpResponseStatus) => Promise<void>;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -675,6 +725,12 @@ export function EventDetailCard({
   calendarLookup,
   onClose,
   onDelete,
+  editDraft,
+  timeZone,
+  canToggleAllDay = false,
+  onSaveEdit,
+  rsvpStatus,
+  onRsvp,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -690,6 +746,37 @@ export function EventDetailCard({
         : null;
     })
     .filter((info) => info !== null);
+
+  // 編集モード(フェーズ2、2026-07-22): 既存の詳細カードの延長として、同じポップオーバーの
+  // 中身を丸ごとフォームに差し替える(別モーダルは開かない ―― ユーザー要望「既存の詳細カードの
+  // 延長で自然な方」)。editDraft/onSaveEdit/timeZone が揃っているときだけ「編集」ボタンを出す。
+  const [editing, setEditing] = useState(false);
+  const canEdit = editDraft !== undefined && onSaveEdit !== undefined && timeZone !== undefined;
+
+  if (editing && editDraft !== undefined && onSaveEdit !== undefined && timeZone !== undefined) {
+    const save = onSaveEdit;
+    return (
+      <div
+        ref={ref}
+        className="event-detail-popover event-detail-popover--editing"
+        style={{ left, top }}
+        role="dialog"
+        aria-label={`${subject.title}を編集`}
+      >
+        <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
+          ×
+        </button>
+        <div className="event-detail-title">予定を編集</div>
+        <EventEditForm
+          initialDraft={editDraft}
+          timeZone={timeZone}
+          canToggleAllDay={canToggleAllDay}
+          onSave={(draft) => save(draft).then(onClose)}
+          onCancel={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -753,11 +840,86 @@ export function EventDetailCard({
           ))}
         </div>
       )}
-      {onDelete && (
+      {/*
+       * RSVP ボタン (フェーズ2、2026-07-22)。attendees の無い予定 (rsvpStatus undefined) は
+       * 出さない(要件:「招待されていない=attendee でない」ことの指標として responseStatus の
+       * 有無を使う)。onRsvp が無い(呼び出し側が渡さなかった)場合も出さない。
+       */}
+      {rsvpStatus !== undefined && onRsvp && <RsvpButtons current={rsvpStatus} onRsvp={onRsvp} />}
+      {(onDelete || canEdit) && (
         <div className="event-detail-actions">
-          <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />
+          {canEdit && (
+            <button
+              type="button"
+              className="event-detail-text-btn event-detail-edit-btn"
+              onClick={() => setEditing(true)}
+            >
+              編集
+            </button>
+          )}
+          {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 出欠 (RSVP) ボタン (フェーズ2、2026-07-22)。参加/未定/不参加の3択で、現在の自分の
+ * 返信をハイライトする(Notion カレンダー風、ユーザー要望)。選択中は朱、非選択は
+ * 墨/薄墨(朱は唯一アクセント原則、brand/README.md)。押している間はボタンを disabled にして
+ * 二重送信を防ぎ、失敗時はインラインでエラーを出す(422 は専用メッセージ)。
+ */
+function RsvpButtons({
+  current,
+  onRsvp,
+}: {
+  current: RsvpResponseStatus;
+  onRsvp: (status: RsvpResponseStatus) => Promise<void>;
+}) {
+  const [pending, setPending] = useState<RsvpResponseStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const options: { status: RsvpResponseStatus; label: string }[] = [
+    { status: "accepted", label: "参加" },
+    { status: "tentative", label: "未定" },
+    { status: "declined", label: "不参加" },
+  ];
+
+  function handleClick(status: RsvpResponseStatus) {
+    if (status === current || pending) return;
+    setPending(status);
+    setError(null);
+    onRsvp(status)
+      .catch((err) => {
+        console.error("kichijitsu: rsvp failed", err);
+        setError(
+          err instanceof RsvpNotAttendeeError ? "この予定には返信できません" : "返信に失敗しました",
+        );
+      })
+      .finally(() => setPending(null));
+  }
+
+  return (
+    <div className="event-detail-rsvp">
+      <span className="event-detail-rsvp-label">出欠</span>
+      <div className="event-detail-rsvp-buttons" role="group" aria-label="出欠の返信">
+        {options.map((opt) => (
+          <button
+            key={opt.status}
+            type="button"
+            className={
+              current === opt.status ? "event-detail-rsvp-btn is-selected" : "event-detail-rsvp-btn"
+            }
+            aria-pressed={current === opt.status}
+            disabled={pending !== null}
+            onClick={() => handleClick(opt.status)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {error && <span className="event-detail-rsvp-error">{error}</span>}
     </div>
   );
 }

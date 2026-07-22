@@ -25,6 +25,7 @@ import type {
   MeResponse,
   PullCommitsRequest,
   PullCommitsResponse,
+  RsvpResponseStatus,
   SyncRequest,
   SyncResponse,
   TaskListDTO,
@@ -46,6 +47,13 @@ import {
   resolveDefaultWriteTarget,
   type WriteTargetCandidate,
 } from "./sync/eventCreate";
+import {
+  applyDraftToAllDayOccurrence,
+  applyDraftToOccurrence,
+  buildEventEditPatchRequest,
+  type EventEditDraft,
+} from "./sync/eventEdit";
+import { buildEventRsvpRequest, RsvpNotAttendeeError } from "./sync/eventRsvp";
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
 import { mapGitHubItems } from "./sync/mapGitHub";
@@ -77,6 +85,7 @@ import { LogoMark, LogoWordmark } from "./components/Logo";
 import { MasuIndicator } from "./components/MasuIndicator";
 import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
 import { SettingsModal } from "./components/SettingsModal";
+import { MoveConfirmDialog } from "./components/MoveConfirmDialog";
 import { CalendarPane } from "./components/CalendarPane";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
@@ -101,7 +110,7 @@ import {
   generateDummySeries,
 } from "./model/dummy";
 import { instanceId } from "./model/series";
-import type { Occurrence, PlannedBlock, TaskItem } from "./model/types";
+import type { AllDayOccurrence, Occurrence, PlannedBlock, TaskItem } from "./model/types";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
@@ -114,6 +123,7 @@ import {
   cleanupLegacyGoogleData,
   clearGitHubItems,
   countSeries,
+  deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   deletePlannedBlock,
@@ -131,6 +141,7 @@ import {
   getSyncBackfillVersion,
   getVisibleCalendars,
   openKichijitsuDB,
+  putAllDayOccurrences,
   putGitHubItems,
   putOccurrence,
   putOccurrences,
@@ -465,6 +476,16 @@ function App() {
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
   const [saveError, setSaveError] = useState(false);
   const saveErrorTimeoutRef = useRef<number | undefined>(undefined);
+  /**
+   * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。WeekGrid.handleCommit が
+   * kind==='move' で実際に時刻が変わったときだけ null から埋める(sync/moveConfirm.ts の
+   * hasOccurrenceTimeChanged 参照)。previous はまだ IndexedDB/Google に書き込まれていない
+   * (store.update のみ済みの)ロールバック用スナップショット。
+   */
+  const [moveConfirm, setMoveConfirm] = useState<{
+    updated: Occurrence;
+    previous: Occurrence;
+  } | null>(null);
   const autoSyncedRef = useRef(false);
   // 「このアカウントのカレンダー一覧は初回フェッチ済み/フェッチ中」フラグ。
   // me.accounts effect が同じアカウントに何度も初回フェッチを走らせないためのもの。
@@ -2022,6 +2043,145 @@ function App() {
     [db, store, checkedFetch, flashSaveError],
   );
 
+  // ---- ドラッグ移動の確認ダイアログ (フェーズ2、2026-07-22) ----
+  // WeekGrid.handleCommit は kind==='move' で実際に時刻が変わったときだけこれを呼ぶ。
+  // 呼ばれた時点では store.update(updated) は既に済んでいる(楽観的な見た目の反映)が、
+  // handlePersist (IndexedDB 書き込み・Google 書き戻し) はまだ呼ばれていない ―― 「確定保留」
+  // 状態を表す moveConfirm state に previous/updated を保持し、確認結果に応じて
+  // handlePersist を呼ぶ(移動する)か、store だけ previous に戻す(キャンセル)かを行う。
+
+  const handleRequestMoveConfirm = useCallback((updated: Occurrence, previous: Occurrence) => {
+    setMoveConfirm({ updated, previous });
+  }, []);
+
+  const handleConfirmMove = useCallback(() => {
+    if (!moveConfirm) return;
+    handlePersist(moveConfirm.updated, moveConfirm.previous);
+    setMoveConfirm(null);
+  }, [moveConfirm, handlePersist]);
+
+  const handleCancelMove = useCallback(() => {
+    if (moveConfirm) store.update(moveConfirm.previous);
+    setMoveConfirm(null);
+  }, [moveConfirm, store]);
+
+  // ---- 予定の編集フォーム (フェーズ2、2026-07-22) ----
+  // 「保存ボタン方式」(ユーザー決定): ドラッグ確定 (handlePersist) と違い楽観的更新は行わない
+  // ―― POST /api/event/patch が成功して初めて store/IndexedDB へ反映する。そのため失敗時の
+  // ロールバックは不要で、EventEditForm 側がエラー表示してフォームを開いたまま再試行できる
+  // ようにするだけで良い(このハンドラは reject をそのまま投げ返すだけ)。
+  //
+  // 終日⇔時刻の変換 (isAllDay トグル): 元が Occurrence で draft.isAllDay===true、または
+  // 元が AllDayOccurrence で draft.isAllDay===false のとき、occurrenceStore⇔allDayStore
+  // (および IndexedDB の occurrences⇔allDayOccurrences ストア)の間で置き換える
+  // (id は Google の実 event id に対応する不変のキーなので、ストアを跨いでも同じ id を使う)。
+  const handleEditSave = useCallback(
+    async (original: Occurrence | AllDayOccurrence, draft: EventEditDraft): Promise<void> => {
+      if (!db) throw new Error("database not ready");
+      const patchReq = buildEventEditPatchRequest(original, draft, timeZone);
+      if (!patchReq) {
+        throw new Error("kichijitsu: could not build edit EventPatchRequest");
+      }
+      const res = await checkedFetch("/api/event/patch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patchReq),
+      });
+      if (!res.ok) {
+        throw new Error(`kichijitsu: POST /api/event/patch (edit) failed: ${res.status}`);
+      }
+
+      const wasAllDay = !("startMs" in original);
+
+      if (draft.isAllDay) {
+        const nextAllDay = applyDraftToAllDayOccurrence(original, draft, timeZone);
+        if (!wasAllDay) {
+          // 時刻予定 → 終日予定: occurrenceStore/IndexedDB から取り除く
+          store.remove([original.id]);
+          await deleteOccurrencesByIds(db, [original.id]);
+        }
+        allDayStore.update(nextAllDay);
+        await putAllDayOccurrences(db, [nextAllDay]);
+        return;
+      }
+
+      const nextOcc = applyDraftToOccurrence(original, draft);
+      if (wasAllDay) {
+        // 終日予定 → 時刻予定: allDayStore/IndexedDB から取り除く
+        allDayStore.remove([original.id]);
+        await deleteAllDayOccurrencesByIds(db, [original.id]);
+      } else if (
+        original.seriesId &&
+        "originalStartMs" in original &&
+        original.originalStartMs !== undefined
+      ) {
+        // シリーズ由来の1回分: override にも編集内容を書く(handlePersist と同じ流儀。
+        // これが無いと再展開のたびにタイトル/場所/説明がシリーズ側の値に巻き戻ってしまう)
+        await putOverride(db, {
+          id: instanceId(original.seriesId, original.originalStartMs),
+          seriesId: original.seriesId,
+          originalStartMs: original.originalStartMs,
+          patch: {
+            title: draft.title,
+            startMs: draft.startMs,
+            endMs: draft.endMs,
+            location: draft.location || undefined,
+            description: draft.description || undefined,
+          },
+        });
+      }
+      store.update(nextOcc);
+      await putOccurrence(db, nextOcc);
+    },
+    [db, store, allDayStore, checkedFetch, timeZone],
+  );
+
+  // ---- RSVP (参加ステータス変更、フェーズ2、2026-07-22) ----
+  // 編集フォームと同じ「保存ボタン方式」(押した瞬間に楽観反映はしない、await 完了後に反映)。
+  // 422 (not_an_attendee) は RsvpNotAttendeeError を reject することで、呼び出し側
+  // (EventBlock.tsx の RsvpButtons)が専用メッセージを出し分けられるようにする。
+  const handleRsvp = useCallback(
+    async (subject: Occurrence | AllDayOccurrence, status: RsvpResponseStatus): Promise<void> => {
+      const req = buildEventRsvpRequest(subject, status);
+      if (!req) {
+        throw new Error("kichijitsu: could not build EventRsvpRequest");
+      }
+      const res = await checkedFetch("/api/event/rsvp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      if (res.status === 422) {
+        throw new RsvpNotAttendeeError();
+      }
+      if (!res.ok) {
+        throw new Error(`kichijitsu: POST /api/event/rsvp failed: ${res.status}`);
+      }
+      if (!db) return;
+
+      if ("startMs" in subject) {
+        const updated: Occurrence = { ...subject, responseStatus: status };
+        store.update(updated);
+        await putOccurrence(db, updated);
+        if (subject.seriesId && subject.originalStartMs !== undefined) {
+          const overrideId = instanceId(subject.seriesId, subject.originalStartMs);
+          const existing = await getOverride(db, overrideId);
+          await putOverride(db, {
+            id: overrideId,
+            seriesId: subject.seriesId,
+            originalStartMs: subject.originalStartMs,
+            patch: { ...(existing?.patch ?? {}), responseStatus: status },
+          });
+        }
+      } else {
+        const updated: AllDayOccurrence = { ...subject, responseStatus: status };
+        allDayStore.update(updated);
+        await putAllDayOccurrences(db, [updated]);
+      }
+    },
+    [db, store, allDayStore, checkedFetch],
+  );
+
   // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
   // 以下3つのハンドラは全てローカルのみ: plannedStore(メモリ)と IndexedDB の
   // plannedBlocks ストアだけを更新し、ネットワーク呼び出し(/api/event/* 等)は一切行わない。
@@ -2859,9 +3019,14 @@ function App() {
               dayCount={dayCount}
               timeZone={timeZone}
               onPersist={handlePersist}
+              onRequestMoveConfirm={handleRequestMoveConfirm}
               visibleCalendarKeys={visibleCalendarKeys}
               calendarLookup={calendarLookup}
               onDelete={handleDeleteOccurrence}
+              onSaveEdit={handleEditSave}
+              onSaveAllDayEdit={handleEditSave}
+              onRsvp={handleRsvp}
+              onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
               onCreateEvent={handleCreate}
               onToggleTask={handleToggleTask}
@@ -2880,10 +3045,24 @@ function App() {
               visibleCalendarKeys={visibleCalendarKeys}
               calendarLookup={calendarLookup}
               onDelete={handleDeleteOccurrence}
+              onSaveEdit={handleEditSave}
+              onSaveAllDayEdit={handleEditSave}
+              onRsvp={handleRsvp}
+              onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
               onCreateEvent={handleCreate}
               onNavigateToDay={handleNavigateToDay}
               declinedVisibility={declinedVisibility}
+            />
+          )}
+          {moveConfirm && (
+            <MoveConfirmDialog
+              title={moveConfirm.updated.title}
+              previous={moveConfirm.previous}
+              updated={moveConfirm.updated}
+              timeZone={timeZone}
+              onConfirm={handleConfirmMove}
+              onCancel={handleCancelMove}
             />
           )}
           {initIndicator.visible && (

@@ -1644,9 +1644,12 @@
   flex: none;
 }
 
-/* ---- 削除導線 (フェーズ5) ---- */
+/* ---- 削除導線 (フェーズ5) / 編集導線 (フェーズ2、2026-07-22) ---- */
 
 .event-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding-top: 8px;
   margin-top: 8px;
   border-top: 1px solid #f0ece3;
@@ -1680,6 +1683,206 @@
 
 .event-detail-delete-btn:hover {
   color: #b91c1c;
+}
+
+/*
+ * ---- RSVP ボタン (フェーズ2、2026-07-22) ----
+ * Notion カレンダー風の参加/未定/不参加の3択。選択中のみ朱(唯一アクセント原則、
+ * brand/README.md)、非選択は墨/薄墨の枠のみで抑制的に見せる。
+ */
+.event-detail-rsvp {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-rsvp-label {
+  font-size: 11px;
+  color: #8a8478;
+  flex: none;
+}
+
+.event-detail-rsvp-buttons {
+  display: inline-flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.event-detail-rsvp-btn {
+  border: none;
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+  color: #55504a;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.event-detail-rsvp-btn + .event-detail-rsvp-btn {
+  border-left: 1px solid #e5e7eb;
+}
+
+.event-detail-rsvp-btn.is-selected {
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+}
+
+.event-detail-rsvp-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.event-detail-rsvp-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+.event-detail-rsvp-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+/*
+ * ---- 予定編集フォーム (フェーズ2、2026-07-22) ----
+ * 詳細ポップオーバー (.event-detail-popover) の中身をそのまま編集モードに差し替える
+ * (別モーダルではなく既存カードの延長、ユーザー要望)。カード自体は編集モードのときだけ
+ * 少し広げる(入力欄が窮屈にならないよう)。
+ */
+.event-detail-popover--editing {
+  width: 320px;
+}
+
+.event-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.event-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.event-edit-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.event-edit-input,
+.event-edit-textarea {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #24211e;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.event-edit-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.event-edit-input:focus-visible,
+.event-edit-textarea:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.event-edit-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #55504a;
+}
+
+.event-edit-datetime-row {
+  display: flex;
+  gap: 8px;
+}
+
+.event-edit-error {
+  margin: 0;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+.event-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.event-edit-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.event-edit-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.event-edit-cancel-btn {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #55504a;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.event-edit-save-btn:focus-visible,
+.event-edit-cancel-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .event-detail-rsvp-btn,
+  .event-edit-save-btn,
+  .event-edit-cancel-btn {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+}
+
+/* 狭幅(スマホ)ではフォームカード自体が画面幅に収まるよう全幅化し、開始/終了を縦積みにする */
+@media (max-width: 640px) {
+  .event-detail-popover--editing {
+    width: min(320px, calc(100vw - 32px));
+  }
+
+  .event-edit-datetime-row {
+    flex-direction: column;
+  }
 }
 
 /*

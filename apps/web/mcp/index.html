@@ -281,6 +281,18 @@
         transform: translateY(-1px);
       }
 
+      .btn--outline {
+        background: transparent;
+        border-color: var(--ink);
+        color: var(--ink);
+      }
+
+      .btn--outline:hover {
+        border-color: var(--aka-ink);
+        color: var(--aka-ink);
+        transform: translateY(-1px);
+      }
+
       .btn--sm {
         font-size: var(--text-xs);
         padding: 0.55em 1.1em;
@@ -646,7 +658,8 @@
           transition-duration: 1ms;
         }
 
-        .btn--solid:hover {
+        .btn--solid:hover,
+        .btn--outline:hover {
           transform: none;
         }
       }
@@ -667,7 +680,7 @@
           </span>
           <span class="nav__brand-word">kichijitsu</span>
         </a>
-        <a class="btn btn--solid btn--sm" href="/app">アプリを開く</a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
       </div>
     </header>
 
@@ -913,7 +926,7 @@
 
         <div class="doc-pagelinks">
           <a href="/self-hosting/">セルフホスト手順を見る</a>
-          <a href="/app">アプリを開く</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
         </div>
       </div>
     </main>

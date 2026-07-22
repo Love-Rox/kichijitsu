@@ -2,12 +2,19 @@ import { useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Temporal } from "@js-temporal/polyfill";
-import type { Occurrence } from "../model/types";
+import type { RsvpResponseStatus } from "@kichijitsu/shared";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import {
+  draftFromAllDayOccurrence,
+  draftFromOccurrence,
+  isEditableEventSubject,
+  type EventEditDraft,
+} from "../sync/eventEdit";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   groupDuplicateAllDayOccurrences,
@@ -41,6 +48,12 @@ interface MonthViewProps {
   visibleCalendarKeys: Set<string>;
   calendarLookup: Map<string, CalendarInfo>;
   onDelete: (occurrence: Occurrence) => void;
+  /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22。WeekGrid と同じ流儀) */
+  onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
+  onSaveAllDayEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
+  /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22。WeekGrid と同じ流儀) */
+  onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
+  onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。WeekGrid.declinedVisibility と同じ意味 */
   declinedVisibility: DeclinedVisibilitySettings;
   /**
@@ -92,6 +105,10 @@ export function MonthView({
   visibleCalendarKeys,
   calendarLookup,
   onDelete,
+  onSaveEdit,
+  onSaveAllDayEdit,
+  onRsvp,
+  onAllDayRsvp,
   onNavigateToDay,
   declinedVisibility,
 }: MonthViewProps) {
@@ -294,20 +311,56 @@ export function MonthView({
       {detail &&
         detailSubject &&
         createPortal(
-          <EventDetailCard
-            ref={detailCardRef}
-            subject={detailSubject}
-            dateTimeLabel={detailDateTimeLabel}
-            position={detail.position}
-            groupMembers={detail.chip.group.members}
-            calendarLookup={calendarLookup}
-            onClose={() => setDetail(null)}
-            onDelete={
-              isTimedChip(detail.chip) && (detailSubject as Occurrence).source === "google"
-                ? () => onDelete(detailSubject as Occurrence)
-                : undefined
-            }
-          />,
+          // 編集/RSVP (フェーズ2、2026-07-22): チップの種別 (isTimedChip) で
+          // Occurrence/AllDayOccurrence のどちらの draft/保存経路を使うかを分岐する
+          // (WeekGrid の EventBlock/AllDayBar が別コンポーネントに分かれているのと同じ判断を、
+          // ここでは同じ EventDetailCard 呼び出しの中でチップ種別に応じて切り替える)。
+          isTimedChip(detail.chip) ? (
+            <EventDetailCard
+              ref={detailCardRef}
+              subject={detailSubject}
+              dateTimeLabel={detailDateTimeLabel}
+              position={detail.position}
+              groupMembers={detail.chip.group.members}
+              calendarLookup={calendarLookup}
+              onClose={() => setDetail(null)}
+              onDelete={
+                (detailSubject as Occurrence).source === "google"
+                  ? () => onDelete(detailSubject as Occurrence)
+                  : undefined
+              }
+              timeZone={timeZone}
+              editDraft={
+                isEditableEventSubject(detailSubject)
+                  ? draftFromOccurrence(detailSubject as Occurrence)
+                  : undefined
+              }
+              canToggleAllDay={detailSubject.seriesId === null}
+              onSaveEdit={(draft) => onSaveEdit(detailSubject as Occurrence, draft)}
+              rsvpStatus={(detailSubject as Occurrence).responseStatus}
+              onRsvp={(status) => onRsvp(detailSubject as Occurrence, status)}
+            />
+          ) : (
+            <EventDetailCard
+              ref={detailCardRef}
+              subject={detailSubject}
+              dateTimeLabel={detailDateTimeLabel}
+              position={detail.position}
+              groupMembers={detail.chip.group.members}
+              calendarLookup={calendarLookup}
+              onClose={() => setDetail(null)}
+              timeZone={timeZone}
+              editDraft={
+                isEditableEventSubject(detailSubject)
+                  ? draftFromAllDayOccurrence(detailSubject as AllDayOccurrence, timeZone)
+                  : undefined
+              }
+              canToggleAllDay={detailSubject.seriesId === null}
+              onSaveEdit={(draft) => onSaveAllDayEdit(detailSubject as AllDayOccurrence, draft)}
+              rsvpStatus={(detailSubject as AllDayOccurrence).responseStatus}
+              onRsvp={(status) => onAllDayRsvp(detailSubject as AllDayOccurrence, status)}
+            />
+          ),
           document.body,
         )}
     </div>

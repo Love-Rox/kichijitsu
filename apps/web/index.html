@@ -402,6 +402,29 @@
         margin-top: var(--space-xl);
       }
 
+      .hero__links {
+        margin-top: var(--space-md);
+        font-size: var(--text-sm);
+        color: var(--sub);
+      }
+
+      .hero__links a {
+        color: var(--aka-ink);
+        font-weight: 500;
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--dur-hover) var(--ease-out);
+      }
+
+      .hero__links a:hover {
+        border-color: var(--aka-ink);
+      }
+
+      .hero__links-sep {
+        margin-inline: var(--space-2xs);
+        color: var(--sub);
+      }
+
       /* ===== セクション共通 ===== */
       .section {
         padding-block: var(--space-3xl);
@@ -425,6 +448,280 @@
         max-width: 52ch;
         font-size: var(--text-md);
         line-height: 1.8;
+      }
+
+      /* ===== 画面モック (週表示の手作り CSS イラスト。実スクリーンショットは使わない) ===== */
+      .screen-mock {
+        max-width: 34rem;
+        margin-inline: auto;
+        padding: var(--space-md);
+        border: var(--rule-hair) solid var(--masu);
+        border-radius: var(--radius-card);
+        overflow-x: clip;
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .screen-mock--animate {
+          opacity: 0;
+          transform: translateY(0.75rem);
+          transition:
+            opacity 600ms var(--ease-out),
+            transform 600ms var(--ease-out);
+        }
+
+        .screen-mock--animate.is-visible {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .screen-mock__grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-xs);
+      }
+
+      .screen-mock__col {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .screen-mock__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3xs);
+        margin-bottom: var(--space-2xs);
+      }
+
+      .screen-mock__dow {
+        font-size: var(--text-xs);
+        font-weight: 600;
+        color: var(--sub);
+      }
+
+      .screen-mock__badge {
+        width: 1.25rem;
+        height: 1.25rem;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-masu);
+        border: max(1.5px, 0.09em) solid var(--masu);
+        font-size: var(--text-xs);
+        font-weight: 600;
+        color: var(--sub);
+      }
+
+      .screen-mock__badge--today {
+        border: none;
+        background: var(--aka);
+        color: var(--on-aka);
+        transform: rotate(-8deg);
+      }
+
+      .screen-mock__body {
+        display: flex;
+        gap: var(--space-3xs);
+        align-items: stretch;
+        flex: 1;
+      }
+
+      .screen-mock__rail {
+        width: 0.625rem;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.125rem;
+      }
+
+      .screen-mock__rail-icon {
+        width: 0.625rem;
+        height: 0.625rem;
+        flex: none;
+        color: var(--ink);
+      }
+
+      .screen-mock__rail-bar {
+        flex: 1;
+        width: 100%;
+        min-height: 3.5rem;
+        border-radius: var(--radius-pill);
+        position: relative;
+      }
+
+      .screen-mock__rail--workloc .screen-mock__rail-bar {
+        background: var(--masu);
+        opacity: 0.75;
+      }
+
+      .screen-mock__rail--ooo .screen-mock__rail-bar {
+        background: var(--rail-color, var(--sub));
+        opacity: 0.88;
+      }
+
+      .screen-mock__rail--ooo .screen-mock__rail-bar::before {
+        content: "×";
+        position: absolute;
+        top: 0.125rem;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #fff;
+        font-size: 0.5rem;
+        line-height: 1;
+      }
+
+      .screen-mock__events {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .screen-mock__event {
+        min-width: 0;
+        padding: 0.25rem 0.375rem;
+        border-radius: 0.375rem;
+        border-left: 3px solid var(--evt-color, var(--sub));
+        background: color-mix(in srgb, var(--evt-color, var(--sub)) 16%, var(--paper));
+        font-size: 0.5625rem;
+        line-height: 1.3;
+      }
+
+      .screen-mock__time {
+        display: block;
+        font-weight: 600;
+        color: var(--sub);
+      }
+
+      .screen-mock__title {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--ink);
+      }
+
+      .screen-mock__place {
+        display: flex;
+        align-items: center;
+        gap: 0.125rem;
+        margin-top: 0.125rem;
+        overflow: hidden;
+        color: var(--sub);
+      }
+
+      .screen-mock__place span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .screen-mock__pin {
+        width: 0.5625rem;
+        height: 0.5625rem;
+        flex: none;
+        color: var(--sub);
+      }
+
+      .screen-mock__event--tentative {
+        position: relative;
+      }
+
+      .screen-mock__event--tentative::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .screen-mock__event--declined {
+        opacity: 0.5;
+      }
+
+      .screen-mock__event--declined .screen-mock__title {
+        text-decoration: line-through;
+      }
+
+      .screen-mock__legend {
+        list-style: none;
+        margin: var(--space-lg) 0 0;
+        padding: var(--space-md) 0 0;
+        border-top: var(--rule-hair) solid var(--masu);
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: var(--space-2xs) var(--space-md);
+      }
+
+      .screen-mock__legend li {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        font-size: var(--text-xs);
+        color: var(--ink);
+      }
+
+      .screen-mock__legend-swatch {
+        width: 0.875rem;
+        height: 0.875rem;
+        flex: none;
+        border-radius: 0.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .screen-mock__legend-swatch--today {
+        border-radius: var(--radius-masu);
+        background: var(--aka);
+        transform: rotate(-8deg);
+      }
+
+      .screen-mock__legend-swatch--workloc {
+        background: var(--masu);
+      }
+
+      .screen-mock__legend-swatch--ooo {
+        background: #f4511e;
+        color: #fff;
+        font-size: 0.5rem;
+        line-height: 1;
+      }
+
+      .screen-mock__legend-swatch--place {
+        color: var(--sub);
+      }
+
+      .screen-mock__legend-swatch--place .screen-mock__pin {
+        width: 100%;
+        height: 100%;
+      }
+
+      .screen-mock__legend-swatch--tentative {
+        background: color-mix(in srgb, #f6bf26 16%, var(--paper));
+        position: relative;
+        border: var(--rule-hair) solid var(--masu);
+      }
+
+      .screen-mock__legend-swatch--tentative::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .screen-mock__legend-swatch--declined {
+        width: auto;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--sub);
+        text-decoration: line-through;
       }
 
       /* ===== 特徴グリッド ===== */
@@ -518,6 +815,13 @@
         font-size: var(--text-display-s);
         max-width: 20ch;
         margin-inline: auto;
+      }
+
+      .final-cta__lede {
+        margin: var(--space-sm) auto 0;
+        max-width: 36ch;
+        font-size: var(--text-md);
+        color: var(--ink);
       }
 
       .final-cta__actions {
@@ -622,7 +926,7 @@
             </svg>
             <span class="nav__github-label">GitHub</span>
           </a>
-          <a class="btn btn--solid btn--sm" href="/app">アプリを開く</a>
+          <a class="btn btn--outline btn--sm" href="/mcp/">使い方</a>
         </div>
       </div>
     </header>
@@ -647,14 +951,159 @@
         </p>
         <p class="hero__aside">暦の「吉日」から。</p>
         <div class="hero__actions">
-          <a class="btn btn--solid" href="/app">アプリを開く</a>
           <a
-            class="btn btn--outline"
+            class="btn btn--solid"
             href="https://github.com/Love-Rox/kichijitsu"
             target="_blank"
             rel="noopener noreferrer"
             >GitHub で見る</a
           >
+        </div>
+        <p class="hero__links">
+          <a href="/mcp/">使い方(MCP)</a>
+          <span class="hero__links-sep" aria-hidden="true">・</span>
+          <a href="/self-hosting/">セルフホスト</a>
+        </p>
+      </section>
+
+      <section class="section" aria-labelledby="screen-title">
+        <div class="container">
+          <div class="section__head">
+            <span class="masu-strip masu-strip--sm" aria-hidden="true">
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell masu-strip__cell--kichi"></span>
+              <span class="masu-strip__cell"></span>
+              <span class="masu-strip__cell"></span>
+            </span>
+            <h2 class="section__title" id="screen-title">こんな画面です。</h2>
+            <p class="section__lede">
+              週表示の一部を再現したイメージ。今日は枡の朱印、不在はレール、勤務場所は帯とピンで示す。
+            </p>
+          </div>
+
+          <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+            <symbol id="mock-pin" viewBox="0 0 16 16">
+              <path
+                d="M8 14.2c2.9-3.1 4.8-5.7 4.8-8A4.8 4.8 0 1 0 3.2 6.2c0 2.3 1.9 4.9 4.8 8Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <circle cx="8" cy="6.2" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5" />
+            </symbol>
+          </svg>
+
+          <div class="screen-mock">
+            <div class="screen-mock__grid" aria-hidden="true">
+              <div class="screen-mock__col">
+                <div class="screen-mock__head">
+                  <span class="screen-mock__dow">火</span>
+                  <span class="screen-mock__badge screen-mock__badge--today">21</span>
+                </div>
+                <div class="screen-mock__body">
+                  <div class="screen-mock__rail screen-mock__rail--workloc">
+                    <svg class="screen-mock__rail-icon"><use href="#mock-pin"></use></svg>
+                    <span class="screen-mock__rail-bar"></span>
+                  </div>
+                  <div class="screen-mock__events">
+                    <div class="screen-mock__event" style="--evt-color: #7986cb">
+                      <span class="screen-mock__time">10:00</span>
+                      <span class="screen-mock__title">デザインレビュー</span>
+                    </div>
+                    <div class="screen-mock__event" style="--evt-color: #33b679">
+                      <span class="screen-mock__time">13:30</span>
+                      <span class="screen-mock__title">定例MTG</span>
+                      <span class="screen-mock__place">
+                        <svg class="screen-mock__pin"><use href="#mock-pin"></use></svg>
+                        <span>会議室A</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="screen-mock__col">
+                <div class="screen-mock__head">
+                  <span class="screen-mock__dow">水</span>
+                  <span class="screen-mock__badge">22</span>
+                </div>
+                <div class="screen-mock__body">
+                  <div class="screen-mock__rail screen-mock__rail--ooo" style="--rail-color: #f4511e">
+                    <span class="screen-mock__rail-bar"></span>
+                  </div>
+                  <div class="screen-mock__events">
+                    <div class="screen-mock__event screen-mock__event--tentative" style="--evt-color: #f6bf26">
+                      <span class="screen-mock__time">11:00</span>
+                      <span class="screen-mock__title">仮の打ち合わせ</span>
+                    </div>
+                    <div class="screen-mock__event screen-mock__event--declined" style="--evt-color: #039be5">
+                      <span class="screen-mock__time">15:00</span>
+                      <span class="screen-mock__title">全体会議</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="screen-mock__col">
+                <div class="screen-mock__head">
+                  <span class="screen-mock__dow">木</span>
+                  <span class="screen-mock__badge">23</span>
+                </div>
+                <div class="screen-mock__body">
+                  <div class="screen-mock__events">
+                    <div class="screen-mock__event" style="--evt-color: #33b679">
+                      <span class="screen-mock__time">09:30</span>
+                      <span class="screen-mock__title">朝会</span>
+                    </div>
+                    <div class="screen-mock__event" style="--evt-color: #7986cb">
+                      <span class="screen-mock__time">14:00</span>
+                      <span class="screen-mock__title">執筆</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <ul class="screen-mock__legend">
+              <li>
+                <span class="screen-mock__legend-swatch screen-mock__legend-swatch--today" aria-hidden="true"></span>
+                今日は枡の朱印で
+              </li>
+              <li>
+                <span
+                  class="screen-mock__legend-swatch screen-mock__legend-swatch--workloc"
+                  aria-hidden="true"
+                ></span>
+                勤務場所は帯とピンで
+              </li>
+              <li>
+                <span class="screen-mock__legend-swatch screen-mock__legend-swatch--ooo" aria-hidden="true">×</span>
+                不在はレールに
+              </li>
+              <li>
+                <span class="screen-mock__legend-swatch screen-mock__legend-swatch--place" aria-hidden="true">
+                  <svg class="screen-mock__pin"><use href="#mock-pin"></use></svg>
+                </span>
+                場所はカードに
+              </li>
+              <li>
+                <span
+                  class="screen-mock__legend-swatch screen-mock__legend-swatch--tentative"
+                  aria-hidden="true"
+                ></span>
+                仮の予定は淡く
+              </li>
+              <li>
+                <span class="screen-mock__legend-swatch screen-mock__legend-swatch--declined" aria-hidden="true"
+                  >Aa</span
+                >
+                不参加は打ち消し線で
+              </li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -749,8 +1198,15 @@
 
       <section class="final-cta container">
         <h2 class="final-cta__title">思い立ったが、その日が吉日。</h2>
+        <p class="final-cta__lede">ソースコードは公開されている。まずは中身を見てほしい。</p>
         <div class="final-cta__actions">
-          <a class="btn btn--solid" href="/app">アプリを開く</a>
+          <a
+            class="btn btn--solid"
+            href="https://github.com/Love-Rox/kichijitsu"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub で見る</a
+          >
         </div>
       </section>
     </main>
@@ -778,5 +1234,6 @@
         <p class="footer__meta">© 2026 Love-Rox</p>
       </div>
     </footer>
+
   </body>
 </html>

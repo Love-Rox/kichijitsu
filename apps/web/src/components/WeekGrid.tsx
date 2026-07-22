@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
-import type { GitHubActivityDTO, GitHubCiRunDTO } from "@kichijitsu/shared";
-import type { Occurrence, PlannedBlock, TaskItem } from "../model/types";
+import type { GitHubActivityDTO, GitHubCiRunDTO, RsvpResponseStatus } from "@kichijitsu/shared";
+import type { AllDayOccurrence, Occurrence, PlannedBlock, TaskItem } from "../model/types";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
@@ -15,7 +15,9 @@ import { usePlannedBlocks } from "../store/plannedStore";
 import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventEditDraft } from "../sync/eventEdit";
 import type { DroppedWorkItem } from "../sync/planned";
+import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import { layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
@@ -128,6 +130,14 @@ interface WeekGridProps {
    */
   onPersist: (updated: Occurrence, previous: Occurrence | undefined) => void;
   /**
+   * ドラッグ移動 (kind==='move') の確認ダイアログを開くフック(フェーズ2、2026-07-22)。
+   * handleCommit が store.update で楽観的に見た目だけ反映した直後に呼ばれる ―― まだ
+   * onPersist (IndexedDB/Google 書き込み) は呼んでいない状態。App.tsx がこれを state に
+   * 保持して MoveConfirmDialog を描画し、「移動する」で onPersist(updated, previous) を、
+   * 「キャンセル」で store.update(previous) だけを呼ぶ(sync/moveConfirm.ts 参照)。
+   */
+  onRequestMoveConfirm: (updated: Occurrence, previous: Occurrence) => void;
+  /**
    * 選択中カレンダーの `${accountId}:${calendarId}` キー集合(マルチアカウント対応 2026-07-19)。
    * source==='google' な occurrence だけをこれでフィルタする。ローカル/未設定 source
    * (source !== 'google') は選択状態に関係なく常に表示する。
@@ -137,6 +147,14 @@ interface WeekGridProps {
   calendarLookup: Map<string, CalendarInfo>;
   /** 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5、google 由来の occurrence のみ) */
   onDelete: (occurrence: Occurrence) => void;
+  /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
+  onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
+  /** 終日レーンの詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
+  onSaveAllDayEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
+  /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
+  onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
+  /** 終日レーンの詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
+  onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 新規予定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
   writeTarget: WriteTargetCandidate | null;
   /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
@@ -224,9 +242,14 @@ export function WeekGrid({
   dayCount,
   timeZone,
   onPersist,
+  onRequestMoveConfirm,
   visibleCalendarKeys,
   calendarLookup,
   onDelete,
+  onSaveEdit,
+  onSaveAllDayEdit,
+  onRsvp,
+  onAllDayRsvp,
   writeTarget,
   onCreateEvent,
   onToggleTask,
@@ -638,15 +661,26 @@ export function WeekGrid({
   );
 
   const handleCommit = useCallback(
-    (updated: Occurrence) => {
+    (updated: Occurrence, kind: "move" | "resize") => {
       // ロールバック用に更新前のスナップショットを取ってから、楽観的・同期に
       // store を即座に更新して見た目に反映する
       const previous = store.get(updated.id);
       store.update(updated);
+
+      // 実質変化なし(スナップ後に元の位置/長さへ戻った等): 確認も永続化も不要
+      if (previous && !hasOccurrenceTimeChanged(previous, updated)) return;
+
+      // 移動確認ダイアログ(フェーズ2、2026-07-22): kind==='move' のときだけ挟む
+      // (リサイズは現状どおり即確定、ユーザー決定)。previous が無い(理論上起きないはずの
+      // 保険パス)場合は確認を挟まずそのまま永続化する。
+      if (kind === "move" && previous) {
+        onRequestMoveConfirm(updated, previous);
+        return;
+      }
       // 永続化は非同期・fire-and-forget(App 側が db 書き込み・Google 書き戻しを担当)
       onPersist(updated, previous);
     },
-    [store, onPersist],
+    [store, onPersist, onRequestMoveConfirm],
   );
 
   const transform = transformForPhase(phase);
@@ -713,6 +747,9 @@ export function WeekGrid({
                       colStart={b.startDayIndex + 1}
                       colEnd={b.endDayIndex + 2}
                       calendarLookup={calendarLookup}
+                      timeZone={timeZone}
+                      onSaveEdit={onSaveAllDayEdit}
+                      onRsvp={onAllDayRsvp}
                     />
                   ))}
                   {overflowByDay.map((info, dayIndex) =>
@@ -818,6 +855,8 @@ export function WeekGrid({
                       weekDayStarts={dayStarts}
                       onCommit={handleCommit}
                       onDelete={onDelete}
+                      onSaveEdit={onSaveEdit}
+                      onRsvp={onRsvp}
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
                       onCreateEvent={onCreateEvent}

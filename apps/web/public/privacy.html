@@ -72,19 +72,24 @@
         display: inline-block;
         transform: rotate(-8deg);
       }
-      .site-nav .open-app {
+      .site-nav .back-link {
         font-size: 13px;
         font-weight: 600;
-        color: #fff;
-        background: #d7402e;
+        color: #24211e;
+        background: transparent;
+        border: 1.5px solid #24211e;
         padding: 8px 16px;
         border-radius: 999px;
         white-space: nowrap;
+        cursor: pointer;
+        font-family: inherit;
+        line-height: 1;
       }
-      .site-nav .open-app:hover {
-        background: #b8321f;
+      .site-nav .back-link:hover {
+        border-color: #b8321f;
+        color: #b8321f;
       }
-      .site-nav .open-app:focus-visible,
+      .site-nav .back-link:focus-visible,
       .site-nav .brand:focus-visible {
         outline: 2px solid #b8321f;
         outline-offset: 2px;
@@ -94,7 +99,7 @@
   <body>
     <header class="site-nav">
       <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>kichijitsu</a>
-      <a class="open-app" href="/app/">アプリを開く</a>
+      <a class="back-link" href="#" onclick="history.back();return false;">← 戻る</a>
     </header>
     <main>
       <h1>プライバシーポリシー <small>kichijitsu Privacy Policy</small></h1>
