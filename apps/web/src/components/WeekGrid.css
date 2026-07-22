@@ -1071,7 +1071,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(TS 側の定数値に追従、ここはハードコードのみ許容箇所) */
+  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(TS 側の定数値に追従、ここはハードコードのみ許容箇所) */
   height: 100%;
   pointer-events: none;
 }
@@ -1125,16 +1125,20 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
   height: 100%;
   pointer-events: none;
 }
 
 .day-ooo-line {
   position: absolute;
-  left: 0.5px; /* 3px 幅のレール内で中央寄せ(可視幅は2px) */
-  width: 2px;
-  background: rgba(138, 132, 120, 0.55); /* 薄墨、カレンダー色は使わない */
+  left: 0.5px; /* 5px 幅のレール内で中央寄せ(可視幅は4px) */
+  width: 4px;
+  /* 色は OooRailLine.tsx が resolveDisplayColor で解決したカレンダー色を inline style
+   * (backgroundColor + color) で与える(ユーザー要望 2026-07-22: カレンダー色を活用)。
+   * ここでは透過だけを担い、::after の × は color: inherit で同色にする */
+  opacity: 0.7;
+  border-radius: 2px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
   cursor: pointer;
   z-index: 1; /* .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 =
@@ -1153,28 +1157,29 @@
   content: "";
   position: absolute;
   inset: 0;
-  left: -5px;
-  right: -5px;
+  left: -4px;
+  right: -4px;
   pointer-events: auto;
 }
 
-/* 上端の × アイコン。SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法) */
+/* 上端の × アイコン。SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法)。
+ * 色はホスト要素の inline style (カレンダー色) を inherit する */
 .day-ooo-line::after {
   content: "×";
   position: absolute;
-  top: -7px;
+  top: -9px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1;
-  color: #8a8478;
+  color: inherit;
   font-weight: 700;
   pointer-events: none;
 }
 
 .day-ooo-line:hover,
 .day-ooo-line:focus-visible {
-  background: rgba(138, 132, 120, 0.9);
+  opacity: 1;
 }
 
 .day-ooo-line:hover::after,
@@ -1195,7 +1200,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
   height: 100%;
   pointer-events: none;
 }

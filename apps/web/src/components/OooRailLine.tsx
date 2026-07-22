@@ -9,6 +9,7 @@ import {
   formatRange,
   minutesToPx,
 } from "../layout/gridMetrics";
+import { resolveDisplayColor } from "../layout/eventColors";
 import type { OooRailItem } from "../layout/oooRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
@@ -109,6 +110,12 @@ export function OooRailLine({ item, timeZone, calendarLookup }: OooRailLineProps
     ? formatDetailDateTime(subject.startMs, subject.endMs, timeZone)
     : formatAllDayDateRange(subject.startDate, subject.endDate);
 
+  // カレンダー色を EventBlock と同じ resolveDisplayColor で解決し、ライン(backgroundColor)と
+  // 上端の ×(::after が color: inherit で拾う)を同色にする(ユーザー要望 2026-07-22:
+  // 当初の「薄墨で色を殺す」案から変更 — どのカレンダーの不在かが一目で分かる方を優先)。
+  // 解決結果が空文字(未設定のレガシーキャッシュ等)なら従来の薄墨にフォールバック
+  const displayColor = resolveDisplayColor(subject, calendarLookup) || "#8a8478";
+
   return (
     <>
       <div
@@ -116,6 +123,8 @@ export function OooRailLine({ item, timeZone, calendarLookup }: OooRailLineProps
         style={{
           top: minutesToPx(item.startMinutes),
           height: Math.max(minutesToPx(item.endMinutes - item.startMinutes), 2),
+          backgroundColor: displayColor,
+          color: displayColor,
         }}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
