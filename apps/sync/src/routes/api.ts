@@ -614,7 +614,7 @@ apiRoutes.post("/api/sync", requireAuth, async (c) => {
   }
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
-  const result = await stub.sync(body.accountId, body.calendarId, body.deviceId);
+  const result = await stub.sync(body.accountId, body.calendarId, body.deviceId, body.forceFull);
   if (result.ok) {
     // watch 自己修復 (best-effort)。正経路は選択トグル時の POST /api/watch のみなので、
     // watches 行の消失/取り違え (プロファイル作り直し事故など) を放置すると手動でトグルし

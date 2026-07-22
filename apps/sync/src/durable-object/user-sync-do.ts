@@ -10,7 +10,11 @@ import { fetchCalendarList } from "../google/calendar-list";
 import { refreshAccessToken } from "../google/oauth";
 import { hasUpdatesSince } from "../google/poll-check";
 import { syncCalendar, type SyncCoreDeps } from "../core/sync";
-import { resolveSyncTokenRead, V2_TOKEN_MAX_AGE_MS } from "../core/sync-token-store";
+import {
+  resolveSyncTokenRead,
+  V2_TOKEN_MAX_AGE_MS,
+  wrapGetSyncTokenForForceFull,
+} from "../core/sync-token-store";
 import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../core/patch-event";
 import { createEventWithRetry, type CreateEventCoreDeps } from "../core/create-event";
 import { deleteEventWithRetry, type DeleteEventCoreDeps } from "../core/delete-event";
@@ -131,13 +135,17 @@ export class UserSyncDO extends DurableObject<Env> {
    * deviceId 省略 (旧クライアントの in-flight リクエスト、または未対応呼び出し元) は
    * レガシー共有トークン (sync_tokens) を従来どおり読み書きする後方互換パス。
    * deviceId 指定時は端末ごとの sync_tokens_v2 を使う (readSyncToken/writeSyncToken 参照)。
+   *
+   * forceFull (2026-07-22、SyncRequest.forceFull): true なら保存済み syncToken を無視して
+   * 全同期を強制する (eventType バックフィル用、buildDeps のラップ参照)。
    */
   async sync(
     accountId: string,
     calendarId: string,
     deviceId?: string,
+    forceFull?: boolean,
   ): Promise<RpcResult<SyncResponse>> {
-    return runRpc(() => syncCalendar(this.buildDeps(accountId, deviceId), calendarId));
+    return runRpc(() => syncCalendar(this.buildDeps(accountId, deviceId, forceFull), calendarId));
   }
 
   async listCalendars(accountId: string): Promise<RpcResult<CalendarListEntryDTO[]>> {
@@ -462,13 +470,20 @@ export class UserSyncDO extends DurableObject<Env> {
    * deviceId を read/write クロージャに束ねる (core/sync.ts の SyncCoreDeps 形状自体は
    * 変えない — calendarId だけを引数に取る getSyncToken/saveSyncToken のシグネチャは
    * そのまま、この DO 側で deviceId を閉じ込める)。
+   *
+   * forceFull (2026-07-22): wrapGetSyncTokenForForceFull で getSyncToken だけを差し替える。
+   * saveSyncToken は素通しのまま渡す — 全同期完了後は core/sync.ts が新トークンを通常どおり
+   * 保存するので、以後は自動的に増分同期に戻る。
    */
-  private buildDeps(accountId: string, deviceId?: string): SyncCoreDeps {
+  private buildDeps(accountId: string, deviceId?: string, forceFull?: boolean): SyncCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
       forceRefreshAccessToken: () => this.getOrRefreshAccessToken(accountId, true),
-      getSyncToken: (calendarId) => Promise.resolve(this.readSyncToken(calendarId, deviceId)),
+      getSyncToken: wrapGetSyncTokenForForceFull(
+        (calendarId) => Promise.resolve(this.readSyncToken(calendarId, deviceId)),
+        forceFull ?? false,
+      ),
       saveSyncToken: (calendarId, syncToken) =>
         Promise.resolve(this.writeSyncToken(calendarId, deviceId, syncToken)),
     };

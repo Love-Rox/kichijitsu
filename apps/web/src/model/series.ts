@@ -25,6 +25,13 @@ export interface EventSeries {
   /** ホバー/詳細表示用 (展開時に occurrence へ引き継ぐ) */
   location?: string;
   description?: string;
+  /**
+   * 不在レール表示 (2026-07-22)。Occurrence.isOutOfOffice と同じ意味 —
+   * Google の eventType==='outOfOffice' な繰り返しシリーズかどうか。mapGoogle.ts の
+   * buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま引き継ぐ
+   * (hasCustomColor と同じ伝播の仕方)。
+   */
+  isOutOfOffice?: boolean;
   /** 初回開始のローカル日時 (タイムゾーンオフセットなしの ISO)。例 "2026-07-20T10:00" */
   dtstartIso: string;
   /** IANA タイムゾーン。例 "Asia/Tokyo" */
@@ -58,6 +65,13 @@ export interface InstanceOverride {
     color?: string;
     location?: string;
     description?: string;
+    /**
+     * 不在レール表示 (2026-07-22)。この例外インスタンス自体が eventType==='outOfOffice' の
+     * ときのみ true をセットする (mapGoogle.ts の buildOverride)。false や undefined で
+     * 明示的に「不在ではない」を上書きするケースは v1 では扱わない — 立てないときは
+     * キー自体を省略し、expandSeries 側でシリーズの isOutOfOffice にフォールバックさせる。
+     */
+    isOutOfOffice?: boolean;
   } | null;
 }
 

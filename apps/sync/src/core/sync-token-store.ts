@@ -43,3 +43,22 @@ export const V2_TOKEN_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 export function isStaleV2Token(updatedAt: number, now: number): boolean {
   return now - updatedAt > V2_TOKEN_MAX_AGE_MS;
 }
+
+/**
+ * forceFull バックフィル (2026-07-22、SyncRequest.forceFull 参照) 用のラップ。
+ * forceFull なら保存済み syncToken を一切読まず常に null を返す getter に差し替える —
+ * core/sync.ts は getSyncToken が null を返すと isFullSync=true として扱う既存挙動を
+ * そのまま使うため、DO 側は「読まない」ことだけ保証すればよい (読んだ上で捨てるのではなく、
+ * 実際に呼ばないことで「forceFull 中は保存トークンを一切参照しない」ことを型でも表せる)。
+ * saveSyncToken はラップしない — 同期完了後は core/sync.ts が新トークンを通常どおり保存し、
+ * 次回からは自動的に増分同期に戻る (forceFull は一回きりの強制であり、永続設定ではない)。
+ *
+ * 純関数として切り出してあるのは、UserSyncDO 本体 (SqlStorage 依存で単体テストしにくい) から
+ * 「forceFull ならトークンを見ない」という判定ロジックだけを分離してテストするため。
+ */
+export function wrapGetSyncTokenForForceFull(
+  getSyncToken: (calendarId: string) => Promise<string | null>,
+  forceFull: boolean,
+): (calendarId: string) => Promise<string | null> {
+  return forceFull ? () => Promise.resolve(null) : getSyncToken;
+}

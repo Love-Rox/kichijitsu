@@ -100,10 +100,12 @@ function isMirrorEvent(event: GoogleEventDTO): boolean {
  * buildSingle/buildAllDay が occurrence.isOutOfOffice = true を立て、UI (DayColumn.tsx) が
  * 通常の予定カードの代わりに専用レールへ振り分ける(不在レール表示、2026-07-22)。
  *
- * isMirrorEvent と同じ理由でこのフラグを付与するパスは buildSingle/buildAllDay のみ
- * (繰り返し予定 (buildSeries/buildOverride) には付けない — Google の不在予定が実際に
- * 繰り返しになるケースは稀なため v1 では対象外。将来必要になれば EventSeries 側にも
- * 同様のフィールドを足して expandSeries で引き継げばよい)。
+ * 繰り返しの不在予定 (buildSeries/buildOverride、2026-07-22 バグ修正) にも同じ判定を使う:
+ * buildSeries は EventSeries.isOutOfOffice、buildOverride は InstanceOverride.patch.isOutOfOffice
+ * を立て、展開時 (expandSeries) にシリーズ→occurrence へ引き継ぐ (hasCustomColor と同じ流儀)。
+ * 単発 (buildSingle/buildAllDay) と繰り返し (buildSeries/buildOverride) の4パス全てで
+ * このフラグを使うため、ここでの判定は event 単体を見るだけで完結する (呼び出し側の
+ * 単発/繰り返しの分岐と独立)。
  */
 function isOutOfOfficeEvent(event: GoogleEventDTO): boolean {
   return event.eventType === "outOfOffice";
@@ -265,6 +267,7 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     durationMin,
     rrule: rruleLine,
     exdatesMs,
+    ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
   };
 }
 
@@ -296,6 +299,9 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   }
   if (event.description !== undefined) {
     patch.description = event.description;
+  }
+  if (isOutOfOfficeEvent(event)) {
+    patch.isOutOfOffice = true;
   }
 
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch };

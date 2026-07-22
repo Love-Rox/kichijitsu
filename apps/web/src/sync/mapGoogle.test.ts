@@ -619,4 +619,59 @@ describe("mapGoogleEvents: isOutOfOffice (不在レール表示、2026-07-22)", 
 
     expect(result.allDays[0].isOutOfOffice).toBeUndefined();
   });
+
+  it("eventType==='outOfOffice' の繰り返し親イベントは EventSeries.isOutOfOffice: true になる(繰り返し不在バグ修正 2026-07-22)", () => {
+    const oooSeries = baseEvent({
+      id: "ooo-series",
+      summary: "定期不在",
+      eventType: "outOfOffice",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+
+    const result = mapGoogleEvents([oooSeries], ctx);
+
+    expect(result.series).toHaveLength(1);
+    expect(result.series[0].isOutOfOffice).toBe(true);
+  });
+
+  it("eventType が無い/'default' の繰り返し親イベントは EventSeries.isOutOfOffice: undefined のまま", () => {
+    const plainSeries = baseEvent({
+      id: "plain-series",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+    });
+
+    const result = mapGoogleEvents([plainSeries], ctx);
+
+    expect(result.series[0].isOutOfOffice).toBeUndefined();
+  });
+
+  it("eventType==='outOfOffice' の例外インスタンスは InstanceOverride.patch.isOutOfOffice: true になる", () => {
+    const oooException = baseEvent({
+      id: "ooo-exception",
+      eventType: "outOfOffice",
+      recurringEventId: "ooo-series",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T18:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([oooException], ctx);
+
+    expect(result.overrides).toHaveLength(1);
+    expect(result.overrides[0].patch).toMatchObject({ isOutOfOffice: true });
+  });
+
+  it("eventType が無い例外インスタンスは patch に isOutOfOffice キー自体を持たない", () => {
+    const plainException = baseEvent({
+      id: "plain-exception",
+      recurringEventId: "series-evt",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T14:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T15:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([plainException], ctx);
+
+    expect(result.overrides[0].patch).not.toHaveProperty("isOutOfOffice");
+  });
 });

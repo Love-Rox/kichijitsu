@@ -66,6 +66,7 @@ import {
 } from "./sync/visibleCalendars";
 import { createSyncScheduler } from "./sync/syncScheduler";
 import { buildSyncRequest } from "./sync/syncRequest";
+import { decideOooBackfillTargets } from "./sync/oooBackfill";
 import { WeekGrid } from "./components/WeekGrid";
 import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
@@ -118,6 +119,7 @@ import {
   getExpansionState,
   getHiddenTaskLists,
   getOccurrencesBetween,
+  getOooBackfillDone,
   getOrCreateDeviceId,
   getOverride,
   getVisibleCalendars,
@@ -131,6 +133,7 @@ import {
   putTask,
   putTimeEntry,
   setHiddenTaskLists,
+  setOooBackfillDone,
   setVisibleCalendars,
   type KichijitsuDB,
   type VisibleCalendarsMap,
@@ -1273,15 +1276,22 @@ function App() {
   }, [panelOpen, checkedFetch]);
 
   // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
-  // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)
+  // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)。
+  // forceFull (2026-07-22、eventType 一度きりバックフィル用) は通常同期では省略して
+  // false 扱いにする — runOooBackfillIfNeeded だけが明示的に true を渡す
   const syncCalendarOnce = useCallback(
-    async (accountId: string, calendarId: string, defaultColor?: string) => {
+    async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
       if (!db) return;
       const syncRes = await checkedFetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          buildSyncRequest(accountId, calendarId, deviceIdRef.current) satisfies SyncRequest,
+          buildSyncRequest(
+            accountId,
+            calendarId,
+            deviceIdRef.current,
+            forceFull,
+          ) satisfies SyncRequest,
         ),
       });
       if (!syncRes.ok) {
@@ -1301,11 +1311,16 @@ function App() {
   // カレンダーを新規選択した直後の即時同期など複数経路から await なしで多重に発火しうるため、
   // syncSchedulerRef (キー = `${accountId}:${calendarId}`) で直列化する。同一カレンダーの
   // 増分同期と全同期(410 フォールバック)が交錯して IndexedDB の削除→再投入が競合するのを防ぐ
-  // (2026-07-21、sync/syncScheduler.ts 参照)
+  // (2026-07-21、sync/syncScheduler.ts 参照)。
+  // forceFull はそのまま syncCalendarOnce に通す — ただし schedule() は同一キーの走行中は
+  // 新しい run を無視して既存の run を再実行するだけ(sync/syncScheduler.ts の runLoop 参照)
+  // なので、理論上「非 forceFull の同期が走行中に forceFull の要求が来る」と forceFull が
+  // 無視されて通常の再実行になり得る。runOooBackfillIfNeeded は起動時の runSync 完了を
+  // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
   const syncCalendar = useCallback(
-    (accountId: string, calendarId: string, defaultColor?: string) =>
+    (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
       syncSchedulerRef.current.schedule(`${accountId}:${calendarId}`, () =>
-        syncCalendarOnce(accountId, calendarId, defaultColor),
+        syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
       ),
     [syncCalendarOnce],
   );
@@ -1392,6 +1407,41 @@ function App() {
     setSyncStatus(hadError ? "error" : "idle");
   }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
 
+  // eventType 一度きりバックフィル (2026-07-22、繰り返し不在バグ修正と対になる修正)。
+  // 起動時の自動同期 (runSync、下の useEffect) が終わった直後に1回だけ呼ぶ:
+  // runSync 自体を forceFull にはしない(手動「同期」ボタンや SSE hello/changed からも
+  // runSync/syncCalendar 経由の通常同期が随時走るため、runSync 自体を forceFull 化すると
+  // 毎回全同期になってしまう。起動直後の1回だけ、という条件を素直に表せるのはこちらの
+  // 「runSync の後に別途走らせる」方式のほうだった)。
+  //
+  // 選択中の全 (accountId, calendarId) を forceFull: true で同期し、1つも失敗しなければ
+  // 完了フラグを立てる。一部でも失敗したらフラグは立てず、次回起動時にまた全対象を
+  // 再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
+  // setOooBackfillDone コメント参照)。
+  const runOooBackfillIfNeeded = useCallback(async () => {
+    if (!db) return;
+    const alreadyDone = await getOooBackfillDone(db);
+    const targets = decideOooBackfillTargets(alreadyDone, selectedTargets());
+    if (targets.length === 0) return;
+
+    const results = await Promise.allSettled(
+      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
+    );
+    const allOk = results.every((r) => r.status === "fulfilled");
+    if (allOk) {
+      await setOooBackfillDone(db);
+    } else {
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.error(
+            "kichijitsu: oooBackfill sync failed, will retry next launch",
+            result.reason,
+          );
+        }
+      }
+    }
+  }, [db, selectedTargets, syncCalendar]);
+
   // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
   // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
   const handleServerHello = useCallback(async () => {
@@ -1444,13 +1494,16 @@ function App() {
     onError: markOffline,
   });
 
-  // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する
+  // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
+  // 完了後に続けて runOooBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
+  // (runSync 自体)とバックフィルの forceFull 同期が同時に飛んで syncScheduler 上で
+  // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある
   useEffect(() => {
     if (!db || me.accounts.length === 0 || Object.keys(visibleCalendars).length === 0) return;
     if (autoSyncedRef.current) return;
     autoSyncedRef.current = true;
-    runSync();
-  }, [db, me.accounts, visibleCalendars, runSync]);
+    runSync().then(() => runOooBackfillIfNeeded());
+  }, [db, me.accounts, visibleCalendars, runSync, runOooBackfillIfNeeded]);
 
   // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
   // (docs/google-tasks.md)。fetchTaskListsFor の完了タイミングは calendarsByAccount/visibleCalendars の

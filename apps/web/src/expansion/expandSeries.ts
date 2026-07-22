@@ -295,6 +295,9 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     const color = override?.patch?.color ?? series.color;
     const location = override?.patch?.location ?? series.location;
     const description = override?.patch?.description ?? series.description;
+    // 不在レール表示 (2026-07-22 バグ修正)。override 側で明示的に立っていればそれを優先し、
+    // 無ければシリーズ全体の値を使う (hasCustomColor と同じフォールバックの形)。
+    const isOutOfOffice = override?.patch?.isOutOfOffice ?? series.isOutOfOffice;
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue;
@@ -316,6 +319,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       location,
       description,
       originalStartMs,
+      ...(isOutOfOffice ? { isOutOfOffice: true } : {}),
     });
   }
 

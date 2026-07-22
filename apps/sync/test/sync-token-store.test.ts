@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
   isStaleV2Token,
   resolveSyncTokenRead,
   V2_TOKEN_MAX_AGE_MS,
+  wrapGetSyncTokenForForceFull,
   type SyncTokenRowLike,
 } from "../src/core/sync-token-store";
 
@@ -55,5 +56,28 @@ describe("isStaleV2Token", () => {
 
   it("更新から間もなければ stale ではない", () => {
     expect(isStaleV2Token(1_000, 2_000)).toBe(false);
+  });
+});
+
+describe("wrapGetSyncTokenForForceFull", () => {
+  it("forceFull=false なら元の getSyncToken をそのまま返す(呼ばれ方も含めて透過)", async () => {
+    const getSyncToken = vi.fn(async (calendarId: string) => `token-for-${calendarId}`);
+
+    const wrapped = wrapGetSyncTokenForForceFull(getSyncToken, false);
+    const result = await wrapped("cal-1");
+
+    expect(result).toBe("token-for-cal-1");
+    expect(getSyncToken).toHaveBeenCalledOnce();
+    expect(getSyncToken).toHaveBeenCalledWith("cal-1");
+  });
+
+  it("forceFull=true なら元の getSyncToken を一切呼ばず常に null を返す", async () => {
+    const getSyncToken = vi.fn(async () => "should-not-be-read");
+
+    const wrapped = wrapGetSyncTokenForForceFull(getSyncToken, true);
+    const result = await wrapped("cal-1");
+
+    expect(result).toBeNull();
+    expect(getSyncToken).not.toHaveBeenCalled();
   });
 });

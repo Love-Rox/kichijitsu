@@ -278,6 +278,17 @@ export interface SyncRequest {
    * 旧クライアントの in-flight リクエストが 400 にならないよう optional にしてある。
    */
   deviceId?: string;
+  /**
+   * true ならサーバー保存の syncToken (レガシー共有 / sync_tokens_v2 いずれも) を無視して
+   * 全同期を強制する (2026-07-22、eventType バックフィル用)。既存の同期済みイベントは
+   * 変更が無い限り増分同期で再配信されないため、mapGoogle.ts の isOutOfOffice のように
+   * 「サーバーは保存しないが DTO 上の新フィールドから初めて導出するフラグ」を後から
+   * 追加したとき、デプロイ前に取得済みのイベントには永久にフラグが付かない — これを
+   * 解消するにはクライアント側がローカルレプリカ全体を一度作り直す (= 全同期) 必要がある。
+   * saveSyncToken 自体は通常どおり動く (core/sync.ts) ため、この同期が完了すれば
+   * 次回からは通常の増分同期に戻る (一回きりの強制であり、恒久設定ではない)。
+   */
+  forceFull?: boolean;
 }
 
 /** DELETE /api/account の body。accountId 指定でそのアカウントのみ解除、省略で全解除 */

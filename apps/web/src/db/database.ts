@@ -88,7 +88,7 @@ export interface KichijitsuDB extends DBSchema {
   /** out-of-line key の雑多な設定置き場。key ごとに value の形が異なる (下記関数群参照) */
   meta: {
     key: string;
-    value: ExpansionState | VisibleCalendarsMap | string | string[];
+    value: ExpansionState | VisibleCalendarsMap | string | string[] | boolean;
   };
 }
 
@@ -110,6 +110,17 @@ const META_DEVICE_ID_KEY = "deviceId";
  * getHiddenTaskLists のコメント参照)。
  */
 const META_HIDDEN_TASK_LISTS_KEY = "hiddenTaskLists";
+/**
+ * eventType 一度きりバックフィル完了フラグ (2026-07-22、繰り返し不在バグ修正と対の
+ * もう1つの修正)。不在レール表示 (a00fa80) 導入前に同期済みだったイベントには
+ * eventType が永久に付かない (変更の無いイベントは増分同期で再配信されないため) ので、
+ * 初回起動時に選択中の全カレンダーを forceFull: true で1回ずつ同期して埋める
+ * (App.tsx の runOooBackfillIfNeeded)。deviceId と同じく端末ごとの IndexedDB に
+ * 保存する — 複数端末はそれぞれ自分の syncToken (v2) を持つ設計なので、
+ * バックフィルも各端末が自分の分を1回ずつ実施するのが正しい (他端末の完了を
+ * 「もう済んだ」と誤認してはいけない)。
+ */
+const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone";
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
@@ -479,6 +490,25 @@ export async function setHiddenTaskLists(
   hidden: ReadonlySet<string>,
 ): Promise<void> {
   await db.put("meta", [...hidden], META_HIDDEN_TASK_LISTS_KEY);
+}
+
+/**
+ * eventType 一度きりバックフィル (2026-07-22) が完了済みかどうか。未保存 (初回起動・
+ * 旧バージョンからのアップグレード直後) は false = 未実施として扱う。
+ */
+export async function getOooBackfillDone(db: IDBPDatabase<KichijitsuDB>): Promise<boolean> {
+  const value = await db.get("meta", META_OOO_BACKFILL_DONE_KEY);
+  return value === true;
+}
+
+/**
+ * バックフィル完了を記録する。App.tsx 側は「選択中の全カレンダーへの forceFull 同期が
+ * 1つも失敗せず終わった」ときのみこれを呼ぶ — 一部失敗した場合は呼ばずに次回起動時の
+ * 再試行に委ねる (完了フラグを早まって立てると、失敗したカレンダーだけ永久に
+ * バックフィルされないままになるため)。
+ */
+export async function setOooBackfillDone(db: IDBPDatabase<KichijitsuDB>): Promise<void> {
+  await db.put("meta", true, META_OOO_BACKFILL_DONE_KEY);
 }
 
 export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {

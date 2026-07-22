@@ -86,6 +86,85 @@ describe("expandSeries", () => {
     expect(resultUndefined[0].hasCustomColor).toBeUndefined();
   });
 
+  describe("isOutOfOffice の伝播 (繰り返し不在バグ修正 2026-07-22)", () => {
+    it("series.isOutOfOffice: true を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({ isOutOfOffice: true, rrule: "FREQ=DAILY;COUNT=2" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.isOutOfOffice).toBe(true);
+      }
+    });
+
+    it("series.isOutOfOffice が無ければ occurrence.isOutOfOffice は undefined のまま", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0].isOutOfOffice).toBeUndefined();
+    });
+
+    it("override.patch.isOutOfOffice が立っていればシリーズ側の値より優先する(この回だけ不在)", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=2" }); // シリーズ自体は不在ではない
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { isOutOfOffice: true },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.isOutOfOffice).toBeUndefined();
+      expect(patched!.isOutOfOffice).toBe(true);
+    });
+
+    it("シリーズが不在でも override.patch に isOutOfOffice キーが無ければシリーズ側の値にフォールバックする", () => {
+      const series = baseSeries({ isOutOfOffice: true, rrule: "FREQ=DAILY;COUNT=2" });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { title: "Rescheduled" }, // isOutOfOffice には触れない
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(patched!.isOutOfOffice).toBe(true);
+    });
+  });
+
   it("FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)", () => {
     // 2026-01-05 は月曜
     const series = baseSeries({
