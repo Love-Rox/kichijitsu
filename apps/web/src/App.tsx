@@ -2670,23 +2670,25 @@ function App() {
                   onClick={() => setPanelOpen((open) => !open)}
                   aria-expanded={panelOpen}
                   aria-haspopup="dialog"
-                  // 狭幅では .account-summary-label を CSS で隠し歯車アイコン(旧 ⚙ 絵文字、
-                  // 2026-07-22 に GearIcon へ置き換え)だけにするため、
-                  // アクセシブルネームが失われないよう明示の aria-label を持たせる
+                  // 「○アカウント連携中」というラベルは何のボタンか分かりづらい (ユーザー指摘
+                  // 2026-07-22) ため、歯車アイコン + 「設定」ラベルにして設定画面を開くボタンで
+                  // あることを前面に出す。連携中のアカウント (email / 件数) は説明的な title/
+                  // aria-label に退避させ、必要な人には読めるようにしておく
+                  title={
+                    me.accounts.length === 1
+                      ? `設定 (${me.accounts[0].email})`
+                      : `設定 (${me.accounts.length}アカウント連携中)`
+                  }
                   aria-label={
                     me.accounts.length === 1
-                      ? me.accounts[0].email
-                      : `${me.accounts.length}アカウント連携中`
+                      ? `設定 (${me.accounts[0].email})`
+                      : `設定 (${me.accounts.length}アカウント連携中)`
                   }
                 >
-                  <span className="account-summary-label">
-                    {me.accounts.length === 1
-                      ? me.accounts[0].email
-                      : `${me.accounts.length}アカウント連携中`}
-                  </span>
                   <span className="account-gear" aria-hidden="true">
-                    <GearIcon width={12} height={12} />
+                    <GearIcon width={16} height={16} />
                   </span>
+                  <span className="account-summary-label">設定</span>
                 </button>
                 <button
                   type="button"
