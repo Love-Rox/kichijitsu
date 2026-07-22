@@ -34,7 +34,13 @@ import {
   timedOooRailItems,
   type OooRailItem,
 } from "../layout/oooRail";
-import { locationRailItems, type LocationRailItem } from "../layout/locationRail";
+import {
+  allDayWorkingLocationRailItems,
+  splitWorkingLocationAllDayGroups,
+  splitWorkingLocationGroups,
+  timedWorkingLocationRailItems,
+  type WorkingLocationRailItem,
+} from "../layout/workingLocationRail";
 import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
 import { panelAnchors, panelSlideDirection } from "../layout/dayGrid";
 import { type CalendarInfo } from "./EventBlock";
@@ -186,11 +192,11 @@ interface WeekPanelData {
     /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
     oooItems: OooRailItem[];
     /**
-     * この日ぶんの場所付き予定レール項目(地図ピン表示、2026-07-22)。OOO と違い
-     * packColumns の入力(cardGroups)からは除外しない ―― カード自体はそのまま描画される
-     * (layout/locationRail.ts 参照)。
+     * この日ぶんの勤務場所レール項目(地図ピン表示、2026-07-22 作り直し、時刻予定側)。
+     * OOO と同じく packColumns の入力(cardGroups)から除外済み
+     * (layout/workingLocationRail.ts 参照)。
      */
-    locationItems: LocationRailItem[];
+    workingLocationItems: WorkingLocationRailItem[];
   }[];
 }
 
@@ -358,23 +364,24 @@ export function WeekGrid({
           // packColumns の入力(cardGroups)から除外する(カスケード列を消費させない)。
           // 除外した分(oooGroups)は timedOooRailItems で分オフセットへ変換し、そのまま
           // DayColumn の不在レールへ渡す(要件どおり「packColumns 入力から除外」を体現)
-          const { cardGroups, oooGroups } = splitOutOfOfficeGroups(items);
+          const { cardGroups: oooCardGroups, oooGroups } = splitOutOfOfficeGroups(items);
+          // 勤務場所(workingLocation、2026-07-22 作り直し): OOO と全く同じ理由で
+          // packColumns の入力からさらに除外する(OOO を除いた残りの oooCardGroups から
+          // 分ける ―― 両者は互いに排他な eventType のため順序自体に意味は無いが、
+          // 「OOO を先に処理する」既存の流儀にそのまま乗せてある)。
+          const { cardGroups, workingLocationGroups } = splitWorkingLocationGroups(oooCardGroups);
           const positioned = packColumns(
             cardGroups,
             (g) => g.primary.startMs,
             (g) => g.primary.endMs,
           );
           const oooItems = timedOooRailItems(oooGroups, dayStarts[i], dayEnds[i]);
-          // 場所付き予定レール(地図ピン表示、2026-07-22): OOO を渡している箇所の隣で、
-          // 同じ日ぶんの cardGroups(= 実際にカードとして描画される occurrence 群、OOO は
-          // 既に除外済み)の primary から作る。カード自体は消さないため packColumns の
-          // 入力には一切手を加えない(cardGroups はそのまま positioned の計算にも使われる)。
-          const locationItems = locationRailItems(
-            cardGroups.map((g) => g.primary),
+          const workingLocationItems = timedWorkingLocationRailItems(
+            workingLocationGroups,
             dayStarts[i],
             dayEnds[i],
           );
-          return { day, positioned, oooItems, locationItems };
+          return { day, positioned, oooItems, workingLocationItems };
         });
         return { panelStart, days, dayStarts, dayEnds, dayData };
       }),
@@ -404,12 +411,25 @@ export function WeekGrid({
   // 不在(Out of Office、2026-07-22): 終日レーン(AllDayBar)のチップとしては出さず、
   // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで
   // barGroups(従来通り packDayBars → AllDayBar へ)と oooGroups(下記 allDayOooPanels へ)に
-  // 振り分ける
-  const { barGroups: groupedAllDayBarOccurrences, oooGroups: groupedAllDayOooOccurrences } =
-    useMemo(
-      () => splitOutOfOfficeAllDayGroups(groupDuplicateAllDayOccurrences(visibleAllDayOccurrences)),
-      [visibleAllDayOccurrences],
+  // 振り分ける。さらに勤務場所(workingLocation、2026-07-22 作り直し)も barGroups から
+  // 除外する ―― こちらは全高ラインではなく日カラム上端の単一ピン(下記
+  // allDayWorkingLocationPanels)として DayColumn 側に合流させる。
+  const {
+    groupedAllDayBarOccurrences,
+    groupedAllDayOooOccurrences,
+    groupedAllDayWorkingLocationOccurrences,
+  } = useMemo(() => {
+    const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
+      groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
     );
+    const { barGroups: finalBarGroups, workingLocationGroups } =
+      splitWorkingLocationAllDayGroups(barGroups);
+    return {
+      groupedAllDayBarOccurrences: finalBarGroups,
+      groupedAllDayOooOccurrences: oooGroups,
+      groupedAllDayWorkingLocationOccurrences: workingLocationGroups,
+    };
+  }, [visibleAllDayOccurrences]);
 
   // パネルごとに、その N 日ぶんのインデックス [0, dayCount-1] にクリップした区間で
   // packDayBars する。行の割り当てはここで確定するが、「何行まで見せるか
@@ -462,6 +482,24 @@ export function WeekGrid({
         ),
       })),
     [panelStarts, dayCount, groupedAllDayOooOccurrences],
+  );
+
+  // 終日の勤務場所を日ごとに割り当てる(2026-07-22 作り直し)。allDayOooPanels と全く同じ
+  // 形・同じ理由(weekPanels と同じ panelStarts 由来で index が揃う)。時刻予定側の
+  // workingLocationItems(weekPanels の dayData)と合わせて DayColumn の workingLocationItems
+  // prop へマージするのは JSX 側(下記)で行う。
+  const allDayWorkingLocationPanels = useMemo(
+    () =>
+      panelStarts.map((panelStart) => ({
+        panelStart,
+        dayItems: Array.from({ length: dayCount }, (_, i) =>
+          allDayWorkingLocationRailItems(
+            groupedAllDayWorkingLocationOccurrences,
+            panelStart.add({ days: i }),
+          ),
+        ),
+      })),
+    [panelStarts, dayCount, groupedAllDayWorkingLocationOccurrences],
   );
 
   // 3週(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行までバーを見せ、
@@ -767,7 +805,7 @@ export function WeekGrid({
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayData.map(({ day, positioned, oooItems, locationItems }, dayIndex) => (
+                  {dayData.map(({ day, positioned, oooItems, workingLocationItems }, dayIndex) => (
                     <DayColumn
                       key={day.toString()}
                       dayIndex={dayIndex}
@@ -789,7 +827,10 @@ export function WeekGrid({
                       // 終日側(allDayOooPanels、同じ panelStarts 由来で index が揃う)を
                       // ここで初めてマージする(両者は独立したデータソースのため)
                       oooItems={[...oooItems, ...allDayOooPanels[panelIndex].dayItems[dayIndex]]}
-                      locationItems={locationItems}
+                      workingLocationItems={[
+                        ...workingLocationItems,
+                        ...allDayWorkingLocationPanels[panelIndex].dayItems[dayIndex],
+                      ]}
                       ciClusters={ciPanels[panelIndex].dayClusters[dayIndex]}
                       plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
                       onDropWorkItem={onDropWorkItem}

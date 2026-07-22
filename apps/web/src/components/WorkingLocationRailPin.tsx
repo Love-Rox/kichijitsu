@@ -1,9 +1,15 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
-import { formatDetailDateTime, formatRange, minutesToPx } from "../layout/gridMetrics";
-import type { LocationRailItem } from "../layout/locationRail";
+import {
+  formatAllDayDateRange,
+  formatDetailDateTime,
+  formatRange,
+  minutesToPx,
+} from "../layout/gridMetrics";
+import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { PlaceIcon } from "./icons";
@@ -11,36 +17,47 @@ import { PlaceIcon } from "./icons";
 const HOVER_DELAY_MS = 400;
 const PIN_ICON_SIZE_PX = 12;
 
-interface LocationRailPinProps {
-  item: LocationRailItem;
+/** WorkingLocationRailItem.subject が時刻予定(Occurrence)かどうかの構造的ガード(OooRailLine.tsx と同じ) */
+function isTimedSubject(subject: Occurrence | AllDayOccurrence): subject is Occurrence {
+  return "startMs" in subject;
+}
+
+interface WorkingLocationRailPinProps {
+  item: WorkingLocationRailItem;
   timeZone: string;
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventDetailCard の全所属列挙に使う */
   calendarLookup: Map<string, CalendarInfo>;
 }
 
 /**
- * 場所付き予定レール(地図ピン表示、2026-07-22)の1本(DayColumn.tsx から使う)。
+ * 勤務場所(workingLocation)レールの1本(DayColumn.tsx から使う、2026-07-22 作り直し)。
  *
  * OooRailLine.tsx とほぼ同じフォーム(表示専用・ドラッグ無し、ホバーは eventPopoverShared.ts
- * の共有ツールチップ、クリック/タップは EventDetailCard の再利用)だが、決定的に違う点が2つ:
- *   - OOO は予定カードの代わりにレールへ「振り分ける」ものだが、場所付き予定は実在の予定
- *     なのでカード自体は EventBlock 側でそのまま描画され続ける。このピンはその隣に立つ
- *     補助的な「一覧」用の目印にすぎない(subject は常に Occurrence 単体、集約グループの
- *     概念を持たない ―― groupMembers は EventDetailCard へ [subject] のみを渡す)。
- *   - 詳細ポップオーバーに「地図で開く」リンク(Google マップ検索、mapLink)を追加で渡す。
- *     これは EventBlock/OooRailLine の通常の詳細ポップオーバーには出ない、このレール限定の
- *     追加導線(ユーザー要件)。
+ * の共有ツールチップ、クリック/タップは EventDetailCard の再利用、subject は時刻予定/終日
+ * 予定どちらもありうる)だが、バーではなく PlaceIcon の点ピンとして描く ―― 勤務場所は
+ * 「その日どこで働くか」という一点の情報であって占有時間ではないため。
+ * item.topMinutes が時刻予定なら開始時刻、終日予定なら常に 0(日カラム上端固定)を表す。
  *
- * 色は朱(--logo-aka)を使わない(ユーザー決定:朱はブランドの唯一のアクセント)。ピンの色は
+ * 「地図で開く」リンクは付けない(ユーザー決定、2026-07-22 作り直し): 勤務場所の title
+ * (例: 自宅/オフィス)は住所とは限らないため、Google マップ検索に投げても正しい結果に
+ * ならないことがある。直前のコミット(location フィールド版)にはこのリンクがあったが、
+ * それは対象が「location を持つ実在の予定」だったから成立していた ―― 勤務場所とは前提が
+ * 違う。将来 location フィールドが別途あるケースが分かれば再検討の余地はある。
+ *
+ * 色は朱(--logo-aka)を使わない(OOO/旧 location レールと同じ決定)。ピンの色は
  * WeekGrid.css 側で薄墨系(#8a8478、ホバーで #24211e)に固定する。
  */
-export function LocationRailPin({ item, timeZone, calendarLookup }: LocationRailPinProps) {
+export function WorkingLocationRailPin({
+  item,
+  timeZone,
+  calendarLookup,
+}: WorkingLocationRailPinProps) {
   const hoverTimeoutRef = useRef<number | undefined>(undefined);
   const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
-  const { subject } = item;
+  const { subject, groupMembers } = item;
 
   function hideTooltip() {
     if (hoverTimeoutRef.current !== undefined) {
@@ -55,12 +72,12 @@ export function LocationRailPin({ item, timeZone, calendarLookup }: LocationRail
 
   function showTooltip(clientX: number, clientY: number) {
     const el = getSharedTooltipEl();
-    fillTooltipContent(
-      el,
-      subject.title,
-      formatRange(subject.startMs, subject.endMs, timeZone),
-      subject.location,
-    );
+    // 勤務場所の「場所」は title 自体が表す(例: 自宅/オフィス、要件どおり)。location
+    // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない。
+    const rangeLabel = isTimedSubject(subject)
+      ? formatRange(subject.startMs, subject.endMs, timeZone)
+      : formatAllDayDateRange(subject.startDate, subject.endDate);
+    fillTooltipContent(el, subject.title, rangeLabel);
     el.style.display = "block";
     positionTooltip(el, clientX, clientY);
     tooltipShownRef.current = true;
@@ -96,19 +113,15 @@ export function LocationRailPin({ item, timeZone, calendarLookup }: LocationRail
 
   useCloseOnOutsideOrEscape(detailPos !== null, detailCardRef, () => setDetailPos(null));
 
-  const dateTimeLabel = formatDetailDateTime(subject.startMs, subject.endMs, timeZone);
-  // Google マップの検索 URL(座標ではなく location 文字列そのままの検索リンク、ユーザー決定)。
-  // locationRailItems() が location 非空を保証してこの item を作っているが、Occurrence.location
-  // は型上 optional なのでここでも undefined ガードしておく
-  const mapLink = subject.location
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(subject.location)}`
-    : undefined;
+  const dateTimeLabel = isTimedSubject(subject)
+    ? formatDetailDateTime(subject.startMs, subject.endMs, timeZone)
+    : formatAllDayDateRange(subject.startDate, subject.endDate);
 
   return (
     <>
       <div
-        className="day-location-pin"
-        style={{ top: minutesToPx(item.startMinutes) }}
+        className="day-workloc-pin"
+        style={{ top: minutesToPx(item.topMinutes) }}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
@@ -123,10 +136,9 @@ export function LocationRailPin({ item, timeZone, calendarLookup }: LocationRail
             subject={subject}
             dateTimeLabel={dateTimeLabel}
             position={detailPos}
-            groupMembers={[subject]}
+            groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
-            mapLink={mapLink}
           />,
           document.body,
         )}

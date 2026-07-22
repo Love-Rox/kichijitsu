@@ -415,13 +415,12 @@ export function EventBlock({
   //   - needsAction: 塗りなし・カレンダー色の実線枠(下の style 計算で反映)
   //   - tentative: 半透明(event--rsvp-tentative、CSS 側で opacity)
   //   - declined: タイトル打ち消し線 + 全体を淡色に(event--rsvp-declined)
-  // 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。ほぼ終日イベントとして届くため
-  // 主戦場は AllDayBar 側だが、稀に時刻付きで届いた場合(要件どおり)の保険としてここでも
-  // 最小限の控えめな表現を用意する: opacity を落とし枠を消すだけ(色チップ・ハッチ等の
-  // 通常/Busy の装飾は一切足さない)。Busy プレースホルダとは通常同時に起きないが、
-  // 起きても Busy の描画を優先する(isBusy 由来の除外と同じ考え方)。
-  const isWorkingLocation = !isBusy && occurrence.isWorkingLocation === true;
-  const responseStatus = isBusy || isWorkingLocation ? undefined : occurrence.responseStatus;
+  // 勤務場所 (workingLocation) は WeekGrid 側で packColumns の入力から除外され、専用の
+  // 地図ピンレール(layout/workingLocationRail.ts、WorkingLocationRailPin.tsx)へ振り分け
+  // られるため、このコンポーネントに occurrence.isWorkingLocation===true が渡ってくることは
+  // ない(2026-07-22 作り直し ―― 直前のコミットにあった「稀に時刻付きで届いた場合の保険」
+  // としての opacity 0.5・枠なし表示は、対象が location フィールドの取り違えだったため撤去した)。
+  const responseStatus = isBusy ? undefined : occurrence.responseStatus;
   const isNeedsAction = responseStatus === "needsAction";
   const isTentative = responseStatus === "tentative";
   const isDeclined = responseStatus === "declined";
@@ -429,10 +428,24 @@ export function EventBlock({
   // 参加するか」という attendee 単位の情報を公開していないため、イベント側の手段の有無
   // (会議リンク・location)で近似する(ユーザー決定、詳細は apps/sync の deriveHasConference・
   // packages/shared/src/protocol.ts の GoogleEventDTO.hasConference コメント参照)。
-  // Busy プレースホルダには適用しない(中身の無いブロックのため)。
+  // Busy プレースホルダには適用しない(中身の無いブロックのため)。isOutOfOffice/
+  // isWorkingLocation な occurrence はそもそもこのコンポーネントに来ない(WeekGrid 側で
+  // 専用レールへ振り分け済み)ため、ここでの排他判定は不要 ―― 「通常の予定」だけがここに
+  // 来る前提でよい。
   const showVideoIcon = !isBusy && occurrence.hasConference === true;
-  const showPlaceIcon = !isBusy && !!occurrence.location;
-  const hasMeansIcons = showVideoIcon || showPlaceIcon;
+  // 場所テキスト行 (2026-07-22、ユーザー追加要望): 非コンパクト表示のときだけ、タイトルの
+  // 下に PlaceIcon + location の1行を追加で出す(Google カレンダーの予定カードと同じ体裁)。
+  // コンパクト表示 (isCompact、40分未満の短い予定) は時刻+タイトルの1行しか横幅・縦幅の
+  // 余裕が無いため、この行は出さない(要件どおり)。カード自体の overflow:hidden により、
+  // 高さが足りない予定(コンパクト閾値は超えるがそれでも短い等)ではこの行が自然に
+  // クリップされる ―― 個別の高さ判定は行わず、CSS のあふれ処理に任せる(要件で許容された
+  // 簡易実装)。
+  const hasLocationText = !isBusy && !isCompact && !!occurrence.location;
+  // ヘッダー行の小さな PlaceIcon は、場所テキスト行が出るなら冗長なので省く(場所は
+  // テキスト行側で示すため)。コンパクト表示のときは場所テキスト行が無い代わりに、
+  // 従来どおりこのヘッダー(1行)の小アイコンで場所の有無だけを示す。
+  const showHeaderPlaceIcon = !isBusy && !!occurrence.location && !hasLocationText;
+  const hasMeansIcons = showVideoIcon || showHeaderPlaceIcon;
   // 左インセットだけ日ごとに可変(不在レール矩形化、2026-07-22)。右は常に DAY_COLUMN_INSET_PX。
   const leftInsetPx = leftInsetPxProp ?? DAY_COLUMN_INSET_PX;
   const usableWidthExpr = `(100% - ${leftInsetPx}px - ${DAY_COLUMN_INSET_PX}px)`;
@@ -463,12 +476,10 @@ export function EventBlock({
             backgroundColor: "transparent",
             border: `1.5px solid ${displayColor}`,
           } as CSSProperties)
-        : isWorkingLocation
-          ? ({ backgroundColor: "transparent", border: "none" } as CSSProperties)
-          : {
-              backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
-              borderLeftColor: displayColor,
-            }),
+        : {
+            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
+            borderLeftColor: displayColor,
+          }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
     ...(hasStripes
       ? {
@@ -491,7 +502,6 @@ export function EventBlock({
           isBusy ? "event--busy" : "",
           isTentative ? "event--rsvp-tentative" : "",
           isDeclined ? "event--rsvp-declined" : "",
-          isWorkingLocation ? "event--working-location" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -548,7 +558,7 @@ export function EventBlock({
               // 奪わないよう pointer-events:none(CSS 側、.event-means-icons)
               <span className="event-means-icons" aria-hidden="true">
                 {showVideoIcon && <VideoIcon width={10} height={10} />}
-                {showPlaceIcon && <PlaceIcon width={10} height={10} />}
+                {showHeaderPlaceIcon && <PlaceIcon width={10} height={10} />}
               </span>
             )}
             <span className="event-title">{occurrence.title}</span>
@@ -560,11 +570,24 @@ export function EventBlock({
               {hasMeansIcons && (
                 <span className="event-means-icons" aria-hidden="true">
                   {showVideoIcon && <VideoIcon width={10} height={10} />}
-                  {showPlaceIcon && <PlaceIcon width={10} height={10} />}
+                  {showHeaderPlaceIcon && <PlaceIcon width={10} height={10} />}
                 </span>
               )}
             </span>
             <span className="event-title">{occurrence.title}</span>
+            {hasLocationText && (
+              // 場所テキスト行(2026-07-22)。event-mirror-tag/event-busy-badge と違い
+              // ここは意味のある実データ(場所名)なので aria-hidden は付けない(スクリーン
+              // リーダーにもタイトルと同様に読まれてよい)。PlaceIcon 自体は装飾なので
+              // icons.tsx 側で常に aria-hidden 済み。ドラッグ/クリックの判定を奪わないよう
+              // pointer-events:none は CSS 側 (.event-location) で持たせる。1行省略は
+              // テキスト部分(.event-location-text)側で行う(アイコンは縮めたくないため
+              // flex: 0 0 auto)。
+              <span className="event-location">
+                <PlaceIcon width={10} height={10} />
+                <span className="event-location-text">{occurrence.location}</span>
+              </span>
+            )}
           </>
         )}
         <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
@@ -628,13 +651,6 @@ export interface EventDetailCardProps {
    * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
    */
   onDelete?: () => void;
-  /**
-   * 地図で開くリンク(場所付き予定レール表示、2026-07-22)。指定されていれば「場所」欄の
-   * 直後に Google マップ検索リンクを追加表示する。LocationRailPin.tsx だけがこれを渡す
-   * (URL の組み立てもそちら側の責務) ―― EventBlock/OooRailLine から開く通常の詳細
-   * ポップオーバーには出さない(ユーザー要件:「地図で開く」はレール限定の追加導線)。
-   */
-  mapLink?: string;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -659,7 +675,6 @@ export function EventDetailCard({
   calendarLookup,
   onClose,
   onDelete,
-  mapLink,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -712,14 +727,6 @@ export function EventDetailCard({
           <PlaceIcon width={12} height={12} />
           場所: {subject.location}
         </div>
-      )}
-      {mapLink && (
-        // 地図で開くリンク(場所付き予定レール、2026-07-22)。「Google で開く」と同じ
-        // .event-detail-link スタイル(朱アクセント)を再利用する ―― こちらはレール由来の
-        // ポップオーバーでのみ渡ってくる(mapLink prop 参照)
-        <a className="event-detail-link" href={mapLink} target="_blank" rel="noopener noreferrer">
-          地図で開く
-        </a>
       )}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
       {subject.link?.url && (

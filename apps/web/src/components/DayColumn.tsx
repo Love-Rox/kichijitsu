@@ -16,7 +16,7 @@ import {
 import { packColumns } from "../layout/packColumns";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import type { OooRailItem } from "../layout/oooRail";
-import type { LocationRailItem } from "../layout/locationRail";
+import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import {
   busyOverlapColors,
   cascadeStepFrac,
@@ -24,16 +24,16 @@ import {
   dayColumnLeftInsetPx,
   formatTime,
   isBusyPlaceholder,
-  locationRailLeftPx,
   minutesToPx,
   pxToMinutes,
+  workingLocationRailLeftPx,
 } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
-import { LocationRailPin } from "./LocationRailPin";
 import { OooRailLine } from "./OooRailLine";
+import { WorkingLocationRailPin } from "./WorkingLocationRailPin";
 import { PlannedBlockCard } from "./PlannedBlock";
 
 /** 空き領域クリックで作る新規予定のデフォルトの長さ(縦ドラッグせずクリックだけで確定した場合) */
@@ -128,13 +128,15 @@ interface DayColumnProps {
    */
   oooItems: OooRailItem[];
   /**
-   * 場所付き予定レール(地図ピン表示、2026-07-22)。この日ぶんの location 付き時刻予定
-   * (layout/locationRail.ts の locationRailItems 参照、WeekGrid 側で cardGroups の primary
-   * から作る)。OOO と違い packColumns の入力からは除外しない ―― 予定カード自体は
-   * EventBlock 側でそのまま描画され続け、このレールはその隣に立つ補助的な目印にすぎない。
-   * `.day-location-rail`(左端、OOO が無い日は最左・ある日は OOO バーの内側)に描画する。
+   * 勤務場所(workingLocation)レール(地図ピン表示、2026-07-22 作り直し)。この日ぶんの
+   * 勤務場所アイテム(WeekGrid 側で isWorkingLocation===true な occurrence/終日 occurrence を
+   * packColumns の入力・AllDayBar のチップから除外して集めたもの、layout/workingLocationRail.ts
+   * 参照)。OOO と同じく packColumns の入力からは除外する ―― カード(またはバー)としては
+   * 描画せず、このレールのピンだけで表す。`.day-workloc-rail`(左端、OOO が無い日は最左・
+   * ある日は OOO バーの内側)に描画する。終日由来のアイテムは topMinutes===0 固定
+   * (日カラム上端の単一ピン)、時刻予定由来は開始時刻の位置に立つ。
    */
-  locationItems: LocationRailItem[];
+  workingLocationItems: WorkingLocationRailItem[];
   /**
    * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)。この日ぶんの
    * PlannedBlock 配列(WeekGrid 側で [dayStartMs, dayEndMs) に絞り込み済み)。
@@ -189,7 +191,7 @@ export function DayColumn({
   activityClusters,
   ciClusters,
   oooItems,
-  locationItems,
+  workingLocationItems,
   plannedBlocks,
   onDropWorkItem,
   onMovePlannedBlock,
@@ -220,11 +222,14 @@ export function DayColumn({
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
 
-  // 左端レールの左インセット一般化(場所付き予定レール追加、2026-07-22): 不在(OOO)バー・
-  // 場所ピンのどちらか(または両方)がこの日にあるとき、EventBlock の左インセットを広げて
+  // 左端レールの左インセット一般化(勤務場所レール、2026-07-22 作り直し): 不在(OOO)バー・
+  // 勤務場所ピンのどちらか(または両方)がこの日にあるとき、EventBlock の左インセットを広げて
   // 予定カードと重ならないようにする(gridMetrics.ts の dayColumnLeftInsetPx 参照)。
   // どちらも無い日は従来の DAY_COLUMN_INSET_PX のまま。
-  const eventLeftInsetPx = dayColumnLeftInsetPx(oooItems.length > 0, locationItems.length > 0);
+  const eventLeftInsetPx = dayColumnLeftInsetPx(
+    oooItems.length > 0,
+    workingLocationItems.length > 0,
+  );
 
   const busyIntervals = positioned
     .map((p) => p.item.primary)
@@ -560,19 +565,20 @@ export function DayColumn({
           ))}
         </div>
       )}
-      {locationItems.length > 0 && (
-        // 場所付き予定レール(地図ピン表示、2026-07-22)。OOO バーとの視覚衝突回避:
+      {workingLocationItems.length > 0 && (
+        // 勤務場所レール(地図ピン表示、2026-07-22 作り直し)。OOO バーとの視覚衝突回避:
         // OOO が無い日はレール最左(left: 0、OOO バーと同じガター)、ある日は OOO バーの
-        // 幅ぶん内側へずらす(locationRailLeftPx、gridMetrics.ts)。左インセット
-        // (eventLeftInsetPx、上記)側も両レールぶんまとめて広げてあるので、OOO・場所ピン・
-        // 予定カードの3者が同時に出ても重ならない。z-index は day-ooo-line と同じ 1
+        // 幅ぶん内側へずらす(workingLocationRailLeftPx、gridMetrics.ts)。左インセット
+        // (eventLeftInsetPx、上記)側も両レールぶんまとめて広げてあるので、OOO・勤務場所ピン・
+        // 予定カードの3者が同時に出ても重ならない。終日由来のピンは topMinutes===0 固定なので
+        // 常に日カラムの上端(=0:00 の位置)に立つ。z-index は day-ooo-line と同じ 1
         // (.now-line(2)・.day-ci-mark/.day-activity-mark(3) より下、WeekGrid.css 側で指定)
         <div
-          className="day-location-rail"
-          style={{ left: locationRailLeftPx(oooItems.length > 0) }}
+          className="day-workloc-rail"
+          style={{ left: workingLocationRailLeftPx(oooItems.length > 0) }}
         >
-          {locationItems.map((item) => (
-            <LocationRailPin
+          {workingLocationItems.map((item) => (
+            <WorkingLocationRailPin
               key={item.id}
               item={item}
               timeZone={timeZone}

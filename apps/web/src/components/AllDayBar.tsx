@@ -11,7 +11,6 @@ import { formatAllDayDateRange } from "../layout/gridMetrics";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { resolveDisplayColor } from "../layout/eventColors";
-import { PlaceIcon } from "./icons";
 
 const HOVER_DELAY_MS = 400;
 
@@ -107,30 +106,26 @@ export function AllDayBar({
   // 表示色バグ修正 (2026-07-20): EventBlock と同様、生の occurrence.color ではなく
   // resolveDisplayColor で解決する(hasCustomColor が無ければ calendarLookup のカレンダー色を優先)
   const displayColor = resolveDisplayColor(occurrence, calendarLookup);
-  // 勤務場所の控えめ表示 (2026-07-22、ユーザー要望「主張しすぎ。他の予定を邪魔しないくらいに」)。
-  // 勤務場所はほぼ終日イベントとして届くため、ここ(AllDayBar)が主戦場になる ―― isOutOfOffice の
-  // ような専用レール分離はせず(要件どおり packDayBars の通常の行詰めに任せる)、通常チップと
-  // 同じ位置に描くが、色チップ・左ボーダー・背景を一切持たない薄墨の小テキストのみにする。
-  // RSVP 装飾(declined/needsAction)とは通常同時に起きない想定だが、見た目の優先順位を明確に
-  // するため排他にしておく(isBusy が RSVP を上書きする EventBlock と同じ考え方)。
-  const isWorkingLocation = occurrence.isWorkingLocation === true;
+  // 勤務場所 (workingLocation) は WeekGrid 側で packDayBars の入力から除外され、専用の
+  // 地図ピンレール(layout/workingLocationRail.ts)へ振り分けられるため、このコンポーネントに
+  // occurrence.isWorkingLocation===true が渡ってくることはない(2026-07-22 作り直し ――
+  // 直前のコミットにあった「薄墨の小テキストのみ」の控えめ表示は、対象が location フィールドの
+  // 取り違えだったため撤去した)。
   // 参加ステータス表示 (RSVP、2026-07-22)。EventBlock/MonthView と対になる最小限の表現
   // (要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。ここに渡る occurrence は
   // WeekGrid 側で不在(OOO)分を既に分離済み(splitOutOfOfficeAllDayGroups)なので、isOutOfOffice
   // との排他判定は不要(EventBlock/MonthView と違い isOoo チェックを持たない)。
-  const isDeclined = !isWorkingLocation && occurrence.responseStatus === "declined";
-  const isNeedsAction = !isWorkingLocation && occurrence.responseStatus === "needsAction";
+  const isDeclined = occurrence.responseStatus === "declined";
+  const isNeedsAction = occurrence.responseStatus === "needsAction";
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
-    ...(isWorkingLocation
-      ? {}
-      : isNeedsAction
-        ? ({ "--rsvp-color": displayColor } as CSSProperties)
-        : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
-            borderLeftColor: displayColor,
-          }),
+    ...(isNeedsAction
+      ? ({ "--rsvp-color": displayColor } as CSSProperties)
+      : {
+          backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
+          borderLeftColor: displayColor,
+        }),
   };
 
   return (
@@ -140,7 +135,6 @@ export function AllDayBar({
           "allday-bar",
           isDeclined ? "allday-bar--declined" : "",
           isNeedsAction ? "allday-bar--needs-action" : "",
-          isWorkingLocation ? "allday-bar--working-location" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -150,10 +144,7 @@ export function AllDayBar({
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
       >
-        <span className="allday-bar-title">
-          {isWorkingLocation && <PlaceIcon width={10} height={10} />}
-          {occurrence.title}
-        </span>
+        <span className="allday-bar-title">{occurrence.title}</span>
         {showGroupDots && (
           <span className="event-group-dots" aria-hidden="true">
             {dotColors.map((c, i) => (

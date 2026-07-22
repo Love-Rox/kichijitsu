@@ -187,26 +187,6 @@
   border: 1.5px solid var(--rsvp-color, currentColor);
 }
 
-/*
- * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22、ユーザー要望「主張しすぎ。他の予定を
- * 邪魔しないくらいに」)。色チップ(背景・左ボーダー)を一切持たせず、薄墨の小さなテキストのみ
- * にする ―― カレンダー色を使わない点は .month-chip--ooo と同じ考え方だが、あちらと違い
- * 背景も枠も無しの「地の文に近い」見た目にする(不在のように「場が空いていない」ことを
- * 強く主張する必要が無いため)。PlaceIcon はタイトル側 (AllDayBar.tsx) で先頭に差し込む。
- */
-.allday-bar--working-location {
-  border-left: none;
-  padding-left: 2px;
-}
-
-.allday-bar--working-location .allday-bar-title {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  color: #8a8478;
-}
-
 /* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
 .allday-overflow {
   box-sizing: border-box;
@@ -732,15 +712,6 @@
   text-decoration: line-through;
 }
 
-/*
- * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。稀に時刻付きで届いた場合の保険
- * (要件どおり opacity 0.5 + 枠なし)。背景・左ボーダーは EventBlock.tsx 側の style 計算で
- * transparent/none に差し替え済み ―― このクラスは文字自体を薄くする opacity のみを担う。
- */
-.event--working-location {
-  opacity: 0.5;
-}
-
 .event-header-row {
   display: flex;
   align-items: center;
@@ -757,6 +728,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * 場所テキスト行 (2026-07-22)。location を持つ通常の予定(Busy/OOO/勤務場所を除く、
+ * EventBlock.tsx の hasLocationText 参照)のタイトル直下に、Google カレンダーの予定カードと
+ * 同じ体裁で「PlaceIcon + 場所名」の1行を追加する。色は薄墨(#8a8478)で控えめにし、
+ * カレンダー色(displayColor)は使わない ―― .event-means-icons や勤務場所ピン
+ * (WorkingLocationRailPin.tsx)と同じトーンで統一する。ドラッグ/クリックの判定を奪わない
+ * よう pointer-events:none(mirror タグ・busy バッジと同じ流儀)。min-width:0 は flex 子要素の
+ * text-overflow を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
+ */
+.event-location {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: #8a8478;
+  pointer-events: none;
+}
+
+.event-location-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /*
@@ -1283,31 +1279,33 @@
 }
 
 /*
- * 場所付き予定レール (地図ピン表示、2026-07-22)。location を持つ時刻予定について、
- * 不在(OOO)レールと同じ「日カラム左端のレールに開始時刻の位置で一覧できる」体験を、
- * OOO と違って予定カードを消さずに追加で提供する ―― カード自体は EventBlock 側で
- * そのまま描画され続け、このレールはその隣に立つ補助的な目印(地図ピン)にすぎない。
- * left は DayColumn.tsx が locationRailLeftPx(gridMetrics.ts)の結果をインラインで渡す
+ * 勤務場所レール (地図ピン表示、2026-07-22 作り直し)。Google の勤務場所予定
+ * (eventType==='workingLocation') について、不在(OOO)レールと同じ「日カラム左端のレールに
+ * 一覧できる」体験を提供する ―― ただし OOO と違い予定カード/終日バーは持たず(専用レール
+ * へ完全に振り分け済み、layout/workingLocationRail.ts 参照)、ピン1個だけがこのレールの
+ * 内容そのものになる。時刻予定由来のピンは開始時刻の位置、終日予定由来のピンは常に
+ * top:0(日カラム上端固定、「全高バーではなく単一ピン」というユーザー要件)。
+ * left は DayColumn.tsx が workingLocationRailLeftPx(gridMetrics.ts)の結果をインラインで渡す
  * (OOO バーが同じ日にあるかどうかで 0px/14px に切り替わる ―― CSS の条件分岐では
  * 表現できないため JS 側で計算する)。
  */
-.day-location-rail {
+.day-workloc-rail {
   position: absolute;
   top: 0;
-  width: 12px; /* LOCATION_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
+  width: 12px; /* WORKING_LOCATION_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
   height: 100%;
   pointer-events: none;
 }
 
 /*
  * ピン本体。当たり判定を ~14px 確保しつつ(タッチでの取りこぼし防止、day-ooo-line::before
- * と同じ狙い)、中の PlaceIcon 自体は 12px(LocationRailPin.tsx で width/height 指定)。
- * top は予定カードの上端(=開始時刻)に揃える(minutesToPx、LocationRailPin.tsx)。
- * 色は朱 (--logo-aka) を使わず薄墨系に統一する(ユーザー決定: 朱はブランドの唯一の
- * アクセントであり、レール上の目印には使わない)。ホバー/フォーカスで少し濃くするだけで、
- * OOO バーのような背景の塗りは持たない(線画アイコンをそのまま目立たせる)。
+ * と同じ狙い)、中の PlaceIcon 自体は 12px(WorkingLocationRailPin.tsx で width/height 指定)。
+ * top は時刻予定なら開始時刻、終日予定なら 0 (WorkingLocationRailPin.tsx が topMinutes を
+ * minutesToPx で変換)。色は朱 (--logo-aka) を使わず薄墨系に統一する(ユーザー決定: 朱は
+ * ブランドの唯一のアクセントであり、レール上の目印には使わない)。ホバー/フォーカスで
+ * 少し濃くするだけで、OOO バーのような背景の塗りは持たない(線画アイコンをそのまま目立たせる)。
  */
-.day-location-pin {
+.day-workloc-pin {
   position: absolute;
   left: -1px;
   width: 14px;
@@ -1321,13 +1319,13 @@
   z-index: 1; /* .day-ooo-line と同じ層 = .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 */
 }
 
-.day-location-pin:hover,
-.day-location-pin:focus-visible {
+.day-workloc-pin:hover,
+.day-workloc-pin:focus-visible {
   color: #24211e;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .day-location-pin {
+  .day-workloc-pin {
     transition: color 120ms ease;
   }
 }

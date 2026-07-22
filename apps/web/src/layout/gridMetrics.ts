@@ -29,47 +29,49 @@ export const DAY_COLUMN_INSET_PX = 5;
 export const OOO_RAIL_WIDTH_PX = 12;
 
 /**
- * 場所付き予定レール(地図ピン表示、2026-07-22)のピン当たり判定幅。OOO バーと同じ
- * 12px に揃える(視認性・タップ幅の基準を統一する)。.day-location-rail/.day-location-pin
+ * 勤務場所レール(地図ピン表示、2026-07-22 作り直し)のピン当たり判定幅。OOO バーと同じ
+ * 12px に揃える(視認性・タップ幅の基準を統一する)。.day-workloc-rail/.day-workloc-pin
  * (WeekGrid.css)の width とここが値の出どころ ―― CSS 側はハードコードのみ許容。
  */
-export const LOCATION_RAIL_WIDTH_PX = 12;
-/** レール(OOO バー/場所ピン)と予定カードの間に空ける隙間(px)。両レールで共通 */
+export const WORKING_LOCATION_RAIL_WIDTH_PX = 12;
+/** レール(OOO バー/勤務場所ピン)と予定カードの間に空ける隙間(px)。両レールで共通 */
 const RAIL_CARD_GAP_PX = 4;
 /**
- * OOO バーと場所レールが同じ日に共存するとき、バーとピンが重ならないよう間に空ける
- * 小さな隙間(px)。場所ピンは常に OOO バーの「内側」(カード寄り)に置く(要件:
+ * OOO バーと勤務場所レールが同じ日に共存するとき、バーとピンが重ならないよう間に空ける
+ * 小さな隙間(px)。勤務場所ピンは常に OOO バーの「内側」(カード寄り)に置く(要件:
  * 「OOO があるときはピンをバーの少し内側にずらす」)。
  */
-const OOO_LOCATION_GAP_PX = 2;
+const OOO_WORKING_LOCATION_GAP_PX = 2;
 
 /**
  * 日列の左インセット(px)。EventBlock 側の calc(`${leftInsetPx}px + ...`) にそのまま渡す値。
- * その日に不在レール(hasOoo)/場所付き予定レール(hasLocation、地図ピン表示 2026-07-22)が
- * あるぶんだけ、矩形化した OOO バー(幅 OOO_RAIL_WIDTH_PX)・場所ピン(幅
- * LOCATION_RAIL_WIDTH_PX)+ 隙間ぶん広げて予定カードと重ならないようにする(ユーザー要望)。
- * 両方ある日は OOO バー→(OOO_LOCATION_GAP_PX)→場所ピンの順に内側へ並べ、そのぶんインセットも
- * 大きくなる。どちらも無い日は従来どおり DAY_COLUMN_INSET_PX のまま。右インセットは
- * この2レールの有無に関わらず常に DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定)。
- * DOM/React に依存しない純関数として切り出し、gridMetrics.test.ts で単体テストする。
+ * その日に不在レール(hasOoo)/勤務場所レール(hasWorkingLocation、地図ピン表示 2026-07-22
+ * 作り直し)があるぶんだけ、矩形化した OOO バー(幅 OOO_RAIL_WIDTH_PX)・勤務場所ピン(幅
+ * WORKING_LOCATION_RAIL_WIDTH_PX)+ 隙間ぶん広げて予定カードと重ならないようにする
+ * (ユーザー要望)。両方ある日は OOO バー→(OOO_WORKING_LOCATION_GAP_PX)→勤務場所ピンの順に
+ * 内側へ並べ、そのぶんインセットも大きくなる。どちらも無い日は従来どおり
+ * DAY_COLUMN_INSET_PX のまま。右インセットはこの2レールの有無に関わらず常に
+ * DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定)。DOM/React に依存しない
+ * 純関数として切り出し、gridMetrics.test.ts で単体テストする。
  */
-export function dayColumnLeftInsetPx(hasOoo: boolean, hasLocation: boolean): number {
-  if (!hasOoo && !hasLocation) return DAY_COLUMN_INSET_PX;
+export function dayColumnLeftInsetPx(hasOoo: boolean, hasWorkingLocation: boolean): number {
+  if (!hasOoo && !hasWorkingLocation) return DAY_COLUMN_INSET_PX;
   const railWidth =
     (hasOoo ? OOO_RAIL_WIDTH_PX : 0) +
-    (hasOoo && hasLocation ? OOO_LOCATION_GAP_PX : 0) +
-    (hasLocation ? LOCATION_RAIL_WIDTH_PX : 0);
+    (hasOoo && hasWorkingLocation ? OOO_WORKING_LOCATION_GAP_PX : 0) +
+    (hasWorkingLocation ? WORKING_LOCATION_RAIL_WIDTH_PX : 0);
   return railWidth + RAIL_CARD_GAP_PX;
 }
 
 /**
- * 場所付き予定レール(地図ピン表示、2026-07-22)の左オフセット(px、日列基準)。
+ * 勤務場所レール(地図ピン表示、2026-07-22 作り直し)の左オフセット(px、日列基準)。
  * OOO バーが無い日はレールの最左(0)、ある日は OOO バー(幅 OOO_RAIL_WIDTH_PX)+
- * 隙間(OOO_LOCATION_GAP_PX)ぶん内側へずらして視覚衝突を避ける(dayColumnLeftInsetPx と
- * 対になる関数 ―― こちらはピン自身の描画位置、あちらはカード側のインセット)。
+ * 隙間(OOO_WORKING_LOCATION_GAP_PX)ぶん内側へずらして視覚衝突を避ける
+ * (dayColumnLeftInsetPx と対になる関数 ―― こちらはピン自身の描画位置、あちらはカード側の
+ * インセット)。
  */
-export function locationRailLeftPx(hasOoo: boolean): number {
-  return hasOoo ? OOO_RAIL_WIDTH_PX + OOO_LOCATION_GAP_PX : 0;
+export function workingLocationRailLeftPx(hasOoo: boolean): number {
+  return hasOoo ? OOO_RAIL_WIDTH_PX + OOO_WORKING_LOCATION_GAP_PX : 0;
 }
 
 /** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */

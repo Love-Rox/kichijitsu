@@ -3,8 +3,8 @@ import {
   busyOverlapColors,
   DAY_COLUMN_INSET_PX,
   dayColumnLeftInsetPx,
-  locationRailLeftPx,
   overlapsBusy,
+  workingLocationRailLeftPx,
   type TimeInterval,
 } from "./gridMetrics";
 
@@ -67,7 +67,7 @@ describe("busyOverlapColors", () => {
 });
 
 describe("dayColumnLeftInsetPx", () => {
-  it("不在レール・場所レールがどちらも無い日は従来の DAY_COLUMN_INSET_PX のまま", () => {
+  it("不在レール・勤務場所レールがどちらも無い日は従来の DAY_COLUMN_INSET_PX のまま", () => {
     expect(dayColumnLeftInsetPx(false, false)).toBe(DAY_COLUMN_INSET_PX);
   });
 
@@ -75,7 +75,7 @@ describe("dayColumnLeftInsetPx", () => {
     expect(dayColumnLeftInsetPx(true, false)).toBe(16);
   });
 
-  it("場所レールのみある日はピン幅(12px)+隙間(4px)ぶん広げた16pxを返す(不在のみと同じ広さ)", () => {
+  it("勤務場所レールのみある日はピン幅(12px)+隙間(4px)ぶん広げた16pxを返す(不在のみと同じ広さ)", () => {
     expect(dayColumnLeftInsetPx(false, true)).toBe(16);
   });
 
@@ -84,12 +84,12 @@ describe("dayColumnLeftInsetPx", () => {
   });
 });
 
-describe("locationRailLeftPx", () => {
+describe("workingLocationRailLeftPx", () => {
   it("OOO バーが無い日はレール最左(0)にピンを置く", () => {
-    expect(locationRailLeftPx(false)).toBe(0);
+    expect(workingLocationRailLeftPx(false)).toBe(0);
   });
 
   it("OOO バーがある日はバー幅(12px)+隙間(2px)ぶん内側(14px)にピンをずらす", () => {
-    expect(locationRailLeftPx(true)).toBe(14);
+    expect(workingLocationRailLeftPx(true)).toBe(14);
   });
 });
