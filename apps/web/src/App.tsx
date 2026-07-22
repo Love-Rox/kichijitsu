@@ -3171,6 +3171,9 @@ function App() {
             prCommitEstimatesByKey={prCommitEstimates}
             nowMs={timerNowMs}
             onOpenDetailReport={() => setReportOpen(true)}
+            timeZone={timeZone}
+            onCreateWorkLog={handleCreateWorkLog}
+            onDeleteWorkLog={handleDeleteWorkLog}
           />
         )}
       </main>
@@ -3230,12 +3233,10 @@ function App() {
           plannedBlocks={reportPlannedBlocks}
           timeEntries={reportTimeEntries}
           nowMs={timerNowMs}
-          timeZone={timeZone}
           estimatedByKey={me.github ? prCommitEstimates : {}}
           estimatesLoading={prCommitEstimatesLoading}
           hookActualByLinkedItem={reportHookActualByLinkedItem}
           workLogs={reportWorkLogs}
-          onCreateWorkLog={handleCreateWorkLog}
           onDeleteWorkLog={handleDeleteWorkLog}
           onClose={() => setReportOpen(false)}
         />
