@@ -19,20 +19,24 @@ describe("effectivePaneMode", () => {
   });
 });
 
+// 左ペイン常設化(2026-07-22)後、この関数は「左ペインを開くとき、右ペイン(GitHubPane)の
+// overlay を閉じるべきか」だけを判定する用途に絞られたが、関数自体は左右どちらの
+// PaneMode を渡しても同じ意味を持つ純粋な計算のままなので、テストの呼び方(otherMode 等の
+// 引数名)は変えていない ―― 「もう片方(=右ペイン)」として読み替える。
 describe("shouldCloseOtherPaneOnOpen", () => {
-  it("もう片方が開いていて overlay 実効のときは閉じるべき(true)", () => {
+  it("右ペインが開いていて overlay 実効のときは閉じるべき(true)", () => {
     expect(shouldCloseOtherPaneOnOpen("overlay", true, false)).toBe(true);
   });
 
-  it("もう片方が閉じていれば閉じる必要はない(false)", () => {
+  it("右ペインが閉じていれば閉じる必要はない(false)", () => {
     expect(shouldCloseOtherPaneOnOpen("overlay", false, false)).toBe(false);
   });
 
-  it("もう片方が開いていても docked 実効(広幅 + docked 選択)なら閉じない(false)", () => {
+  it("右ペインが開いていても docked 実効(広幅 + docked 選択)なら閉じない(false)", () => {
     expect(shouldCloseOtherPaneOnOpen("docked", true, false)).toBe(false);
   });
 
-  it("もう片方が開いていて docked 選択でも、狭幅で overlay に強制される場合は閉じる(true)", () => {
+  it("右ペインが開いていて docked 選択でも、狭幅で overlay に強制される場合は閉じる(true)", () => {
     expect(shouldCloseOtherPaneOnOpen("docked", true, true)).toBe(true);
   });
 });

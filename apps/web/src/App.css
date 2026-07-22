@@ -136,9 +136,10 @@
 
 /*
  * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉ボタン。
- * .toolbar-queue-btn(GitHubPane トグル)と同じトーン・同じ aria-expanded ハイライト規則を
- * 踏襲する(対称のペインなので見た目も揃える)が、バッジは持たないためこちらは
- * position: relative は不要。
+ * .toolbar-account > button と同じトーン(枠線・パディング・角丸・hover)に、
+ * aria-expanded="true" のときだけ枠色を変えるハイライト規則を足したもの。バッジは
+ * 持たないため position: relative は不要(かつての .toolbar-queue-btn 作業キューボタンは
+ * バッジ付きだったが、増分3で CalendarPane へ移設・撤去済み)。
  */
 .toolbar-calendar-btn {
   display: inline-flex;
@@ -164,40 +165,16 @@
 }
 
 /*
- * 作業キュー サイドレールの開閉ボタン(docs/github-integration.md フェーズ②Part B)。
- * .toolbar-account > button と似たトーンだが、件数バッジ(朱1点、brand/README.md
- * 「朱の枡は1つのまとまりにつき基本1個」の例外的許容 — 未読件数のような通知バッジは
- * 朱で強調して良い)を右上に重ねるため position: relative にしてある。
+ * かつての「作業キュー」開閉ボタン(.toolbar-queue-btn)は増分3(ヘッダー整理+左ペイン
+ * 常設化、2026-07-22)で CalendarPane の GitHub セクションへ移設し、ツールバーからは
+ * 撤去した(スタイル自体は calendar-pane-action-btn/calendar-pane-action-badge として
+ * CalendarPane.css へ引っ越した)。「レポート」ボタンも同じ .toolbar-queue-btn クラスを
+ * 共有していたため、削除前に App.tsx 側の使用箇所が無いことを確認済み。
  */
-.toolbar-queue-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
-  border-radius: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-
-.toolbar-queue-btn:hover {
-  background: #f3f4f6;
-}
-
-.toolbar-queue-btn[aria-expanded="true"] {
-  border-color: #6e5494;
-  color: #24211e;
-}
 
 /*
  * GitHub 実績オーバーレイの表示 ON/OFF トグル(docs/github-integration.md フェーズ③Part B)。
- * .toolbar-queue-btn と同じトーン(枠線・パディング・角丸・hover)だが、バッジを持たない
- * ぶんシンプル。ON 状態は GitHub purple のアクセント(brand の朱は通知バッジ専用、
- * ここでは使わない)で示す。
+ * ON 状態は GitHub purple のアクセント(brand の朱は通知バッジ専用、ここでは使わない)で示す。
  */
 .toolbar-activity-btn {
   display: inline-flex;
@@ -222,20 +199,7 @@
   background: rgba(110, 84, 148, 0.08);
 }
 
-.toolbar-queue-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--logo-aka, #d7402e);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-}
+/* かつての .toolbar-queue-badge は増分3で calendar-pane-action-badge(CalendarPane.css)へ移設・撤去した */
 
 /*
  * キーボードショートカット ヘルプ('?' キーと同じトグル、フェーズ6)。
@@ -262,8 +226,17 @@
   background: #f3f4f6;
 }
 
-/* Google 審査要件の導線: ホームページからプライバシーポリシー・規約へのリンク。
-   カレンダー本体の邪魔にならないよう控えめに(11px・薄墨・hoverでのみ墨色) */
+/*
+ * Google 審査要件の導線: ホームページからプライバシーポリシー・規約へのリンク。
+ * カレンダー本体の邪魔にならないよう控えめに(11px・薄墨・hoverでのみ墨色)。
+ *
+ * 増分3(ヘッダー整理+左ペイン常設化、2026-07-22)でリンク自体は CalendarPane のフッターへ
+ * 移設した。ここに残る .toolbar-legal はログイン前(me.accounts.length === 0)だけ App.tsx が
+ * 出すフォールバック専用 ―― CalendarPane は accounts.length > 0 ゲートの内側なので、
+ * 未ログインの訪問者には他に規約リンクへ辿り着く手段が無いため(Google 審査要件上、
+ * 常時到達可能でなければならない)。.toolbar-legal--fallback 修飾子が付いた要素だけは、
+ * 下の狭幅メディアクエリでの非表示ルールの対象から明示的に除外する。
+ */
 .toolbar-legal {
   display: flex;
   align-items: center;
@@ -364,10 +337,11 @@
  * ---- モバイル対応(フェーズ2→ヘッダー1段化、docs/multiplatform.md) ----
  * 狭幅(~640px 未満)ではツールバーを1段(nowrap)に収める。PC(48px)の2/3程度の
  * 視覚的高さを目安に、副次要素(ワードマーク・オフライン文言・アカウント email 文言・
- * ?ヘルプ・プライバシー/規約リンク)を隠して主要動線(ロゴ枡・←今日→・検索・ビュー切替・
- * 同期・アカウント⚙)だけを1行に残す。プライバシー/規約は設定パネル下部
- * (CalendarSettingsPanel の .calendar-panel-legal) に移設してあるので、ヘッダーから
- * 消してもリンク自体は失われない。App.tsx useMediaQuery('(max-width: 640px)') と揃える。
+ * ?ヘルプ)を隠して主要動線(ロゴ枡・←今日→・検索・ビュー切替・同期・アカウント⚙・
+ * カレンダー開閉)だけを1行に残す。プライバシー/規約は増分3(2026-07-22)で CalendarPane
+ * フッターおよび CalendarSettingsPanel 下部(.calendar-panel-legal)へ移設してあるので、
+ * ログイン済みならヘッダーから消してもリンク自体は失われない。App.tsx
+ * useMediaQuery('(max-width: 640px)') と揃える。
  *
  * このブロックはファイル末尾に置く: 同じ詳細度(単一クラス)の場合、CSS は
  * @media の有無に関わらず「ソース順で後に出てきた宣言」が勝つ。上の各セクションで
@@ -375,7 +349,12 @@
  * 置かないと、狭幅時にもここでの上書きが効かない(実際に旧コードの
  * .toolbar-legal { display: none } がファイル先頭寄りにあったため無効化されていた
  * 既知のバグがあった → これが「プライバシー/規約が狭幅でも常時表示されてしまう」
- * 不具合の原因だった。ユーザー指摘・本対応で修正)。
+ * 不具合の原因だった。ユーザー指摘・過去対応で修正済み)。
+ *
+ * 増分3で .toolbar-legal は「未ログイン時のフォールバック」専用になったため(App.tsx・
+ * App.css 冒頭のコメント参照)、この非表示ルールは .toolbar-legal--fallback 修飾子付きの
+ * 要素には適用しない ―― 未ログインの狭幅ユーザーには他に規約リンクへ辿り着く手段が
+ * 無いため、常時表示のままにする。
  */
 @media (max-width: 640px) {
   .toolbar {
@@ -448,7 +427,7 @@
     display: none;
   }
 
-  .toolbar-legal {
+  .toolbar-legal:not(.toolbar-legal--fallback) {
     display: none;
   }
 
@@ -481,16 +460,10 @@
     gap: 4px;
   }
 
-  /* 狭幅では isNarrow 分岐でラベル文言を隠しアイコン+バッジのみにする(App.tsx 参照)。
-     パディングもナビ他ボタンと同じだけ絞って幅を詰める */
-  .toolbar-queue-btn {
-    gap: 0;
-    padding: 4px 5px;
-    font-size: 11px;
-    min-height: 32px;
-  }
-
-  /* toolbar-calendar-btn(左ペイン開閉)も同じ縮め方(isNarrow でラベル文言が消えアイコンのみになる) */
+  /*
+   * toolbar-calendar-btn(左ペイン開閉)。旧 .toolbar-queue-btn(作業キュー、増分3で
+   * CalendarPane へ移設・撤去済み)と同じ縮め方(isNarrow でラベル文言が消えアイコンのみになる)。
+   */
   .toolbar-calendar-btn {
     gap: 0;
     padding: 4px 5px;

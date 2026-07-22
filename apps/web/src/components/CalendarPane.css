@@ -1,48 +1,19 @@
 /*
- * 左ペイン「カレンダー」(カレンダーナビゲーション増分1、2026-07-22)。GitHubPane.css
- * (右ペイン)と対称の docked/overlay 機構だが、左右が逆になる点だけ異なる ――
- * overlay の backdrop は画面左に寄せる(justify-content: flex-start)、スライドインは
- * 左から(translateX(-100%) → 0)、docked は境界線を右側に持つ(border-right)。
- * z-index・色トークンは GitHubPane.css と完全に揃える(同じ 2000 番台、同じブランド色)。
+ * 左ペイン「カレンダー」(カレンダーナビゲーション増分1、2026-07-22)。
+ *
+ * 「ヘッダー整理+左ペイン常設化」(増分3、2026-07-22)でオーバーレイ方式を廃止した
+ * (ユーザー明示要望) ―― 開いている間は常に .app-main の flex 子として docked 表示される。
+ * かつての overlay 用スタイル(backdrop・スライドインアニメーション・モード切替ボタン)は
+ * ここから削除済み(右ペイン GitHubPane.css は引き続き docked/overlay 両対応のまま、
+ * paneMode.ts のコメント参照)。
  */
-.calendar-pane-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(36, 33, 30, 0.18);
-  z-index: 2000;
-  display: flex;
-  justify-content: flex-start;
-}
 
-/* 両モード共通のペイン本体(overlay/docked それぞれのモディファイアで幅・境界線・アニメーションを足す) */
+/* ペイン本体(常に docked ―― モディファイアは廃止したが、GitHubPane.css との対称性のためクラス名は残す) */
 .calendar-pane {
   display: flex;
   flex-direction: column;
   background: #faf7f2;
   overflow: hidden;
-}
-
-.calendar-pane--overlay {
-  width: min(320px, 100vw);
-  max-width: min(320px, 100vw);
-  height: 100%;
-  border-right: 1px solid #e5e7eb;
-  box-shadow: 20px 0 48px rgba(36, 33, 30, 0.24);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .calendar-pane--overlay {
-    animation: calendar-pane-slide-in 200ms ease-out;
-  }
-}
-
-@keyframes calendar-pane-slide-in {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
 }
 
 /*
@@ -55,6 +26,19 @@
   width: 260px;
   height: 100%;
   border-right: 1px solid #e5e7eb;
+}
+
+/*
+ * 狭幅(~640px 未満、App.tsx useMediaQuery('(max-width: 640px)') と揃える)でも docked の
+ * まま(オーバーレイへのフォールバックは廃止、ユーザー明示要望)。その代わりペイン幅だけを
+ * 260px→200px に絞ってグリッド側の圧迫を多少やわらげる ―― それでもグリッドが窮屈になる
+ * のは許容する(ユーザーの選択、CalendarPane.tsx コメント参照)。
+ */
+@media (max-width: 640px) {
+  .calendar-pane--docked {
+    flex-basis: 200px;
+    width: 200px;
+  }
 }
 
 .calendar-pane-header {
@@ -79,7 +63,7 @@
   gap: 4px;
 }
 
-.calendar-pane-mode-btn,
+/* モード切替ボタン(かつての .calendar-pane-mode-btn)は増分3でオーバーレイ廃止に伴い削除済み ―― 閉じるボタンのみ残る */
 .calendar-pane-close-btn {
   border: none;
   background: none;
@@ -91,13 +75,11 @@
   border-radius: 6px;
 }
 
-.calendar-pane-mode-btn:hover,
 .calendar-pane-close-btn:hover {
   color: #24211e;
   background: #f0ece3;
 }
 
-.calendar-pane-mode-btn:focus-visible,
 .calendar-pane-close-btn:focus-visible {
   outline: 2px solid var(--logo-aka, #d7402e);
   outline-offset: 2px;
@@ -252,4 +234,81 @@
   font-size: 12px;
   color: #55504a;
   margin: 4px 0 6px;
+}
+
+/*
+ * 「開く」系の導線ボタン(作業キュー・レポート、増分3でツールバーから移設)。カレンダー/
+ * タスクリスト選択の枡チェックボックス(ON/OFF トグル)とは違い別ペイン・別オーバーレイを
+ * 開くだけの操作のため、.calendar-pane-account-header と同じ appearance リセットの
+ * テキストボタンにする(枠なし・hover でのみ背景が付く)。バッジ(件数)を右端に出す
+ * 場合に備えて space-between にしてある。
+ */
+.calendar-pane-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  border: none;
+  background: none;
+  padding: 5px 4px;
+  font: inherit;
+  font-size: 13px;
+  color: #24211e;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.calendar-pane-action-btn:hover {
+  background: #f0ece3;
+}
+
+.calendar-pane-action-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+/* 作業キューの件数バッジ。旧ツールバーの .toolbar-queue-badge と同じ見た目(朱の丸バッジ) */
+.calendar-pane-action-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  flex: none;
+}
+
+/*
+ * フッター(プライバシー/規約リンク、増分3でツールバーから移設)。body(overflow-y: auto)の
+ * 外に置いた flex: none の要素 ―― カレンダー/タスクリストがどれだけ増えて body が
+ * スクロールしても、フッターは常にペイン最下部に固定表示される。見た目は旧
+ * .toolbar-legal と同じ(11px・薄墨・hover でのみ下線+墨色)。
+ */
+.calendar-pane-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #f0ece3;
+}
+
+.calendar-pane-footer a {
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: none;
+}
+
+.calendar-pane-footer a:hover {
+  color: #24211e;
+  text-decoration: underline;
 }

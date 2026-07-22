@@ -1,20 +1,14 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { AccountDTO, CalendarListEntryDTO, TaskListDTO } from "@kichijitsu/shared";
 import type { VisibleCalendarsMap } from "../db/database";
 import { groupCalendarsByAccess } from "../sync/calendarGroups";
-import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
-import type { PaneMode } from "../layout/paneMode";
 import type { View } from "../keyboard/shortcuts";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import "./CalendarPane.css";
 
 export interface CalendarPaneProps {
-  mode: PaneMode;
-  onModeChange: (mode: PaneMode) => void;
   onClose: () => void;
-  /** 狭幅(isNarrow)のとき true — モード切替ボタン自体を出さない(常に overlay 固定のため、GitHubPane と同じ流儀) */
-  disableModeToggle: boolean;
   accounts: AccountDTO[];
   /** アカウントごとのカレンダー一覧。未取得・取得失敗のアカウントは未設定 or 空配列のまま(壊れないことを優先、CalendarSettingsPanel から引き継いだ挙動) */
   calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
@@ -55,6 +49,25 @@ export interface CalendarPaneProps {
   onToggleActivityVisible: () => void;
   ciVisible: boolean;
   onToggleCiVisible: () => void;
+
+  // ---- 作業キュー・レポート(ヘッダー整理+左ペイン常設化、増分3、2026-07-22) ----
+  /**
+   * 右ペイン(GitHubPane、作業キュー)の開閉状態とトグル。ツールバーの「作業キュー」ボタンを
+   * ここへ移設したもの ―― me.github ゲート(GitHub 未連携なら出さない)は
+   * githubLogin と同じ条件のため、呼び出し側(App.tsx)ではなくこのコンポーネント側で
+   * githubLogin の有無に合わせて表示/非表示を切り替える。
+   */
+  githubPaneOpen: boolean;
+  onToggleGitHubPane: () => void;
+  /** 作業キューの件数バッジ(0件なら出さない、旧 toolbar-queue-badge と同じ挙動) */
+  githubQueueCount: number;
+  /**
+   * 予定 vs 実績レポート(TimeReportOverlay)の開閉状態とトグル。ローカルのみのデータのため
+   * GitHub 未連携でも出す現状維持 ―― githubLogin の分岐に関わらず常に表示する
+   * (下の GitHubSection「時間記録」小見出し参照)。
+   */
+  reportOpen: boolean;
+  onToggleReport: () => void;
 }
 
 const COLLAPSED_ACCOUNTS_STORAGE_KEY = "kichijitsu:calendarPaneCollapsedAccounts";
@@ -86,10 +99,13 @@ function saveCollapsedAccounts(collapsed: Set<string>): void {
  * 独立した常設ペインへ切り出す。役割分担は「選択=左ペイン / 連携管理=設定パネル」
  * (ユーザー決定) ―― アカウント追加/解除・GitHub 連携・MCP トークン等は引き続き設定パネル側。
  *
- * GitHubPane(右ペイン)と対称の docked/overlay 機構(layout/paneMode.ts、
- * shouldCloseOtherPaneOnOpen で相互の overlay 排他を App.tsx 側が処理する)をそのまま再利用する:
- *   - overlay: fixed backdrop + 左からスライドインする常設サイドレール。外側クリック・Escape で閉じる。
- *   - docked: グリッドの左に常設する flex サイドバー。外側クリック・Escape では閉じない。
+ * 「ヘッダー整理+左ペイン常設化」(増分3、2026-07-22)でオーバーレイ方式を廃止した
+ * (ユーザー明示要望)。開いている間は常に .app-main の flex 子として docked 表示され、
+ * 外側クリック・Escape での自動クローズも無い(× ボタンか、ツールバーの「カレンダー」
+ * トグルからのみ閉じられる)。狭幅(isNarrow)でも docked のまま ―― グリッドが窮屈になるのは
+ * 許容し、ペイン幅だけ CSS 側で絞る(CalendarPane.css の @media (max-width: 640px) 参照)。
+ * GitHubPane(右ペイン)は引き続き docked/overlay 両対応のままなので非対称になったが、
+ * これは意図的(paneMode.ts のコメント参照)。
  *
  * アカウントごとにセクション化し(email 見出し、折りたたみ可・状態は localStorage 永続)、
  * 各セクション内をさらに accessRole で「マイカレンダー」(owner)と「他のカレンダー」
@@ -98,19 +114,19 @@ function saveCollapsedAccounts(collapsed: Set<string>): void {
  * (カレンダー色)+カレンダー名で、トグルは onToggleCalendar(App.tsx の handleToggleCalendar)を
  * そのまま呼ぶだけ ―― データ変更ロジックはこのコンポーネントには一切無い。
  *
- * 左ペイン増分2(2026-07-22)でペイン内を3セクション構成に拡張した(body 上から):
+ * ペイン内は body 上から以下のセクション構成(増分2→増分3で拡張):
  *   1. ミニ月カレンダー(MiniMonthCalendar) ―― タイムラインナビゲーション
  *   2. カレンダー選択(上記、増分1からの既存部分)
  *   3. アカウントごとのタスクリスト選択(TaskListGroup、AccountSection 内)
- *   4. GitHub セクション(GitHubSection、ペイン最下部) ―― 接続状態表示 + 表示トグル移設
- * ペイン全体は calendar-pane-body の overflow-y: auto で縦スクロールする(CalendarPane.css)ため、
- * 3セクション+既存カレンダー選択がどれだけ増えても狭幅 overlay 内に収まる。
+ *   4. GitHub セクション(GitHubSection、body 最下部) ―― 接続状態表示 + 表示トグル +
+ *      作業キュー導線 + 時間記録(レポート)導線(増分3でツールバーから移設)
+ *   5. フッター(プライバシー/規約リンク、増分3でツールバーから移設。body の外 ―― スクロール
+ *      に埋もれず常に見える位置に固定する)
+ * body 自体は calendar-pane-body の overflow-y: auto で縦スクロールする(CalendarPane.css)ため、
+ * セクションがどれだけ増えても狭幅 docked 内に収まる。
  */
 export function CalendarPane({
-  mode,
-  onModeChange,
   onClose,
-  disableModeToggle,
   accounts,
   calendarsByAccount,
   visibleCalendars,
@@ -129,12 +145,12 @@ export function CalendarPane({
   onToggleActivityVisible,
   ciVisible,
   onToggleCiVisible,
+  githubPaneOpen,
+  onToggleGitHubPane,
+  githubQueueCount,
+  reportOpen,
+  onToggleReport,
 }: CalendarPaneProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const isOverlay = mode === "overlay";
-  // docked(常設)は外側クリック・Escape では閉じない — active=false でリスナー自体を張らない(GitHubPane と同じ)
-  useCloseOnOutsideOrEscape(isOverlay, cardRef, onClose);
-
   const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(() =>
     loadCollapsedAccounts(),
   );
@@ -152,29 +168,11 @@ export function CalendarPane({
     });
   }
 
-  const paneRoot = (
-    <div
-      className={
-        isOverlay ? "calendar-pane calendar-pane--overlay" : "calendar-pane calendar-pane--docked"
-      }
-      ref={cardRef}
-      role={isOverlay ? "dialog" : undefined}
-      aria-label="カレンダー"
-    >
+  return (
+    <div className="calendar-pane calendar-pane--docked" aria-label="カレンダー">
       <div className="calendar-pane-header">
         <span className="calendar-pane-title">カレンダー</span>
         <div className="calendar-pane-actions">
-          {!disableModeToggle && (
-            <button
-              type="button"
-              className="calendar-pane-mode-btn"
-              onClick={() => onModeChange(isOverlay ? "docked" : "overlay")}
-              aria-label={isOverlay ? "常設ドッキングに切り替え" : "オーバーレイに切り替え"}
-              title={isOverlay ? "常設ドッキングに切り替え" : "オーバーレイに切り替え"}
-            >
-              <span aria-hidden="true">{isOverlay ? "📌" : "⧉"}</span>
-            </button>
-          )}
           <button
             type="button"
             className="calendar-pane-close-btn"
@@ -220,15 +218,28 @@ export function CalendarPane({
           onToggleActivityVisible={onToggleActivityVisible}
           ciVisible={ciVisible}
           onToggleCiVisible={onToggleCiVisible}
+          githubPaneOpen={githubPaneOpen}
+          onToggleGitHubPane={onToggleGitHubPane}
+          githubQueueCount={githubQueueCount}
+          reportOpen={reportOpen}
+          onToggleReport={onToggleReport}
         />
+      </div>
+
+      {/*
+       * Google 審査要件の導線(プライバシーポリシー・規約、増分3でツールバーから移設)。
+       * body の外(flex: none)に置くことで、カレンダー/タスクリストがどれだけ増えて
+       * body がスクロールしても常に最下部に固定表示される(CalendarPane.css 参照)。
+       * ペインが閉じている、または未ログイン(accounts.length===0)のときはこのペイン自体が
+       * マウントされない ―― その場合の到達性は App.tsx 側のツールバーフォールバックが担う
+       * (App.tsx の toolbar-legal フォールバックのコメント参照)。
+       */}
+      <div className="calendar-pane-footer">
+        <a href="/privacy.html">プライバシー</a>
+        <a href="/terms.html">規約</a>
       </div>
     </div>
   );
-
-  if (isOverlay) {
-    return <div className="calendar-pane-backdrop">{paneRoot}</div>;
-  }
-  return paneRoot;
 }
 
 interface AccountSectionProps {
@@ -425,6 +436,12 @@ interface GitHubSectionProps {
   onToggleActivityVisible: () => void;
   ciVisible: boolean;
   onToggleCiVisible: () => void;
+  // ---- 作業キュー・レポート(増分3、CalendarPaneProps のコメント参照) ----
+  githubPaneOpen: boolean;
+  onToggleGitHubPane: () => void;
+  githubQueueCount: number;
+  reportOpen: boolean;
+  onToggleReport: () => void;
 }
 
 /**
@@ -435,11 +452,21 @@ interface GitHubSectionProps {
  * 既にある GitHub 連携ボタンと重複させない)。
  *
  * ツールバー煩雑さの解消(ユーザー要望)を兼ねて、App.tsx のツールバーにあった GitHub
- * 系の表示トグル2つ(実績オーバーレイ・CI/Actions 実行)をここへ移設した。state
+ * 系の表示トグル2つ(実績オーバーレイ・CI/Actions 実行)を増分2でここへ移設した。state
  * (activityVisible/ciVisible、App.tsx の useState)自体は App.tsx に残したまま、
- * 置き場所(このコンポーネント)だけを変えている。右ペイン(GitHubPane、作業キュー)の
- * 開閉トグルは対象外 ―― ペインを開いていなくても件数バッジ等で常に状況が見える方が
- * 有用なため、ツールバーに残す判断(ユーザー決定、意図的な非対称)。
+ * 置き場所(このコンポーネント)だけを変えている。
+ *
+ * 増分3(2026-07-22、ヘッダー整理+左ペイン常設化)でさらに2つ移設した:
+ *   - 「作業キュー」(右ペイン GitHubPane の開閉トグル + 件数バッジ)。GitHub 連携が前提の
+ *     機能のため、githubLogin ブロック内(連携済みのときだけ)に置く ―― 旧ツールバーの
+ *     me.github ゲートと同じ条件をこのコンポーネント内の分岐がそのまま引き継ぐ形になる。
+ *     増分2時点では「ペインを開いていなくても件数バッジで状況が見える方が有用」という
+ *     理由でツールバーに残していたが、ヘッダー整理を優先する今回のユーザー決定で
+ *     こちらへ移す(バッジ自体は引き続き0件のときは出さない、旧 toolbar-queue-badge と同じ)。
+ *   - 「時間記録」(レポート、TimeReportOverlay の開閉トグル)。ローカルのみのデータのため
+ *     GitHub 未連携でも意味を持つ機能 ―― githubLogin の分岐の外に独立した小見出しとして置き、
+ *     連携有無に関わらず常に表示する(旧ツールバーのボタンが me.github ゲート無しだった
+ *     挙動をそのまま踏襲)。
  */
 function GitHubSection({
   githubLogin,
@@ -447,6 +474,11 @@ function GitHubSection({
   onToggleActivityVisible,
   ciVisible,
   onToggleCiVisible,
+  githubPaneOpen,
+  onToggleGitHubPane,
+  githubQueueCount,
+  reportOpen,
+  onToggleReport,
 }: GitHubSectionProps) {
   return (
     <div className="calendar-pane-github">
@@ -480,12 +512,45 @@ function GitHubSection({
               <span className="calendar-pane-cal-name">CI/Actions 実行</span>
             </li>
           </ul>
+          <button
+            type="button"
+            className="calendar-pane-action-btn"
+            onClick={onToggleGitHubPane}
+            aria-expanded={githubPaneOpen}
+            aria-haspopup="dialog"
+            aria-label="作業キュー"
+            title="作業キュー"
+          >
+            <span>作業キュー(右ペインを開く)</span>
+            {githubQueueCount > 0 && (
+              <span className="calendar-pane-action-badge">{githubQueueCount}</span>
+            )}
+          </button>
         </>
       ) : (
         <p className="calendar-pane-empty">
           設定パネルから連携すると GitHub の予定・実績が使えます
         </p>
       )}
+      {/*
+       * 「時間記録」小見出し(増分3)。GitHub セクションの見出し構成(接続状態前提)に
+       * レポート機能がそぐわないため、独立した小見出しを設けて githubLogin 分岐の外に置く
+       * ―― 未連携でも常に表示する(上のコメント参照)。
+       */}
+      <div className="calendar-pane-group">
+        <h4 className="calendar-pane-group-title">時間記録</h4>
+        <button
+          type="button"
+          className="calendar-pane-action-btn"
+          onClick={onToggleReport}
+          aria-expanded={reportOpen}
+          aria-haspopup="dialog"
+          aria-label="予定 vs 実績レポート"
+          title="予定 vs 実績レポート"
+        >
+          <span>レポート</span>
+        </button>
+      </div>
     </div>
   );
 }

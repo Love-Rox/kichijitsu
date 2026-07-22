@@ -217,23 +217,16 @@ function loadStoredPaneMode(): PaneMode | null {
 
 /**
  * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1、2026-07-22)の
- * 配置モード・開閉状態。右の GitHubPane と対称に layout/paneMode.ts の PaneMode/
- * effectivePaneMode をそのまま再利用する(別 state・別 localStorage キー)。
- * GitHubPane 側の開閉(paneOpen)は永続化していないが、左ペインはカレンダー選択という
- * 主要ナビゲーションを担うため、開閉状態自体も次回訪問時に復元する(要件どおり)。
+ * 開閉状態。GitHubPane 側の開閉(paneOpen)は永続化していないが、左ペインはカレンダー選択
+ * という主要ナビゲーションを担うため、開閉状態自体は次回訪問時に復元する(要件どおり)。
+ *
+ * 配置モード(kichijitsu:leftPaneMode)は「ヘッダー整理+左ペイン常設化」(増分3、2026-07-22)で
+ * オーバーレイ方式を廃止したことにより不要になった ―― 左ペインは開いている間は常に docked
+ * 固定(layout/paneMode.ts のコメント、CalendarPane.tsx のコメント参照)。旧バージョンで
+ * localStorage に書き込まれた kichijitsu:leftPaneMode の値は読み捨てる(積極的に削除は
+ * しないが、もう読み書きしないため実質無視される)。
  */
-const LEFT_PANE_MODE_STORAGE_KEY = "kichijitsu:leftPaneMode";
 const LEFT_PANE_OPEN_STORAGE_KEY = "kichijitsu:leftPaneOpen";
-
-/** localStorage に保存された前回選択の左ペイン配置モードを読む。プライベートモード等で無効なら null */
-function loadStoredLeftPaneMode(): PaneMode | null {
-  try {
-    const v = window.localStorage.getItem(LEFT_PANE_MODE_STORAGE_KEY);
-    return v && isPaneMode(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * localStorage に保存された前回の左ペイン開閉状態を読む。プライベートモード等で無効・未保存なら
@@ -335,22 +328,6 @@ function App() {
   // 狭幅では docked を選べない(effectivePaneMode 参照)ので、実際に GitHubPane へ渡すモードは
   // 常にこちらを使う。paneMode(永続化される好み)自体は isNarrow に関わらず変更しない
   const resolvedPaneMode = effectivePaneMode(paneMode, isNarrow);
-
-  // 左ペイン「カレンダー」(CalendarPane、増分1)の配置モード。paneMode/resolvedPaneMode と
-  // 完全に対称(別 state・別 localStorage キー、loadStoredLeftPaneMode 参照)
-  const [leftPaneMode, setLeftPaneMode] = useState<PaneMode>(
-    () => loadStoredLeftPaneMode() ?? "overlay",
-  );
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(LEFT_PANE_MODE_STORAGE_KEY, leftPaneMode);
-    } catch {
-      /* ignore */
-    }
-  }, [leftPaneMode]);
-
-  const resolvedLeftPaneMode = effectivePaneMode(leftPaneMode, isNarrow);
 
   // 左ペインの開閉。カレンダー選択という主要ナビゲーションを担うため、GitHubPane の paneOpen
   // (永続化しない、増分1では未連携時に隠れる補助ペイン)とは違い開閉状態自体を永続化する。
@@ -2497,11 +2474,13 @@ function App() {
   const openSearch = useCallback(() => setSearchOpen(true), []);
 
   /*
-   * 左右ペイン(CalendarPane/GitHubPane)のトグルボタン用ハンドラ。両者とも「開くとき、もう片方が
-   * overlay として表示中なら自動的に閉じる」交通整理を対称に行う(shouldCloseOtherPaneOnOpen、
-   * layout/paneMode.ts)。docked 同士は場所が競合しない(左右で別領域)ため対象外 ――
-   * shouldCloseOtherPaneOnOpen 自体が「もう片方が実効 overlay のときだけ true」を返すので、
-   * ここでは判定結果をそのまま反映するだけでよい。
+   * 左右ペイン(CalendarPane/GitHubPane)のトグルボタン用ハンドラ。増分3(左ペイン常設化)で
+   * 左ペインは常に docked になったため、この2つはもう対称ではない:
+   *   - 左ペインを開くとき: 右ペインが実効 overlay として表示中なら自動的に閉じる
+   *     (shouldCloseOtherPaneOnOpen、layout/paneMode.ts。この動線だけはユーザー要望で維持)。
+   *   - 右ペインを開くとき: 左ペインは overlay を持たなくなった(常に docked、左右で別領域に
+   *     常設するため場所が競合しない)ので、左ペインを閉じる必要は無い ―― 単純に paneOpen を
+   *     反転するだけでよい。
    */
   const toggleLeftPane = useCallback(() => {
     setLeftPaneOpen((open) => {
@@ -2514,14 +2493,8 @@ function App() {
   }, [paneMode, paneOpen, isNarrow]);
 
   const toggleGitHubPane = useCallback(() => {
-    setPaneOpen((open) => {
-      const opening = !open;
-      if (opening && shouldCloseOtherPaneOnOpen(leftPaneMode, leftPaneOpen, isNarrow)) {
-        setLeftPaneOpen(false);
-      }
-      return opening;
-    });
-  }, [leftPaneMode, leftPaneOpen, isNarrow]);
+    setPaneOpen((open) => !open);
+  }, []);
 
   return (
     <div className="app">
@@ -2739,10 +2712,9 @@ function App() {
           </div>
           {/*
            * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉導線。
-           * 「作業キュー」(右ペイン GitHubPane トグル、この少し下)と同じ見た目・同じ
-           * isNarrow でのアイコンのみ化の流儀を踏襲する。連携アカウントが1件も無ければ出す
-           * 意味が無い(CalendarPane 自体は「連携中のアカウントがありません」を表示できるが、
-           * 導線自体を隠した方が分かりやすい ―― GitHubPane の me.github ゲートと同じ考え方)。
+           * 連携アカウントが1件も無ければ出す意味が無い(CalendarPane 自体は「連携中の
+           * アカウントがありません」を表示できるが、導線自体を隠した方が分かりやすい ――
+           * GitHubPane の me.github ゲートと同じ考え方)。
            */}
           {me.accounts.length > 0 && (
             <button
@@ -2759,54 +2731,14 @@ function App() {
             </button>
           )}
           {/*
-           * GitHub 情報ペイン(GitHubPane、docs/github-integration.md フェーズ②Part B → 増分1で
-           * セクション式コンテナへ発展)の開閉導線。増分1ではセクションが作業キュー1つだけなので
-           * ラベル・アイコンは従来通り「作業キュー」のまま。GitHub 未連携(me.github===null)では
-           * 出さない(安全側: 開いても 409 で空になるだけだが、導線自体を見せない方が分かりやすい)。
-           * 件数バッジは0件のときは出さない。
+           * ヘッダー整理(増分3、2026-07-22、ユーザー要望「ヘッダーのメニューを減らしたい」)で
+           * 「作業キュー」開閉ボタン(GitHubPane トグル + 件数バッジ)・「レポート」ボタン
+           * (TimeReportOverlay トグル)・実績オーバーレイ/CI トグル(増分2で既に移設済み)を
+           * すべて CalendarPane の GitHub セクションへ集約した。ここに残すのは「カレンダーを
+           * 開けば辿り着ける操作」ではなく「常に見えている必要がある/カレンダーを開かなくても
+           * 使う操作」だけ ―― 走行中タイマー・? ヘルプ・(未ログイン時のみ)規約リンクの
+           * フォールバック(下記コメント参照)。
            */}
-          {/*
-           * GitHub 実績オーバーレイ・CI/Actions 実行オーバーレイの表示 ON/OFF トグルは
-           * 左ペイン増分2(2026-07-22)で CalendarPane の GitHub セクションへ移設した
-           * (ツールバー煩雑さの解消。state 自体は activityVisible/ciVisible としてここに残り、
-           * CalendarPane にそのまま渡すだけ)。右ペイン(GitHubPane、作業キュー)の開閉トグルは
-           * ペインを開いていなくても件数バッジで状況が見える方が有用なため、対象外として
-           * 引き続きツールバーに残す(意図的な非対称、下のボタン参照)。
-           */}
-          {me.github && (
-            <button
-              type="button"
-              className="toolbar-queue-btn"
-              onClick={toggleGitHubPane}
-              aria-label="作業キュー"
-              title="作業キュー"
-              aria-expanded={paneOpen}
-              aria-haspopup="dialog"
-            >
-              <span aria-hidden="true">☰</span>
-              {!isNarrow && <span className="toolbar-queue-label">作業キュー</span>}
-              {githubQueue.length > 0 && (
-                <span className="toolbar-queue-badge">{githubQueue.length}</span>
-              )}
-            </button>
-          )}
-          {/*
-           * 手動タイマー・予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2)。
-           * ローカルのみのデータのため GitHub 未連携でも(連携解除後でも)出す — 「作業キュー」
-           * ボタンと違い me.github ゲートは掛けない。データは全ビュー(週/3日/1日/月)共通で
-           * plannedStore/timeEntryStore から読むため、view 切替の影響を受けない。
-           */}
-          <button
-            type="button"
-            className="toolbar-queue-btn"
-            onClick={() => setReportOpen((v) => !v)}
-            aria-label="予定 vs 実績レポート"
-            title="予定 vs 実績レポート"
-            aria-expanded={reportOpen}
-            aria-haspopup="dialog"
-          >
-            {!isNarrow ? "レポート" : "📊"}
-          </button>
           {/*
            * 走行中タイマーのインジケーター(増分2)。me 連携有無に関係なく、走行中エントリが
            * 1件でもあれば表示する(コンポーネント自身が0件時に null を返す)。
@@ -2826,25 +2758,36 @@ function App() {
           >
             ?
           </button>
-          <div className="toolbar-legal">
-            <a href="/privacy.html">プライバシー</a>
-            <a href="/terms.html">規約</a>
-          </div>
+          {/*
+           * プライバシー/規約リンクは増分3で CalendarPane のフッターへ移設したが、
+           * CalendarPane 自体は `me.accounts.length > 0` ゲートの内側(未ログイン時は
+           * マウントされない)なので、未ログインの訪問者には規約リンクへの導線が一切
+           * 無くなってしまう ―― Google 審査要件上、法的リンクは常時到達可能でなければ
+           * ならないため、未ログイン時(accounts.length === 0)だけツールバーの従来位置に
+           * フォールバック表示する。ログイン後は CalendarPane 側にしか出さない(重複を避ける)。
+           * 狭幅で隠す旧 CSS ルール(.toolbar-legal { display: none })もこのフォールバックには
+           * 適用しない(App.css 参照) ―― 未ログイン時は他に規約リンクへ辿り着く手段が
+           * 無いため、狭幅でも常に見せる。
+           */}
+          {me.accounts.length === 0 && (
+            <div className="toolbar-legal toolbar-legal--fallback">
+              <a href="/privacy.html">プライバシー</a>
+              <a href="/terms.html">規約</a>
+            </div>
+          )}
         </div>
       </header>
       <main className="app-main">
         {/*
-         * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。GitHubPane と
-         * 対称の理由(下のコメント参照)で .app-main の直接の子に置くが、docked モードで
-         * .app-main-calendar と左右に並べるため、DOM 順序としてはこちらを先に置く
-         * (flex row のグリッド側が縮む向きは変わらないが、視覚的な左右関係を DOM 順にも合わせておく)。
+         * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。増分3で
+         * オーバーレイ方式を廃止し常に docked になったが、.app-main の直接の子に置いて
+         * .app-main-calendar と左右に並べる構造自体は変わらないため、DOM 順序としては
+         * こちらを先に置く(flex row のグリッド側が縮む向きは変わらないが、視覚的な
+         * 左右関係を DOM 順にも合わせておく)。
          */}
         {leftPaneOpen && me.accounts.length > 0 && (
           <CalendarPane
-            mode={resolvedLeftPaneMode}
-            onModeChange={setLeftPaneMode}
             onClose={() => setLeftPaneOpen(false)}
-            disableModeToggle={isNarrow}
             accounts={me.accounts}
             calendarsByAccount={calendarsByAccount}
             visibleCalendars={visibleCalendars}
@@ -2863,6 +2806,11 @@ function App() {
             onToggleActivityVisible={handleToggleActivityVisible}
             ciVisible={ciVisible}
             onToggleCiVisible={handleToggleCiVisible}
+            githubPaneOpen={paneOpen}
+            onToggleGitHubPane={toggleGitHubPane}
+            githubQueueCount={githubQueue.length}
+            reportOpen={reportOpen}
+            onToggleReport={() => setReportOpen((v) => !v)}
           />
         )}
         <div className="app-main-calendar">
