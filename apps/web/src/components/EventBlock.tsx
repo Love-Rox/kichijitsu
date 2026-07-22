@@ -57,11 +57,14 @@ interface EventBlockProps {
   leftPct: number;
   widthPct: number;
   /**
-   * 日列左端の px インセット(2026-07-22、不在レール矩形化)。省略時は従来どおり
-   * DAY_COLUMN_INSET_PX。呼び出し元 (DayColumn.tsx) はその日に不在レールがあるかどうかで
-   * layout/gridMetrics.ts の dayColumnLeftInsetPx() を呼んでここへ渡す — 矩形化した OOO バー
-   * (幅 12px)と予定カードが重ならないよう、OOO のある日だけ左インセットを広げるため。
-   * 右インセットは常に DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定のため)。
+   * 日列左端の px インセット(2026-07-22、不在レール矩形化。同 07-22 横ずれ解消
+   * リファクタでレール幅の求め方を変更)。省略時は従来どおり DAY_COLUMN_INSET_PX。
+   * 呼び出し元 (DayColumn.tsx) はその日の統合レール(.day-rail、OOO+勤務場所)の
+   * 列パッキング結果(layout/railStack.ts)から必要な最大列数を求め、
+   * layout/gridMetrics.ts の dayColumnLeftInsetPx() を呼んでここへ渡す —
+   * レール(幅 12px × 列数)と予定カードが重ならないよう、レールのある日だけ
+   * 左インセットを広げるため。右インセットは常に DAY_COLUMN_INSET_PX で不変
+   * (day-activity-rail は右端固定のため)。
    */
   leftInsetPx?: number;
   /** カスケード表示の重なり順(0-based 列番号)。z-index の基準にする */
@@ -802,80 +805,80 @@ export function EventDetailCard({
         role="dialog"
         aria-label={subject.title}
       >
-      <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
-        ×
-      </button>
-      <div className="event-detail-title">{subject.title}</div>
-      <div className="event-detail-datetime">{dateTimeLabel}</div>
-      {subject.isMirror === true && (
-        // mirror には location/description が無い(無内容原則、docs/blocking.md)ため、
-        // この説明文が詳細ポップオーバーの主内容になる
-        <div className="event-detail-mirror-note">
-          他のカレンダーの予定から自動でブロックされた時間です
-        </div>
-      )}
-      {/*
-       * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。EventBlock のタイトル行の
-       * 小アイコンと同じ判定基準(occurrence.hasConference/location)を、詳細ポップオーバーでは
-       * テキストラベル付きで表示する(要件:「オンライン会議あり / 場所: {location}」)。
-       */}
-      {subject.hasConference === true && (
-        <div className="event-detail-conference">
-          <VideoIcon width={12} height={12} />
-          オンライン会議あり
-        </div>
-      )}
-      {subject.location && (
-        <div className="event-detail-location">
-          <PlaceIcon width={12} height={12} />
-          場所: {subject.location}
-        </div>
-      )}
-      {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
-      {subject.link?.url && (
-        <a
-          className="event-detail-link"
-          href={subject.link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Google で開く
-        </a>
-      )}
-      {memberCalendars.length > 0 && (
-        <div className="event-detail-calendar-list">
-          {memberCalendars.map((info) => (
-            <div className="event-detail-calendar" key={info.key}>
-              <span
-                className="event-detail-calendar-dot"
-                style={{ background: info.color }}
-                aria-hidden="true"
-              />
-              {info.summary}
-            </div>
-          ))}
-        </div>
-      )}
-      {/*
-       * RSVP ボタン (フェーズ2、2026-07-22)。attendees の無い予定 (rsvpStatus undefined) は
-       * 出さない(要件:「招待されていない=attendee でない」ことの指標として responseStatus の
-       * 有無を使う)。onRsvp が無い(呼び出し側が渡さなかった)場合も出さない。
-       */}
-      {rsvpStatus !== undefined && onRsvp && <RsvpButtons current={rsvpStatus} onRsvp={onRsvp} />}
-      {(onDelete || canEdit) && (
-        <div className="event-detail-actions">
-          {canEdit && (
-            <button
-              type="button"
-              className="event-detail-text-btn event-detail-edit-btn"
-              onClick={() => setEditing(true)}
-            >
-              編集
-            </button>
-          )}
-          {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
-        </div>
-      )}
+        <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
+          ×
+        </button>
+        <div className="event-detail-title">{subject.title}</div>
+        <div className="event-detail-datetime">{dateTimeLabel}</div>
+        {subject.isMirror === true && (
+          // mirror には location/description が無い(無内容原則、docs/blocking.md)ため、
+          // この説明文が詳細ポップオーバーの主内容になる
+          <div className="event-detail-mirror-note">
+            他のカレンダーの予定から自動でブロックされた時間です
+          </div>
+        )}
+        {/*
+         * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。EventBlock のタイトル行の
+         * 小アイコンと同じ判定基準(occurrence.hasConference/location)を、詳細ポップオーバーでは
+         * テキストラベル付きで表示する(要件:「オンライン会議あり / 場所: {location}」)。
+         */}
+        {subject.hasConference === true && (
+          <div className="event-detail-conference">
+            <VideoIcon width={12} height={12} />
+            オンライン会議あり
+          </div>
+        )}
+        {subject.location && (
+          <div className="event-detail-location">
+            <PlaceIcon width={12} height={12} />
+            場所: {subject.location}
+          </div>
+        )}
+        {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
+        {subject.link?.url && (
+          <a
+            className="event-detail-link"
+            href={subject.link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Google で開く
+          </a>
+        )}
+        {memberCalendars.length > 0 && (
+          <div className="event-detail-calendar-list">
+            {memberCalendars.map((info) => (
+              <div className="event-detail-calendar" key={info.key}>
+                <span
+                  className="event-detail-calendar-dot"
+                  style={{ background: info.color }}
+                  aria-hidden="true"
+                />
+                {info.summary}
+              </div>
+            ))}
+          </div>
+        )}
+        {/*
+         * RSVP ボタン (フェーズ2、2026-07-22)。attendees の無い予定 (rsvpStatus undefined) は
+         * 出さない(要件:「招待されていない=attendee でない」ことの指標として responseStatus の
+         * 有無を使う)。onRsvp が無い(呼び出し側が渡さなかった)場合も出さない。
+         */}
+        {rsvpStatus !== undefined && onRsvp && <RsvpButtons current={rsvpStatus} onRsvp={onRsvp} />}
+        {(onDelete || canEdit) && (
+          <div className="event-detail-actions">
+            {canEdit && (
+              <button
+                type="button"
+                className="event-detail-text-btn event-detail-edit-btn"
+                onClick={() => setEditing(true)}
+              >
+                編集
+              </button>
+            )}
+            {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
+          </div>
+        )}
       </div>
     </>
   );

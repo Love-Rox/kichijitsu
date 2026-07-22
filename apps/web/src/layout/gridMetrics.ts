@@ -22,57 +22,48 @@ export const PX_PER_MINUTE = HOUR_HEIGHT / 60;
 export const DAY_COLUMN_INSET_PX = 5;
 
 /**
- * 不在(OOO)レール矩形化(2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を
- * 白文字として矩形に収まる形に」)。バー本体の幅。.day-ooo-rail/.day-ooo-line の width と
- * 揃える(WeekGrid.css 側はハードコードのみ許容、値の出どころはここ)。
- */
-export const OOO_RAIL_WIDTH_PX = 12;
-
-/**
- * 勤務場所レール(帯表示、2026-07-22 帯化)の帯当たり判定幅。OOO バーと同じ
- * 12px に揃える(視認性・タップ幅の基準を統一する。帯化以前の点ピン版でも同じ12pxだった
- * ので値自体は変わっていない)。.day-workloc-rail/.day-workloc-band(WeekGrid.css)の
+ * 不在(OOO)レール・勤務場所レールの帯1本ぶんの幅(px)。2026-07-22 の横ずれ解消
+ * リファクタで、それまで別々の定数だった OOO_RAIL_WIDTH_PX / WORKING_LOCATION_RAIL_WIDTH_PX
+ * (どちらも値は 12 で同一)を1本化した ―― 両レールは同じ x=0 起点の列を共有し、時間が
+ * 重なる帯だけ列パッキング(layout/railStack.ts の packRailBandColumns、packColumns.ts の
+ * 貪欲 first-fit を流用)で列を分けて横に並べる。時間が重ならない帯(接触含む)は同じ列
+ * (left: 0)に乗り、結果として縦に並ぶ。.day-ooo-line/.day-workloc-band(WeekGrid.css)の
  * width とここが値の出どころ ―― CSS 側はハードコードのみ許容。
  */
-export const WORKING_LOCATION_RAIL_WIDTH_PX = 12;
-/** レール(OOO バー/勤務場所帯)と予定カードの間に空ける隙間(px)。両レールで共通 */
-const RAIL_CARD_GAP_PX = 4;
+export const RAIL_BAND_WIDTH_PX = 12;
+
 /**
- * OOO バーと勤務場所レールが同じ日に共存するとき、両者の帯が重ならないよう間に空ける
- * 小さな隙間(px)。勤務場所帯は常に OOO バーの「内側」(カード寄り)に置く(要件:
- * 「OOO があるときは勤務場所帯をバーの少し内側にずらす」)。
+ * OOO バー・勤務場所帯の最低表示高さ(px)。両レールとも矩形の中に上端の飾り(OOO の白い
+ * × / 勤務場所の PlaceIcon)を収める都合上、長さ0(start===end)や数分の短い帯でも
+ * この高さを下回らないようにする。以前は OooRailLine.tsx / WorkingLocationRailBand.tsx が
+ * それぞれ独自にローカル定数(MIN_BAR_HEIGHT_PX/MIN_BAND_HEIGHT_PX、どちらも値16)を
+ * 持っていたが、railStack.ts の列パッキングが「重なり判定」にもこの値を使う必要が
+ * あるため(表示上 16px を占める帯は、実時間が重ならなくても視覚的には重なりうる)、
+ * 単一の出どころとしてここへ集約した。
  */
-const OOO_WORKING_LOCATION_GAP_PX = 2;
+export const RAIL_MIN_BAND_HEIGHT_PX = 16;
+
+/** レール(OOO バー/勤務場所帯)と予定カードの間に空ける隙間(px) */
+const RAIL_CARD_GAP_PX = 4;
 
 /**
  * 日列の左インセット(px)。EventBlock 側の calc(`${leftInsetPx}px + ...`) にそのまま渡す値。
- * その日に不在レール(hasOoo)/勤務場所レール(hasWorkingLocation、帯表示 2026-07-22 帯化)が
- * あるぶんだけ、矩形化した OOO バー(幅 OOO_RAIL_WIDTH_PX)・勤務場所帯(幅
- * WORKING_LOCATION_RAIL_WIDTH_PX)+ 隙間ぶん広げて予定カードと重ならないようにする
- * (ユーザー要望)。両方ある日は OOO バー→(OOO_WORKING_LOCATION_GAP_PX)→勤務場所帯の順に
- * 内側へ並べ、そのぶんインセットも大きくなる。どちらも無い日は従来どおり
- * DAY_COLUMN_INSET_PX のまま。右インセットはこの2レールの有無に関わらず常に
- * DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定)。DOM/React に依存しない
- * 純関数として切り出し、gridMetrics.test.ts で単体テストする。
+ *
+ * 2026-07-22 横ずれ解消リファクタ: 以前は「OOO がある/勤務場所があるか」の2択の真偽値
+ * ペアから幅を決めていた(=両方ある日は横にずらして 2 レールぶん(30px)確保していた)ため、
+ * 同時刻の OOO と勤務場所が横に14pxずれて side-by-side に見える不具合があった。now は
+ * OOO と勤務場所を同じ1列(幅 RAIL_BAND_WIDTH_PX)の中で扱い、時間が重なる帯どうしだけ
+ * 列パッキングで横に並べる(layout/railStack.ts 参照) ―― そのため必要な横幅は「その日の
+ * レールで実際に必要になった最大列数(railColumnCount、DayColumn.tsx が
+ * packRailBandColumns の結果から求める)× RAIL_BAND_WIDTH_PX」だけで決まる。
+ * railColumnCount===0(その日に OOO も勤務場所も無い)なら従来どおり DAY_COLUMN_INSET_PX
+ * のまま。1以上ならレール幅ぶん + カードとの隙間(RAIL_CARD_GAP_PX)を確保する。
+ * 右インセットはレールの有無に関わらず常に DAY_COLUMN_INSET_PX で不変(day-activity-rail は
+ * 右端固定)。DOM/React に依存しない純関数として切り出し、gridMetrics.test.ts で単体テストする。
  */
-export function dayColumnLeftInsetPx(hasOoo: boolean, hasWorkingLocation: boolean): number {
-  if (!hasOoo && !hasWorkingLocation) return DAY_COLUMN_INSET_PX;
-  const railWidth =
-    (hasOoo ? OOO_RAIL_WIDTH_PX : 0) +
-    (hasOoo && hasWorkingLocation ? OOO_WORKING_LOCATION_GAP_PX : 0) +
-    (hasWorkingLocation ? WORKING_LOCATION_RAIL_WIDTH_PX : 0);
-  return railWidth + RAIL_CARD_GAP_PX;
-}
-
-/**
- * 勤務場所レール(帯表示、2026-07-22 帯化)の左オフセット(px、日列基準)。
- * OOO バーが無い日はレールの最左(0)、ある日は OOO バー(幅 OOO_RAIL_WIDTH_PX)+
- * 隙間(OOO_WORKING_LOCATION_GAP_PX)ぶん内側へずらして視覚衝突を避ける
- * (dayColumnLeftInsetPx と対になる関数 ―― こちらは帯自身の描画位置、あちらはカード側の
- * インセット)。
- */
-export function workingLocationRailLeftPx(hasOoo: boolean): number {
-  return hasOoo ? OOO_RAIL_WIDTH_PX + OOO_WORKING_LOCATION_GAP_PX : 0;
+export function dayColumnLeftInsetPx(railColumnCount: number): number {
+  if (railColumnCount <= 0) return DAY_COLUMN_INSET_PX;
+  return railColumnCount * RAIL_BAND_WIDTH_PX + RAIL_CARD_GAP_PX;
 }
 
 /** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */

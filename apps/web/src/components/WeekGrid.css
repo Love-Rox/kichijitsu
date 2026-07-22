@@ -1240,35 +1240,47 @@
 }
 
 /*
- * 不在 (Out of Office) レール (2026-07-22)。Google の eventType==='outOfOffice' な予定は
- * 通常の予定カードとして描画しない(要件) — 代わりにこのレールに時間範囲ぶんの縦ラインを
- * 描き、上端に × を出す。day-ci-rail (左端、下記) と同じ DAY_COLUMN_INSET_PX ぶんの
- * ガターを共有する(CI は既定 OFF なので通常はこのレールが唯一の左端占有者)。
- * 色はカレンダー色を使わず薄墨 (#8a8478 系) で統一する — 不在は「場が空いていないこと」の
- * 記号であって個別の予定ではないため、色で目立たせない(ユーザー決定)。
+ * 不在(OOO)・勤務場所の統合レール (2026-07-22 横ずれ解消リファクタ)。以前は
+ * .day-ooo-rail/.day-workloc-rail の2つのコンテナに分かれ、勤務場所帯を OOO バーぶん
+ * 内側(left: 14px)へ固定オフセットしていたが、同時刻(特に終了==開始の長さ0)の帯が
+ * 横にずれて side-by-side に見える不具合があったため、両方をこの1つのコンテナ
+ * (x=0 起点)に統合した。個々の帯(.day-ooo-line/.day-workloc-band)は DayColumn.tsx が
+ * layout/railStack.ts の列パッキング結果から求めた left(`column * RAIL_BAND_WIDTH_PX`)を
+ * インライン style で指定する ―― 時間が重ならない帯はすべて left: 0(縦に並ぶ)、重なる
+ * 帯だけ列が分かれて横に並ぶ。width はその日実際に必要になった最大列数ぶん
+ * (DayColumn.tsx がインライン style で指定、下記の 12px は列数1のときの既定値)。
+ * day-ci-rail (左端、下記) と同じ DAY_COLUMN_INSET_PX ぶんのガターを共有する(CI は既定
+ * OFF なので通常はこのレールが唯一の左端占有者)。
  */
-.day-ooo-rail {
+.day-rail {
   position: absolute;
   top: 0;
   left: 0;
-  width: 12px; /* OOO_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
+  width: 12px; /* RAIL_BAND_WIDTH_PX (gridMetrics.ts) と揃える既定値。実際の幅は
+                  DayColumn.tsx がその日の最大列数に応じてインライン style で上書きする */
   height: 100%;
   pointer-events: none;
 }
 
 /*
+ * OOO の矩形バー本体。色はカレンダー色を使わず薄墨 (#8a8478 系) にフォールバックしつつ、
+ * 基本は resolveDisplayColor の結果(下記)で塗る — 不在は「場が空いていないこと」の
+ * 記号であって個別の予定ではないため、色で目立たせない(ユーザー決定)。
+ *
  * 矩形化 (2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を白文字として矩形に
  * 収まる形に」): 5px レール内の細い4px線から、レール幅いっぱいの12px角丸矩形に変更。
- * 中央寄せの余白 (旧 left: 0.5px) は不要になったので left: 0 でレール幅と一致させる。
  * 塗り(カレンダー色)は従来どおり OooRailLine.tsx が resolveDisplayColor の結果を
  * inline style (backgroundColor) で与える方式を維持。矩形の塗りそのものが色になるため、
  * × (::after) はどの色の上でも読めるよう白固定にする(下記、以前の color: inherit から変更)。
+ * top/left/height は DayColumn.tsx が layout/railStack.ts の列パッキング結果から算出して
+ * インライン style で渡す(2026-07-22 横ずれ解消リファクタ ―― 以前は left: 0 固定 + top のみ
+ * minutesToPx() 自前計算だったが、列パッキング後の left が帯ごとに変わるため CSS 側の
+ * 固定値では表現できなくなった)。
  */
 .day-ooo-line {
   position: absolute;
-  left: 0;
-  width: 12px; /* OOO_RAIL_WIDTH_PX と揃える。gridMetrics.ts の dayColumnLeftInsetPx が
-                  この幅+隙間ぶん予定カードの左インセットを広げる */
+  width: 12px; /* RAIL_BAND_WIDTH_PX と揃える。gridMetrics.ts の dayColumnLeftInsetPx が
+                  この幅(× 列数)+隙間ぶん予定カードの左インセットを広げる */
   opacity: 0.88; /* 矩形化で面積が増えたぶん、細線だった頃 (0.7) より少し濃くして視認性を保つ */
   border-radius: 3px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
@@ -1319,39 +1331,30 @@
 }
 
 /*
- * 勤務場所レール (帯表示、時刻予定専用)。Google の勤務場所予定
- * (eventType==='workingLocation') のうち時刻予定側について、不在(OOO)レールと全く同じ
- * 「日カラム左端に時間範囲ぶんの角丸矩形バーを敷く」形で表示する(ユーザー要望「OOO の
- * ように帯で表示したい」、旧・点ピン版 .day-workloc-pin から作り替え)。予定カードは持たず
- * (専用レールへ完全に振り分け済み、layout/workingLocationRail.ts 参照)、この帯だけが
- * レールの内容そのものになる。終日の勤務場所はこのレールに出ない(2026-07-22 終日レーンへ
- * 統合 ―― .allday-bar--working-location 側の通常フローで表示、詳細は同クラスのコメント)。
- * left は DayColumn.tsx が workingLocationRailLeftPx (gridMetrics.ts)の結果をインラインで
- * 渡す(OOO バーが同じ日にあるかどうかで 0px/14px に切り替わる ―― CSS の条件分岐では
- * 表現できないため JS 側で計算する)。
- */
-.day-workloc-rail {
-  position: absolute;
-  top: 0;
-  width: 12px; /* WORKING_LOCATION_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
-  height: 100%;
-  pointer-events: none;
-}
-
-/*
- * 帯本体。OOO 帯 (.day-ooo-line) と全く同じ形・同じ当たり判定パターン(実体は
- * pointer-events: none、hit-test は下記 ::before が担う)だが、配色は意図的に差別化する ――
- * OOO はカレンダー色(occurrence ごとの inline style)で「どのカレンダーの不在か」を主張
- * するが、勤務場所はほぼ毎日出うる情報なので、朱・カレンダー色は使わず brand の薄墨枡色
- * (#DCD6C9、brand/README.md「ふつうの日の枡」)を低 opacity で敷くだけの「地の薄い帯」に
- * する(ユーザー方針。終日レーン側の .allday-bar--working-location も同じ色を使う)。
- * 値がイベントごとに変わらないため、ここでは固定値のまま CSS に置く(OOO のように JS 側
- * から backgroundColor を渡す必要が無い)。
+ * 勤務場所帯 (時刻予定専用)。Google の勤務場所予定 (eventType==='workingLocation') の
+ * うち時刻予定側について、不在(OOO)バーと全く同じ「時間範囲ぶんの角丸矩形バーを敷く」形で
+ * 表示する(ユーザー要望「OOO のように帯で表示したい」、旧・点ピン版 .day-workloc-pin から
+ * 作り替え)。予定カードは持たず(専用レールへ完全に振り分け済み、
+ * layout/workingLocationRail.ts 参照)、この帯だけがレールの内容そのものになる。終日の
+ * 勤務場所はこのレールに出ない(2026-07-22 終日レーンへ統合 ―― .allday-bar--working-location
+ * 側の通常フローで表示、詳細は同クラスのコメント)。
+ *
+ * コンテナは OOO と共用の .day-rail(上記)―― 2026-07-22 横ずれ解消リファクタ以前は
+ * .day-workloc-rail という別コンテナで、OOO バーが同じ日にあるかどうかで left を
+ * 0px/14px に固定で切り替えていたが、その固定オフセットが同時刻の帯の横ずれの原因
+ * だったため撤去した。top/left/height は OOO と同じく DayColumn.tsx が
+ * layout/railStack.ts の列パッキング結果からインライン style で渡す。
+ *
+ * 配色は OOO と意図的に差別化する ―― OOO はカレンダー色(occurrence ごとの inline style)で
+ * 「どのカレンダーの不在か」を主張するが、勤務場所はほぼ毎日出うる情報なので、朱・
+ * カレンダー色は使わず brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を
+ * 低 opacity で敷くだけの「地の薄い帯」にする(ユーザー方針。終日レーン側の
+ * .allday-bar--working-location も同じ色を使う)。値がイベントごとに変わらないため、
+ * ここでは固定値のまま CSS に置く(OOO のように JS 側から backgroundColor を渡す必要が無い)。
  */
 .day-workloc-band {
   position: absolute;
-  left: 0;
-  width: 12px; /* WORKING_LOCATION_RAIL_WIDTH_PX と揃える */
+  width: 12px; /* RAIL_BAND_WIDTH_PX と揃える */
   background-color: #dcd6c9; /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
   opacity: 0.68; /* 毎日出ても重すぎないよう抑える ―― OOO 帯の 0.88 よりはっきり薄くしてある */
   border-radius: 3px;
@@ -1408,9 +1411,9 @@
  * .day-activity-rail (commit 実績、右端) と対になる左端のレール — 同じ DAY_COLUMN_INSET_PX
  * ぶんのガターを使うので予定カードと絶対に重ならない。左右に分けているのは、同じ日に
  * commit と CI 実行の両方がある場合でも視覚的に別系列だと分かるようにするため。
- * day-ooo-rail(不在、上記)とはこの左端ガターを共有するが、z-index (day-ci-mark: 3 >
- * day-ooo-line: 1) により CI マーカーが常に手前に出る(ユーザー決定、両者が同時に
- * 表示される機会自体は稀 — CI は既定 OFF)。
+ * day-rail(不在・勤務場所の統合レール、上記)とはこの左端ガターを共有するが、z-index
+ * (day-ci-mark: 3 > day-ooo-line/day-workloc-band: 1) により CI マーカーが常に手前に出る
+ * (ユーザー決定、両者が同時に表示される機会自体は稀 — CI は既定 OFF)。
  */
 .day-ci-rail {
   position: absolute;

@@ -16,6 +16,7 @@ import {
   type DroppedWorkItem,
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
+import { packRailBandColumns } from "../layout/railStack";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import type { OooRailItem } from "../layout/oooRail";
 import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
@@ -28,7 +29,8 @@ import {
   isBusyPlaceholder,
   minutesToPx,
   pxToMinutes,
-  workingLocationRailLeftPx,
+  RAIL_BAND_WIDTH_PX,
+  RAIL_MIN_BAND_HEIGHT_PX,
 } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
@@ -128,10 +130,15 @@ interface DayColumnProps {
    * 不在 (Out of Office) レール(不在レール表示、2026-07-22)。この日ぶんの不在アイテム
    * (WeekGrid 側で eventType==='outOfOffice' な occurrence/終日 occurrence を packColumns の
    * 入力・AllDayBar のチップから除外して集めたもの、layout/oooRail.ts 参照)。
-   * activityClusters/ciClusters と同じ左端 DAY_COLUMN_INSET_PX ぶんのガター
-   * (`.day-ooo-rail`)に描画するが、CI(`.day-ci-rail`)と同じ左側を共有する — CI は既定
-   * OFF なので通常は空いている。同時表示になった場合の重なり順は CSS 側 (WeekGrid.css)
-   * の z-index で「不在ライン/× が下、CI マーカーが上」に固定してある。
+   * activityClusters/ciClusters と同じ左端 DAY_COLUMN_INSET_PX ぶんのガター(`.day-rail`)に
+   * 描画するが、CI(`.day-ci-rail`)と同じ左側を共有する — CI は既定 OFF なので通常は
+   * 空いている。同時表示になった場合の重なり順は CSS 側 (WeekGrid.css) の z-index で
+   * 「不在ライン/× が下、CI マーカーが上」に固定してある。
+   *
+   * 2026-07-22 横ずれ解消リファクタ: 時刻の不在(startMs を持つ subject)と終日の不在
+   * (全高ライン、subject が startDate/endDate のみ)が同じ配列に混在している。DayColumn 側で
+   * この2つを再度分け、終日ぶんは従来どおり列パッキング対象外の全高ラインとして描画し、
+   * 時刻ぶんだけを勤務場所と合わせて列パッキング(layout/railStack.ts)にかける。
    */
   oooItems: OooRailItem[];
   /**
@@ -139,7 +146,10 @@ interface DayColumnProps {
    * 勤務場所アイテム(WeekGrid 側で isWorkingLocation===true な occurrence を packColumns の
    * 入力から除外して集めたもの、layout/workingLocationRail.ts 参照)。OOO と同じく
    * packColumns の入力からは除外する ―― カードとしては描画せず、このレールの帯だけで表す。
-   * `.day-workloc-rail`(左端、OOO が無い日は最左・ある日は OOO バーの内側)に描画する。
+   * `.day-rail`(OOO の時刻ぶんと同じ x=0 起点の列を共有する。時間が重なる帯どうしだけ
+   * layout/railStack.ts の列パッキングで列を分けて横に並べる。2026-07-22 横ずれ解消
+   * リファクタ以前は「OOO がある日は常にバー1本ぶん内側へずらす」固定オフセットだったが、
+   * 同時刻(特に長さ0)の帯が横にずれて見える不具合があったため撤去した)に描画する。
    * 終日の勤務場所はこのレールに出さない(2026-07-22 終日レーンへ統合 ―― AllDayBar 側の
    * 通常フローで他の終日予定と並べて表示する。詳細は layout/workingLocationRail.ts 冒頭コメント)。
    */
@@ -231,14 +241,66 @@ export function DayColumn({
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
 
-  // 左端レールの左インセット一般化: 不在(OOO)帯・勤務場所帯(時刻予定側のみ、2026-07-22
-  // 終日レーンへ統合済み)のどちらか(または両方)がこの日にあるとき、EventBlock の
-  // 左インセットを広げて予定カードと重ならないようにする(gridMetrics.ts の
-  // dayColumnLeftInsetPx 参照)。どちらも無い日は従来の DAY_COLUMN_INSET_PX のまま。
-  const eventLeftInsetPx = dayColumnLeftInsetPx(
-    oooItems.length > 0,
-    workingLocationItems.length > 0,
+  // 終日 OOO(全高ライン)は列パッキングの対象外(既存のまま、要件変更なし)。
+  // oooItems には時刻・終日の両方が混在しているので、subject の形(Occurrence には
+  // startMs がある/AllDayOccurrence には無い)で振り分ける。OooRailLine.tsx の
+  // isTimedSubject と同じ構造的ガード。
+  const timedOooItems = oooItems.filter((item) => "startMs" in item.subject);
+  const allDayOooItems = oooItems.filter((item) => !("startMs" in item.subject));
+
+  // 2026-07-22 横ずれ解消リファクタ: OOO(時刻ぶん)と勤務場所を1本のレール(同じ x=0 起点の
+  // 列)に統合し、時間が重なる帯どうしだけを列パッキング(layout/railStack.ts、
+  // packColumns.ts の貪欲 first-fit を流用)で列分けして横に並べる。重ならない帯(接触含む)は
+  // 全て列0(left: 0)に本来の時刻位置のまま乗るので縦に並ぶ。
+  // 並び順は OOO → 勤務場所の順で配列を組み立てる ―― 同時刻タイ(例: 終了==開始が同時刻の
+  // OOO と勤務場所)になったとき、packRailBandColumns 内の安定ソートにより OOO が列0
+  // (カードに一番近い左)に来る(任意だが決めてある。OOO の方が「その場にいない」という
+  // より強い情報なので優先して手前寄りに置く)。
+  type TimedRailBand =
+    | { kind: "ooo"; id: string; startMinutes: number; endMinutes: number; oooItem: OooRailItem }
+    | {
+        kind: "workloc";
+        id: string;
+        startMinutes: number;
+        endMinutes: number;
+        workLocItem: WorkingLocationRailItem;
+      };
+  const timedRailBands: TimedRailBand[] = [
+    ...timedOooItems.map(
+      (oooItem): TimedRailBand => ({
+        kind: "ooo",
+        id: oooItem.id,
+        startMinutes: oooItem.startMinutes,
+        endMinutes: oooItem.endMinutes,
+        oooItem,
+      }),
+    ),
+    ...workingLocationItems.map(
+      (workLocItem): TimedRailBand => ({
+        kind: "workloc",
+        id: workLocItem.id,
+        startMinutes: workLocItem.startMinutes,
+        endMinutes: workLocItem.endMinutes,
+        workLocItem,
+      }),
+    ),
+  ];
+  const packedRailBands = packRailBandColumns(
+    timedRailBands,
+    (b) => b.startMinutes,
+    (b) => b.endMinutes,
   );
+  // その日のレールで実際に必要になった最大列数。終日 OOO しか無い日でも帯1本ぶん(1列)は
+  // 確保する(以前の「hasOoo なら16px」という挙動と同じ広さを保つため)。
+  const hasAnyRailItem = allDayOooItems.length > 0 || packedRailBands.length > 0;
+  const railMaxColumnCount = packedRailBands.reduce((max, p) => Math.max(max, p.columnCount), 0);
+  const railColumnCount = hasAnyRailItem ? Math.max(1, railMaxColumnCount) : 0;
+
+  // 左端レールの左インセット一般化: この日のレール列数(railColumnCount、上記)ぶん
+  // EventBlock の左インセットを広げて予定カードと重ならないようにする(gridMetrics.ts の
+  // dayColumnLeftInsetPx 参照)。レールが無い日(railColumnCount===0)は従来の
+  // DAY_COLUMN_INSET_PX のまま。
+  const eventLeftInsetPx = dayColumnLeftInsetPx(railColumnCount);
 
   const busyIntervals = positioned
     .map((p) => p.item.primary)
@@ -561,42 +623,62 @@ export function DayColumn({
           })}
         </div>
       )}
-      {oooItems.length > 0 && (
-        // 不在レール(2026-07-22): day-ci-rail と同じ左端ガターを共有する(CI は既定 OFF
-        // なので通常は空いている)。DOM 順・CSS 側の z-index (WeekGrid.css の .day-ooo-line)
-        // の両方で、後続の day-ci-rail(CI マーカー)より必ず背面に来るようにしてある
-        <div className="day-ooo-rail">
-          {oooItems.map((item) => (
+      {hasAnyRailItem && (
+        // 統合レール(2026-07-22 横ずれ解消リファクタ): 不在(OOO)と勤務場所を同じ x=0 起点の
+        // 1レールにまとめて描画する。以前は .day-ooo-rail/.day-workloc-rail の2つに分かれ、
+        // 勤務場所帯を OOO バーぶん内側へ固定オフセットしていたが、それだと同時刻(特に
+        // 終了==開始)の帯が横に14pxずれて side-by-side に見えてしまっていた。
+        // day-ci-rail と同じ左端ガターを共有する(CI は既定 OFF なので通常は空いている)。
+        // DOM 順・CSS 側の z-index (WeekGrid.css の .day-ooo-line/.day-workloc-band) の両方で、
+        // 後続の day-ci-rail(CI マーカー)より必ず背面に来るようにしてある。
+        // width は railColumnCount(上記、その日実際に必要になった最大列数)ぶん ―― 時間が
+        // 重ならない日は1列(12px)のまま、重なる日だけ列数に応じて広がる。
+        <div className="day-rail" style={{ width: railColumnCount * RAIL_BAND_WIDTH_PX }}>
+          {/* 終日 OOO(全高ライン)は列パッキングの対象外。常に列0・全高のまま独立して描画する
+              (既存の挙動を変えない要件)。 */}
+          {allDayOooItems.map((item) => (
             <OooRailLine
               key={item.id}
               item={item}
+              top={0}
+              height={minutesToPx(item.endMinutes - item.startMinutes)}
+              left={0}
               timeZone={timeZone}
               calendarLookup={calendarLookup}
             />
           ))}
-        </div>
-      )}
-      {workingLocationItems.length > 0 && (
-        // 勤務場所レール(帯表示、時刻予定専用。終日はここに出ない ―― AllDayBar 側の
-        // 通常フローで表示、2026-07-22 終日レーンへ統合)。OOO バーとの視覚衝突回避:
-        // OOO が無い日はレール最左(left: 0、OOO バーと同じガター)、ある日は OOO バーの
-        // 幅ぶん内側へずらす(workingLocationRailLeftPx、gridMetrics.ts)。左インセット
-        // (eventLeftInsetPx、上記)側も両レールぶんまとめて広げてあるので、OOO・勤務場所帯・
-        // 予定カードの3者が同時に出ても重ならない。
-        // z-index は day-ooo-line と同じ 1(.now-line(2)・.day-ci-mark/.day-activity-mark(3)
-        // より下、WeekGrid.css 側で指定)
-        <div
-          className="day-workloc-rail"
-          style={{ left: workingLocationRailLeftPx(oooItems.length > 0) }}
-        >
-          {workingLocationItems.map((item) => (
-            <WorkingLocationRailBand
-              key={item.id}
-              item={item}
-              timeZone={timeZone}
-              calendarLookup={calendarLookup}
-            />
-          ))}
+          {/* 時刻の OOO・勤務場所は列パッキング結果どおりに top(本来の時刻位置のまま)・
+              left(column * RAIL_BAND_WIDTH_PX)で描画する。縦位置は押し下げない ――
+              重なる帯だけが横の列で分かれる。 */}
+          {packedRailBands.map(({ item: band, column }) => {
+            const top = minutesToPx(band.startMinutes);
+            const height = Math.max(
+              minutesToPx(band.endMinutes - band.startMinutes),
+              RAIL_MIN_BAND_HEIGHT_PX,
+            );
+            const left = column * RAIL_BAND_WIDTH_PX;
+            return band.kind === "ooo" ? (
+              <OooRailLine
+                key={band.id}
+                item={band.oooItem}
+                top={top}
+                height={height}
+                left={left}
+                timeZone={timeZone}
+                calendarLookup={calendarLookup}
+              />
+            ) : (
+              <WorkingLocationRailBand
+                key={band.id}
+                item={band.workLocItem}
+                top={top}
+                height={height}
+                left={left}
+                timeZone={timeZone}
+                calendarLookup={calendarLookup}
+              />
+            );
+          })}
         </div>
       )}
       {ciClusters.length > 0 && (

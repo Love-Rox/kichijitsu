@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
-import { formatDetailDateTime, formatRange, minutesToPx } from "../layout/gridMetrics";
+import { formatDetailDateTime, formatRange } from "../layout/gridMetrics";
 import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
@@ -10,14 +10,24 @@ import { PlaceIcon } from "./icons";
 
 const HOVER_DELAY_MS = 400;
 const PLACE_ICON_SIZE_PX = 12;
-/**
- * OOO 帯 (OooRailLine.tsx) の MIN_BAR_HEIGHT_PX と同じ理由: 短時間の勤務場所(数分)でも
- * 上端の PlaceIcon(top: 2px + 12px)が帯の外にはみ出さないだけの最低高さを確保する。
- */
-const MIN_BAND_HEIGHT_PX = 16;
 
 interface WorkingLocationRailBandProps {
   item: WorkingLocationRailItem;
+  /**
+   * 描画 top(px)。2026-07-22 横ずれ解消リファクタ以前はこのコンポーネントが
+   * item.startMinutes から minutesToPx() で自前計算していたが、現在は呼び出し元
+   * (DayColumn.tsx)が算出した値をそのまま渡す(縦位置は本来の時刻のまま ―― 列パッキングは
+   * 横の列だけを分けるので押し下げは発生しない、layout/railStack.ts 参照)。
+   */
+  top: number;
+  /** 描画高さ(px)。呼び出し元が RAIL_MIN_BAND_HEIGHT_PX(gridMetrics.ts)等の下限を適用済みの値を渡す */
+  height: number;
+  /**
+   * 描画 left(px、レール列基準)。OOO と勤務場所は同じ x=0 起点の列を共有し、時間が
+   * 重なる帯どうしだけ layout/railStack.ts の列パッキングで列を分けて横に並べる
+   * (`column * RAIL_BAND_WIDTH_PX`)。重ならない帯は全て left=0 で縦に並ぶ。
+   */
+  left: number;
   timeZone: string;
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventDetailCard の全所属列挙に使う */
   calendarLookup: Map<string, CalendarInfo>;
@@ -58,6 +68,9 @@ interface WorkingLocationRailBandProps {
  */
 export function WorkingLocationRailBand({
   item,
+  top,
+  height,
+  left,
   timeZone,
   calendarLookup,
 }: WorkingLocationRailBandProps) {
@@ -128,10 +141,7 @@ export function WorkingLocationRailBand({
     <>
       <div
         className="day-workloc-band"
-        style={{
-          top: minutesToPx(item.startMinutes),
-          height: Math.max(minutesToPx(item.endMinutes - item.startMinutes), MIN_BAND_HEIGHT_PX),
-        }}
+        style={{ top, height, left }}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
