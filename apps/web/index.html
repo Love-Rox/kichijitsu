@@ -250,29 +250,22 @@
         flex-shrink: 1;
       }
 
-      /* ナビは横幅が特に狭いので、フッター/セクション見出しの --sm より
-         さらにコンパクトな専用サイズにする (狭幅での折返し・重なり防止)。 */
-      .nav__brand .masu-strip {
-        --strip-cell: 0.5rem;
-        --strip-gap: 0.1875rem;
-        gap: var(--strip-gap);
-      }
-
-      .nav__brand-word {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        min-width: 0;
+      /* ワードマーク (文字ロゴ) 画像。SVG は brand/wordmark.svg の色固定版
+         (public/wordmark.svg)。<img> は currentColor を継承しないため、色は
+         SVG 側に焼き込み済み (墨 #24211e / j の点は朱 #D7402E 固定)。 */
+      .nav__wordmark {
+        height: 20px;
+        width: auto;
+        flex: none;
       }
 
       @media (max-width: 26em) {
-        .nav__brand {
-          font-size: var(--text-sm);
-          gap: var(--space-3xs);
-        }
-
         .nav__row {
           gap: var(--space-xs);
+        }
+
+        .nav__wordmark {
+          height: 17px;
         }
       }
 
@@ -845,9 +838,11 @@
       .footer__brand {
         display: inline-flex;
         align-items: center;
-        gap: var(--space-2xs);
-        font-weight: 600;
-        font-size: var(--text-sm);
+      }
+
+      .footer__wordmark {
+        height: 16px;
+        width: auto;
       }
 
       .footer__links {
@@ -900,16 +895,7 @@
     <header class="nav">
       <div class="container nav__row">
         <a class="nav__brand" href="/">
-          <span class="masu-strip masu-strip--sm" aria-hidden="true">
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-          </span>
-          <span class="nav__brand-word">kichijitsu</span>
+          <img class="nav__wordmark" src="/wordmark.svg" alt="kichijitsu" />
         </a>
         <div class="nav__actions">
           <a
@@ -1214,8 +1200,7 @@
     <footer class="footer">
       <div class="container footer__row">
         <div class="footer__brand">
-          <span class="masu-mark" aria-hidden="true"></span>
-          kichijitsu
+          <img class="footer__wordmark" src="/wordmark.svg" alt="kichijitsu" />
         </div>
         <ul class="footer__links">
           <li><a href="/privacy.html">プライバシー</a></li>

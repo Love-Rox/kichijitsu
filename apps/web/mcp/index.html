@@ -163,41 +163,6 @@
         border: 0;
       }
 
-      /* ===== 枡の週ストリップ (シグネチャー意匠、ナビ専用の小サイズのみ使用) ===== */
-      .masu-strip {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--strip-gap, 0.5em);
-      }
-
-      .masu-strip__cell {
-        width: var(--strip-cell, 2.5rem);
-        height: var(--strip-cell, 2.5rem);
-        flex: none;
-        border-radius: var(--radius-masu);
-        border: max(1.5px, 0.09em) solid var(--masu);
-        background: transparent;
-      }
-
-      .masu-strip__cell--kichi {
-        border: none;
-        background: var(--aka);
-        transform: rotate(-8deg);
-      }
-
-      .masu-strip--sm {
-        --strip-cell: 0.875rem;
-        --strip-gap: 0.4em;
-      }
-
-      .masu-mark {
-        width: 1.5rem;
-        height: 1.5rem;
-        border-radius: var(--radius-masu);
-        border: 1.5px solid var(--masu);
-        flex: none;
-      }
-
       /* ===== ナビ (masthead、ランディングと共通の意匠) ===== */
       .nav {
         padding-block: var(--space-md);
@@ -225,27 +190,21 @@
         flex-shrink: 1;
       }
 
-      .nav__brand .masu-strip {
-        --strip-cell: 0.5rem;
-        --strip-gap: 0.1875rem;
-        gap: var(--strip-gap);
-      }
-
-      .nav__brand-word {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        min-width: 0;
+      /* ワードマーク (文字ロゴ) 画像。色は public/wordmark.svg 側に焼き込み済み
+         (墨 #24211e / j の点は朱 #D7402E 固定、<img> は currentColor を継承しないため)。 */
+      .nav__wordmark {
+        height: 19px;
+        width: auto;
+        flex: none;
       }
 
       @media (max-width: 26em) {
-        .nav__brand {
-          font-size: var(--text-sm);
-          gap: var(--space-3xs);
-        }
-
         .nav__row {
           gap: var(--space-xs);
+        }
+
+        .nav__wordmark {
+          height: 17px;
         }
       }
 
@@ -616,9 +575,11 @@
       .footer__brand {
         display: inline-flex;
         align-items: center;
-        gap: var(--space-2xs);
-        font-weight: 600;
-        font-size: var(--text-sm);
+      }
+
+      .footer__wordmark {
+        height: 16px;
+        width: auto;
       }
 
       .footer__links {
@@ -669,16 +630,7 @@
     <header class="nav">
       <div class="container nav__row">
         <a class="nav__brand" href="/">
-          <span class="masu-strip masu-strip--sm" aria-hidden="true">
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell masu-strip__cell--kichi"></span>
-            <span class="masu-strip__cell"></span>
-            <span class="masu-strip__cell"></span>
-          </span>
-          <span class="nav__brand-word">kichijitsu</span>
+          <img class="nav__wordmark" src="/wordmark.svg" alt="kichijitsu" />
         </a>
         <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
       </div>
@@ -934,8 +886,7 @@
     <footer class="footer">
       <div class="container footer__row">
         <div class="footer__brand">
-          <span class="masu-mark" aria-hidden="true"></span>
-          kichijitsu
+          <img class="footer__wordmark" src="/wordmark.svg" alt="kichijitsu" />
         </div>
         <ul class="footer__links">
           <li><a href="/privacy.html">プライバシー</a></li>

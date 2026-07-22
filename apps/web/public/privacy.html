@@ -61,16 +61,10 @@
       .site-nav .brand {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        font-weight: 600;
       }
-      .site-nav .brand .mark {
-        width: 14px;
-        height: 14px;
-        border-radius: 3px;
-        background: #d7402e;
-        display: inline-block;
-        transform: rotate(-8deg);
+      .site-nav .brand .wordmark {
+        height: 19px;
+        width: auto;
       }
       .site-nav .back-link {
         font-size: 13px;
@@ -98,7 +92,7 @@
   </head>
   <body>
     <header class="site-nav">
-      <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>kichijitsu</a>
+      <a class="brand" href="/"><img class="wordmark" src="/wordmark.svg" alt="kichijitsu" /></a>
       <a class="back-link" href="#" onclick="history.back();return false;">← 戻る</a>
     </header>
     <main>
