@@ -1313,7 +1313,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8a8478;
+  /* 墨で視認性を確保(薄墨 #8a8478 だと生成り背景で沈んで見えなくなる、ユーザー指摘 2026-07-22)。
+     朱は使わない(ブランドの唯一アクセント)ぶん、地の墨をしっかり出す。ホバーは色でなく
+     淡い背景ディスクで反応させる(朱を持ち込まずに操作可能性を示す)。 */
+  color: #24211e;
+  border-radius: 50%;
   cursor: pointer;
   pointer-events: auto;
   z-index: 1; /* .day-ooo-line と同じ層 = .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 */
@@ -1321,7 +1325,7 @@
 
 .day-workloc-pin:hover,
 .day-workloc-pin:focus-visible {
-  color: #24211e;
+  background: rgba(36, 33, 30, 0.1);
 }
 
 @media (prefers-reduced-motion: no-preference) {
