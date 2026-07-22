@@ -43,7 +43,7 @@ import {
   type WorkingLocationRailItem,
 } from "../layout/workingLocationRail";
 import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
-import { panelAnchors, panelSlideDirection } from "../layout/dayGrid";
+import { panelAnchors } from "../layout/dayGrid";
 import { useSwipeNavigation } from "../hooks/useSwipeNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { type CalendarInfo } from "./EventBlock";
@@ -200,18 +200,22 @@ interface WeekGridProps {
   onSwipeNavigate?: (direction: "prev" | "next") => void;
 }
 
-type SlidePhase = "idle" | "next" | "prev";
+/** 1パネル(=dayCount 日)ぶんの strip 幅(%)。strip は width:300% なので translateX(-33.3333%) で
+ * ちょうど1パネル(=viewport 1枚ぶん)ずれる。3パネルは連続する 3×dayCount 日をレンダーしている。 */
+const PANEL_PERCENT = 33.3333;
 
 /**
- * phase が指す strip の基準 translateX(%)。3週(prev/current/next)のうち中央(=index1)が既定表示。
+ * strip の基準 translateX(%)。中央パネル([center, center+dayCount))を表示する idle は -1パネル
+ * (-33.3333%)。そこから slideDays 日ぶん先へ進める(戻す)と、1日 = 1パネルの 1/dayCount ぶん
+ * strip をずらす ―― forward(slideDays>0)は strip をさらに左(負)へ。これにより「1パネル丸ごと」
+ * ではなく「任意の日数(スワイプは1日、←/→ ボタンは dayCount 日)」ぶんのスライドを、同じ 3パネル
+ * (=3×dayCount 日ぶん)のレンダー範囲内で表現できる(表示窓が範囲に収まる |slideDays| <= dayCount のとき)。
  * この値を stripStyle の CSS 変数 --strip-base として渡し、CSS 側で
  * translateX(calc(var(--strip-base) + var(--swipe-dx))) と合成する(--swipe-dx は指追従オフセット px)。
  */
-const PHASE_BASE_PERCENT: Record<SlidePhase, number> = {
-  prev: 0,
-  idle: -33.3333,
-  next: -66.6667,
-};
+function baseStripPercent(slideDays: number, dayCount: number): number {
+  return -PANEL_PERCENT * (1 + slideDays / dayCount);
+}
 
 interface WeekPanelData {
   panelStart: Temporal.PlainDate;
@@ -291,7 +295,9 @@ export function WeekGrid({
 
   // 表示中(=アニメーション完了済み)の中央週。ストリップは常にこの ±1週の3週ぶんだけ DOM を持つ
   const [center, setCenter] = useState(weekStart);
-  const [phase, setPhase] = useState<SlidePhase>("idle");
+  // スライド中の「先へ進んだ日数」。0=idle(中央パネル表示)。スワイプは ±1、←/→ ボタンは
+  // ±dayCount。baseStripPercent(slideDays, dayCount) が strip の基準%に変換する。
+  const [slideDays, setSlideDays] = useState(0);
   // true の間は transform の transition を切る(スワップ直後の瞬間ジャンプを無アニメで行うため)
   const [instant, setInstant] = useState(true);
   const slideTimeoutRef = useRef<number | undefined>(undefined);
@@ -319,31 +325,33 @@ export function WeekGrid({
   }, []);
 
   // weekStart (App が持つ状態) が変わったら center に反映する。
-  // ちょうど隣パネル(dayCount日ぶん)への移動ならスライドアニメーションし、
-  // それ以外(today ジャンプ・ビュー切替等)は瞬時に切り替える。
+  // 表示窓 [weekStart, weekStart+dayCount) がレンダー済みストリップ [center-dayCount, center+2*dayCount)
+  // に収まる範囲(移動量 |delta日| <= dayCount)ならスライドアニメーションし、それ以外(today ジャンプ・
+  // ビュー切替等、レンダー外への移動)は瞬時に切り替える。スワイプは1日ずつ(delta=±1)、←/→ ボタンは
+  // dayCount ずつ(delta=±dayCount)ここへ合流し、同じ仕組みで delta 日ぶんスライドする。
   useEffect(() => {
     if (weekStart.equals(center)) return;
     if (slideTimeoutRef.current !== undefined) {
       window.clearTimeout(slideTimeoutRef.current);
       slideTimeoutRef.current = undefined;
     }
-    const direction = panelSlideDirection(center, weekStart, dayCount);
+    const delta = weekStart.since(center, { largestUnit: "day" }).days; // >0=先へ, <0=前へ
 
     // スワイプ確定の瞬間もここへ合流する(handleSwipeEnd → onSwipeNavigate → App.tsx の
-    // goToPrev/goToNext → weekStart 更新、という経路で他のナビゲーションと同じ effect を通る)。
-    // 指追従の水平オフセット --swipe-dx を「phase 切替(=--strip-base を隣パネルへ)」と同じこの
+    // setTimelineStart(±1日) → weekStart 更新、という経路で他のナビゲーションと同じ effect を通る)。
+    // 指追従の水平オフセット --swipe-dx を「slideDays 切替(=--strip-base をずらす)」と同じこの
     // バッチで 0 に戻す ―― handleSwipeEnd 側で先に 0 に戻すと、この effect(paint 後実行)より前に
     // 一旦中央へ戻る2段階のカクつきになるため、指の位置(--swipe-dx=finger)を保ったままここまで来て、
-    // phase 切替と同時に 0 にする。これで指を離した位置から隣パネルへ1回の transition で滑らかに
-    // スナップする。トグルボタン等スワイプ以外の経路では --swipe-dx は既に 0(0→0 は無害)。
+    // slideDays 切替と同時に 0 にする。これで指を離した位置から目的の日へ1回の transition で滑らかに
+    // スナップする。←/→ ボタン等スワイプ以外の経路では --swipe-dx は既に 0(0→0 は無害)。
     gridRootRef.current?.style.setProperty("--swipe-dx", "0px");
 
-    if (direction !== 0) {
+    if (delta !== 0 && Math.abs(delta) <= dayCount) {
       setInstant(false);
-      setPhase(direction === 1 ? "next" : "prev");
+      setSlideDays(delta);
       slideTimeoutRef.current = window.setTimeout(() => {
         setInstant(true);
-        setPhase("idle");
+        setSlideDays(0);
         setCenter(weekStart);
         // instant での瞬間ジャンプが確実に1フレーム描画されてから transition を戻す
         requestAnimationFrame(() => {
@@ -352,7 +360,7 @@ export function WeekGrid({
       }, effectiveSlideMs);
     } else {
       setInstant(true);
-      setPhase("idle");
+      setSlideDays(0);
       setCenter(weekStart);
     }
     // center は effect 内でのみ更新するので依存に含めない
@@ -370,14 +378,14 @@ export function WeekGrid({
   // カクつき解消 + スナップ改善、2026-07-23)。実際の pointer 配線・方向判定は
   // hooks/useSwipeNavigation.ts(判定/数値計算は layout/swipeNav.ts の純関数)に委譲し、ここでは
   // 追従(--swipe-dx の命令的セット)・スナップ(.is-swiping の付け外し)・確定時の呼び出し先
-  // (onSwipeNavigate、App.tsx の goToPrev/goToNext)を配線する。
+  // (onSwipeNavigate、App.tsx で timelineStart を1日ずつ動かす)を配線する。
   //
   // enabled は「longPressCreate(=isNarrow、モバイル幅)かつ、前回のスナップアニメーションが
-  // 終わって phase==='idle' のとき」だけ ―― longPressCreate=false(デスクトップの即時作成
+  // 終わって slideDays===0(idle)のとき」だけ ―― longPressCreate=false(デスクトップの即時作成
   // ドラッグ)との衝突を避け(useSwipeNavigation.ts のコメント参照)、アニメーション中の
-  // 割り込みも防ぐ。onSwipeNavigate が渡されていなければ(App.tsx が対応していない/
-  // 呼び出し側の意図的な無効化)常に無効。
-  const swipeEnabled = Boolean(onSwipeNavigate) && longPressCreate && phase === "idle";
+  // 割り込みも防ぐ(この gate があるためスワイプは自己直列化され、App 側で nav ロック不要)。
+  // onSwipeNavigate が渡されていなければ(App.tsx が対応していない/呼び出し側の意図的な無効化)常に無効。
+  const swipeEnabled = Boolean(onSwipeNavigate) && longPressCreate && slideDays === 0;
 
   // 指追従の水平オフセットを --swipe-dx として .week-grid ルートへ命令的に反映する(React 再レンダー
   // なし)。CSS 側で transform: translateX(calc(var(--strip-base) + var(--swipe-dx))) が全 strip に効く。
@@ -396,9 +404,9 @@ export function WeekGrid({
   // 指を離したとき: .is-swiping を外して inline の transition(Xms ease)を復活させ、スナップさせる。
   // - 'stay': weekStart が変わらず上の useEffect は走らないので、ここで --swipe-dx=0 に戻す
   //   →基準%(中央)へアニメーションで戻る。
-  // - 'prev'/'next': ここでは --swipe-dx をまだ 0 に戻さない。onSwipeNavigate で weekStart を動かし、
-  //   上の useEffect が「phase 切替(=--strip-base を隣パネルへ)」と「--swipe-dx=0」を同じバッチで
-  //   行う。ここで先に 0 に戻すと、phase 切替(effect は paint 後実行)より前に一旦中央へ戻る2段階の
+  // - 'prev'/'next': ここでは --swipe-dx をまだ 0 に戻さない。onSwipeNavigate で weekStart を1日動かし、
+  //   上の useEffect が「slideDays 切替(=--strip-base をずらす)」と「--swipe-dx=0」を同じバッチで
+  //   行う。ここで先に 0 に戻すと、slideDays 切替(effect は paint 後実行)より前に一旦中央へ戻る2段階の
   //   カクつきになるため、指の位置(--swipe-dx=finger)を保ったまま effect に委ねる。
   const handleSwipeEnd = useCallback(
     (outcome: "prev" | "next" | "stay") => {
@@ -755,10 +763,10 @@ export function WeekGrid({
   );
 
   // strip の transform は CSS 側(WeekGrid.css)で translateX(calc(var(--strip-base) + var(--swipe-dx)))
-  // として定義してある。ここでは phase の基準%を --strip-base として渡すだけ ―― 指追従の --swipe-dx は
-  // handleSwipeMove が命令的にセットする(React 再レンダー回避)。5つの strip が同じ stripStyle を共有。
+  // として定義してある。ここでは slideDays を基準%に変換して --strip-base として渡すだけ ―― 指追従の
+  // --swipe-dx は handleSwipeMove が命令的にセットする(React 再レンダー回避)。5つの strip が共有。
   const stripStyle = {
-    "--strip-base": `${PHASE_BASE_PERCENT[phase]}%`,
+    "--strip-base": `${baseStripPercent(slideDays, dayCount)}%`,
     transition: instant ? "none" : `transform ${effectiveSlideMs}ms ease`,
   } as CSSProperties;
   // 7列固定だった grid-template-columns を dayCount 列へ一般化する(WeekGrid.css 側は
