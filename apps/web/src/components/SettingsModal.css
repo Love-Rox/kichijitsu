@@ -305,6 +305,13 @@
   text-decoration: underline;
 }
 
+/* ビルド番号表示 (ユーザー要望、2026-07-22)。フッターの控えめな1行 ―― version.ts 参照 */
+.settings-build-info {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #8a8478;
+}
+
 @media (max-width: 640px) {
   .settings-modal-backdrop {
     padding: 16px;

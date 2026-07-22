@@ -249,11 +249,31 @@ fn reload_main_window_if_focused(app: &tauri::AppHandle) {
     }
 }
 
+/// デスクトップアプリのバージョン (`Cargo.toml` の `package.version`) を返す。
+///
+/// ビルド番号表示 (ユーザー要望、2026-07-22): このアプリはリモート URL 方式
+/// (ファイル先頭コメント参照) のため、webview がキャッシュ由来の古いビルドを表示し続けても
+/// web 側だけでは気づけない。設定モーダル (apps/web/src/components/SettingsModal.tsx) が
+/// この値を「アプリ v{version}」として web 側のビルド SHA/時刻と並べて表示することで、
+/// 少なくともネイティブシェルのバージョンだけは確認できるようにする。
+///
+/// `env!("CARGO_PKG_VERSION")` はコンパイル時に `Cargo.toml` の `[package] version` を
+/// 埋め込むマクロ ―― 実行時のファイル I/O や外部コマンド起動は無い。
+///
+/// 注: アプリ自前の command はローカルコンテンツからなら capability(ACL)無しで invoke
+/// できるが、このアプリの webview はリモート URL を読む (ファイル先頭コメント参照) ため、
+/// `gh_api` 同様 capabilities/remote.json 側で `allow-app-version` を明示許可しないと
+/// リモートコンテンツからの invoke は全拒否される。
+#[tauri::command]
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![gh_api])
+        .invoke_handler(tauri::generate_handler![gh_api, app_version])
         .setup(|app| {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;

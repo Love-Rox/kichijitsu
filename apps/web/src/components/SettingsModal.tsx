@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
 import { mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
 import "./SettingsModal.css";
 
 export interface SettingsModalProps {
@@ -67,6 +68,25 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   useCloseOnOutsideOrEscape(true, cardRef, onClose);
+
+  // デスクトップアプリのバージョン (best-effort、docs/desktop.md 増分2b の gh_api と同じ
+  // window.__TAURI__ 経由)。ブラウザ/PWA では常に null のままで、web のビルド情報だけ出す。
+  const [desktopVersion, setDesktopVersion] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getDesktopVersion()
+      .then((version) => {
+        if (!cancelled) setDesktopVersion(version);
+      })
+      .catch((err) => {
+        // getDesktopVersion 自体は内部で catch して null に丸めるため実際には reject
+        // しないが、linter (no-floating-promises) 対策として形だけ持たせる。
+        console.error("kichijitsu: getDesktopVersion unexpectedly rejected", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="settings-modal-backdrop">
@@ -180,6 +200,16 @@ export function SettingsModal({
           <a href="/privacy.html">プライバシー</a>
           <a href="/terms.html">規約</a>
         </div>
+
+        {/*
+         * ビルド番号表示 (ユーザー要望、2026-07-22)。リモート URL 方式のデスクトップアプリで
+         * webview がキャッシュ由来の古いビルドを表示し続けても気づけるよう、
+         * 「いま見ているビルド」を確認できる控えめな表示をフッターに置く (version.ts 参照)。
+         */}
+        <p className="settings-build-info">
+          {desktopVersion && `アプリ v${desktopVersion} · `}
+          ビルド {BUILD_SHA} · {formatBuildTime(BUILD_TIME)}
+        </p>
       </div>
     </div>
   );
