@@ -50,6 +50,17 @@ export interface Occurrence {
    * UI (EventBlock.tsx) はこれを見て「自動生成」の印と説明文を出す。
    */
   isMirror?: boolean;
+  /**
+   * 不在レール表示 (2026-07-22)。Google の eventType==='outOfOffice' な予定かどうか。
+   * true は mapGoogle.ts が付与する(isMirror と同じ流儀: 判定の複雑さ・GoogleEventDTO
+   * への依存を model 層に持ち込まず、bool 1個に潰してから渡す)。
+   * UI (DayColumn.tsx) はこれを見て、通常の予定カードとして描画する代わりに
+   * 日列端の専用レールへ振り分ける(packColumns の入力からも除外する)。
+   * isMirror と同じく、繰り返し予定 (EventSeries 経由の展開) には現状付与しない
+   * (Google の不在予定が実際に繰り返しになるケースは稀なため v1 では対象外。
+   * 繰り返しで来た場合はこのフラグが立たず、従来通りの予定カードとして描画される)。
+   */
+  isOutOfOffice?: boolean;
 }
 
 /**
@@ -82,6 +93,8 @@ export interface AllDayOccurrence {
   description?: string;
   /** Occurrence.isMirror と同じ意味 (カレンダーブロック機能の自動生成 mirror かどうか) */
   isMirror?: boolean;
+  /** Occurrence.isOutOfOffice と同じ意味 (不在レール表示、2026-07-22)。 */
+  isOutOfOffice?: boolean;
 }
 
 /**

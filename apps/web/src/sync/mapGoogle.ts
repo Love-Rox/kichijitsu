@@ -96,6 +96,20 @@ function isMirrorEvent(event: GoogleEventDTO): boolean {
 }
 
 /**
+ * event が Google の「不在」予定 (eventType==='outOfOffice') かどうか。true なら
+ * buildSingle/buildAllDay が occurrence.isOutOfOffice = true を立て、UI (DayColumn.tsx) が
+ * 通常の予定カードの代わりに専用レールへ振り分ける(不在レール表示、2026-07-22)。
+ *
+ * isMirrorEvent と同じ理由でこのフラグを付与するパスは buildSingle/buildAllDay のみ
+ * (繰り返し予定 (buildSeries/buildOverride) には付けない — Google の不在予定が実際に
+ * 繰り返しになるケースは稀なため v1 では対象外。将来必要になれば EventSeries 側にも
+ * 同様のフィールドを足して expandSeries で引き継げばよい)。
+ */
+function isOutOfOfficeEvent(event: GoogleEventDTO): boolean {
+  return event.eventType === "outOfOffice";
+}
+
+/**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
  * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
@@ -323,6 +337,7 @@ function buildAllDay(event: GoogleEventDTO, ctx: MapGoogleContext): AllDayOccurr
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
+    ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
   };
 }
 
@@ -351,6 +366,7 @@ function buildSingle(
     description: event.description,
     ...(event.htmlLink ? { link: { url: event.htmlLink } } : {}),
     ...(isMirrorEvent(event) ? { isMirror: true } : {}),
+    ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
   };
 }
 

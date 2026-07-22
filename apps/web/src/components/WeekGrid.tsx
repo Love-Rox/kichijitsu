@@ -26,6 +26,13 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from "../layout/groupDuplicates";
+import {
+  allDayOooRailItems,
+  splitOutOfOfficeAllDayGroups,
+  splitOutOfOfficeGroups,
+  timedOooRailItems,
+  type OooRailItem,
+} from "../layout/oooRail";
 import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
 import { panelAnchors, panelSlideDirection } from "../layout/dayGrid";
 import { type CalendarInfo } from "./EventBlock";
@@ -158,6 +165,8 @@ interface WeekPanelData {
   dayData: {
     day: Temporal.PlainDate;
     positioned: ReturnType<typeof packColumns<OccurrenceGroup>>;
+    /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
+    oooItems: OooRailItem[];
   }[];
 }
 
@@ -314,12 +323,18 @@ export function WeekGrid({
           const items = groupedOccurrences.filter(
             (g) => g.primary.startMs >= dayStarts[i] && g.primary.startMs < dayEnds[i],
           );
+          // 不在(Out of Office、2026-07-22): 通常の予定カードとして描画しないため、
+          // packColumns の入力(cardGroups)から除外する(カスケード列を消費させない)。
+          // 除外した分(oooGroups)は timedOooRailItems で分オフセットへ変換し、そのまま
+          // DayColumn の不在レールへ渡す(要件どおり「packColumns 入力から除外」を体現)
+          const { cardGroups, oooGroups } = splitOutOfOfficeGroups(items);
           const positioned = packColumns(
-            items,
+            cardGroups,
             (g) => g.primary.startMs,
             (g) => g.primary.endMs,
           );
-          return { day, positioned };
+          const oooItems = timedOooRailItems(oooGroups, dayStarts[i], dayEnds[i]);
+          return { day, positioned, oooItems };
         });
         return { panelStart, days, dayStarts, dayEnds, dayData };
       }),
@@ -344,10 +359,15 @@ export function WeekGrid({
       ),
     [allDayOccurrencesRaw, visibleCalendarKeys],
   );
-  const groupedAllDayOccurrences = useMemo(
-    () => groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
-    [visibleAllDayOccurrences],
-  );
+  // 不在(Out of Office、2026-07-22): 終日レーン(AllDayBar)のチップとしては出さず、
+  // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで
+  // barGroups(従来通り packDayBars → AllDayBar へ)と oooGroups(下記 allDayOooPanels へ)に
+  // 振り分ける
+  const { barGroups: groupedAllDayBarOccurrences, oooGroups: groupedAllDayOooOccurrences } =
+    useMemo(
+      () => splitOutOfOfficeAllDayGroups(groupDuplicateAllDayOccurrences(visibleAllDayOccurrences)),
+      [visibleAllDayOccurrences],
+    );
 
   // パネルごとに、その N 日ぶんのインデックス [0, dayCount-1] にクリップした区間で
   // packDayBars する。行の割り当てはここで確定するが、「何行まで見せるか
@@ -357,7 +377,7 @@ export function WeekGrid({
     () =>
       panelStarts.map((panelStart) => {
         const panelEndDate = panelStart.add({ days: dayCount - 1 });
-        const relevant = groupedAllDayOccurrences.filter((g) => {
+        const relevant = groupedAllDayBarOccurrences.filter((g) => {
           const s = Temporal.PlainDate.from(g.primary.startDate);
           const e = Temporal.PlainDate.from(g.primary.endDate);
           return (
@@ -385,7 +405,21 @@ export function WeekGrid({
           bars: positioned.map((p) => ({ ...p.item, row: p.row })),
         };
       }),
-    [panelStarts, dayCount, groupedAllDayOccurrences],
+    [panelStarts, dayCount, groupedAllDayBarOccurrences],
+  );
+
+  // 終日の不在を日ごとに割り当てる。weekPanels と同じ panelStarts 由来なので index が揃う
+  // (activityPanels/ciPanels と同じ流儀)。時刻予定側の oooItems (weekPanels の dayData) と
+  // 合わせて DayColumn の oooItems prop へマージするのは JSX 側(下記)で行う。
+  const allDayOooPanels = useMemo(
+    () =>
+      panelStarts.map((panelStart) => ({
+        panelStart,
+        dayItems: Array.from({ length: dayCount }, (_, i) =>
+          allDayOooRailItems(groupedAllDayOooOccurrences, panelStart.add({ days: i })),
+        ),
+      })),
+    [panelStarts, dayCount, groupedAllDayOooOccurrences],
   );
 
   // 3週(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行までバーを見せ、
@@ -685,7 +719,7 @@ export function WeekGrid({
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayData.map(({ day, positioned }, dayIndex) => (
+                  {dayData.map(({ day, positioned, oooItems }, dayIndex) => (
                     <DayColumn
                       key={day.toString()}
                       dayIndex={dayIndex}
@@ -703,6 +737,10 @@ export function WeekGrid({
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
                       activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}
+                      // 不在レール: 時刻予定側(oooItems、この日ぶんに既に絞り込み済み)と
+                      // 終日側(allDayOooPanels、同じ panelStarts 由来で index が揃う)を
+                      // ここで初めてマージする(両者は独立したデータソースのため)
+                      oooItems={[...oooItems, ...allDayOooPanels[panelIndex].dayItems[dayIndex]]}
                       ciClusters={ciPanels[panelIndex].dayClusters[dayIndex]}
                       plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
                       onDropWorkItem={onDropWorkItem}

@@ -146,6 +146,18 @@
   font-weight: 500;
 }
 
+/*
+ * 不在 (Out of Office) チップ (2026-07-22)。月表示には WeekGrid/DayColumn のような
+ * 専用レールが無いため、通常チップの配色だけを薄墨固定に差し替えて区別する
+ * (カレンダー色は使わない — 不在は「場が空いていないこと」の記号なので色を殺す、
+ * ユーザー決定)。タイトル先頭の "×" 接頭辞(MonthView.tsx 側)と合わせて見分ける。
+ */
+.month-chip--ooo {
+  background-color: rgba(138, 132, 120, 0.12);
+  border-left-color: #8a8478;
+  color: #6b665c;
+}
+
 .month-chip-overflow {
   flex: 0 0 auto;
   align-self: flex-start;

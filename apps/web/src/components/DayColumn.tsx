@@ -15,6 +15,7 @@ import {
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
+import type { OooRailItem } from "../layout/oooRail";
 import {
   busyOverlapColors,
   cascadeStepFrac,
@@ -28,6 +29,7 @@ import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
+import { OooRailLine } from "./OooRailLine";
 import { PlannedBlockCard } from "./PlannedBlock";
 
 /** 空き領域クリックで作る新規予定のデフォルトの長さ(縦ドラッグせずクリックだけで確定した場合) */
@@ -112,6 +114,16 @@ interface DayColumnProps {
    */
   ciClusters: GitHubCiCluster[];
   /**
+   * 不在 (Out of Office) レール(不在レール表示、2026-07-22)。この日ぶんの不在アイテム
+   * (WeekGrid 側で eventType==='outOfOffice' な occurrence/終日 occurrence を packColumns の
+   * 入力・AllDayBar のチップから除外して集めたもの、layout/oooRail.ts 参照)。
+   * activityClusters/ciClusters と同じ左端 DAY_COLUMN_INSET_PX ぶんのガター
+   * (`.day-ooo-rail`)に描画するが、CI(`.day-ci-rail`)と同じ左側を共有する — CI は既定
+   * OFF なので通常は空いている。同時表示になった場合の重なり順は CSS 側 (WeekGrid.css)
+   * の z-index で「不在ライン/× が下、CI マーカーが上」に固定してある。
+   */
+  oooItems: OooRailItem[];
+  /**
    * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)。この日ぶんの
    * PlannedBlock 配列(WeekGrid 側で [dayStartMs, dayEndMs) に絞り込み済み)。
    */
@@ -164,6 +176,7 @@ export function DayColumn({
   longPressCreate = false,
   activityClusters,
   ciClusters,
+  oooItems,
   plannedBlocks,
   onDropWorkItem,
   onMovePlannedBlock,
@@ -510,6 +523,21 @@ export function DayColumn({
               </a>
             );
           })}
+        </div>
+      )}
+      {oooItems.length > 0 && (
+        // 不在レール(2026-07-22): day-ci-rail と同じ左端ガターを共有する(CI は既定 OFF
+        // なので通常は空いている)。DOM 順・CSS 側の z-index (WeekGrid.css の .day-ooo-line)
+        // の両方で、後続の day-ci-rail(CI マーカー)より必ず背面に来るようにしてある
+        <div className="day-ooo-rail">
+          {oooItems.map((item) => (
+            <OooRailLine
+              key={item.id}
+              item={item}
+              timeZone={timeZone}
+              calendarLookup={calendarLookup}
+            />
+          ))}
         </div>
       )}
       {ciClusters.length > 0 && (

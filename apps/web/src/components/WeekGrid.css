@@ -1114,10 +1114,82 @@
 }
 
 /*
+ * 不在 (Out of Office) レール (2026-07-22)。Google の eventType==='outOfOffice' な予定は
+ * 通常の予定カードとして描画しない(要件) — 代わりにこのレールに時間範囲ぶんの縦ラインを
+ * 描き、上端に × を出す。day-ci-rail (左端、下記) と同じ DAY_COLUMN_INSET_PX ぶんの
+ * ガターを共有する(CI は既定 OFF なので通常はこのレールが唯一の左端占有者)。
+ * 色はカレンダー色を使わず薄墨 (#8a8478 系) で統一する — 不在は「場が空いていないこと」の
+ * 記号であって個別の予定ではないため、色で目立たせない(ユーザー決定)。
+ */
+.day-ooo-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  height: 100%;
+  pointer-events: none;
+}
+
+.day-ooo-line {
+  position: absolute;
+  left: 0.5px; /* 3px 幅のレール内で中央寄せ(可視幅は2px) */
+  width: 2px;
+  background: rgba(138, 132, 120, 0.55); /* 薄墨、カレンダー色は使わない */
+  pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
+  cursor: pointer;
+  z-index: 1; /* .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 =
+                 CI レールと同時表示でも不在ラインが必ず背面に回る(ユーザー決定) */
+}
+
+/*
+ * タッチ/マウス双方の当たり判定を可視幅(2px)より広げるための透明な拡張領域。
+ * 可視の線自体は pointer-events:none のままにして見た目(細い線)を保ちつつ、
+ * ::before だけ pointer-events:auto にすることで、ホバー/クリックの target は
+ * ホスト要素 (.day-ooo-line) のまま実効タップ幅を左右 +5px ずつ(合計 ~12px)広げる。
+ * DOM ノードを増やさずに済むうえ、:hover はホスト要素の祖先判定なので ::before 上の
+ * ホバーでも .day-ooo-line:hover が正しく効く(擬似要素は別要素として扱われないため)。
+ */
+.day-ooo-line::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: -5px;
+  right: -5px;
+  pointer-events: auto;
+}
+
+/* 上端の × アイコン。SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法) */
+.day-ooo-line::after {
+  content: "×";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  line-height: 1;
+  color: #8a8478;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.day-ooo-line:hover,
+.day-ooo-line:focus-visible {
+  background: rgba(138, 132, 120, 0.9);
+}
+
+.day-ooo-line:hover::after,
+.day-ooo-line:focus-visible::after {
+  color: #24211e; /* 墨。ホバー時だけ少し濃くして反応が分かるようにする */
+}
+
+/*
  * GitHub CI/Actions 実行オーバーレイ (フェーズ④b, docs/github-integration.md)。
  * .day-activity-rail (commit 実績、右端) と対になる左端のレール — 同じ DAY_COLUMN_INSET_PX
  * ぶんのガターを使うので予定カードと絶対に重ならない。左右に分けているのは、同じ日に
  * commit と CI 実行の両方がある場合でも視覚的に別系列だと分かるようにするため。
+ * day-ooo-rail(不在、上記)とはこの左端ガターを共有するが、z-index (day-ci-mark: 3 >
+ * day-ooo-line: 1) により CI マーカーが常に手前に出る(ユーザー決定、両者が同時に
+ * 表示される機会自体は稀 — CI は既定 OFF)。
  */
 .day-ci-rail {
   position: absolute;

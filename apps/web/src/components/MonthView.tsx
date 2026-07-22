@@ -201,16 +201,27 @@ export function MonthView({
                   </div>
                   <div className="month-cell-chips">
                     {cell.visible.map((chip) => {
+                      // 不在(Out of Office、2026-07-22): 月表示にはレール概念が無い
+                      // (WeekGrid/DayColumn のような細いレールを差し込む余地がない)ため、
+                      // 通常チップの配色だけを変えて区別する。カレンダー色は使わず
+                      // 薄墨固定(CSS 側 .month-chip--ooo)にし、タイトル先頭に "×" を
+                      // 付けて視覚的にも見分けられるようにする(要件: カードとしての
+                      // 描画だけを変える。検索結果・詳細表示は従来どおり)
+                      const isOoo = chip.group.primary.isOutOfOffice === true;
                       const color = resolveDisplayColor(chip.group.primary, calendarLookup);
                       return (
                         <button
                           key={chip.key}
                           type="button"
-                          className={`month-chip month-chip--${chip.kind}`}
-                          style={{
-                            backgroundColor: `color-mix(in srgb, ${color} 16%, white)`,
-                            borderLeftColor: color,
-                          }}
+                          className={`month-chip month-chip--${chip.kind}${isOoo ? " month-chip--ooo" : ""}`}
+                          style={
+                            isOoo
+                              ? undefined
+                              : {
+                                  backgroundColor: `color-mix(in srgb, ${color} 16%, white)`,
+                                  borderLeftColor: color,
+                                }
+                          }
                           onClick={(e) => openDetail(chip, e)}
                           title={chip.title}
                         >
@@ -219,7 +230,9 @@ export function MonthView({
                               {formatTime(chip.startMs, timeZone)}
                             </span>
                           )}
-                          <span className="month-chip-title">{chip.title}</span>
+                          <span className="month-chip-title">
+                            {isOoo ? `× ${chip.title}` : chip.title}
+                          </span>
                         </button>
                       );
                     })}

@@ -28,6 +28,14 @@ export interface GoogleEventDTO {
   /** 説明 (HTML を含み得る。表示側でプレーンテキスト化する) */
   description?: string;
   /**
+   * Google の特殊イベント種別。events.list は常にこのフィールドを返す
+   * (無指定の通常予定は "default")。不在レール表示 (2026-07-22、docs 未整備・
+   * ユーザー要件のみ) が eventType==='outOfOffice' を「通常の予定カードとして
+   * 描画しない」判定に使う。focusTime/workingLocation/birthday は現状表示側で
+   * 特別扱いしないが、Google 側の型を欠落なく写すためここに含めておく。
+   */
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation" | "birthday";
+  /**
    * カレンダーブロック機能 (docs/blocking.md) が mirror 識別 (kichijitsuMirror) を
    * 読むために必要。private は自分専用、shared は招待先とも共有される拡張プロパティ
    */

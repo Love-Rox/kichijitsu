@@ -18,6 +18,8 @@ interface RawGoogleEvent {
   description?: string;
   /** カレンダーブロック機能 (docs/blocking.md) の mirror 判定 (kichijitsuMirror) に必要。 */
   extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
+  /** 不在レール表示 (2026-07-22) が使う。Google の生文字列をそのまま写す。 */
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation" | "birthday";
 }
 
 interface RawEventsListResponse {
@@ -43,6 +45,7 @@ export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
     location: raw.location,
     description: raw.description,
     extendedProperties: raw.extendedProperties,
+    eventType: raw.eventType,
   };
 }
 

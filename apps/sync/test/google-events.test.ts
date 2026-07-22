@@ -39,4 +39,19 @@ describe("toGoogleEventDTO", () => {
     expect(withoutUid.iCalUID).toBeUndefined();
     expect(JSON.stringify(withoutUid)).not.toContain("iCalUID");
   });
+
+  it("copies eventType through when present (不在レール表示、2026-07-22)", () => {
+    const dto = toGoogleEventDTO({
+      id: "evt-5",
+      status: "confirmed",
+      eventType: "outOfOffice",
+    });
+    expect(dto.eventType).toBe("outOfOffice");
+  });
+
+  it("omits eventType when Google does not send it", () => {
+    const dto = toGoogleEventDTO({ id: "evt-6", status: "confirmed" });
+    expect(dto.eventType).toBeUndefined();
+    expect(JSON.stringify(dto)).not.toContain("eventType");
+  });
 });
