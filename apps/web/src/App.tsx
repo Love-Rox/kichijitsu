@@ -2496,6 +2496,21 @@ function App() {
     });
   }, [view, dayCount, withNavLock]);
 
+  /**
+   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。WeekGrid.tsx が
+   * 横スワイプの確定(prev/next)を検知したときに呼ぶ薄いブリッジ ―― ツールバーの ←/→ ボタン
+   * (goToPrev/goToNext、上記)と全く同じ関数を呼ぶだけで、timelineStart/monthCursor の
+   * 更新経路は一本化したまま(WeekGrid 自身は日付状態を持たない)にする。月表示(MonthView)は
+   * ストリップ構造を持たないため対象外(WeekGrid のみに渡す、詳細は WeekGrid.tsx 側コメント)。
+   */
+  const handleSwipeNavigate = useCallback(
+    (direction: "prev" | "next") => {
+      if (direction === "prev") goToPrev();
+      else goToNext();
+    },
+    [goToPrev, goToNext],
+  );
+
   const goToToday = useCallback(() => {
     withNavLock(() => {
       if (view === "month") setMonthCursor(Temporal.Now.plainDateISO().with({ day: 1 }));
@@ -3035,6 +3050,9 @@ function App() {
               // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
               // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
               longPressCreate={isNarrow}
+              // スマホでのスワイプ日付移動(同フェーズ増分、2026-07-22)。WeekGrid.tsx 側で
+              // longPressCreate(=isNarrow)かつ非アニメーション中のときだけ実際に有効化される
+              onSwipeNavigate={handleSwipeNavigate}
             />
           ) : (
             <MonthView

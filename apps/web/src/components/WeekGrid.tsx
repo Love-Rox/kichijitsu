@@ -43,6 +43,9 @@ import {
 } from "../layout/workingLocationRail";
 import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
 import { panelAnchors, panelSlideDirection } from "../layout/dayGrid";
+import { swipeStripTransform } from "../layout/swipeNav";
+import { useSwipeNavigation } from "../hooks/useSwipeNavigation";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { type CalendarInfo } from "./EventBlock";
 import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
@@ -186,16 +189,29 @@ interface WeekGridProps {
    * 省略時は false(既存のデスクトップ向け即時クリック挙動を維持)
    */
   longPressCreate?: boolean;
+  /**
+   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。横スワイプが
+   * 「前/次パネルへの確定」と判定されたとき(hooks/useSwipeNavigation.ts)に呼ばれる。
+   * App.tsx は既存の goToPrev/goToNext(ツールバー矢印ボタンと同じ関数)をそのまま渡す想定
+   * ―― timelineStart の更新は App 側に一本化し、WeekGrid は「確定した」ことだけを伝える。
+   * 省略時はスワイプ自体を無効化する(longPressCreate と同じく、呼び出し側が明示的に
+   * 対応する場合のみ有効になるオプトイン設計)。
+   */
+  onSwipeNavigate?: (direction: "prev" | "next") => void;
 }
 
 type SlidePhase = "idle" | "next" | "prev";
 
-/** phase から strip の transform を求める。3週(prev/current/next)のうち中央(=index1)が既定表示 */
-function transformForPhase(phase: SlidePhase): string {
-  if (phase === "next") return "translateX(-66.6667%)";
-  if (phase === "prev") return "translateX(0%)";
-  return "translateX(-33.3333%)";
-}
+/**
+ * phase が指す strip の基準 translateX(%)。3週(prev/current/next)のうち中央(=index1)が既定表示。
+ * スワイプ追従(layout/swipeNav.ts の swipeStripTransform)は、この基準%へ指の移動量(px)を
+ * calc() で足し込むため、文字列ではなく数値のまま持っておく。
+ */
+const PHASE_BASE_PERCENT: Record<SlidePhase, number> = {
+  prev: 0,
+  idle: -33.3333,
+  next: -66.6667,
+};
 
 interface WeekPanelData {
   panelStart: Temporal.PlainDate;
@@ -255,8 +271,13 @@ export function WeekGrid({
   hiddenTaskListKeys,
   declinedVisibility,
   longPressCreate = false,
+  onSwipeNavigate,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // スワイプの1パネルぶんの幅(px)を測る参照先。常に描画される days-viewport を使う
+  // (header/allday/tasks/github の各 viewport も同じ幅だが、日付タイムラインは
+  // 表示・非表示のトグルが無く常に存在するためこれが最も安定した測定元)
+  const daysViewportRef = useRef<HTMLDivElement>(null);
   const [nowMs, setNowMs] = useState(() => Temporal.Now.instant().epochMilliseconds);
 
   // 手動タイマー(増分2): 走行中エントリの linkedItemId 集合。DayColumn 全体で1回だけ計算し、
@@ -274,6 +295,15 @@ export function WeekGrid({
   // true の間は transform の transition を切る(スワップ直後の瞬間ジャンプを無アニメで行うため)
   const [instant, setInstant] = useState(true);
   const slideTimeoutRef = useRef<number | undefined>(undefined);
+  // スワイプ追従中の水平オフセット(px)。PHASE_BASE_PERCENT[phase] に calc() で足し込む
+  // (layout/swipeNav.ts の swipeStripTransform)。ドラッグしていない間は常に 0。
+  const [dragDxPx, setDragDxPx] = useState(0);
+
+  // 要件6: prefers-reduced-motion: reduce では追従アニメを最小化し、スナップを即時にする。
+  // 既存の SLIDE_MS(週送りボタン等と共通のスナップ所要時間)をそのまま流用しつつ、
+  // reduce のときだけ 0ms にする(トークンを増やさず既存の1つの定数を条件分岐するだけ)。
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const effectiveSlideMs = prefersReducedMotion ? 0 : SLIDE_MS;
 
   // 現在時刻線を1分ごとに更新
   useEffect(() => {
@@ -299,6 +329,16 @@ export function WeekGrid({
     }
     const direction = panelSlideDirection(center, weekStart, dayCount);
 
+    // スワイプ確定の瞬間もここへ合流する(onSwipeNavigate → App.tsx の goToPrev/goToNext →
+    // weekStart 更新、という経路で他のナビゲーションと同じ effect を通る)。dragDxPx を
+    // ここで 0 に戻すことで、指を離した位置(calc(基準% + dxPx))から新しい phase の
+    // 基準%へ「1回の transform 変化」として滑らかにスナップさせる ―― dragDxPx のリセットと
+    // phase の切り替えが別レンダーに分かれると、一瞬中央へ戻ってからスライドし直す
+    // 不自然な動きになるため、必ず同じ effect 内(=同じバッチ)で両方セットする。
+    // トグルボタン等スワイプ以外の経路でも dragDxPx は既に 0 のはずだが、
+    // 保険として常にリセットする(0→0 は無害)。
+    setDragDxPx(0);
+
     if (direction !== 0) {
       setInstant(false);
       setPhase(direction === 1 ? "next" : "prev");
@@ -310,7 +350,7 @@ export function WeekGrid({
         requestAnimationFrame(() => {
           requestAnimationFrame(() => setInstant(false));
         });
-      }, SLIDE_MS);
+      }, effectiveSlideMs);
     } else {
       setInstant(true);
       setPhase("idle");
@@ -318,7 +358,7 @@ export function WeekGrid({
     }
     // center は effect 内でのみ更新するので依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStart, dayCount]);
+  }, [weekStart, dayCount, effectiveSlideMs]);
 
   useEffect(
     () => () => {
@@ -326,6 +366,30 @@ export function WeekGrid({
     },
     [],
   );
+
+  // スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。
+  // 実際の pointer 配線・方向判定は hooks/useSwipeNavigation.ts(判定/数値計算は
+  // layout/swipeNav.ts の純関数)に委譲し、ここでは WeekGrid が既に持つスライド state
+  // (instant/dragDxPx)への橋渡しと、確定時の呼び出し先(onSwipeNavigate、App.tsx の
+  // goToPrev/goToNext)を渡すだけにする。
+  //
+  // enabled は「longPressCreate(=isNarrow、モバイル幅)かつ、前回のスナップアニメーションが
+  // 終わって phase==='idle' のとき」だけ ―― longPressCreate=false(デスクトップの即時作成
+  // ドラッグ)との衝突を避け(useSwipeNavigation.ts のコメント参照)、アニメーション中の
+  // 割り込みも防ぐ。onSwipeNavigate が渡されていなければ(App.tsx が対応していない/
+  // 呼び出し側の意図的な無効化)常に無効。
+  const swipeEnabled = Boolean(onSwipeNavigate) && longPressCreate && phase === "idle";
+  const handleSwipeNavigate = useCallback(
+    (direction: "prev" | "next") => onSwipeNavigate?.(direction),
+    [onSwipeNavigate],
+  );
+  const swipeHandlers = useSwipeNavigation({
+    enabled: swipeEnabled,
+    viewportRef: daysViewportRef,
+    onNavigate: handleSwipeNavigate,
+    setDragDxPx,
+    setInstant,
+  });
 
   // 3パネル(prev/current/next)の先頭日。dayCount=7 なら従来通り「3週」、3/1 なら
   // 「3×N日」ぶんのストリップになる(panelAnchors、dayGrid.ts)
@@ -661,17 +725,26 @@ export function WeekGrid({
     [store, onPersist, onRequestMoveConfirm],
   );
 
-  const transform = transformForPhase(phase);
+  // 基準%(PHASE_BASE_PERCENT[phase])にスワイプ追従オフセット(dragDxPx、非ドラッグ中は常に0)を
+  // calc() で足し込む。5つの strip(header/allday/tasks/github/days)すべてが同じ stripStyle を
+  // 共有しているので、この1箇所を差し替えるだけで全レーンが指に追従する。
+  const transform = swipeStripTransform(PHASE_BASE_PERCENT[phase], dragDxPx);
   const stripStyle = {
     transform,
-    transition: instant ? "none" : `transform ${SLIDE_MS}ms ease`,
+    transition: instant ? "none" : `transform ${effectiveSlideMs}ms ease`,
   };
   // 7列固定だった grid-template-columns を dayCount 列へ一般化する(WeekGrid.css 側は
   // repeat(7, 1fr) をフォールバック値として残してあるが、常にこのインライン値で上書きする)
   const panelColumnsStyle = { gridTemplateColumns: `repeat(${dayCount}, 1fr)` };
 
   return (
-    <div className="week-grid">
+    <div
+      className="week-grid"
+      onPointerDown={swipeHandlers.onPointerDown}
+      onPointerMove={swipeHandlers.onPointerMove}
+      onPointerUp={swipeHandlers.onPointerUp}
+      onPointerCancel={swipeHandlers.onPointerCancel}
+    >
       <div className="week-grid-header">
         <div className="week-grid-header-gutter" />
         <div className="week-grid-header-viewport">
@@ -812,7 +885,7 @@ export function WeekGrid({
             ))}
           </div>
 
-          <div className="week-grid-days-viewport">
+          <div className="week-grid-days-viewport" ref={daysViewportRef}>
             <div className="week-grid-days-strip" style={stripStyle}>
               {weekPanels.map(({ panelStart, dayStarts, dayEnds, dayData }, panelIndex) => (
                 <div
