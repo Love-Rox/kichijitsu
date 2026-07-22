@@ -135,6 +135,35 @@
 }
 
 /*
+ * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉ボタン。
+ * .toolbar-queue-btn(GitHubPane トグル)と同じトーン・同じ aria-expanded ハイライト規則を
+ * 踏襲する(対称のペインなので見た目も揃える)が、バッジは持たないためこちらは
+ * position: relative は不要。
+ */
+.toolbar-calendar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-calendar-btn:hover {
+  background: #f3f4f6;
+}
+
+.toolbar-calendar-btn[aria-expanded="true"] {
+  border-color: #d7402e;
+  color: #24211e;
+}
+
+/*
  * 作業キュー サイドレールの開閉ボタン(docs/github-integration.md フェーズ②Part B)。
  * .toolbar-account > button と似たトーンだが、件数バッジ(朱1点、brand/README.md
  * 「朱の枡は1つのまとまりにつき基本1個」の例外的許容 — 未読件数のような通知バッジは
@@ -291,9 +320,11 @@
 }
 
 /*
- * GitHubPane(増分1)の docked モードとカレンダー(.app-main-calendar)を横に並べる flex
- * コンテナ。overlay モードは position: fixed の backdrop で被さるだけなので、この flex 化の
- * 影響を受けない(GitHubPane.tsx のコメント参照)。
+ * CalendarPane(左、増分1)/GitHubPane(右、増分1)の docked モードとカレンダー本体
+ * (.app-main-calendar)を横に並べる flex コンテナ。DOM 順は CalendarPane →
+ * .app-main-calendar → GitHubPane なので、両方 docked のときは「左ペイン | グリッド |
+ * 右ペイン」の3カラムになる。overlay モードは position: fixed の backdrop で被さるだけなので、
+ * この flex 化の影響を受けない(CalendarPane.tsx/GitHubPane.tsx のコメント参照)。
  */
 .app-main {
   display: flex;
@@ -302,8 +333,8 @@
 }
 
 /*
- * カレンダー本体(WeekGrid/MonthView + init-overlay)側。GitHubPane が docked のときは
- * .app-main の flex 計算で残り幅ぶんに縮む(flex:1, min-width:0)。position: relative は
+ * カレンダー本体(WeekGrid/MonthView + init-overlay)側。CalendarPane/GitHubPane が docked の
+ * ときは .app-main の flex 計算で残り幅ぶんに縮む(flex:1, min-width:0)。position: relative は
  * 元々 .app-main に付いていたものをこちらへ移設 — .init-overlay(絶対配置)の最寄りの
  * 位置指定祖先として機能させるため。
  */
@@ -453,6 +484,14 @@
   /* 狭幅では isNarrow 分岐でラベル文言を隠しアイコン+バッジのみにする(App.tsx 参照)。
      パディングもナビ他ボタンと同じだけ絞って幅を詰める */
   .toolbar-queue-btn {
+    gap: 0;
+    padding: 4px 5px;
+    font-size: 11px;
+    min-height: 32px;
+  }
+
+  /* toolbar-calendar-btn(左ペイン開閉)も同じ縮め方(isNarrow でラベル文言が消えアイコンのみになる) */
+  .toolbar-calendar-btn {
     gap: 0;
     padding: 4px 5px;
     font-size: 11px;

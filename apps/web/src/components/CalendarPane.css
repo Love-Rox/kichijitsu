@@ -1,0 +1,238 @@
+/*
+ * 左ペイン「カレンダー」(カレンダーナビゲーション増分1、2026-07-22)。GitHubPane.css
+ * (右ペイン)と対称の docked/overlay 機構だが、左右が逆になる点だけ異なる ――
+ * overlay の backdrop は画面左に寄せる(justify-content: flex-start)、スライドインは
+ * 左から(translateX(-100%) → 0)、docked は境界線を右側に持つ(border-right)。
+ * z-index・色トークンは GitHubPane.css と完全に揃える(同じ 2000 番台、同じブランド色)。
+ */
+.calendar-pane-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.18);
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* 両モード共通のペイン本体(overlay/docked それぞれのモディファイアで幅・境界線・アニメーションを足す) */
+.calendar-pane {
+  display: flex;
+  flex-direction: column;
+  background: #faf7f2;
+  overflow: hidden;
+}
+
+.calendar-pane--overlay {
+  width: min(320px, 100vw);
+  max-width: min(320px, 100vw);
+  height: 100%;
+  border-right: 1px solid #e5e7eb;
+  box-shadow: 20px 0 48px rgba(36, 33, 30, 0.24);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .calendar-pane--overlay {
+    animation: calendar-pane-slide-in 200ms ease-out;
+  }
+}
+
+@keyframes calendar-pane-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/*
+ * ドッキング常設(docked): グリッドの左に常設する flex サイドバー。GitHubPane--docked と同じ
+ * 理由で box-shadow・スライドインアニメーションは無し(App.css .app-main 参照 ―― この
+ * ペインは .app-main-calendar より前に置かれる通常の flex アイテム)。
+ */
+.calendar-pane--docked {
+  flex: 0 0 260px;
+  width: 260px;
+  height: 100%;
+  border-right: 1px solid #e5e7eb;
+}
+
+.calendar-pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.calendar-pane-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.calendar-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-pane-mode-btn,
+.calendar-pane-close-btn {
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.calendar-pane-mode-btn:hover,
+.calendar-pane-close-btn:hover {
+  color: #24211e;
+  background: #f0ece3;
+}
+
+.calendar-pane-mode-btn:focus-visible,
+.calendar-pane-close-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.calendar-pane-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-pane-empty-all {
+  font-size: 12px;
+  color: #8a8478;
+  margin: 4px 0;
+}
+
+.calendar-pane-account + .calendar-pane-account {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f0ece3;
+}
+
+/*
+ * アカウント見出し(折りたたみトグルを兼ねる、CalendarPane.tsx の AccountSection 参照)。
+ * ボタンだが .toolbar-account > button のような枠付きボタン装飾は不要なため、ここで
+ * appearance をリセットして地の文のような見た目にする。
+ */
+.calendar-pane-account-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-pane-account-header:hover {
+  color: #24211e;
+}
+
+.calendar-pane-account-caret {
+  font-size: 9px;
+  color: #8a8478;
+  flex: none;
+}
+
+.calendar-pane-account-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-pane-empty {
+  font-size: 12px;
+  color: #8a8478;
+  margin: 4px 0 2px;
+}
+
+.calendar-pane-group {
+  margin-top: 8px;
+}
+
+.calendar-pane-group-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a8478;
+}
+
+.calendar-pane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.calendar-pane-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  font-size: 13px;
+  color: #24211e;
+}
+
+/*
+ * 枡チェックボックス: CalendarSettingsPanel.css の旧 .calendar-panel-checkbox を
+ * このコンポーネントへ移設したもの(見た目・挙動は完全に同一)。appearance リセットの
+ * 理由等は元コメント参照(Safari のネイティブ枠が masu の枠と二重に見える問題の対策)。
+ */
+.calendar-pane-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  flex: none;
+  outline: none;
+}
+
+.calendar-pane-checkbox .masu {
+  width: 12px;
+  height: 12px;
+}
+
+.calendar-pane-checkbox:focus-visible {
+  outline: none;
+}
+
+.calendar-pane-checkbox:focus-visible .masu {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.calendar-pane-cal-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

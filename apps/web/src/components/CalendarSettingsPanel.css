@@ -42,76 +42,15 @@
   white-space: nowrap;
 }
 
-.calendar-panel-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.calendar-panel-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 2px;
-  font-size: 13px;
-  color: #24211e;
-}
-
 /*
- * 枡チェックボックス: 見た目は masu.css の .masu / .masu--kichi / .masu--empty をそのまま使う。
- * appearance: none が無いと、border/background を none にしていても Safari 等が
- * ボタンのネイティブな縁取りを描き続け、中の .masu--empty の inset 枠と
- * 二重に見えてしまう(実機で確認済みのバグ)。全ブラウザで確実に無地の
- * ヒット領域にするため明示的に appearance をリセットする。
- * フォーカスは既定のアウトラインを消し、キーボード操作時だけ :focus-visible で
- * ヒット領域全体を囲む単一のリングを付ける(枡自体の枠と重ならない位置に offset)。
+ * カレンダー選択の表示 ON/OFF チェック群(旧 .calendar-panel-list/-item/-checkbox/-cal-name)は
+ * カレンダーナビゲーション増分1(2026-07-22)で CalendarPane.css へ丸ごと移設した
+ * (このパネルは連携管理専用に痩せた、CalendarSettingsPanel.tsx のコンポーネント doc 参照)。
  */
-.calendar-panel-checkbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  /* ボタンのネイティブ枠(角丸)を徹底的に消す。appearance:none だけでは
-   * 一部ブラウザ(Safari 等)で角丸のクロムが残り、中の枡と二重枠に見えた
-   * (ユーザー指摘 2026-07-20)。border/radius/影/タップハイライトを全て無効化する */
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-  appearance: none;
-  -webkit-appearance: none;
-  -webkit-tap-highlight-color: transparent;
-  cursor: pointer;
-  flex: none;
-  outline: none;
-}
-
-.calendar-panel-checkbox .masu {
-  width: 12px;
-  height: 12px;
-}
-
-/*
- * キーボードフォーカスの表示。ボタン外周に outline を出すと 20px ボタンの枠と
- * 中の 12px 枡の枠が同心円状に二重に見える(ユーザー指摘 2026-07-20)。
- * フォーカスリングは枡そのものに載せて二重枠を避ける。マウスクリック時は
- * :focus-visible が(多くのブラウザで)一致しないので通常は出ない。
- */
-.calendar-panel-checkbox:focus-visible {
-  outline: none;
-}
-
-.calendar-panel-checkbox:focus-visible .masu {
-  outline: 2px solid var(--logo-aka, #d7402e);
-  outline-offset: 2px;
-}
-
-.calendar-panel-cal-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.calendar-panel-nav-hint {
+  font-size: 11px;
+  color: #8a8478;
+  margin: 8px 0 0;
 }
 
 .calendar-panel-disconnect-row,

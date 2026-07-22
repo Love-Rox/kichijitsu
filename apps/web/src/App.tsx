@@ -72,6 +72,7 @@ import { LogoMark, LogoWordmark } from "./components/Logo";
 import { MasuIndicator } from "./components/MasuIndicator";
 import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
 import { CalendarSettingsPanel } from "./components/CalendarSettingsPanel";
+import { CalendarPane } from "./components/CalendarPane";
 import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { GitHubPane } from "./components/GitHubPane";
@@ -137,7 +138,7 @@ import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrenc
 import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
 import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
 import { stepAnchor } from "./layout/dayGrid";
-import { effectivePaneMode, type PaneMode } from "./layout/paneMode";
+import { effectivePaneMode, shouldCloseOtherPaneOnOpen, type PaneMode } from "./layout/paneMode";
 import "./App.css";
 
 /**
@@ -203,6 +204,41 @@ function loadStoredPaneMode(): PaneMode | null {
   try {
     const v = window.localStorage.getItem(PANE_MODE_STORAGE_KEY);
     return v && isPaneMode(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1、2026-07-22)の
+ * 配置モード・開閉状態。右の GitHubPane と対称に layout/paneMode.ts の PaneMode/
+ * effectivePaneMode をそのまま再利用する(別 state・別 localStorage キー)。
+ * GitHubPane 側の開閉(paneOpen)は永続化していないが、左ペインはカレンダー選択という
+ * 主要ナビゲーションを担うため、開閉状態自体も次回訪問時に復元する(要件どおり)。
+ */
+const LEFT_PANE_MODE_STORAGE_KEY = "kichijitsu:leftPaneMode";
+const LEFT_PANE_OPEN_STORAGE_KEY = "kichijitsu:leftPaneOpen";
+
+/** localStorage に保存された前回選択の左ペイン配置モードを読む。プライベートモード等で無効なら null */
+function loadStoredLeftPaneMode(): PaneMode | null {
+  try {
+    const v = window.localStorage.getItem(LEFT_PANE_MODE_STORAGE_KEY);
+    return v && isPaneMode(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * localStorage に保存された前回の左ペイン開閉状態を読む。プライベートモード等で無効・未保存なら
+ * null(呼び出し側で「初回は開いた状態を既定にする」フォールバックを行う想定)。
+ */
+function loadStoredLeftPaneOpen(): boolean | null {
+  try {
+    const v = window.localStorage.getItem(LEFT_PANE_OPEN_STORAGE_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+    return null;
   } catch {
     return null;
   }
@@ -293,6 +329,35 @@ function App() {
   // 狭幅では docked を選べない(effectivePaneMode 参照)ので、実際に GitHubPane へ渡すモードは
   // 常にこちらを使う。paneMode(永続化される好み)自体は isNarrow に関わらず変更しない
   const resolvedPaneMode = effectivePaneMode(paneMode, isNarrow);
+
+  // 左ペイン「カレンダー」(CalendarPane、増分1)の配置モード。paneMode/resolvedPaneMode と
+  // 完全に対称(別 state・別 localStorage キー、loadStoredLeftPaneMode 参照)
+  const [leftPaneMode, setLeftPaneMode] = useState<PaneMode>(
+    () => loadStoredLeftPaneMode() ?? "overlay",
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LEFT_PANE_MODE_STORAGE_KEY, leftPaneMode);
+    } catch {
+      /* ignore */
+    }
+  }, [leftPaneMode]);
+
+  const resolvedLeftPaneMode = effectivePaneMode(leftPaneMode, isNarrow);
+
+  // 左ペインの開閉。カレンダー選択という主要ナビゲーションを担うため、GitHubPane の paneOpen
+  // (永続化しない、増分1では未連携時に隠れる補助ペイン)とは違い開閉状態自体を永続化する。
+  // 初回訪問(未保存)は開いた状態を既定にする(新機能の発見性を優先)
+  const [leftPaneOpen, setLeftPaneOpen] = useState(() => loadStoredLeftPaneOpen() ?? true);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LEFT_PANE_OPEN_STORAGE_KEY, leftPaneOpen ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [leftPaneOpen]);
 
   const store = useMemo(() => new OccurrenceStore(), []);
   const allDayStore = useMemo(() => new AllDayStore(), []);
@@ -1382,8 +1447,10 @@ function App() {
     );
   }, [db, taskListsByAccount, selectedTaskListTargets, syncTaskList]);
 
-  // カレンダー設定パネルでのチェックボックス操作。選択時は即座にそのカレンダーだけ同期し、
-  // 選択解除時はその (accountId, calendarId) のローカルデータを削除して store から取り除く
+  // 左ペイン(CalendarPane、カレンダーナビゲーション増分1)でのカレンダー表示チェック操作
+  // (旧: カレンダー設定パネル内のチェック、増分1で CalendarPane へ移設。ロジックは無変更)。
+  // 選択時は即座にそのカレンダーだけ同期し、選択解除時はその (accountId, calendarId) の
+  // ローカルデータを削除して store から取り除く
   const handleToggleCalendar = useCallback(
     (accountId: string, calendarId: string, nextChecked: boolean) => {
       const current = visibleCalendars[accountId] ?? [];
@@ -2312,6 +2379,33 @@ function App() {
   );
   const openSearch = useCallback(() => setSearchOpen(true), []);
 
+  /*
+   * 左右ペイン(CalendarPane/GitHubPane)のトグルボタン用ハンドラ。両者とも「開くとき、もう片方が
+   * overlay として表示中なら自動的に閉じる」交通整理を対称に行う(shouldCloseOtherPaneOnOpen、
+   * layout/paneMode.ts)。docked 同士は場所が競合しない(左右で別領域)ため対象外 ――
+   * shouldCloseOtherPaneOnOpen 自体が「もう片方が実効 overlay のときだけ true」を返すので、
+   * ここでは判定結果をそのまま反映するだけでよい。
+   */
+  const toggleLeftPane = useCallback(() => {
+    setLeftPaneOpen((open) => {
+      const opening = !open;
+      if (opening && shouldCloseOtherPaneOnOpen(paneMode, paneOpen, isNarrow)) {
+        setPaneOpen(false);
+      }
+      return opening;
+    });
+  }, [paneMode, paneOpen, isNarrow]);
+
+  const toggleGitHubPane = useCallback(() => {
+    setPaneOpen((open) => {
+      const opening = !open;
+      if (opening && shouldCloseOtherPaneOnOpen(leftPaneMode, leftPaneOpen, isNarrow)) {
+        setLeftPaneOpen(false);
+      }
+      return opening;
+    });
+  }, [leftPaneMode, leftPaneOpen, isNarrow]);
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -2495,9 +2589,6 @@ function App() {
                 {panelOpen && (
                   <CalendarSettingsPanel
                     accounts={me.accounts}
-                    calendarsByAccount={calendarsByAccount}
-                    visibleCalendars={visibleCalendars}
-                    onToggleCalendar={handleToggleCalendar}
                     onDisconnectAccount={handleDisconnectAccount}
                     onAddAccount={() => {
                       window.location.href = "/auth/login?add=1";
@@ -2529,6 +2620,27 @@ function App() {
               </button>
             )}
           </div>
+          {/*
+           * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉導線。
+           * 「作業キュー」(右ペイン GitHubPane トグル、この少し下)と同じ見た目・同じ
+           * isNarrow でのアイコンのみ化の流儀を踏襲する。連携アカウントが1件も無ければ出す
+           * 意味が無い(CalendarPane 自体は「連携中のアカウントがありません」を表示できるが、
+           * 導線自体を隠した方が分かりやすい ―― GitHubPane の me.github ゲートと同じ考え方)。
+           */}
+          {me.accounts.length > 0 && (
+            <button
+              type="button"
+              className="toolbar-calendar-btn"
+              onClick={toggleLeftPane}
+              aria-label="カレンダー"
+              title="カレンダー"
+              aria-expanded={leftPaneOpen}
+              aria-haspopup="dialog"
+            >
+              <span aria-hidden="true">📅</span>
+              {!isNarrow && <span className="toolbar-calendar-label">カレンダー</span>}
+            </button>
+          )}
           {/*
            * GitHub 情報ペイン(GitHubPane、docs/github-integration.md フェーズ②Part B → 増分1で
            * セクション式コンテナへ発展)の開閉導線。増分1ではセクションが作業キュー1つだけなので
@@ -2575,7 +2687,7 @@ function App() {
             <button
               type="button"
               className="toolbar-queue-btn"
-              onClick={() => setPaneOpen((v) => !v)}
+              onClick={toggleGitHubPane}
               aria-label="作業キュー"
               title="作業キュー"
               aria-expanded={paneOpen}
@@ -2631,6 +2743,24 @@ function App() {
         </div>
       </header>
       <main className="app-main">
+        {/*
+         * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。GitHubPane と
+         * 対称の理由(下のコメント参照)で .app-main の直接の子に置くが、docked モードで
+         * .app-main-calendar と左右に並べるため、DOM 順序としてはこちらを先に置く
+         * (flex row のグリッド側が縮む向きは変わらないが、視覚的な左右関係を DOM 順にも合わせておく)。
+         */}
+        {leftPaneOpen && me.accounts.length > 0 && (
+          <CalendarPane
+            mode={resolvedLeftPaneMode}
+            onModeChange={setLeftPaneMode}
+            onClose={() => setLeftPaneOpen(false)}
+            disableModeToggle={isNarrow}
+            accounts={me.accounts}
+            calendarsByAccount={calendarsByAccount}
+            visibleCalendars={visibleCalendars}
+            onToggleCalendar={handleToggleCalendar}
+          />
+        )}
         <div className="app-main-calendar">
           {view !== "month" ? (
             <WeekGrid

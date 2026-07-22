@@ -6,6 +6,7 @@ interface RawCalendarListEntry {
   summary: string;
   primary?: boolean;
   backgroundColor?: string;
+  accessRole?: "owner" | "writer" | "reader" | "freeBusyReader";
 }
 
 interface RawCalendarListResponse {
@@ -28,5 +29,6 @@ export async function fetchCalendarList(
     summary: item.summary,
     primary: item.primary,
     backgroundColor: item.backgroundColor,
+    accessRole: item.accessRole,
   }));
 }

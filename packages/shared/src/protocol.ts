@@ -256,6 +256,15 @@ export interface CalendarListEntryDTO {
   primary?: boolean;
   /** Google カレンダーの色 (#rrggbb)。表示色のデフォルトに使う */
   backgroundColor?: string;
+  /**
+   * このカレンダーに対するユーザーのアクセス権限 (Google Calendar API の
+   * CalendarListEntry.accessRole をそのまま透過)。左ペイン(CalendarPane、
+   * カレンダーナビゲーション増分1、2026-07-22)が「マイカレンダー」(owner) と
+   * 「他のカレンダー」(writer/reader/freeBusyReader、祝日・購読・同僚のカレンダー等)を
+   * 分類するのに使う。旧クライアント/取得失敗時の後方互換のため optional にしてある
+   * (undefined は「他のカレンダー」側に倒す — apps/web/src/sync/calendarGroups.ts 参照)。
+   */
+  accessRole?: "owner" | "writer" | "reader" | "freeBusyReader";
 }
 
 /** GET /api/calendars?accountId=... で対象アカウントを指定する */

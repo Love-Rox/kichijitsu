@@ -1,20 +1,10 @@
 import { useState } from "react";
-import type {
-  AccountDTO,
-  CalendarListEntryDTO,
-  McpTokenCreateResponse,
-  McpTokenDTO,
-} from "@kichijitsu/shared";
-import type { VisibleCalendarsMap } from "../db/database";
+import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
 import { mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import "./CalendarSettingsPanel.css";
 
 interface CalendarSettingsPanelProps {
   accounts: AccountDTO[];
-  /** アカウントごとのカレンダー一覧。未取得・取得失敗のアカウントは未設定 or 空配列のまま(壊れないことを優先) */
-  calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
-  visibleCalendars: VisibleCalendarsMap;
-  onToggleCalendar: (accountId: string, calendarId: string, nextChecked: boolean) => void;
   /** 成功すれば解決、失敗すれば reject する。エラー表示はこのコンポーネント側(行ごとの確認 UI)が持つ */
   onDisconnectAccount: (accountId: string) => Promise<void>;
   onAddAccount: () => void;
@@ -44,16 +34,16 @@ interface CalendarSettingsPanelProps {
 
 /**
  * ツールバーのアカウント表示部から開くポップオーバー(App.tsx から開閉制御される)。
- * アカウントごとのセクション(email 見出し + カレンダー一覧)+ 最下部の「アカウントを追加」。
  *
- * カレンダーの選択チェックボックスは新規に作らず、既存の枡オーナメント体系
- * (masu.css: 選択=朱の押印 .masu--kichi、未選択=空枡 .masu--empty) をそのまま流用する。
+ * カレンダーナビゲーション増分1(2026-07-22)で「選択=左ペイン(CalendarPane) /
+ * 連携管理=設定パネル(このコンポーネント)」に役割分担した ―― 元々ここにあった
+ * カレンダーごとの表示 ON/OFF チェック群(枡チェックボックス一覧)は CalendarPane.tsx へ
+ * 丸ごと移設済み。このパネルはアカウントの追加/解除・GitHub 連携・MCP トークン等、
+ * 「連携そのものを管理する」操作専用に痩せさせてある(calendarsByAccount/
+ * visibleCalendars/onToggleCalendar は不要になったため props からも削除した)。
  */
 export function CalendarSettingsPanel({
   accounts,
-  calendarsByAccount,
-  visibleCalendars,
-  onToggleCalendar,
   onDisconnectAccount,
   onAddAccount,
   onOpenBlockRules,
@@ -70,58 +60,19 @@ export function CalendarSettingsPanel({
       {accounts.length === 0 && (
         <p className="calendar-panel-empty">連携中のアカウントがありません</p>
       )}
-      {accounts.map((account) => {
-        const calendars = calendarsByAccount[account.id] ?? [];
-        const visible = visibleCalendars[account.id] ?? [];
-        return (
-          <div className="calendar-panel-account" key={account.id}>
-            <div className="calendar-panel-account-header">{account.email}</div>
-            {calendars.length === 0 ? (
-              <p className="calendar-panel-empty">
-                カレンダーを読み込み中、または取得できませんでした
-              </p>
-            ) : (
-              <ul className="calendar-panel-list">
-                {calendars.map((cal) => {
-                  const checked = visible.includes(cal.id);
-                  return (
-                    <li className="calendar-panel-item" key={cal.id}>
-                      <button
-                        type="button"
-                        className="calendar-panel-checkbox"
-                        aria-pressed={checked}
-                        aria-label={`${cal.summary}を${checked ? "非表示" : "表示"}にする`}
-                        onClick={() => onToggleCalendar(account.id, cal.id, !checked)}
-                      >
-                        {/*
-                          brand/README.md「機能色の例外」: カレンダー選択のようにデータ自体が
-                          色を持つ文脈では、選択済み枡の塗りをそのデータの色にしてよい
-                          (傾き -8° は維持)。色ドットは冗長になるため置かない。
-                          背景色は inline style で .masu--kichi の朱を上書きし、
-                          backgroundColor が無い場合だけ CSS のフォールバック(朱)に任せる
-                        */}
-                        <span
-                          className={checked ? "masu masu--kichi" : "masu masu--empty"}
-                          style={
-                            checked && cal.backgroundColor
-                              ? { background: cal.backgroundColor }
-                              : undefined
-                          }
-                        />
-                      </button>
-                      <span className="calendar-panel-cal-name">{cal.summary}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <AccountDisconnectControl accountId={account.id} onDisconnect={onDisconnectAccount} />
-          </div>
-        );
-      })}
+      {accounts.map((account) => (
+        <div className="calendar-panel-account" key={account.id}>
+          <div className="calendar-panel-account-header">{account.email}</div>
+          <AccountDisconnectControl accountId={account.id} onDisconnect={onDisconnectAccount} />
+        </div>
+      ))}
       <button type="button" className="calendar-panel-add-account" onClick={onAddAccount}>
         + アカウントを追加
       </button>
+      {/* カレンダーナビゲーション増分1: 表示選択が左ペインへ移ったことの案内(1行) */}
+      {accounts.length > 0 && (
+        <p className="calendar-panel-nav-hint">カレンダーの表示選択は左のカレンダーペインへ</p>
+      )}
       {onOpenBlockRules && (
         <button type="button" className="calendar-panel-add-account" onClick={onOpenBlockRules}>
           予定のブロックを設定
