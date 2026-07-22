@@ -154,7 +154,14 @@ const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
  */
 const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone"; // 旧キー。getSyncBackfillVersion の移行判定でのみ読む
 const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
-export const CURRENT_SYNC_BACKFILL_VERSION = 3;
+/*
+ * 世代4 (2026-07-22): 世代3 までのバックフィルが、キャッシュ由来で古いバンドルを
+ * 掴んでいたクライアントでは正しく行き渡らなかった実例があったため、web/sync とも
+ * 最新であることを確認した上で世代を1つ上げ、全クライアントに一度だけ forceFull
+ * 再同期を強制して OOO / RSVP(仮・不参加)/ 勤務場所のフィールドを確実に反映させる。
+ * (フィールド追加ではなく「取りこぼしの是正」目的の世代上げ)
+ */
+export const CURRENT_SYNC_BACKFILL_VERSION = 4;
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 
