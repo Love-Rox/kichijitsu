@@ -2548,18 +2548,20 @@ function App() {
   }, [view, dayCount, withNavLock]);
 
   /**
-   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。WeekGrid.tsx が
-   * 横スワイプの確定(prev/next)を検知したときに呼ぶ薄いブリッジ ―― ツールバーの ←/→ ボタン
-   * (goToPrev/goToNext、上記)と全く同じ関数を呼ぶだけで、timelineStart/monthCursor の
-   * 更新経路は一本化したまま(WeekGrid 自身は日付状態を持たない)にする。月表示(MonthView)は
-   * ストリップ構造を持たないため対象外(WeekGrid のみに渡す、詳細は WeekGrid.tsx 側コメント)。
+   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22。スワイプは1日ずつに変更、
+   * 2026-07-23)。WeekGrid.tsx が横スワイプの確定(prev/next)を検知したときに呼ぶ。ツールバーの
+   * ←/→ ボタン(goToPrev/goToNext)は dayCount ぶりの「ページ移動」のままだが、スワイプは表示窓を
+   * 1日ずつスライドさせる(3日ビューでも1日ずつ動く)―― WeekGrid のスライド量一般化(baseStripPercent /
+   * slideDays)と対で機能する。月表示(MonthView)はストリップ構造を持たないため対象外(WeekGrid のみに
+   * 渡す)。nav ロック(withNavLock)は使わない: スワイプは WeekGrid 側の slideDays===0 gate で自己
+   * 直列化されており、ロックで commit が握り潰されると指追従オフセットが戻らなくなるため、常に
+   * setTimelineStart を発火させて WeekGrid の効果を必ず走らせる。
    */
   const handleSwipeNavigate = useCallback(
     (direction: "prev" | "next") => {
-      if (direction === "prev") goToPrev();
-      else goToNext();
+      setTimelineStart((t) => (direction === "prev" ? t.subtract({ days: 1 }) : t.add({ days: 1 })));
     },
-    [goToPrev, goToNext],
+    [],
   );
 
   const goToToday = useCallback(() => {
