@@ -34,6 +34,7 @@ import {
   timedOooRailItems,
   type OooRailItem,
 } from "../layout/oooRail";
+import { locationRailItems, type LocationRailItem } from "../layout/locationRail";
 import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
 import { panelAnchors, panelSlideDirection } from "../layout/dayGrid";
 import { type CalendarInfo } from "./EventBlock";
@@ -184,6 +185,12 @@ interface WeekPanelData {
     positioned: ReturnType<typeof packColumns<OccurrenceGroup>>;
     /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
     oooItems: OooRailItem[];
+    /**
+     * この日ぶんの場所付き予定レール項目(地図ピン表示、2026-07-22)。OOO と違い
+     * packColumns の入力(cardGroups)からは除外しない ―― カード自体はそのまま描画される
+     * (layout/locationRail.ts 参照)。
+     */
+    locationItems: LocationRailItem[];
   }[];
 }
 
@@ -358,7 +365,16 @@ export function WeekGrid({
             (g) => g.primary.endMs,
           );
           const oooItems = timedOooRailItems(oooGroups, dayStarts[i], dayEnds[i]);
-          return { day, positioned, oooItems };
+          // 場所付き予定レール(地図ピン表示、2026-07-22): OOO を渡している箇所の隣で、
+          // 同じ日ぶんの cardGroups(= 実際にカードとして描画される occurrence 群、OOO は
+          // 既に除外済み)の primary から作る。カード自体は消さないため packColumns の
+          // 入力には一切手を加えない(cardGroups はそのまま positioned の計算にも使われる)。
+          const locationItems = locationRailItems(
+            cardGroups.map((g) => g.primary),
+            dayStarts[i],
+            dayEnds[i],
+          );
+          return { day, positioned, oooItems, locationItems };
         });
         return { panelStart, days, dayStarts, dayEnds, dayData };
       }),
@@ -751,7 +767,7 @@ export function WeekGrid({
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayData.map(({ day, positioned, oooItems }, dayIndex) => (
+                  {dayData.map(({ day, positioned, oooItems, locationItems }, dayIndex) => (
                     <DayColumn
                       key={day.toString()}
                       dayIndex={dayIndex}
@@ -773,6 +789,7 @@ export function WeekGrid({
                       // 終日側(allDayOooPanels、同じ panelStarts 由来で index が揃う)を
                       // ここで初めてマージする(両者は独立したデータソースのため)
                       oooItems={[...oooItems, ...allDayOooPanels[panelIndex].dayItems[dayIndex]]}
+                      locationItems={locationItems}
                       ciClusters={ciPanels[panelIndex].dayClusters[dayIndex]}
                       plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
                       onDropWorkItem={onDropWorkItem}

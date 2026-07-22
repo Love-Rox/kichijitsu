@@ -628,6 +628,13 @@ export interface EventDetailCardProps {
    * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
    */
   onDelete?: () => void;
+  /**
+   * 地図で開くリンク(場所付き予定レール表示、2026-07-22)。指定されていれば「場所」欄の
+   * 直後に Google マップ検索リンクを追加表示する。LocationRailPin.tsx だけがこれを渡す
+   * (URL の組み立てもそちら側の責務) ―― EventBlock/OooRailLine から開く通常の詳細
+   * ポップオーバーには出さない(ユーザー要件:「地図で開く」はレール限定の追加導線)。
+   */
+  mapLink?: string;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -652,6 +659,7 @@ export function EventDetailCard({
   calendarLookup,
   onClose,
   onDelete,
+  mapLink,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -704,6 +712,14 @@ export function EventDetailCard({
           <PlaceIcon width={12} height={12} />
           場所: {subject.location}
         </div>
+      )}
+      {mapLink && (
+        // 地図で開くリンク(場所付き予定レール、2026-07-22)。「Google で開く」と同じ
+        // .event-detail-link スタイル(朱アクセント)を再利用する ―― こちらはレール由来の
+        // ポップオーバーでのみ渡ってくる(mapLink prop 参照)
+        <a className="event-detail-link" href={mapLink} target="_blank" rel="noopener noreferrer">
+          地図で開く
+        </a>
       )}
       {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
       {subject.link?.url && (

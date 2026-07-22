@@ -1283,6 +1283,56 @@
 }
 
 /*
+ * 場所付き予定レール (地図ピン表示、2026-07-22)。location を持つ時刻予定について、
+ * 不在(OOO)レールと同じ「日カラム左端のレールに開始時刻の位置で一覧できる」体験を、
+ * OOO と違って予定カードを消さずに追加で提供する ―― カード自体は EventBlock 側で
+ * そのまま描画され続け、このレールはその隣に立つ補助的な目印(地図ピン)にすぎない。
+ * left は DayColumn.tsx が locationRailLeftPx(gridMetrics.ts)の結果をインラインで渡す
+ * (OOO バーが同じ日にあるかどうかで 0px/14px に切り替わる ―― CSS の条件分岐では
+ * 表現できないため JS 側で計算する)。
+ */
+.day-location-rail {
+  position: absolute;
+  top: 0;
+  width: 12px; /* LOCATION_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
+  height: 100%;
+  pointer-events: none;
+}
+
+/*
+ * ピン本体。当たり判定を ~14px 確保しつつ(タッチでの取りこぼし防止、day-ooo-line::before
+ * と同じ狙い)、中の PlaceIcon 自体は 12px(LocationRailPin.tsx で width/height 指定)。
+ * top は予定カードの上端(=開始時刻)に揃える(minutesToPx、LocationRailPin.tsx)。
+ * 色は朱 (--logo-aka) を使わず薄墨系に統一する(ユーザー決定: 朱はブランドの唯一の
+ * アクセントであり、レール上の目印には使わない)。ホバー/フォーカスで少し濃くするだけで、
+ * OOO バーのような背景の塗りは持たない(線画アイコンをそのまま目立たせる)。
+ */
+.day-location-pin {
+  position: absolute;
+  left: -1px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a8478;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 1; /* .day-ooo-line と同じ層 = .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 */
+}
+
+.day-location-pin:hover,
+.day-location-pin:focus-visible {
+  color: #24211e;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-location-pin {
+    transition: color 120ms ease;
+  }
+}
+
+/*
  * GitHub CI/Actions 実行オーバーレイ (フェーズ④b, docs/github-integration.md)。
  * .day-activity-rail (commit 実績、右端) と対になる左端のレール — 同じ DAY_COLUMN_INSET_PX
  * ぶんのガターを使うので予定カードと絶対に重ならない。左右に分けているのは、同じ日に

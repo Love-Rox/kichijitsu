@@ -16,6 +16,7 @@ import {
 import { packColumns } from "../layout/packColumns";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import type { OooRailItem } from "../layout/oooRail";
+import type { LocationRailItem } from "../layout/locationRail";
 import {
   busyOverlapColors,
   cascadeStepFrac,
@@ -23,6 +24,7 @@ import {
   dayColumnLeftInsetPx,
   formatTime,
   isBusyPlaceholder,
+  locationRailLeftPx,
   minutesToPx,
   pxToMinutes,
 } from "../layout/gridMetrics";
@@ -30,6 +32,7 @@ import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
+import { LocationRailPin } from "./LocationRailPin";
 import { OooRailLine } from "./OooRailLine";
 import { PlannedBlockCard } from "./PlannedBlock";
 
@@ -125,6 +128,14 @@ interface DayColumnProps {
    */
   oooItems: OooRailItem[];
   /**
+   * 場所付き予定レール(地図ピン表示、2026-07-22)。この日ぶんの location 付き時刻予定
+   * (layout/locationRail.ts の locationRailItems 参照、WeekGrid 側で cardGroups の primary
+   * から作る)。OOO と違い packColumns の入力からは除外しない ―― 予定カード自体は
+   * EventBlock 側でそのまま描画され続け、このレールはその隣に立つ補助的な目印にすぎない。
+   * `.day-location-rail`(左端、OOO が無い日は最左・ある日は OOO バーの内側)に描画する。
+   */
+  locationItems: LocationRailItem[];
+  /**
    * 予定タイムブロック(docs/github-integration.md「時間計測」増分1)。この日ぶんの
    * PlannedBlock 配列(WeekGrid 側で [dayStartMs, dayEndMs) に絞り込み済み)。
    */
@@ -178,6 +189,7 @@ export function DayColumn({
   activityClusters,
   ciClusters,
   oooItems,
+  locationItems,
   plannedBlocks,
   onDropWorkItem,
   onMovePlannedBlock,
@@ -208,10 +220,11 @@ export function DayColumn({
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
 
-  // 不在レール矩形化(2026-07-22 ユーザー要望): この日に不在(OOO)バーがあるときだけ
-  // EventBlock の左インセットを広げ、幅12pxの矩形バーと予定カードが重ならないようにする
-  // (gridMetrics.ts の dayColumnLeftInsetPx 参照)。無い日は従来の DAY_COLUMN_INSET_PX のまま。
-  const eventLeftInsetPx = dayColumnLeftInsetPx(oooItems.length > 0);
+  // 左端レールの左インセット一般化(場所付き予定レール追加、2026-07-22): 不在(OOO)バー・
+  // 場所ピンのどちらか(または両方)がこの日にあるとき、EventBlock の左インセットを広げて
+  // 予定カードと重ならないようにする(gridMetrics.ts の dayColumnLeftInsetPx 参照)。
+  // どちらも無い日は従来の DAY_COLUMN_INSET_PX のまま。
+  const eventLeftInsetPx = dayColumnLeftInsetPx(oooItems.length > 0, locationItems.length > 0);
 
   const busyIntervals = positioned
     .map((p) => p.item.primary)
@@ -539,6 +552,27 @@ export function DayColumn({
         <div className="day-ooo-rail">
           {oooItems.map((item) => (
             <OooRailLine
+              key={item.id}
+              item={item}
+              timeZone={timeZone}
+              calendarLookup={calendarLookup}
+            />
+          ))}
+        </div>
+      )}
+      {locationItems.length > 0 && (
+        // 場所付き予定レール(地図ピン表示、2026-07-22)。OOO バーとの視覚衝突回避:
+        // OOO が無い日はレール最左(left: 0、OOO バーと同じガター)、ある日は OOO バーの
+        // 幅ぶん内側へずらす(locationRailLeftPx、gridMetrics.ts)。左インセット
+        // (eventLeftInsetPx、上記)側も両レールぶんまとめて広げてあるので、OOO・場所ピン・
+        // 予定カードの3者が同時に出ても重ならない。z-index は day-ooo-line と同じ 1
+        // (.now-line(2)・.day-ci-mark/.day-activity-mark(3) より下、WeekGrid.css 側で指定)
+        <div
+          className="day-location-rail"
+          style={{ left: locationRailLeftPx(oooItems.length > 0) }}
+        >
+          {locationItems.map((item) => (
+            <LocationRailPin
               key={item.id}
               item={item}
               timeZone={timeZone}
