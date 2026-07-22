@@ -35,6 +35,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 /// `gh api` に渡してよい `endpoint` かどうかを判定するホワイトリスト。
 ///
@@ -273,6 +274,15 @@ fn app_version() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
+        // width/height (1200x800) は保存済み状態が無い初回起動時のみの
+        // デフォルトで、このプラグインが起動時に自動でウィンドウへ適用する
+        // (保存済み状態があれば以降はそちらが優先される)。保存タイミングは
+        // 既定でウィンドウ破棄(destroy)時だが、このアプリは「閉じる」で
+        // ウィンドウを破棄せず隠すだけなので、明示的な save_window_state
+        // 呼び出しが別途必要(on_window_event の CloseRequested 分岐と
+        // on_menu_event の "quit" 分岐のコメント参照)。
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![gh_api, app_version])
         .setup(|app| {
             // --- トレイ常駐 ---
@@ -290,7 +300,17 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "toggle" => toggle_main_window(app),
                     "reload" => reload_main_window(app),
-                    "quit" => app.exit(0),
+                    // アプリの唯一の真の終了経路。tauri-plugin-window-state は
+                    // 既定でウィンドウ破棄時にしか状態を保存しないが、この
+                    // アプリは「閉じる」でウィンドウを破棄しない(下記
+                    // on_window_event 参照)ため、破棄イベントが一度も
+                    // 発生しないまま app.exit(0) でプロセスごと終了しうる。
+                    // 終了直前に明示 save しないとウィンドウ位置/サイズが
+                    // 一切永続化されないため、exit の前に必ず保存する。
+                    "quit" => {
+                        let _ = app.save_window_state(StateFlags::all());
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -366,6 +386,13 @@ pub fn run() {
             // （デスクトップ全体で同一の常駐アプリとして振る舞わせる方針）。
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                // tauri-plugin-window-state はウィンドウ破棄(destroy)時に
+                // 保存するのが既定動作だが、ここでは破棄せず隠すだけなので
+                // 破棄時保存は発火しない。「閉じる」のたびにここで明示保存
+                // しておくことで、真の終了("quit" メニュー、上記
+                // on_menu_event 参照)を待たずとも、閉じた時点のサイズ/位置
+                // が失われない(例: 閉じた直後に OS ごと再起動された場合など)。
+                let _ = window.app_handle().save_window_state(StateFlags::all());
                 let _ = window.hide();
             }
         })

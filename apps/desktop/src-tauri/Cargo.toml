@@ -3,7 +3,7 @@ name = "kichijitsu-desktop"
 # バージョンは tauri.conf.json / package.json と必ず揃えること。
 # app_version コマンドは env!("CARGO_PKG_VERSION")(= この値)を返すため、
 # ここがズレると設定画面の「アプリ vX.Y.Z」表示が実バージョンと食い違う。
-version = "0.1.3"
+version = "0.1.4"
 description = "kichijitsu desktop shell (reads the production web app via a remote URL webview)"
 authors = ["Love-Rox"]
 license = ""
@@ -24,6 +24,7 @@ tauri-build = { version = "2" }
 # tray-icon: 増分2a のトレイ常駐 (TrayIconBuilder) に必要。既定では無効な feature。
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
 
 # global-shortcut はデスクトップ専用プラグイン（モバイルには存在しない）。
 # 公式ドキュメント (v2.tauri.app/plugin/global-shortcut) 通りに target cfg で限定する。
