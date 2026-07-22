@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { TimeEntry } from "../model/types";
 import { entryDurationMs, formatDurationHm } from "../sync/timeTracking";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { TimerIcon } from "./icons";
 import "./RunningTimersIndicator.css";
 
 export interface RunningTimersIndicatorProps {
@@ -15,9 +16,10 @@ export interface RunningTimersIndicatorProps {
 
 /**
  * ヘッダーの走行中タイマー インジケーター(docs/github-integration.md「時間計測」増分2、
- * 2026-07-20)。単一走行の制約が無い(複数 item を同時併走できる)ため、常に「⏱ N」の
- * バッジで件数を示し、クリックで展開する一覧に各 item の経過 + 個別 ⏹ を並べる
- * (BlockRulesOverlay 等と同じ「App が開閉制御せず自身で開閉を持つポップオーバー」構成)。
+ * 2026-07-20)。単一走行の制約が無い(複数 item を同時併走できる)ため、常に「⏱ N」相当の
+ * バッジ(2026-07-22: 絵文字 ⏱ を TimerIcon に置き換え)で件数を示し、クリックで展開する
+ * 一覧に各 item の経過 + 個別 ⏹ を並べる(BlockRulesOverlay 等と同じ「App が開閉制御せず
+ * 自身で開閉を持つポップオーバー」構成)。
  */
 export function RunningTimersIndicator({
   runningEntries,
@@ -42,7 +44,9 @@ export function RunningTimersIndicator({
         title="計測中のタイマー"
       >
         <span className="running-timers-pulse" aria-hidden="true" />
-        <span aria-hidden="true">⏱ {runningEntries.length}</span>
+        <span className="running-timers-count" aria-hidden="true">
+          <TimerIcon /> {runningEntries.length}
+        </span>
       </button>
       {open && (
         <div className="running-timers-panel" role="dialog" aria-label="計測中のタイマー一覧">

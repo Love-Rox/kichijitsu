@@ -8,6 +8,7 @@ import { buildReportRows, reportRowsToCsv, type ActualsReportRow } from "../sync
 import { formatDurationHm } from "../sync/timeTracking";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import type { PaneMode } from "../layout/paneMode";
+import { PanelIcon, PinIcon } from "./icons";
 import "./GitHubPane.css";
 
 export interface GitHubPaneProps {
@@ -108,7 +109,7 @@ export function GitHubPane({
               aria-label={isOverlay ? "常設ドッキングに切り替え" : "オーバーレイに切り替え"}
               title={isOverlay ? "常設ドッキングに切り替え" : "オーバーレイに切り替え"}
             >
-              <span aria-hidden="true">{isOverlay ? "📌" : "⧉"}</span>
+              <span aria-hidden="true">{isOverlay ? <PinIcon /> : <PanelIcon />}</span>
             </button>
           )}
           <button

@@ -116,8 +116,9 @@
   max-width: 180px;
 }
 
+/* GearIcon (2026-07-22、旧 ⚙ 絵文字) の色。サイズはコンポーネント側の width/height props で指定済み */
 .account-gear {
-  font-size: 12px;
+  display: inline-flex;
   color: #8a8478;
 }
 

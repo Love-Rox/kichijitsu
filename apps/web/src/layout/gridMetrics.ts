@@ -21,6 +21,27 @@ export const PX_PER_MINUTE = HOUR_HEIGHT / 60;
  */
 export const DAY_COLUMN_INSET_PX = 5;
 
+/**
+ * 不在(OOO)レール矩形化(2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を
+ * 白文字として矩形に収まる形に」)。バー本体の幅。.day-ooo-rail/.day-ooo-line の width と
+ * 揃える(WeekGrid.css 側はハードコードのみ許容、値の出どころはここ)。
+ */
+export const OOO_RAIL_WIDTH_PX = 12;
+/** 矩形化した不在バーと予定カードの間に空ける隙間(px) */
+const OOO_RAIL_GAP_PX = 4;
+
+/**
+ * 日列の左インセット(px)。EventBlock 側の calc(`${leftInsetPx}px + ...`) にそのまま渡す値。
+ * その日に不在レールがある(oooItems.length > 0)ときだけ、矩形化した OOO バー(幅
+ * OOO_RAIL_WIDTH_PX)+ 隙間(OOO_RAIL_GAP_PX)ぶん広げて予定カードと重ならないようにする
+ * (ユーザー要望)。無い日は従来どおり DAY_COLUMN_INSET_PX のまま。右インセットは
+ * このバーの有無に関わらず常に DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定)。
+ * DOM/React に依存しない純関数として切り出し、gridMetrics.test.ts で単体テストする。
+ */
+export function dayColumnLeftInsetPx(hasOoo: boolean): number {
+  return hasOoo ? OOO_RAIL_WIDTH_PX + OOO_RAIL_GAP_PX : DAY_COLUMN_INSET_PX;
+}
+
 /** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */
 export const COMPACT_THRESHOLD_MIN = 40;
 

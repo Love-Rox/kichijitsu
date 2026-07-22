@@ -31,10 +31,11 @@ interface OooRailLineProps {
 /**
  * 不在 (Out of Office) レールの1本(DayColumn.tsx から使う、2026-07-22)。
  *
- * 通常の予定カード (EventBlock) の代わりに、日列端の細いレール(.day-ooo-rail、
- * DayColumn.tsx 側で左端 .day-ci-rail と同じガターに置く)上へ時間範囲ぶんの縦ラインを
- * 描き、CSS 側 (.day-ooo-line::after) が上端に × を出す。色はカレンダー色を使わず
- * 薄墨で統一する(不在は「場が空いていないこと」の記号なので色を殺す、ユーザー決定)。
+ * 通常の予定カード (EventBlock) の代わりに、日列端のレール(.day-ooo-rail、DayColumn.tsx
+ * 側で左端 .day-ci-rail と同じガターに置く)上へ時間範囲ぶんの角丸矩形バー(幅 12px、
+ * OOO_RAIL_WIDTH_PX)を描く。塗りは resolveDisplayColor で解決したカレンダー色(下記)、
+ * 上端には CSS 側 (.day-ooo-line::after) が白文字の × を矩形内に収めて出す(矩形化、
+ * 2026-07-22 ユーザー要望)。
  *
  * ホバーのツールチップ・クリック/タップの詳細ポップオーバーは EventBlock/AllDayBar と
  * 全く同じ機構(eventPopoverShared.ts の共有ツールチップ DOM ノード、EventDetailCard)を
@@ -110,11 +111,16 @@ export function OooRailLine({ item, timeZone, calendarLookup }: OooRailLineProps
     ? formatDetailDateTime(subject.startMs, subject.endMs, timeZone)
     : formatAllDayDateRange(subject.startDate, subject.endDate);
 
-  // カレンダー色を EventBlock と同じ resolveDisplayColor で解決し、ライン(backgroundColor)と
-  // 上端の ×(::after が color: inherit で拾う)を同色にする(ユーザー要望 2026-07-22:
-  // 当初の「薄墨で色を殺す」案から変更 — どのカレンダーの不在かが一目で分かる方を優先)。
+  // カレンダー色を EventBlock と同じ resolveDisplayColor で解決し、矩形バーの塗り
+  // (backgroundColor)に使う(ユーザー要望 2026-07-22: 当初の「薄墨で色を殺す」案から変更 —
+  // どのカレンダーの不在かが一目で分かる方を優先)。上端の ×(WeekGrid.css の ::after)は
+  // どの色の上でも読めるよう常に白固定にしてあるため、ここでは color は渡さない
+  // (矩形化以前は ::after が color: inherit でこの値を拾っていたが、そのやり方は廃止した)。
   // 解決結果が空文字(未設定のレガシーキャッシュ等)なら従来の薄墨にフォールバック
   const displayColor = resolveDisplayColor(subject, calendarLookup) || "#8a8478";
+  // 矩形の中に「top: 3px + 白い × (9px)」を収める都合上、極端に短い不在(数分)でも
+  // × が矩形からはみ出さないだけの最低高さを確保する(旧: 可視性だけを考えた 2px 下限)
+  const MIN_BAR_HEIGHT_PX = 16;
 
   return (
     <>
@@ -122,9 +128,8 @@ export function OooRailLine({ item, timeZone, calendarLookup }: OooRailLineProps
         className="day-ooo-line"
         style={{
           top: minutesToPx(item.startMinutes),
-          height: Math.max(minutesToPx(item.endMinutes - item.startMinutes), 2),
+          height: Math.max(minutesToPx(item.endMinutes - item.startMinutes), MIN_BAR_HEIGHT_PX),
           backgroundColor: displayColor,
-          color: displayColor,
         }}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}

@@ -1,5 +1,6 @@
 import type { GitHubItem } from "../model/types";
 import type { GitHubMilestoneGroup } from "../sync/mapGitHub";
+import { TagIcon } from "./icons";
 
 interface GitHubLaneProps {
   /** その日ぶんの milestone グループ(表示上限適用済み、sync/mapGitHub.ts の layoutGitHubDay 参照) */
@@ -39,7 +40,7 @@ export function GitHubLane({ groups, releases, overflowCount }: GitHubLaneProps)
               title={`${release.repo} release ${release.title}`}
             >
               <span className="github-release-tag" aria-hidden="true">
-                🏷
+                <TagIcon width={11} height={11} />
               </span>
               <span className="github-release-title">{release.title}</span>
               <span className="github-release-repo">{release.repo}</span>

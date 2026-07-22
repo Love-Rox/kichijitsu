@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { busyOverlapColors, overlapsBusy, type TimeInterval } from "./gridMetrics";
+import {
+  busyOverlapColors,
+  DAY_COLUMN_INSET_PX,
+  dayColumnLeftInsetPx,
+  overlapsBusy,
+  type TimeInterval,
+} from "./gridMetrics";
 
 function occ(startMs: number, endMs: number) {
   return { startMs, endMs };
@@ -56,5 +62,15 @@ describe("busyOverlapColors", () => {
   it("max で上限を切る", () => {
     const busy = [bi(0, 10, "#a"), bi(0, 10, "#b"), bi(0, 10, "#c"), bi(0, 10, "#d")];
     expect(busyOverlapColors({ startMs: 0, endMs: 10 }, busy, 2)).toEqual(["#a", "#b"]);
+  });
+});
+
+describe("dayColumnLeftInsetPx", () => {
+  it("不在レールが無い日は従来の DAY_COLUMN_INSET_PX のまま", () => {
+    expect(dayColumnLeftInsetPx(false)).toBe(DAY_COLUMN_INSET_PX);
+  });
+
+  it("不在レールがある日は矩形バー幅(12px)+隙間(4px)ぶん広げた16pxを返す", () => {
+    expect(dayColumnLeftInsetPx(true)).toBe(16);
   });
 });

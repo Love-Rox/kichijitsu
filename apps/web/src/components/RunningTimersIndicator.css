@@ -25,6 +25,13 @@
   background: rgba(110, 84, 148, 0.16);
 }
 
+/* TimerIcon (2026-07-22、旧 ⏱ 絵文字) + 件数を横並びで揃えるためだけの薄いラッパー */
+.running-timers-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .running-timers-pulse {
   width: 6px;
   height: 6px;

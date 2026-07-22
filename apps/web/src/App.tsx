@@ -80,6 +80,7 @@ import { GitHubPane } from "./components/GitHubPane";
 import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
+import { CalendarIcon, GearIcon, SearchIcon } from "./components/icons";
 import {
   isEditableTarget,
   isViewAllowedForWidth,
@@ -2521,9 +2522,10 @@ function App() {
           >
             →
           </button>
-          {/* 予定検索(フェーズ6)。SearchOverlay 側で入力欄にオートフォーカスする */}
+          {/* 予定検索(フェーズ6)。SearchOverlay 側で入力欄にオートフォーカスする。
+           * アイコンは 2026-07-22 に絵文字 🔍 から SearchIcon(フラット SVG)へ置き換え */}
           <button type="button" onClick={openSearch} aria-label="予定を検索">
-            🔍
+            <SearchIcon />
           </button>
         </div>
         {/*
@@ -2631,7 +2633,8 @@ function App() {
                   onClick={() => setPanelOpen((open) => !open)}
                   aria-expanded={panelOpen}
                   aria-haspopup="dialog"
-                  // 狭幅では .account-summary-label を CSS で隠し ⚙ アイコンだけにするため、
+                  // 狭幅では .account-summary-label を CSS で隠し歯車アイコン(旧 ⚙ 絵文字、
+                  // 2026-07-22 に GearIcon へ置き換え)だけにするため、
                   // アクセシブルネームが失われないよう明示の aria-label を持たせる
                   aria-label={
                     me.accounts.length === 1
@@ -2645,7 +2648,7 @@ function App() {
                       : `${me.accounts.length}アカウント連携中`}
                   </span>
                   <span className="account-gear" aria-hidden="true">
-                    ⚙
+                    <GearIcon width={12} height={12} />
                   </span>
                 </button>
                 <button
@@ -2726,7 +2729,10 @@ function App() {
               aria-expanded={leftPaneOpen}
               aria-haspopup="dialog"
             >
-              <span aria-hidden="true">📅</span>
+              {/* 2026-07-22: 絵文字 📅 から CalendarIcon(フラット SVG)へ置き換え */}
+              <span aria-hidden="true">
+                <CalendarIcon />
+              </span>
               {!isNarrow && <span className="toolbar-calendar-label">カレンダー</span>}
             </button>
           )}

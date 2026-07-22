@@ -482,9 +482,16 @@
   border-radius: 2px;
 }
 
+/*
+ * タグアイコン(2026-07-22、絵文字 🏷 → フラット SVG 化)。.github-milestone-diamond と
+ * 同じ流儀で、親 (.github-release-marker、色は薄墨 #24211e) から独立して明示的に
+ * release の識別色 #0969da を持たせる(アイコンは currentColor で描画するため、ここで
+ * 指定しないと薄墨のまま描かれてしまう)。
+ */
 .github-release-tag {
   flex: 0 0 auto;
-  font-size: 9px;
+  display: inline-flex;
+  color: #0969da;
 }
 
 .github-release-title {
@@ -1125,54 +1132,64 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  width: 12px; /* OOO_RAIL_WIDTH_PX (gridMetrics.ts) と揃える(ハードコードのみ許容箇所) */
   height: 100%;
   pointer-events: none;
 }
 
+/*
+ * 矩形化 (2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を白文字として矩形に
+ * 収まる形に」): 5px レール内の細い4px線から、レール幅いっぱいの12px角丸矩形に変更。
+ * 中央寄せの余白 (旧 left: 0.5px) は不要になったので left: 0 でレール幅と一致させる。
+ * 塗り(カレンダー色)は従来どおり OooRailLine.tsx が resolveDisplayColor の結果を
+ * inline style (backgroundColor) で与える方式を維持。矩形の塗りそのものが色になるため、
+ * × (::after) はどの色の上でも読めるよう白固定にする(下記、以前の color: inherit から変更)。
+ */
 .day-ooo-line {
   position: absolute;
-  left: 0.5px; /* 5px 幅のレール内で中央寄せ(可視幅は4px) */
-  width: 4px;
-  /* 色は OooRailLine.tsx が resolveDisplayColor で解決したカレンダー色を inline style
-   * (backgroundColor + color) で与える(ユーザー要望 2026-07-22: カレンダー色を活用)。
-   * ここでは透過だけを担い、::after の × は color: inherit で同色にする */
-  opacity: 0.7;
-  border-radius: 2px;
+  left: 0;
+  width: 12px; /* OOO_RAIL_WIDTH_PX と揃える。gridMetrics.ts の dayColumnLeftInsetPx が
+                  この幅+隙間ぶん予定カードの左インセットを広げる */
+  opacity: 0.88; /* 矩形化で面積が増えたぶん、細線だった頃 (0.7) より少し濃くして視認性を保つ */
+  border-radius: 3px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
   cursor: pointer;
   z-index: 1; /* .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 =
-                 CI レールと同時表示でも不在ラインが必ず背面に回る(ユーザー決定) */
+                 CI レールと同時表示でも不在バーが必ず背面に回る(ユーザー決定、CI マーカーは
+                 このバーの上に重なってよい) */
 }
 
 /*
- * タッチ/マウス双方の当たり判定を可視幅(2px)より広げるための透明な拡張領域。
- * 可視の線自体は pointer-events:none のままにして見た目(細い線)を保ちつつ、
- * ::before だけ pointer-events:auto にすることで、ホバー/クリックの target は
- * ホスト要素 (.day-ooo-line) のまま実効タップ幅を左右 +5px ずつ(合計 ~12px)広げる。
- * DOM ノードを増やさずに済むうえ、:hover はホスト要素の祖先判定なので ::before 上の
- * ホバーでも .day-ooo-line:hover が正しく効く(擬似要素は別要素として扱われないため)。
+ * タッチ/マウス双方の当たり判定を可視幅より少し広げるための透明な拡張領域。
+ * バー自体が12px幅あるので、細線だった頃(左右 +4px = 合計 ~12pxのタップ幅を確保する
+ * 必要があった)ほどの拡張は不要 — 取りこぼし防止のごく小さな余白(±2px)だけ残す。
  */
 .day-ooo-line::before {
   content: "";
   position: absolute;
   inset: 0;
-  left: -4px;
-  right: -4px;
+  left: -2px;
+  right: -2px;
   pointer-events: auto;
 }
 
-/* 上端の × アイコン。SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法)。
- * 色はホスト要素の inline style (カレンダー色) を inherit する */
+/*
+ * バー内側上部の × アイコン(矩形化、2026-07-22)。以前はバーの外(top: -9px)に飛び出して
+ * いたが、矩形の中に収まるようバー内側の上部(top: 3px)へ中央寄せし、色は常に白 (#fff) 固定
+ * にする(バーの塗り = カレンダー色でも常に読めるようにするため、以前の color: inherit を廃止)。
+ * SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法)。
+ * 終日 OOO の全高バー (OooRailLine.tsx が startMinutes=0/endMinutes=MINUTES_PER_DAY で渡す) も
+ * 同じクラスを使うため、同じ矩形スタイルがそのまま適用される。
+ */
 .day-ooo-line::after {
   content: "×";
   position: absolute;
-  top: -9px;
+  top: 3px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
-  color: inherit;
+  color: #fff;
   font-weight: 700;
   pointer-events: none;
 }
@@ -1180,11 +1197,6 @@
 .day-ooo-line:hover,
 .day-ooo-line:focus-visible {
   opacity: 1;
-}
-
-.day-ooo-line:hover::after,
-.day-ooo-line:focus-visible::after {
-  color: #24211e; /* 墨。ホバー時だけ少し濃くして反応が分かるようにする */
 }
 
 /*

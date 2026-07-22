@@ -47,6 +47,14 @@ interface EventBlockProps {
   /** 使用可能幅(日列の左右インセットを除いた内側)に対する % (0-100)。カスケード表示の座標 */
   leftPct: number;
   widthPct: number;
+  /**
+   * 日列左端の px インセット(2026-07-22、不在レール矩形化)。省略時は従来どおり
+   * DAY_COLUMN_INSET_PX。呼び出し元 (DayColumn.tsx) はその日に不在レールがあるかどうかで
+   * layout/gridMetrics.ts の dayColumnLeftInsetPx() を呼んでここへ渡す — 矩形化した OOO バー
+   * (幅 12px)と予定カードが重ならないよう、OOO のある日だけ左インセットを広げるため。
+   * 右インセットは常に DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定のため)。
+   */
+  leftInsetPx?: number;
   /** カスケード表示の重なり順(0-based 列番号)。z-index の基準にする */
   stackIndex: number;
   isCompact: boolean;
@@ -124,6 +132,7 @@ export function EventBlock({
   height,
   leftPct,
   widthPct,
+  leftInsetPx: leftInsetPxProp,
   stackIndex,
   isCompact,
   blockedByBusyColors,
@@ -398,7 +407,9 @@ export function EventBlock({
   // カレンダー色を優先するため、初回同期時に defaultColor が未定義だった occurrence でも
   // パネルの色と一致する(再同期不要)。イベント個別色 (hasCustomColor) は尊重される。
   const displayColor = isBusy ? undefined : resolveDisplayColor(occurrence, calendarLookup);
-  const usableWidthExpr = `(100% - ${DAY_COLUMN_INSET_PX * 2}px)`;
+  // 左インセットだけ日ごとに可変(不在レール矩形化、2026-07-22)。右は常に DAY_COLUMN_INSET_PX。
+  const leftInsetPx = leftInsetPxProp ?? DAY_COLUMN_INSET_PX;
+  const usableWidthExpr = `(100% - ${leftInsetPx}px - ${DAY_COLUMN_INSET_PX}px)`;
 
   // 同一予定の集約(フェーズ5〜6): 2件以上の複製がある場合、左端に所属カレンダー
   // ぶんの色ストライプを並べて「複数カレンダーにまたがっている」ことを一目で
@@ -411,7 +422,7 @@ export function EventBlock({
 
   const style: CSSProperties = {
     top,
-    left: `calc(${DAY_COLUMN_INSET_PX}px + ${usableWidthExpr} * ${leftPct / 100})`,
+    left: `calc(${leftInsetPx}px + ${usableWidthExpr} * ${leftPct / 100})`,
     width: `calc(${usableWidthExpr} * ${widthPct / 100})`,
     zIndex: stackIndex + 1,
     // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと

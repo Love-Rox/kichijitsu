@@ -20,6 +20,7 @@ import {
   busyOverlapColors,
   cascadeStepFrac,
   COMPACT_THRESHOLD_MIN,
+  dayColumnLeftInsetPx,
   formatTime,
   isBusyPlaceholder,
   minutesToPx,
@@ -206,6 +207,11 @@ export function DayColumn({
       return busyA - busyB || a.startMs - b.startMs || b.endMs - a.endMs;
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
+
+  // 不在レール矩形化(2026-07-22 ユーザー要望): この日に不在(OOO)バーがあるときだけ
+  // EventBlock の左インセットを広げ、幅12pxの矩形バーと予定カードが重ならないようにする
+  // (gridMetrics.ts の dayColumnLeftInsetPx 参照)。無い日は従来の DAY_COLUMN_INSET_PX のまま。
+  const eventLeftInsetPx = dayColumnLeftInsetPx(oooItems.length > 0);
 
   const busyIntervals = positioned
     .map((p) => p.item.primary)
@@ -457,6 +463,7 @@ export function DayColumn({
             height={heightPx}
             leftPct={leftPct}
             widthPct={widthPct}
+            leftInsetPx={eventLeftInsetPx}
             isCompact={isCompact}
             blockedByBusyColors={blockedByBusyColors}
             timeZone={timeZone}
