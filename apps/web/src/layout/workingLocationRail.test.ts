@@ -114,7 +114,7 @@ describe("timedWorkingLocationRailItems", () => {
   const dayStartMs = 10 * DAY_MS; // 適当な基準日 0:00
   const dayEndMs = dayStartMs + DAY_MS;
 
-  it("日内に収まる勤務場所を開始時刻の分オフセット(topMinutes)へ変換する", () => {
+  it("日内に収まる勤務場所を開始〜終了の分オフセット範囲(startMinutes/endMinutes)へ変換する(帯化)", () => {
     const startMs = dayStartMs + 9 * 60 * 60_000; // 9:00
     const endMs = dayStartMs + 17 * 60 * 60_000; // 17:00
     const o = occ({ id: "wl-timed", isWorkingLocation: true, startMs, endMs });
@@ -122,7 +122,7 @@ describe("timedWorkingLocationRailItems", () => {
     const items = timedWorkingLocationRailItems([group(o)], dayStartMs, dayEndMs);
 
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: "wl-timed", topMinutes: 9 * 60 });
+    expect(items[0]).toMatchObject({ id: "wl-timed", startMinutes: 9 * 60, endMinutes: 17 * 60 });
     expect(items[0].subject).toBe(o);
     expect(items[0].groupMembers).toEqual([o]);
   });
@@ -138,7 +138,7 @@ describe("timedWorkingLocationRailItems", () => {
     expect(timedWorkingLocationRailItems([group(o)], dayStartMs, dayEndMs)).toEqual([]);
   });
 
-  it("日をまたぐ勤務場所は開始側を [dayStartMs, dayEndMs) の 0:00 にクリップする", () => {
+  it("日をまたぐ勤務場所は [dayStartMs, dayEndMs) にクリップする(開始は 0:00、終了は 24:00 相当)", () => {
     const o = occ({
       id: "wl-spanning",
       isWorkingLocation: true,
@@ -149,12 +149,27 @@ describe("timedWorkingLocationRailItems", () => {
     const items = timedWorkingLocationRailItems([group(o)], dayStartMs, dayEndMs);
 
     expect(items).toHaveLength(1);
-    expect(items[0].topMinutes).toBe(0);
+    expect(items[0].startMinutes).toBe(0);
+    expect(items[0].endMinutes).toBe(24 * 60);
+  });
+
+  it("クリップ後の幅が0でも最低1分ぶんの高さを確保する", () => {
+    const o = occ({
+      id: "wl-zero-width",
+      isWorkingLocation: true,
+      startMs: dayEndMs - 30_000, // 日終了30秒前に開始
+      endMs: dayEndMs + 60_000, // 日をまたいで終了
+    });
+
+    const items = timedWorkingLocationRailItems([group(o)], dayStartMs, dayEndMs);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].endMinutes).toBeGreaterThan(items[0].startMinutes);
   });
 });
 
 describe("allDayWorkingLocationRailItems", () => {
-  it("day を含む終日勤務場所を上端固定(topMinutes: 0)のピン項目にする", () => {
+  it("day を含む終日勤務場所をその日の全高帯(startMinutes: 0, endMinutes: 1440)にする(帯化)", () => {
     const o = allDayOcc({
       id: "wl-allday-1",
       isWorkingLocation: true,
@@ -166,7 +181,7 @@ describe("allDayWorkingLocationRailItems", () => {
     const items = allDayWorkingLocationRailItems([allDayGroup(o)], day);
 
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: "wl-allday-1", topMinutes: 0 });
+    expect(items[0]).toMatchObject({ id: "wl-allday-1", startMinutes: 0, endMinutes: 24 * 60 });
     expect(items[0].subject).toBe(o);
   });
 

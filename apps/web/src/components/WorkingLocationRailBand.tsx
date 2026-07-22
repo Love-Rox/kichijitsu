@@ -15,14 +15,19 @@ import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./event
 import { PlaceIcon } from "./icons";
 
 const HOVER_DELAY_MS = 400;
-const PIN_ICON_SIZE_PX = 12;
+const PLACE_ICON_SIZE_PX = 12;
+/**
+ * OOO 帯 (OooRailLine.tsx) の MIN_BAR_HEIGHT_PX と同じ理由: 短時間の勤務場所(数分)でも
+ * 上端の PlaceIcon(top: 2px + 12px)が帯の外にはみ出さないだけの最低高さを確保する。
+ */
+const MIN_BAND_HEIGHT_PX = 16;
 
 /** WorkingLocationRailItem.subject が時刻予定(Occurrence)かどうかの構造的ガード(OooRailLine.tsx と同じ) */
 function isTimedSubject(subject: Occurrence | AllDayOccurrence): subject is Occurrence {
   return "startMs" in subject;
 }
 
-interface WorkingLocationRailPinProps {
+interface WorkingLocationRailBandProps {
   item: WorkingLocationRailItem;
   timeZone: string;
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventDetailCard の全所属列挙に使う */
@@ -30,28 +35,40 @@ interface WorkingLocationRailPinProps {
 }
 
 /**
- * 勤務場所(workingLocation)レールの1本(DayColumn.tsx から使う、2026-07-22 作り直し)。
+ * 勤務場所(workingLocation)レールの1本(DayColumn.tsx から使う、2026-07-22 帯化)。
  *
- * OooRailLine.tsx とほぼ同じフォーム(表示専用・ドラッグ無し、ホバーは eventPopoverShared.ts
- * の共有ツールチップ、クリック/タップは EventDetailCard の再利用、subject は時刻予定/終日
- * 予定どちらもありうる)だが、バーではなく PlaceIcon の点ピンとして描く ―― 勤務場所は
- * 「その日どこで働くか」という一点の情報であって占有時間ではないため。
- * item.topMinutes が時刻予定なら開始時刻、終日予定なら常に 0(日カラム上端固定)を表す。
+ * 経緯: 直前(点ピン版、旧 WorkingLocationRailPin.tsx)は「勤務場所は一点の情報」という
+ * 判断で開始時刻ちょうどの位置に PlaceIcon を1個置くだけだった。しかしユーザーから
+ * 「勤務場所は OOO (不在) のように帯(バー)で表示したい」という明確な要望があり、
+ * OooRailLine.tsx を土台に帯として作り替えた。item は topMinutes(点)ではなく
+ * startMinutes/endMinutes(範囲、layout/workingLocationRail.ts 参照)を持つようになった
+ * ので、OOO と全く同じ「top + height」の矩形として描画する。
  *
- * 「地図で開く」リンクは付けない(ユーザー決定、2026-07-22 作り直し): 勤務場所の title
- * (例: 自宅/オフィス)は住所とは限らないため、Google マップ検索に投げても正しい結果に
- * ならないことがある。直前のコミット(location フィールド版)にはこのリンクがあったが、
- * それは対象が「location を持つ実在の予定」だったから成立していた ―― 勤務場所とは前提が
- * 違う。将来 location フィールドが別途あるケースが分かれば再検討の余地はある。
+ * OOO 帯との違いは配色と上端の飾りだけ(形は完全に同じ):
+ * - 塗り: OOO はカレンダー色(resolveDisplayColor)で「どのカレンダーの不在か」を主張するが、
+ *   勤務場所は時刻予定・終日予定を問わずほぼ毎日出うる情報なので、朱やカレンダー色は使わず
+ *   brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を低 opacity で敷くだけの
+ *   「地の薄い帯」に留める(ユーザー方針: OOO のような強い主張はしない)。実際の色/opacity
+ *   の値は WeekGrid.css の .day-workloc-band 側で管理する(OOO と違い occurrence ごとに
+ *   変わる値ではないため、ここでは inline style にせず CSS 固定値にしてある)。
+ * - 上端の飾り: OOO は白文字の × グリフ(CSS ::after の擬似要素テキスト)だが、勤務場所は
+ *   「その日どこで働くか」を示す地図ピン(PlaceIcon、墨 #24211e)を帯内側の上端に置く。
+ *   SVG は CSS 疑似要素のコンテンツにしにくいため、擬似要素ではなく実 DOM の子要素として
+ *   配置する。帯本体は OOO と同じく pointer-events: none にして当たり判定を ::before
+ *   (WeekGrid.css)へ委譲しており、PlaceIcon はその pointer-events: none を継承する
+ *   (明示的にも CSS 側で none を指定)ため、帯の当たり判定を一切妨げない。
  *
- * 色は朱(--logo-aka)を使わない(OOO/旧 location レールと同じ決定)。ピンの色は
- * WeekGrid.css 側で薄墨系(#8a8478、ホバーで #24211e)に固定する。
+ * ホバーのツールチップ・クリック/タップの詳細ポップオーバーは OooRailLine.tsx と同じ
+ * 共有機構(eventPopoverShared.ts の共有ツールチップ DOM ノード、EventDetailCard)を
+ * そのまま再利用する。「地図で開く」リンクは付けない(旧点ピン版からの決定を維持 ――
+ * 勤務場所の title (例: 自宅/オフィス) は住所とは限らないため、Google マップ検索に投げても
+ * 正しい結果にならないことがある)。ドラッグ/リサイズは持たない表示専用。
  */
-export function WorkingLocationRailPin({
+export function WorkingLocationRailBand({
   item,
   timeZone,
   calendarLookup,
-}: WorkingLocationRailPinProps) {
+}: WorkingLocationRailBandProps) {
   const hoverTimeoutRef = useRef<number | undefined>(undefined);
   const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
@@ -73,7 +90,8 @@ export function WorkingLocationRailPin({
   function showTooltip(clientX: number, clientY: number) {
     const el = getSharedTooltipEl();
     // 勤務場所の「場所」は title 自体が表す(例: 自宅/オフィス、要件どおり)。location
-    // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない。
+    // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない
+    // (旧点ピン版からの決定を維持)。
     const rangeLabel = isTimedSubject(subject)
       ? formatRange(subject.startMs, subject.endMs, timeZone)
       : formatAllDayDateRange(subject.startDate, subject.endDate);
@@ -104,8 +122,9 @@ export function WorkingLocationRailPin({
     hideTooltip();
   }
 
-  // クリック(デスクトップ)・タップ(タッチ)のどちらもこの1本の onClick で受ける
-  // (OooRailLine.tsx と同じ流儀。この要素自体がドラッグ不可のため click/drag 判別は不要)
+  // クリック(デスクトップ)・タップ(タッチ、ブラウザが touchend から click を合成する)の
+  // どちらもこの1本の onClick で受ける(OooRailLine.tsx と同じ流儀。この要素自体が
+  // ドラッグ不可のため click/drag 判別は不要)
   function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
     hideTooltip();
     setDetailPos({ x: e.clientX, y: e.clientY });
@@ -120,14 +139,21 @@ export function WorkingLocationRailPin({
   return (
     <>
       <div
-        className="day-workloc-pin"
-        style={{ top: minutesToPx(item.topMinutes) }}
+        className="day-workloc-band"
+        style={{
+          top: minutesToPx(item.startMinutes),
+          height: Math.max(minutesToPx(item.endMinutes - item.startMinutes), MIN_BAND_HEIGHT_PX),
+        }}
         onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
       >
-        <PlaceIcon width={PIN_ICON_SIZE_PX} height={PIN_ICON_SIZE_PX} />
+        <PlaceIcon
+          width={PLACE_ICON_SIZE_PX}
+          height={PLACE_ICON_SIZE_PX}
+          className="day-workloc-band-icon"
+        />
       </div>
       {detailPos &&
         createPortal(

@@ -734,8 +734,9 @@
  * 場所テキスト行 (2026-07-22)。location を持つ通常の予定(Busy/OOO/勤務場所を除く、
  * EventBlock.tsx の hasLocationText 参照)のタイトル直下に、Google カレンダーの予定カードと
  * 同じ体裁で「PlaceIcon + 場所名」の1行を追加する。色は薄墨(#8a8478)で控えめにし、
- * カレンダー色(displayColor)は使わない ―― .event-means-icons や勤務場所ピン
- * (WorkingLocationRailPin.tsx)と同じトーンで統一する。ドラッグ/クリックの判定を奪わない
+ * カレンダー色(displayColor)は使わない ―― .event-means-icons や勤務場所帯上端のアイコン
+ * (.day-workloc-band-icon、WorkingLocationRailBand.tsx)と同じトーンで統一する。
+ * ドラッグ/クリックの判定を奪わない
  * よう pointer-events:none(mirror タグ・busy バッジと同じ流儀)。min-width:0 は flex 子要素の
  * text-overflow を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
  */
@@ -1279,15 +1280,14 @@
 }
 
 /*
- * 勤務場所レール (地図ピン表示、2026-07-22 作り直し)。Google の勤務場所予定
- * (eventType==='workingLocation') について、不在(OOO)レールと同じ「日カラム左端のレールに
- * 一覧できる」体験を提供する ―― ただし OOO と違い予定カード/終日バーは持たず(専用レール
- * へ完全に振り分け済み、layout/workingLocationRail.ts 参照)、ピン1個だけがこのレールの
- * 内容そのものになる。時刻予定由来のピンは開始時刻の位置、終日予定由来のピンは常に
- * top:0(日カラム上端固定、「全高バーではなく単一ピン」というユーザー要件)。
- * left は DayColumn.tsx が workingLocationRailLeftPx(gridMetrics.ts)の結果をインラインで渡す
- * (OOO バーが同じ日にあるかどうかで 0px/14px に切り替わる ―― CSS の条件分岐では
- * 表現できないため JS 側で計算する)。
+ * 勤務場所レール (帯表示、2026-07-22 帯化)。Google の勤務場所予定
+ * (eventType==='workingLocation') について、不在(OOO)レールと全く同じ「日カラム左端に
+ * 時間範囲ぶんの角丸矩形バーを敷く」形で表示する(ユーザー要望「OOO のように帯で表示
+ * したい」、旧・点ピン版 .day-workloc-pin から作り替え)。予定カード/終日バーは持たず
+ * (専用レールへ完全に振り分け済み、layout/workingLocationRail.ts 参照)、この帯だけが
+ * レールの内容そのものになる。left は DayColumn.tsx が workingLocationRailLeftPx
+ * (gridMetrics.ts)の結果をインラインで渡す(OOO バーが同じ日にあるかどうかで 0px/14px に
+ * 切り替わる ―― CSS の条件分岐では表現できないため JS 側で計算する)。
  */
 .day-workloc-rail {
   position: absolute;
@@ -1298,39 +1298,66 @@
 }
 
 /*
- * ピン本体。当たり判定を ~14px 確保しつつ(タッチでの取りこぼし防止、day-ooo-line::before
- * と同じ狙い)、中の PlaceIcon 自体は 12px(WorkingLocationRailPin.tsx で width/height 指定)。
- * top は時刻予定なら開始時刻、終日予定なら 0 (WorkingLocationRailPin.tsx が topMinutes を
- * minutesToPx で変換)。色は朱 (--logo-aka) を使わず薄墨系に統一する(ユーザー決定: 朱は
- * ブランドの唯一のアクセントであり、レール上の目印には使わない)。ホバー/フォーカスで
- * 少し濃くするだけで、OOO バーのような背景の塗りは持たない(線画アイコンをそのまま目立たせる)。
+ * 帯本体。OOO 帯 (.day-ooo-line) と全く同じ形・同じ当たり判定パターン(実体は
+ * pointer-events: none、hit-test は下記 ::before が担う)だが、配色は意図的に差別化する ――
+ * OOO はカレンダー色(occurrence ごとの inline style)で「どのカレンダーの不在か」を主張
+ * するが、勤務場所は時刻・終日を問わずほぼ毎日出うる情報なので、朱・カレンダー色は使わず
+ * brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を低 opacity で敷くだけの
+ * 「地の薄い帯」にする(ユーザー方針)。値がイベントごとに変わらないため、ここでは固定値の
+ * まま CSS に置く(OOO のように JS 側から backgroundColor を渡す必要が無い)。
  */
-.day-workloc-pin {
+.day-workloc-band {
   position: absolute;
-  left: -1px;
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* 墨で視認性を確保(薄墨 #8a8478 だと生成り背景で沈んで見えなくなる、ユーザー指摘 2026-07-22)。
-     朱は使わない(ブランドの唯一アクセント)ぶん、地の墨をしっかり出す。ホバーは色でなく
-     淡い背景ディスクで反応させる(朱を持ち込まずに操作可能性を示す)。 */
-  color: #24211e;
-  border-radius: 50%;
+  left: 0;
+  width: 12px; /* WORKING_LOCATION_RAIL_WIDTH_PX と揃える */
+  background-color: #dcd6c9; /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
+  opacity: 0.68; /* 毎日出ても重すぎないよう抑える ―― OOO 帯の 0.88 よりはっきり薄くしてある */
+  border-radius: 3px;
+  pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う。day-ooo-line と同じ手法 */
   cursor: pointer;
-  pointer-events: auto;
   z-index: 1; /* .day-ooo-line と同じ層 = .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 */
 }
 
-.day-workloc-pin:hover,
-.day-workloc-pin:focus-visible {
-  background: rgba(36, 33, 30, 0.1);
+/*
+ * タッチ/マウス双方の当たり判定を可視幅より少し広げる透明な拡張領域(day-ooo-line::before
+ * と同じ狙い・同じ値)。帯本体が pointer-events: none なので、実際のクリック/ホバー判定は
+ * すべてこの疑似要素が担う。
+ */
+.day-workloc-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: -2px;
+  right: -2px;
+  pointer-events: auto;
+}
+
+.day-workloc-band:hover,
+.day-workloc-band:focus-visible {
+  opacity: 0.92; /* ホバーで少し濃く(ユーザー要望) */
+}
+
+/*
+ * 帯上端の地図ピン(PlaceIcon、WorkingLocationRailBand.tsx が実 DOM の子要素として配置)。
+ * OOO 帯の × (::after、白文字固定)と同じ「上端に視認性のある印を置く」役割を果たすが、
+ * SVG は CSS 疑似要素のコンテンツにしにくいため擬似要素ではなく実要素にしてある。
+ * pointer-events: none は親 (.day-workloc-band、同じく none) から自然に継承されるが、
+ * 意図を明示するためここでも指定しておく ―― 帯の当たり判定 (::before) を一切妨げない。
+ * 色は墨 (#24211e) 固定 ―― 帯の塗りが薄い(opacity 0.68)ぶん、ピンだけはくっきり見える
+ * ようにして「どこで働くか」の視認性を確保する。
+ */
+.day-workloc-band-icon {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #24211e;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .day-workloc-pin {
-    transition: color 120ms ease;
+  .day-workloc-band {
+    transition: opacity 120ms ease;
   }
 }
 

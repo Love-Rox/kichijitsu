@@ -29,26 +29,27 @@ export const DAY_COLUMN_INSET_PX = 5;
 export const OOO_RAIL_WIDTH_PX = 12;
 
 /**
- * 勤務場所レール(地図ピン表示、2026-07-22 作り直し)のピン当たり判定幅。OOO バーと同じ
- * 12px に揃える(視認性・タップ幅の基準を統一する)。.day-workloc-rail/.day-workloc-pin
- * (WeekGrid.css)の width とここが値の出どころ ―― CSS 側はハードコードのみ許容。
+ * 勤務場所レール(帯表示、2026-07-22 帯化)の帯当たり判定幅。OOO バーと同じ
+ * 12px に揃える(視認性・タップ幅の基準を統一する。帯化以前の点ピン版でも同じ12pxだった
+ * ので値自体は変わっていない)。.day-workloc-rail/.day-workloc-band(WeekGrid.css)の
+ * width とここが値の出どころ ―― CSS 側はハードコードのみ許容。
  */
 export const WORKING_LOCATION_RAIL_WIDTH_PX = 12;
-/** レール(OOO バー/勤務場所ピン)と予定カードの間に空ける隙間(px)。両レールで共通 */
+/** レール(OOO バー/勤務場所帯)と予定カードの間に空ける隙間(px)。両レールで共通 */
 const RAIL_CARD_GAP_PX = 4;
 /**
- * OOO バーと勤務場所レールが同じ日に共存するとき、バーとピンが重ならないよう間に空ける
- * 小さな隙間(px)。勤務場所ピンは常に OOO バーの「内側」(カード寄り)に置く(要件:
- * 「OOO があるときはピンをバーの少し内側にずらす」)。
+ * OOO バーと勤務場所レールが同じ日に共存するとき、両者の帯が重ならないよう間に空ける
+ * 小さな隙間(px)。勤務場所帯は常に OOO バーの「内側」(カード寄り)に置く(要件:
+ * 「OOO があるときは勤務場所帯をバーの少し内側にずらす」)。
  */
 const OOO_WORKING_LOCATION_GAP_PX = 2;
 
 /**
  * 日列の左インセット(px)。EventBlock 側の calc(`${leftInsetPx}px + ...`) にそのまま渡す値。
- * その日に不在レール(hasOoo)/勤務場所レール(hasWorkingLocation、地図ピン表示 2026-07-22
- * 作り直し)があるぶんだけ、矩形化した OOO バー(幅 OOO_RAIL_WIDTH_PX)・勤務場所ピン(幅
+ * その日に不在レール(hasOoo)/勤務場所レール(hasWorkingLocation、帯表示 2026-07-22 帯化)が
+ * あるぶんだけ、矩形化した OOO バー(幅 OOO_RAIL_WIDTH_PX)・勤務場所帯(幅
  * WORKING_LOCATION_RAIL_WIDTH_PX)+ 隙間ぶん広げて予定カードと重ならないようにする
- * (ユーザー要望)。両方ある日は OOO バー→(OOO_WORKING_LOCATION_GAP_PX)→勤務場所ピンの順に
+ * (ユーザー要望)。両方ある日は OOO バー→(OOO_WORKING_LOCATION_GAP_PX)→勤務場所帯の順に
  * 内側へ並べ、そのぶんインセットも大きくなる。どちらも無い日は従来どおり
  * DAY_COLUMN_INSET_PX のまま。右インセットはこの2レールの有無に関わらず常に
  * DAY_COLUMN_INSET_PX で不変(day-activity-rail は右端固定)。DOM/React に依存しない
@@ -64,10 +65,10 @@ export function dayColumnLeftInsetPx(hasOoo: boolean, hasWorkingLocation: boolea
 }
 
 /**
- * 勤務場所レール(地図ピン表示、2026-07-22 作り直し)の左オフセット(px、日列基準)。
+ * 勤務場所レール(帯表示、2026-07-22 帯化)の左オフセット(px、日列基準)。
  * OOO バーが無い日はレールの最左(0)、ある日は OOO バー(幅 OOO_RAIL_WIDTH_PX)+
  * 隙間(OOO_WORKING_LOCATION_GAP_PX)ぶん内側へずらして視覚衝突を避ける
- * (dayColumnLeftInsetPx と対になる関数 ―― こちらはピン自身の描画位置、あちらはカード側の
+ * (dayColumnLeftInsetPx と対になる関数 ―― こちらは帯自身の描画位置、あちらはカード側の
  * インセット)。
  */
 export function workingLocationRailLeftPx(hasOoo: boolean): number {

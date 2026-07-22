@@ -192,7 +192,7 @@ interface WeekPanelData {
     /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
     oooItems: OooRailItem[];
     /**
-     * この日ぶんの勤務場所レール項目(地図ピン表示、2026-07-22 作り直し、時刻予定側)。
+     * この日ぶんの勤務場所レール項目(帯表示、2026-07-22 帯化、時刻予定側)。
      * OOO と同じく packColumns の入力(cardGroups)から除外済み
      * (layout/workingLocationRail.ts 参照)。
      */
@@ -411,9 +411,9 @@ export function WeekGrid({
   // 不在(Out of Office、2026-07-22): 終日レーン(AllDayBar)のチップとしては出さず、
   // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで
   // barGroups(従来通り packDayBars → AllDayBar へ)と oooGroups(下記 allDayOooPanels へ)に
-  // 振り分ける。さらに勤務場所(workingLocation、2026-07-22 作り直し)も barGroups から
-  // 除外する ―― こちらは全高ラインではなく日カラム上端の単一ピン(下記
-  // allDayWorkingLocationPanels)として DayColumn 側に合流させる。
+  // 振り分ける。さらに勤務場所(workingLocation、2026-07-22 帯化)も barGroups から
+  // 除外する ―― こちらも OOO と同じ全高帯(下記 allDayWorkingLocationPanels)として
+  // DayColumn 側に合流させる。
   const {
     groupedAllDayBarOccurrences,
     groupedAllDayOooOccurrences,
