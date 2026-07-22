@@ -4,7 +4,9 @@ import type { PlannedBlock } from "../model/types";
 import { datetimeLocalValueToMs } from "./eventEdit";
 import {
   buildWorkLogCreateRequest,
+  collectWorkLogOrgCandidates,
   collectWorkLogRepoCandidates,
+  combineOrgRepo,
   isManualWorkLog,
   validateWorkLogEntryForm,
   type WorkLogEntryFormInput,
@@ -152,5 +154,58 @@ describe("collectWorkLogRepoCandidates", () => {
       [],
     );
     expect(result).toEqual(["a/repo", "z/repo"]);
+  });
+});
+
+describe("collectWorkLogOrgCandidates", () => {
+  it("returns an empty array when there is nothing to collect from", () => {
+    expect(collectWorkLogOrgCandidates([], [])).toEqual([]);
+  });
+
+  it("extracts and dedupes the org part across workLogs and plannedBlocks", () => {
+    const result = collectWorkLogOrgCandidates(
+      [workLog({ repo: "acme/web" }), workLog({ repo: "acme/api" })],
+      [plannedBlock("beta/tool")],
+    );
+    expect(result).toEqual(["acme", "beta"]);
+  });
+
+  it("sorts alphabetically", () => {
+    const result = collectWorkLogOrgCandidates(
+      [workLog({ repo: "zeta/a" }), workLog({ repo: "alpha/b" })],
+      [],
+    );
+    expect(result).toEqual(["alpha", "zeta"]);
+  });
+
+  it("ignores repos without an org part ('/'-less or leading-slash)", () => {
+    const result = collectWorkLogOrgCandidates(
+      [workLog({ repo: "standalone" }), workLog({ repo: "/leading" })],
+      [],
+    );
+    expect(result).toEqual([]);
+  });
+});
+
+describe("combineOrgRepo", () => {
+  it("joins org and repo into 'org/repo'", () => {
+    expect(combineOrgRepo("acme", "web")).toBe("acme/web");
+  });
+
+  it("trims both fields", () => {
+    expect(combineOrgRepo("  acme  ", "  web  ")).toBe("acme/web");
+  });
+
+  it("returns an empty string when repo is blank (validation catches it)", () => {
+    expect(combineOrgRepo("acme", "")).toBe("");
+    expect(combineOrgRepo("acme", "   ")).toBe("");
+  });
+
+  it("uses repo alone when org is blank", () => {
+    expect(combineOrgRepo("", "web")).toBe("web");
+  });
+
+  it("ignores org when repo already contains a slash (avoids double-join)", () => {
+    expect(combineOrgRepo("acme", "beta/web")).toBe("beta/web");
   });
 });

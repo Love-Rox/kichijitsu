@@ -430,6 +430,174 @@
   color: #55504a;
 }
 
+/*
+ * 実績を手動で記録セクション(GitHubPane.tsx ManualWorkLogSection、2026-07-22)。旧
+ * TimeReportOverlay.css の .time-report-form / .time-report-worklog-list 系と同じブランドトークン・
+ * 構造を、狭いペイン幅向けに "github-pane-worklog-" プレフィックスで踏襲する(見た目のルールは
+ * 揃えてある)。
+ */
+.github-pane-worklog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.github-pane-worklog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.github-pane-worklog-field-row {
+  display: flex;
+  gap: 10px;
+}
+
+.github-pane-worklog-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.github-pane-worklog-input {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #24211e;
+  min-width: 0;
+}
+
+.github-pane-worklog-input:disabled {
+  background: #f0ece3;
+  color: #8a8478;
+}
+
+.github-pane-worklog-input:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.github-pane-worklog-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.github-pane-worklog-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+
+.github-pane-worklog-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.github-pane-worklog-save-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.github-pane-worklog-error {
+  font-size: 11px;
+  color: #ef4444;
+}
+
+.github-pane-worklog-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.github-pane-worklog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.github-pane-worklog-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #24211e;
+}
+
+.github-pane-worklog-item-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.github-pane-worklog-item-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.github-pane-worklog-item-issue {
+  flex: none;
+  color: #8a8478;
+}
+
+.github-pane-worklog-item-time {
+  flex: none;
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+}
+
+.github-pane-worklog-delete {
+  flex: none;
+  border: none;
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.github-pane-worklog-delete:hover:not(:disabled) {
+  color: #d7402e;
+}
+
+.github-pane-worklog-delete:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .github-pane-worklog-field-row {
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 640px) {
   .github-pane--overlay {
     width: min(420px, 100vw);

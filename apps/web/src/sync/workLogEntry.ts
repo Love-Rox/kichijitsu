@@ -119,3 +119,39 @@ export function collectWorkLogRepoCandidates(
   for (const b of plannedBlocks) repos.add(b.repo);
   return Array.from(repos).sort((a, b) => a.localeCompare(b));
 }
+
+/**
+ * 純関数。org 欄の入力補助 (datalist) 用に、既存 repo 候補("org/repo" 形式が主)から org 部分
+ * ("/" の左側)だけを重複無しで集める。collectWorkLogRepoCandidates を土台にする
+ * (repo と org のサジェスト元を揃える)。"/" を含まない repo(org 無し)や先頭が "/" の
+ * 値(org 部分が空)は org を持たないものとして除外する。並びは repo 候補と同じアルファベット順。
+ */
+export function collectWorkLogOrgCandidates(
+  workLogs: readonly Pick<WorkLogDTO, "repo">[],
+  plannedBlocks: readonly Pick<PlannedBlock, "repo">[],
+): string[] {
+  const orgs = new Set<string>();
+  for (const repo of collectWorkLogRepoCandidates(workLogs, plannedBlocks)) {
+    const slash = repo.indexOf("/");
+    if (slash > 0) orgs.add(repo.slice(0, slash));
+  }
+  return Array.from(orgs).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 純関数。手動追加フォームの org 欄・repo 欄を、サーバーの WorkLogCreateRequest.repo が期待する
+ * "org/repo" 形式の1文字列へ結合する。送信ボディの形(repo フィールド1つ)は変えず、UI 側だけ
+ * org と repo を別入力にするためのアダプタ。repo 欄を主(必須)、org 欄を接頭辞の補助として扱う:
+ *   - repo 欄が空 → 空文字(呼び出し側の validateWorkLogEntryForm が missing_repo を返す)
+ *   - repo 欄が既に "/" を含む(利用者が repo 欄へ "org/repo" を直接入れた、または repo 候補の
+ *     datalist から完全形を選んだ)→ 二重結合を避けるため org 欄は無視して repo 欄をそのまま使う
+ *   - それ以外 → org 欄が非空なら "org/repo"、空なら repo 欄のみ
+ * 両欄とも前後の空白は trim する。
+ */
+export function combineOrgRepo(org: string, repo: string): string {
+  const r = repo.trim();
+  if (!r) return "";
+  if (r.includes("/")) return r;
+  const o = org.trim();
+  return o ? `${o}/${r}` : r;
+}

@@ -55,6 +55,29 @@
   height: 100%;
 }
 
+/* スワイプ日付移動(2026-07-23 改良): 5つの strip(header/allday/tasks/github/days)の transform を
+   CSS 変数で駆動する。--strip-base(phase の基準%、React が stripStyle で更新)に --swipe-dx(指の
+   水平移動量px、追従中だけ .week-grid ルートへ命令的にセット、既定 0)を足す。追従中は React 再レンダー
+   せず CSS 変数の書き換えだけで指に 1:1 追従させ(WeekGrid 全体の再レンダーによるカクつきを回避)、
+   指を離すと transition(inline)で近いパネルへスナップさせる。transition/height は各 strip 個別指定。 */
+.week-grid-header-strip,
+.week-grid-allday-strip,
+.week-grid-tasks-strip,
+.week-grid-github-strip,
+.week-grid-days-strip {
+  transform: translateX(calc(var(--strip-base, -33.3333%) + var(--swipe-dx, 0px)));
+}
+
+/* 指追従中(.is-swiping)は transition を無効化して 1:1 追従にする(inline の transition:Xms を上書き)。
+   指を離すと WeekGrid が .is-swiping を外し、inline の transition が復活してスナップがアニメーションする。 */
+.week-grid.is-swiping .week-grid-header-strip,
+.week-grid.is-swiping .week-grid-allday-strip,
+.week-grid.is-swiping .week-grid-tasks-strip,
+.week-grid.is-swiping .week-grid-github-strip,
+.week-grid.is-swiping .week-grid-days-strip {
+  transition: none !important;
+}
+
 .week-grid-header-panel {
   flex: 0 0 33.3333%;
   width: 33.3333%;
