@@ -104,7 +104,7 @@ import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import { WorkLogModal } from "./components/WorkLogModal";
 import type { CalendarInfo } from "./components/EventBlock";
-import { CalendarIcon, GearIcon, SearchIcon } from "./components/icons";
+import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import {
   isEditableTarget,
   isViewAllowedForWidth,
@@ -3133,6 +3133,26 @@ function App() {
             </button>
           )}
           {/*
+           * 「実績」ボタン(実績 UX 刷新、2026-07-23)。実績の記録/タイマー/履歴/詳細レポートを
+           * 集約した WorkLogModal をヘッダーから直接開く。従来は右ペイン(GitHubPane)の実績
+           * セクションからしか開けなかったが、ペインを作業キュー専用に絞ったのに伴いこの導線を
+           * ヘッダーへ移した。設定(歯車)と同じく連携アカウントがあるときだけ出す。
+           */}
+          {me.accounts.length > 0 && (
+            <button
+              type="button"
+              className="toolbar-actuals-btn"
+              onClick={() => setWorkLogModalOpen(true)}
+              aria-label="実績(記録・タイマー・履歴)"
+              title="実績(記録・タイマー・履歴)"
+            >
+              <span aria-hidden="true">
+                <TimerIcon />
+              </span>
+              {!isNarrow && <span className="toolbar-actuals-label">実績</span>}
+            </button>
+          )}
+          {/*
            * ヘッダー整理(増分3、2026-07-22、ユーザー要望「ヘッダーのメニューを減らしたい」)で
            * 「作業キュー」開閉ボタン(GitHubPane トグル + 件数バッジ)・「レポート」ボタン
            * (TimeReportOverlay トグル)・実績オーバーレイ/CI トグル(増分2で既に移設済み)を
@@ -3318,13 +3338,6 @@ function App() {
               window.location.href = "/auth/github/login";
             }}
             onDragStart={() => setPaneOpen(false)}
-            reportPlannedBlocks={reportPlannedBlocks}
-            reportTimeEntries={reportTimeEntries}
-            reportWorkLogs={reportWorkLogs}
-            prCommitEstimatesByKey={prCommitEstimates}
-            nowMs={timerNowMs}
-            onOpenDetailReport={() => setReportOpen(true)}
-            onOpenWorkLogModal={() => setWorkLogModalOpen(true)}
           />
         )}
       </main>
@@ -3391,6 +3404,7 @@ function App() {
         <TimeReportOverlay
           plannedBlocks={reportPlannedBlocks}
           timeEntries={reportTimeEntries}
+          workLogs={reportWorkLogs}
           nowMs={timerNowMs}
           estimatedByKey={me.github ? prCommitEstimates : {}}
           estimatesLoading={prCommitEstimatesLoading}
@@ -3419,6 +3433,11 @@ function App() {
           onDelete={handleDeleteWorkLog}
           fetchRepos={fetchReposForModal}
           fetchRepoIssues={fetchRepoIssuesForModal}
+          onOpenReport={() => {
+            // モーダルを閉じてから詳細レポートを開く(閉じずに開くと二重モーダルになるため)
+            setWorkLogModalOpen(false);
+            setReportOpen(true);
+          }}
           onClose={() => setWorkLogModalOpen(false)}
         />
       )}

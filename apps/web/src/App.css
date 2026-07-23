@@ -168,6 +168,28 @@
 }
 
 /*
+ * 「実績」ボタン(実績 UX 刷新、2026-07-23)。実績モーダル(WorkLogModal)をヘッダーから直接
+ * 開く。.toolbar-calendar-btn と同じトーン(枠線・パディング・角丸・hover)。バッジは持たない。
+ */
+.toolbar-actuals-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar-actuals-btn:hover {
+  background: #f3f4f6;
+}
+
+/*
  * かつての「作業キュー」開閉ボタン(.toolbar-queue-btn)は増分3(ヘッダー整理+左ペイン
  * 常設化、2026-07-22)で CalendarPane の GitHub セクションへ移設し、ツールバーからは
  * 撤去した(スタイル自体は calendar-pane-action-btn/calendar-pane-action-badge として
@@ -469,6 +491,14 @@
    * CalendarPane へ移設・撤去済み)と同じ縮め方(isNarrow でラベル文言が消えアイコンのみになる)。
    */
   .toolbar-calendar-btn {
+    gap: 0;
+    padding: 4px 5px;
+    font-size: 11px;
+    min-height: 32px;
+  }
+
+  /* 「実績」ボタン: 狭幅では isNarrow 分岐でラベル文言が消えアイコンのみになる(カレンダーと同じ)。 */
+  .toolbar-actuals-btn {
     gap: 0;
     padding: 4px 5px;
     font-size: 11px;

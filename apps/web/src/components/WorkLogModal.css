@@ -41,6 +41,35 @@
   color: #24211e;
 }
 
+.work-log-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 詳細レポート(予定 vs 実績)を開く導線(実績 UX 刷新 2026-07-23、旧 GitHubPane 実績セクションから移設)。 */
+.work-log-modal-report-btn {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #55504a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.work-log-modal-report-btn:hover {
+  border-color: #cfc8ba;
+  color: #24211e;
+}
+
+.work-log-modal-report-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
 .work-log-modal-close {
   border: none;
   background: none;

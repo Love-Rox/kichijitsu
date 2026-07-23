@@ -330,105 +330,11 @@
 }
 
 /*
- * 実績セクション(増分2、GitHubPane.tsx ActualsSection)。作業キューセクションの
- * github-pane-section/-section-header/-section-title を共有しつつ、出力ボタン列と
- * コンパクトな表(github-pane-item-list の枠付きカード行ではなく、狭いペイン幅に収まる
- * 素の <table>)を独自クラスで足す。
+ * 実績セクション(旧 ActualsSection)は WorkLogModal / ヘッダーの「実績」ボタンへ集約し、
+ * 右ペインは作業キュー専用に絞った(実績 UX 刷新、2026-07-23)。CSV エクスポートは
+ * TimeReportOverlay へ移設(.time-report-csv-btn)、詳細レポート導線は WorkLogModal へ。
+ * これに伴い .github-pane-actuals-* のスタイルは撤去した。
  */
-.github-pane-actuals-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.github-pane-actuals-btn {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #55504a;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-
-.github-pane-actuals-btn:hover:not(:disabled) {
-  border-color: #cfc8ba;
-  color: #24211e;
-}
-
-.github-pane-actuals-btn:disabled {
-  color: #cfc8ba;
-  cursor: default;
-}
-
-.github-pane-actuals-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
-  outline-offset: 2px;
-}
-
-.github-pane-actuals-table-wrap {
-  max-height: 320px;
-  overflow-y: auto;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-}
-
-.github-pane-actuals-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.github-pane-actuals-table th {
-  position: sticky;
-  top: 0;
-  background: #f7f4ee;
-  text-align: right;
-  font-weight: 600;
-  color: #55504a;
-  padding: 6px 8px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.github-pane-actuals-table th:first-child {
-  text-align: left;
-}
-
-.github-pane-actuals-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid #f0ece3;
-  vertical-align: top;
-}
-
-.github-pane-actuals-table tr:last-child td {
-  border-bottom: none;
-}
-
-.github-pane-actuals-item {
-  max-width: 0;
-  width: 100%;
-}
-
-.github-pane-actuals-item a {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: #24211e;
-  text-decoration: none;
-}
-
-.github-pane-actuals-item a:hover {
-  text-decoration: underline;
-}
-
-.github-pane-actuals-num {
-  text-align: right;
-  white-space: nowrap;
-  color: #55504a;
-}
 
 @media (max-width: 640px) {
   .github-pane--overlay {
