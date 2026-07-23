@@ -419,8 +419,10 @@ function ActualsSection({
               <tr>
                 <th>アイテム</th>
                 <th>予定</th>
-                <th>実績</th>
-                <th>hook</th>
+                <th title="▶/⏹ で現在計測中のタイマーの経過。停止すると実績へ保存されます">計測中</th>
+                <th title="work_logs に保存された作業時間(タイマーの停止・手動記録・hook をまとめた値)">
+                  実績
+                </th>
                 <th>推定</th>
               </tr>
             </thead>

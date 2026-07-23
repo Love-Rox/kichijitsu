@@ -33,12 +33,14 @@ export interface TimeReportOverlayProps {
 /**
  * 予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2・3、mcp.md「エージェントの
  * 作業時間記録」、2026-07-20〜21)。BlockRulesOverlay/SearchOverlay と同じ画面中央モーダル構成。
- * 表示専用(編集導線は無い)。実績は3経路: 「実績(手動)」は手動タイマー
- * (sync/timeTracking.ts の aggregatePlannedVsActual、正確な計測値)、「実績(hook)」は Claude Code
- * 等の hook が自動記録した値(sync/hookActual.ts、issueRef が数値のときのみ突合できる正確な
- * 計測値)、「推定」は PR の commit から自動推定した値(sync/estimateActual.ts、あくまで見積もり)。
+ * 表示専用(編集導線は無い)。列は3経路: 「計測中」は▶/⏹で現在走行中のタイマーの経過
+ * (sync/timeTracking.ts の aggregatePlannedVsActual。実績 UX 刷新フェーズ4(2026-07-23)で
+ * タイマー停止時の確定実績を work_logs へ統一したため、この列に残るのは走行中エントリの経過のみ)、
+ * 「実績」は work_logs に保存された作業時間(sync/hookActual.ts。タイマーの停止・手動記録・
+ * Claude Code 等の hook をまとめた値。issueRef が数値のときのみ突合できる正確な計測値)、
+ * 「推定」は PR の commit から自動推定した値(sync/estimateActual.ts、あくまで見積もり)。
  * 3つとも別のデータとして扱い混同表示しない — 推定は "≈" プレフィックス+破線区切りで、
- * hook 実績も同じ破線区切りで(手動実績の実線罫線とは対照的に)視覚的に区別する。
+ * 実績も同じ破線区切りで(計測中の実線罫線とは対照的に)視覚的に区別する。
  * issue 行には commit が無い(対象外)ため推定列は常に「—」。
  */
 export function TimeReportOverlay({
@@ -71,10 +73,11 @@ export function TimeReportOverlay({
         </div>
         <p className="time-report-description">
           issue / PR
-          ごとに、予定タイムブロックの合計と実績を突き合わせます。「実績(手動)」は▶/⏹の手動タイマー、
-          「実績(hook)」は Claude Code 等の hook が自動記録した作業時間(kichijitsu 実績カレンダー)。
+          ごとに、予定タイムブロックの合計と実績を突き合わせます。「計測中」は▶/⏹で計測中のタイマーの経過
+          (停止すると実績として保存されます)。「実績」は work_logs
+          に保存された作業時間(タイマーの停止・手動記録・Claude Code 等の hook をまとめた値)。
           「推定」は PR の commit
-          時刻から自動推定した値(あくまで見積もりで、いずれの実績とも別物です)。
+          時刻から自動推定した値(あくまで見積もりで、実績とは別物です)。
         </p>
         {rows.length === 0 ? (
           <p className="time-report-empty">まだ予定・実績がありません</p>
@@ -84,12 +87,17 @@ export function TimeReportOverlay({
               <tr>
                 <th className="time-report-col-item">アイテム</th>
                 <th className="time-report-col-num">予定</th>
-                <th className="time-report-col-num">実績(手動)</th>
+                <th
+                  className="time-report-col-num"
+                  title="▶/⏹ で現在計測中のタイマーの経過時間です。停止すると work_logs に保存され「実績」列へ移ります。"
+                >
+                  計測中
+                </th>
                 <th
                   className="time-report-col-num time-report-col-hook"
-                  title="Claude Code 等の hook (log_work_interval) が「kichijitsu 実績」カレンダーに自動記録した作業時間です。issueRef が数値のときのみ突き合わせられます。手動タイマーとは別の記録経路です。"
+                  title="work_logs に保存された作業時間です。タイマーの停止・手動記録・Claude Code 等の hook (log_work_interval) をまとめた値で、issueRef が数値のときのみ突き合わせられます。"
                 >
-                  実績(hook)
+                  実績
                 </th>
                 <th
                   className="time-report-col-num time-report-col-estimate"
@@ -125,7 +133,7 @@ export function TimeReportOverlay({
                     <td className="time-report-col-num">{formatDurationHm(row.actualMs)}</td>
                     <td
                       className="time-report-col-num time-report-col-hook"
-                      title="hook (Claude Code 等の自動記録) からの実績"
+                      title="work_logs に保存された実績(タイマーの停止・手動記録・hook をまとめた値)"
                     >
                       {hookMs === undefined ? (
                         <span className="time-report-hook-empty">—</span>
