@@ -70,6 +70,9 @@ authRoutes.get("/auth/login", async (c) => {
   // ?add=1 は「今のセッション (プロファイル) にアカウントを追加する」モード。
   // 有効なセッションが無ければ通常ログインにフォールバックする (新規プロファイルを作る)。
   const wantsAddMode = c.req.query("add") === "1";
+  // 再連携の導線 (SettingsModal → App.tsx) が対象アカウントのメールを login_hint に載せてくる。
+  // Google 側でそのアカウントを事前選択させるため buildAuthorizationUrl へ渡す (値があるときだけ)。
+  const loginHint = c.req.query("login_hint");
   let addModeProfileId: string | null = null;
   if (wantsAddMode) {
     const sid = getCookie(c, SESSION_COOKIE_NAME);
@@ -103,6 +106,7 @@ authRoutes.get("/auth/login", async (c) => {
       redirectUri: redirectUriFor(c.env, c.req.url),
     },
     state,
+    loginHint,
   );
 
   return c.redirect(authorizationUrl, 302);

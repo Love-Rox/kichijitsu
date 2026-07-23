@@ -607,6 +607,16 @@ apiRoutes.post("/api/work-logs", requireAuth, async (c) => {
   ) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
+  // 任意フィールド (agent/branch/issueRef) は「省略」か「文字列」のみ許す。非文字列を
+  // 渡されると下流 (resolveManualWorkLogAgent の .trim() 等) で TypeError → 500 になるため、
+  // start/end/repo と同じ流儀でここで 400 に落とす。
+  if (
+    (body.agent !== undefined && typeof body.agent !== "string") ||
+    (body.branch !== undefined && typeof body.branch !== "string") ||
+    (body.issueRef !== undefined && typeof body.issueRef !== "string")
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
 
   const validationError = validateWorkLogInput({
     startIso: body.start,

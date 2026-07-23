@@ -21,9 +21,10 @@ export interface SettingsModalProps {
   /**
    * 「再連携」ボタンから呼ぶ(App.tsx 側で /auth/login?add=1 へ遷移する)。同じ Google
    * アカウントを選び直せば prompt=consent で同意画面が再表示され tasks スコープが付く。
-   * undefined なら再連携ボタンを出さない(ヒント文だけになる)。
+   * undefined なら再連携ボタンを出さない(ヒント文だけになる)。対象アカウントのメールを
+   * 渡すので、App.tsx 側で login_hint に載せて Google 側にそのアカウントを事前選択させる。
    */
-  onReconnectAccount?: () => void;
+  onReconnectAccount?: (email: string) => void;
   /** カレンダーブロック設定オーバーレイ(docs/blocking.md)を開く導線。App.tsx 側で開閉制御する */
   onOpenBlockRules?: () => void;
   /**
@@ -141,7 +142,7 @@ export function SettingsModal({
                     <button
                       type="button"
                       className="settings-modal-text-btn"
-                      onClick={onReconnectAccount}
+                      onClick={() => onReconnectAccount(account.email)}
                     >
                       再連携
                     </button>

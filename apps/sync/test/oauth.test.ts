@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { hasRequiredScopes, hasTasksScope, OAUTH_SCOPES, revokeToken } from "../src/google/oauth";
+import {
+  buildAuthorizationUrl,
+  hasRequiredScopes,
+  hasTasksScope,
+  OAUTH_SCOPES,
+  revokeToken,
+} from "../src/google/oauth";
 
 const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const CALENDARLIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
@@ -35,6 +41,31 @@ describe("hasRequiredScopes", () => {
   it("does not require the tasks scope (tasks is optional)", () => {
     const scope = ["openid", "email", EVENTS_SCOPE, CALENDARLIST_SCOPE].join(" ");
     expect(hasRequiredScopes(scope)).toBe(true);
+  });
+});
+
+describe("buildAuthorizationUrl", () => {
+  const config = {
+    clientId: "client-123",
+    clientSecret: "secret",
+    redirectUri: "https://kichijitsu.love-rox.cc/auth/callback",
+  };
+
+  it("omits login_hint when none is given", () => {
+    const url = new URL(buildAuthorizationUrl(config, "state-abc"));
+    expect(url.searchParams.has("login_hint")).toBe(false);
+    expect(url.searchParams.get("state")).toBe("state-abc");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+  });
+
+  it("sets login_hint when an email is given (account preselect for re-consent)", () => {
+    const url = new URL(buildAuthorizationUrl(config, "state-abc", "user@example.com"));
+    expect(url.searchParams.get("login_hint")).toBe("user@example.com");
+  });
+
+  it("omits login_hint for an empty string", () => {
+    const url = new URL(buildAuthorizationUrl(config, "state-abc", ""));
+    expect(url.searchParams.has("login_hint")).toBe(false);
   });
 });
 

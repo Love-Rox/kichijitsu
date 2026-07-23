@@ -3213,11 +3213,12 @@ function App() {
             window.location.href = "/auth/login?add=1";
           }}
           tasksScopeMissingAccounts={tasksScopeMissingAccounts}
-          onReconnectAccount={() => {
+          onReconnectAccount={(email) => {
             // 同じ Google アカウントを選び直せば prompt=consent (apps/sync の oauth.ts) で
             // 同意画面が再表示され、2026-07-20 追加の tasks スコープが付与される。
-            // 遷移先は「+ アカウントを追加」と同じ /auth/login?add=1(同一アカウント選択=再同意)。
-            window.location.href = "/auth/login?add=1";
+            // 遷移先は「+ アカウントを追加」と同じ /auth/login?add=1 だが、login_hint に
+            // 対象アカウントのメールを載せて Google 側でそのアカウントを事前選択させる。
+            window.location.href = `/auth/login?add=1&login_hint=${encodeURIComponent(email)}`;
           }}
           onOpenBlockRules={() => {
             setPanelOpen(false);
