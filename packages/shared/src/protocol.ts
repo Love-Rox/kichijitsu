@@ -249,6 +249,40 @@ export interface PullCommitsResponse {
 }
 
 /**
+ * リポジトリ参照の最小形 (実績 UX 刷新フェーズ3「手動追加フォームのプルダウン化」、2026-07-23)。
+ * GET /api/github/repos が返す1件、および web 側 githubProvider の repo discovery が返す形。
+ * サーバー版は GitHub App インストール先 (listInstallationRepos)、gh 版は `user/repos` 由来で、
+ * どちらも "owner/repo" を owner と repo に分けて持つ (WorkLogModal の org/repo カスケード
+ * プルダウンの元データ)。
+ */
+export interface GitHubRepoRef {
+  owner: string;
+  repo: string;
+}
+
+/** GET /api/github/repos のレスポンス。 */
+export interface GitHubReposResponse {
+  repos: GitHubRepoRef[];
+}
+
+/**
+ * 1 リポジトリの open な issue / PR の最小形 (実績 UX 刷新フェーズ3、2026-07-23)。GitHub の
+ * `GET /repos/{owner}/{repo}/issues?state=open` は issue と PR の両方を返し、要素に
+ * `pull_request` フィールドがあるものが PR — その有無で type を分ける (GitHubItemDTO 等と同じ判定)。
+ * WorkLogModal の issue/PR プルダウンの選択肢に使う (number を issueRef に入れる)。
+ */
+export interface GitHubRepoIssue {
+  number: number;
+  title: string;
+  type: "issue" | "pr";
+}
+
+/** GET /api/github/repo-issues のレスポンス。 */
+export interface GitHubRepoIssuesResponse {
+  issues: GitHubRepoIssue[];
+}
+
+/**
  * マルチアカウント対応 (2026-07-19): セッション = プロファイルで、
  * プロファイルに複数の Google アカウントがぶら下がる。
  * connected は accounts.length > 0 と同義（後方互換のため残す）

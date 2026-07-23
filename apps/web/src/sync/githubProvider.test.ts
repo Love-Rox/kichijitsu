@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   mapGhCommitsToActivity,
   mapGhPullCommitsToTimestamps,
+  mapGhRepoIssuesToDTO,
   mapGhRepoItemsToDTO,
   mapGhSearchToWorkItems,
   mapGhWorkflowRunsToCi,
@@ -321,6 +322,28 @@ describe("mapGhWorkflowRunsToCi", () => {
     ]);
     expect(items[0].status).toBe("in_progress");
     expect(items[0].conclusion).toBeNull();
+  });
+});
+
+describe("mapGhRepoIssuesToDTO", () => {
+  it("issue と PR を pull_request の有無で type 判定して map する", () => {
+    const issues = mapGhRepoIssuesToDTO([
+      { number: 10, title: "Fix crash", html_url: "https://github.com/acme/widgets/issues/10" },
+      {
+        number: 11,
+        title: "Add feature",
+        html_url: "https://github.com/acme/widgets/pull/11",
+        pull_request: { url: "..." },
+      },
+    ]);
+    expect(issues).toEqual([
+      { number: 10, title: "Fix crash", type: "issue" },
+      { number: 11, title: "Add feature", type: "pr" },
+    ]);
+  });
+
+  it("空配列はそのまま空配列を返す", () => {
+    expect(mapGhRepoIssuesToDTO([])).toEqual([]);
   });
 });
 
