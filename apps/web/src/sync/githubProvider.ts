@@ -3,6 +3,10 @@ import type {
   GitHubCiRunDTO,
   GitHubItemDTO,
   GitHubItemType,
+  GitHubRepoIssue,
+  GitHubRepoIssuesResponse,
+  GitHubRepoRef,
+  GitHubReposResponse,
   GitHubWorkItemDTO,
   GitHubWorkKind,
 } from "@kichijitsu/shared";
@@ -715,4 +719,104 @@ export async function fetchPullCommitsViaGh(
   }
 
   return commitsByItem;
+}
+
+// ---------------------------------------------------------------------------
+// 5. repos / repo-issues の取得 (実績 UX 刷新フェーズ3「手動追加フォームのプルダウン化」、
+// 2026-07-23)。WorkLogModal の org/repo/issue カスケードプルダウンの元データ。他の GitHub 取得と
+// 同じ isTauri() 分岐で gh 経路 / サーバー経路を出し分ける統一 API (fetchRepos / fetchRepoIssues)
+// を提供する。サーバー経路は cookie 認証の checkedFetch を呼び出し側 (App/モーダル) から渡してもらう
+// (fetchGithubQueue と同じ考え方だが、gh 版の他関数と違いサーバー fetch もこの関数内で行う)。
+// ---------------------------------------------------------------------------
+
+/** App.tsx の checkedFetch (オフライン判定を挟む fetch ラッパー) の型。 */
+export type CheckedFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * gh 経路の repo 一覧取得。既存の discoverRepos (`gh api user/repos`) をそのまま再利用する
+ * (返す {owner, repo}[] が GitHubRepoRef と同形)。
+ */
+export function fetchReposViaGh(): Promise<GitHubRepoRef[]> {
+  return discoverRepos();
+}
+
+/** repo-issues の gh ページング安全上限 (issue の多い repo でも有界にする)。 */
+const MAX_REPO_ISSUES = 200;
+const MAX_REPO_ISSUES_PAGES = 2;
+
+/**
+ * 純関数。`gh api repos/{o}/{r}/issues?state=open` の生レスポンス配列を GitHubRepoIssue[] に map
+ * する。issues エンドポイントは PR も含む — `pull_request` の有無で type を 'pr' / 'issue' に分ける
+ * (sync 側 github/repo-issues.ts の mapRawIssuesToRepoIssues と同等)。
+ */
+export function mapGhRepoIssuesToDTO(raw: GhRawIssue[]): GitHubRepoIssue[] {
+  return raw.map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    type: issue.pull_request !== undefined ? "pr" : "issue",
+  }));
+}
+
+/**
+ * gh 経路の repo-issues 取得。`repos/{o}/{r}/issues?state=open` を叩き、`pull_request` の有無で
+ * type を判定して GitHubRepoIssue[] に map する。repo は "owner/repo" 形式 (先頭の "/" で分割)。
+ */
+export async function fetchRepoIssuesViaGh(repo: string): Promise<GitHubRepoIssue[]> {
+  const slash = repo.indexOf("/");
+  if (slash <= 0) {
+    throw new Error(`fetchRepoIssuesViaGh: 不正な repo "${repo}" ("owner/repo" 形式が必要)`);
+  }
+  const owner = repo.slice(0, slash);
+  const name = repo.slice(slash + 1);
+
+  const raw = await paginateGhApi<GhRawIssue>(
+    `repos/${owner}/${name}/issues?state=open`,
+    (body) => body as GhRawIssue[],
+    MAX_REPO_ISSUES,
+    MAX_REPO_ISSUES_PAGES,
+  );
+  return mapGhRepoIssuesToDTO(raw);
+}
+
+/** サーバー経路の repo 一覧取得 (GET /api/github/repos)。非 2xx は Error を投げる。 */
+async function fetchReposViaServer(checkedFetch: CheckedFetch): Promise<GitHubRepoRef[]> {
+  const res = await checkedFetch("/api/github/repos");
+  if (!res.ok) {
+    throw new Error(`GET /api/github/repos failed: ${res.status}`);
+  }
+  const data = (await res.json()) as GitHubReposResponse;
+  return data.repos;
+}
+
+/** サーバー経路の repo-issues 取得 (GET /api/github/repo-issues?repo=)。非 2xx は Error を投げる。 */
+async function fetchRepoIssuesViaServer(
+  repo: string,
+  checkedFetch: CheckedFetch,
+): Promise<GitHubRepoIssue[]> {
+  const res = await checkedFetch(`/api/github/repo-issues?repo=${encodeURIComponent(repo)}`);
+  if (!res.ok) {
+    throw new Error(`GET /api/github/repo-issues failed: ${res.status}`);
+  }
+  const data = (await res.json()) as GitHubRepoIssuesResponse;
+  return data.issues;
+}
+
+/**
+ * 統一 API: repo 一覧を取得する。Tauri デスクトップでは手元の gh CLI 認証で直接取得し、
+ * ブラウザ/PWA では checkedFetch 経由で GET /api/github/repos を叩く (fetchGithubQueue と同じ流儀)。
+ * 失敗は呼び出し側 (WorkLogModal) が握って手入力フォールバックへ切り替える。
+ */
+export function fetchRepos(checkedFetch: CheckedFetch): Promise<GitHubRepoRef[]> {
+  return isTauri() ? fetchReposViaGh() : fetchReposViaServer(checkedFetch);
+}
+
+/**
+ * 統一 API: 指定 repo ("owner/repo") の open issue/PR を取得する。isTauri() で gh 経路 /
+ * サーバー経路を出し分ける (fetchRepos と同じ)。失敗は呼び出し側が握る。
+ */
+export function fetchRepoIssues(
+  repo: string,
+  checkedFetch: CheckedFetch,
+): Promise<GitHubRepoIssue[]> {
+  return isTauri() ? fetchRepoIssuesViaGh(repo) : fetchRepoIssuesViaServer(repo, checkedFetch);
 }

@@ -85,6 +85,13 @@
   margin: 4px 0;
 }
 
+/* 手動追加フォームの補助文言(プルダウン取得中・取得失敗・0件時の手入力誘導など) */
+.work-log-modal-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a8478;
+}
+
 /* フォーム(手動追加・インライン編集で共有) */
 .work-log-modal-form {
   display: flex;

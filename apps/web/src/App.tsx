@@ -66,6 +66,8 @@ import {
   fetchGitHubActivityViaGh,
   fetchGitHubCiRunsViaGh,
   fetchPullCommitsViaGh,
+  fetchRepos,
+  fetchRepoIssues,
 } from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
@@ -1144,6 +1146,16 @@ function App() {
       })
       .finally(() => setQueueLoading(false));
   }, [me.github, checkedFetch]);
+
+  // WorkLogModal の手動追加フォーム用の repo / repo-issues 取得(実績 UX 刷新フェーズ3、
+  // 2026-07-23)。githubProvider の統一 API を checkedFetch でバインドして渡すだけ — isTauri()
+  // の gh/server 分岐は githubProvider 側が担う(fetchGithubQueue と同じ考え方)。失敗時の
+  // 手入力フォールバックはモーダル側が握る。
+  const fetchReposForModal = useCallback(() => fetchRepos(checkedFetch), [checkedFetch]);
+  const fetchRepoIssuesForModal = useCallback(
+    (repo: string) => fetchRepoIssues(repo, checkedFetch),
+    [checkedFetch],
+  );
 
   // 連携直後の初回取得(me.github が null→非null になったタイミング)。ドロワーを
   // 開く前でもヘッダーの件数バッジを最新化できるようにする
@@ -3340,6 +3352,8 @@ function App() {
           onCreate={handleCreateWorkLog}
           onUpdate={handleUpdateWorkLog}
           onDelete={handleDeleteWorkLog}
+          fetchRepos={fetchReposForModal}
+          fetchRepoIssues={fetchRepoIssuesForModal}
           onClose={() => setWorkLogModalOpen(false)}
         />
       )}

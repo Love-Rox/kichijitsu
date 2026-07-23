@@ -21,6 +21,8 @@ import type {
   GitHubCiRunsResponse,
   GitHubItemsResponse,
   GitHubQueueResponse,
+  GitHubReposResponse,
+  GitHubRepoIssuesResponse,
   McpTokenCreateRequest,
   McpTokenCreateResponse,
   McpTokenDeleteRequest,
@@ -53,6 +55,8 @@ import { fetchGitHubCiRuns } from "../core/github-ci";
 import { fetchGitHubItems } from "../core/github-items";
 import { fetchGitHubQueue } from "../core/github-queue";
 import { fetchPullCommitsForItems } from "../core/github-pr-commits";
+import { listInstallationRepos } from "../github/installations";
+import { listOpenRepoIssues, parseOwnerRepo } from "../github/repo-issues";
 import { GitHubApiError } from "../github/http";
 import { registerWatch, stopWatch, buildWebhookAddress } from "../google/watch";
 import {
@@ -322,6 +326,68 @@ apiRoutes.post("/api/github/pr-commits", requireAuth, async (c) => {
       return c.json<ApiError>({ error: "github_auth_expired" }, 401);
     }
     console.error(`github pr-commits: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// 認証ユーザーが見えるリポジトリ一覧 (実績 UX 刷新フェーズ3「手動追加フォームのプルダウン化」、
+// 2026-07-23)。WorkLogModal の org/repo カスケードプルダウンの元データ。GitHub App の
+// インストール先 (listInstallationRepos、/api/github/items と同じ範囲) を owner/repo で返すだけ
+// (サーバーは永続化しない)。エラーマッピングは /api/github/items 等と同じ
+// (resolveGitHubAccessToken を共有)。
+apiRoutes.get("/api/github/repos", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github repos");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const repos = await listInstallationRepos(fetch, resolved.token);
+    return c.json<GitHubReposResponse>({ repos });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github repos: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github repos: fetch failed for profile ${profileId}`, err);
+    return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
+  }
+});
+
+// 1 リポジトリの open な issue / PR 一覧 (実績 UX 刷新フェーズ3、2026-07-23)。WorkLogModal で
+// repo を選んだときに、その repo の issue/PR プルダウンを埋めるために叩く。クエリ `repo` は
+// "owner/repo" 形式 — parseOwnerRepo で検証し、不正なら 400 invalid_repo。それ以外の
+// エラーマッピングは /api/github/items 等と同じ (resolveGitHubAccessToken を共有)。
+apiRoutes.get("/api/github/repo-issues", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  const repoParam = c.req.query("repo");
+  const ownerRepo = repoParam ? parseOwnerRepo(repoParam) : null;
+  if (!ownerRepo) {
+    return c.json<ApiError>({ error: "invalid_repo" }, 400);
+  }
+
+  const resolved = await resolveGitHubAccessToken(c.env, profileId, "github repo-issues");
+  if (!resolved.ok) {
+    return c.json<ApiError>({ error: resolved.error }, resolved.status);
+  }
+
+  try {
+    const issues = await listOpenRepoIssues(
+      fetch,
+      resolved.token,
+      ownerRepo.owner,
+      ownerRepo.repo,
+    );
+    return c.json<GitHubRepoIssuesResponse>({ issues });
+  } catch (err) {
+    if (err instanceof GitHubApiError && err.status === 401) {
+      console.warn(`github repo-issues: GitHub rejected the access token for profile ${profileId}`);
+      return c.json<ApiError>({ error: "github_auth_expired" }, 401);
+    }
+    console.error(`github repo-issues: fetch failed for profile ${profileId}`, err);
     return c.json<ApiError>({ error: "github_fetch_failed" }, 502);
   }
 });
