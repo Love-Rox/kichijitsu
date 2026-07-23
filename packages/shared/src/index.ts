@@ -58,4 +58,5 @@ export type {
   WorkLogsResponse,
   WorkLogCreateRequest,
   WorkLogCreateResponse,
+  WorkLogUpdateRequest,
 } from "./protocol";

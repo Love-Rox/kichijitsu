@@ -631,3 +631,21 @@ export interface WorkLogCreateRequest {
 export interface WorkLogCreateResponse {
   id: string;
 }
+
+/**
+ * PATCH /api/work-logs/:id (cookie 認証、手動記録の後追い訂正用、2026-07-23) — 既存の work_log を
+ * 部分更新する。過去に手入力/hook で記録した実績を後から直せるようにするための経路。
+ * 全フィールド任意 = 与えられたキーだけを更新する (未指定のキーは現状維持)。start/end は
+ * WorkLogCreateRequest と同じ ISO 文字列 (web 側が datetime-local → ISO に変換して送る)。
+ * サーバー側の検証・列組み立ては core/work-log.ts (validateWorkLogInput 相当の部分検証 +
+ * updateWorkLog/buildWorkLogUpdate) が担う。所有チェックは DELETE と同じく他プロファイル/存在
+ * しない id を区別せず 403 (work_log_not_found) にする。
+ */
+export interface WorkLogUpdateRequest {
+  start?: string;
+  end?: string;
+  repo?: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+}

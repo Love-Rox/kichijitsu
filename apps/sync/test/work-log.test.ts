@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   aggregateWorkLogs,
   buildWorkLogRow,
+  buildWorkLogUpdate,
   NO_ISSUE_LABEL,
   resolveManualWorkLogAgent,
   validateWorkLogInput,
@@ -121,6 +122,64 @@ describe("resolveManualWorkLogAgent", () => {
 
   it("passes through a plain agent unchanged", () => {
     expect(resolveManualWorkLogAgent("codex-cli")).toBe("codex-cli");
+  });
+});
+
+describe("buildWorkLogUpdate", () => {
+  it("returns no assignments for an empty partial update", () => {
+    expect(buildWorkLogUpdate({})).toEqual({ assignments: [], values: [] });
+  });
+
+  it("only includes keys that are defined (partial update)", () => {
+    const result = buildWorkLogUpdate({ repo: "Love-Rox/kichijitsu" });
+    expect(result).toEqual({ assignments: ["repo = ?"], values: ["Love-Rox/kichijitsu"] });
+  });
+
+  it("converts startIso/endIso to epoch ms in the values", () => {
+    const result = buildWorkLogUpdate({
+      startIso: "2026-07-21T10:00:00Z",
+      endIso: "2026-07-21T11:00:00Z",
+    });
+    expect(result.assignments).toEqual(["start_ms = ?", "end_ms = ?"]);
+    expect(result.values).toEqual([
+      Date.parse("2026-07-21T10:00:00Z"),
+      Date.parse("2026-07-21T11:00:00Z"),
+    ]);
+  });
+
+  it("maps issueRef/branch/agent to their snake_case columns", () => {
+    const result = buildWorkLogUpdate({ issueRef: "42", branch: "feat/x", agent: "manual" });
+    expect(result).toEqual({
+      assignments: ["issue_ref = ?", "branch = ?", "agent = ?"],
+      values: ["42", "feat/x", "manual"],
+    });
+  });
+
+  it("keeps a stable column order and includes empty strings (clearing a field)", () => {
+    const result = buildWorkLogUpdate({
+      startIso: "2026-07-21T10:00:00Z",
+      endIso: "2026-07-21T11:00:00Z",
+      repo: "r",
+      issueRef: "",
+      branch: "",
+      agent: "",
+    });
+    expect(result.assignments).toEqual([
+      "start_ms = ?",
+      "end_ms = ?",
+      "repo = ?",
+      "issue_ref = ?",
+      "branch = ?",
+      "agent = ?",
+    ]);
+    expect(result.values).toEqual([
+      Date.parse("2026-07-21T10:00:00Z"),
+      Date.parse("2026-07-21T11:00:00Z"),
+      "r",
+      "",
+      "",
+      "",
+    ]);
   });
 });
 

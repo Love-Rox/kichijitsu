@@ -141,6 +141,94 @@ export async function deleteWorkLog(
 }
 
 /**
+ * updateWorkLog の部分更新入力。全フィールド任意 = 定義されているキーだけを更新する
+ * (未指定は現状維持)。start/end は WorkLogInput と同じ ISO 文字列で受け取り、
+ * buildWorkLogUpdate が Date.parse で epoch ms に変換する。
+ */
+export interface WorkLogUpdateFields {
+  startIso?: string;
+  endIso?: string;
+  repo?: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+}
+
+/**
+ * 純関数。部分更新入力から work_logs の UPDATE ... SET 節を組み立てる。定義済みのキーだけを
+ * assignments/values に積むので、渡された分だけの部分更新になる (未指定キーは触らない)。
+ * start/end は insertWorkLog/buildWorkLogRow と同じく Date.parse で epoch ms に変換する。
+ * カラム名対応 (issueRef → issue_ref 等) はここに一元化する。
+ * D1 に触れない純ロジックなので単体テスト対象 (updateWorkLog 本体は D1 直接なのでテストしない、
+ * insertWorkLog/deleteWorkLog と同じ理由)。
+ */
+export function buildWorkLogUpdate(fields: WorkLogUpdateFields): {
+  assignments: string[];
+  values: (string | number)[];
+} {
+  const assignments: string[] = [];
+  const values: (string | number)[] = [];
+  if (fields.startIso !== undefined) {
+    assignments.push("start_ms = ?");
+    values.push(Date.parse(fields.startIso));
+  }
+  if (fields.endIso !== undefined) {
+    assignments.push("end_ms = ?");
+    values.push(Date.parse(fields.endIso));
+  }
+  if (fields.repo !== undefined) {
+    assignments.push("repo = ?");
+    values.push(fields.repo);
+  }
+  if (fields.issueRef !== undefined) {
+    assignments.push("issue_ref = ?");
+    values.push(fields.issueRef);
+  }
+  if (fields.branch !== undefined) {
+    assignments.push("branch = ?");
+    values.push(fields.branch);
+  }
+  if (fields.agent !== undefined) {
+    assignments.push("agent = ?");
+    values.push(fields.agent);
+  }
+  return { assignments, values };
+}
+
+/**
+ * work_logs の1件部分更新 (手動記録の後追い訂正用、PATCH /api/work-logs/:id)。deleteWorkLog と
+ * 同じく、まず所有チェック (SELECT profile_id → isAccountInProfile) を行い、別プロファイル/存在
+ * しない id は更新せず "not_found" を返す (「無い id」と「他人の id」を区別しない方針も DELETE と
+ * 同じ)。所有 OK なら渡された fields のうち定義済みのキーだけを UPDATE する (部分更新)。更新対象が
+ * 無ければ D1 を触らず現状維持で "updated" (成功扱い) を返す。start/end の妥当性検証 (ISO パース・
+ * start<end 等) は呼び出し側 (routes/api.ts) が事前に行う前提でここでは検証しない
+ * (validateWorkLogInput を通した後に呼ばれる、buildWorkLogRow と同じ役割分担)。
+ * insertWorkLog/deleteWorkLog と同じ理由 (D1 のモックを新規導入しない) で D1 呼び出し本体の
+ * 単体テストは書かない — SET 節の組み立ては純関数 buildWorkLogUpdate に切り出してテストする。
+ */
+export async function updateWorkLog(
+  env: Env,
+  profileId: string,
+  id: string,
+  fields: WorkLogUpdateFields,
+): Promise<"updated" | "not_found"> {
+  const existing = await env.DB.prepare("SELECT profile_id FROM work_logs WHERE id = ?")
+    .bind(id)
+    .first<{ profile_id: string }>();
+  if (!isAccountInProfile(existing, profileId)) {
+    return "not_found";
+  }
+  const { assignments, values } = buildWorkLogUpdate(fields);
+  if (assignments.length === 0) {
+    return "updated";
+  }
+  await env.DB.prepare(`UPDATE work_logs SET ${assignments.join(", ")} WHERE id = ?`)
+    .bind(...values, id)
+    .run();
+  return "updated";
+}
+
+/**
  * work_logs の SELECT 結果1行 (DB のカラム名 = snake_case のまま)。書き込み用の WorkLogRow
  * (camelCase、insertWorkLog が使う) とは別の型にしてある — SELECT 結果をそのまま INSERT に
  * 渡せてしまうような取り違えを型で防ぐため。
