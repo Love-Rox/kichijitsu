@@ -36,6 +36,7 @@ import type {
   WorkLogCreateRequest,
   WorkLogDTO,
   WorkLogsResponse,
+  WorkLogUpdateRequest,
 } from "@kichijitsu/shared";
 import { buildBlockRuleDeleteRequest } from "./sync/blockRules";
 import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
@@ -93,6 +94,7 @@ import { SearchOverlay } from "./components/SearchOverlay";
 import { GitHubPane } from "./components/GitHubPane";
 import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
+import { WorkLogModal } from "./components/WorkLogModal";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon } from "./components/icons";
 import {
@@ -466,6 +468,10 @@ function App() {
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
+  // 実績(work-log)専用モーダル(WorkLogModal、実績 UX 刷新フェーズ2、2026-07-23)。手動追加と
+  // 過去記録の編集/削除を集約する。GitHubPane の「記録・編集」ボタンから開く。開閉のみの state で、
+  // データは reportWorkLogs/reportPlannedBlocks を渡す(reportOpen と同じく専用 state は持たない)
+  const [workLogModalOpen, setWorkLogModalOpen] = useState(false);
   // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B)。
   // レポートを開いたときだけ POST /api/github/pr-commits を取りに行き、キー
   // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
@@ -2316,7 +2322,10 @@ function App() {
   // 描画されない(App.tsx 下部の render 参照)ため、この条件は「実績セクションが実際に見えている」
   // と同値 — 二重取得(reportOpen と paneOpen が両方 true でも1回の effect 実行にしかならない)は
   // 依存配列がそのまま防ぐ。
-  const needsActualsData = reportOpen || (paneOpen && !!me.github);
+  // WorkLogModal を開いたときも work-logs を取得済みにする。実際にはモーダルは GitHubPane の
+  // ボタンからしか開かず(= paneOpen && me.github が既に true)取得済みのはずだが、fetch トリガーに
+  // 明示的に含めて「モーダルが開いていれば必ず一覧がある」を保証する(将来別導線から開いても崩れない)。
+  const needsActualsData = reportOpen || workLogModalOpen || (paneOpen && !!me.github);
 
   // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
   // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
@@ -2388,6 +2397,24 @@ function App() {
       });
       if (!res.ok) {
         throw new Error(`DELETE /api/work-logs/${id} failed: ${res.status}`);
+      }
+      await refetchWorkLogs();
+    },
+    [checkedFetch, refetchWorkLogs],
+  );
+
+  // WorkLogModal の実績履歴のインライン編集から呼ぶ(2026-07-23)。PATCH /api/work-logs/:id は
+  // handleCreateWorkLog/handleDeleteWorkLog と同じセッション cookie 認証・非楽観更新(成功後に
+  // 再取得)。失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateWorkLog と同じ流儀)。
+  const handleUpdateWorkLog = useCallback(
+    async (id: string, req: WorkLogUpdateRequest) => {
+      const res = await checkedFetch(`/api/work-logs/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req satisfies WorkLogUpdateRequest),
+      });
+      if (!res.ok) {
+        throw new Error(`PATCH /api/work-logs/${id} failed: ${res.status}`);
       }
       await refetchWorkLogs();
     },
@@ -3191,9 +3218,7 @@ function App() {
             prCommitEstimatesByKey={prCommitEstimates}
             nowMs={timerNowMs}
             onOpenDetailReport={() => setReportOpen(true)}
-            timeZone={timeZone}
-            onCreateWorkLog={handleCreateWorkLog}
-            onDeleteWorkLog={handleDeleteWorkLog}
+            onOpenWorkLogModal={() => setWorkLogModalOpen(true)}
           />
         )}
       </main>
@@ -3264,9 +3289,24 @@ function App() {
           estimatedByKey={me.github ? prCommitEstimates : {}}
           estimatesLoading={prCommitEstimatesLoading}
           hookActualByLinkedItem={reportHookActualByLinkedItem}
-          workLogs={reportWorkLogs}
-          onDeleteWorkLog={handleDeleteWorkLog}
           onClose={() => setReportOpen(false)}
+        />
+      )}
+      {/*
+       * 実績(work-log)専用モーダル(WorkLogModal、実績 UX 刷新フェーズ2、2026-07-23)。手動追加
+       * フォームと過去記録の編集/削除を集約する。GitHubPane の「記録・編集」ボタンから開く
+       * (workLogModalOpen)。needsActualsData に workLogModalOpen を含めているので、開いた時点で
+       * reportWorkLogs は取得済み(取得前でも空配列で開き、取得完了で履歴が埋まる)。
+       */}
+      {workLogModalOpen && (
+        <WorkLogModal
+          workLogs={reportWorkLogs}
+          plannedBlocks={reportPlannedBlocks}
+          timeZone={timeZone}
+          onCreate={handleCreateWorkLog}
+          onUpdate={handleUpdateWorkLog}
+          onDelete={handleDeleteWorkLog}
+          onClose={() => setWorkLogModalOpen(false)}
         />
       )}
     </div>

@@ -1,9 +1,7 @@
-import { useRef, useState } from "react";
-import type { WorkLogDTO } from "@kichijitsu/shared";
+import { useRef } from "react";
 import type { PlannedBlock, TimeEntry } from "../model/types";
 import { reportItemKey } from "../sync/estimateActual";
 import { aggregatePlannedVsActual, formatDurationHm } from "../sync/timeTracking";
-import { isManualWorkLog } from "../sync/workLogEntry";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./TimeReportOverlay.css";
 
@@ -29,16 +27,6 @@ export interface TimeReportOverlayProps {
    * キー自体が無い(「—」表示になる)。
    */
   hookActualByLinkedItem: Record<string, number>;
-  /**
-   * GET /api/work-logs の生データ(集計前)。上の hookActualByLinkedItem は linkedItemId 単位に
-   * 潰した集計値だが、こちらは1行=1記録の生ログ — 「実績ログ」セクション(手動追加フォーム・
-   * 手動エントリの削除)が使う。App.tsx が保持する state をそのまま渡す。
-   */
-  workLogs: WorkLogDTO[];
-  /** 手動エントリを削除する(訂正用)。hook 記録も id さえ分かれば削除できてしまうが、UI 上は
-   * isManualWorkLog な行にしか削除ボタンを出さない(誤って hook 記録を消させないため)。
-   * 実績の手動「追加」フォームは右ペイン(GitHubPane)へ移設したため、ここには削除導線だけ残す */
-  onDeleteWorkLog: (id: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -60,8 +48,6 @@ export function TimeReportOverlay({
   estimatedByKey,
   estimatesLoading,
   hookActualByLinkedItem,
-  workLogs,
-  onDeleteWorkLog,
   onClose,
 }: TimeReportOverlayProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -183,102 +169,7 @@ export function TimeReportOverlay({
             </tbody>
           </table>
         )}
-
-        <section className="time-report-section">
-          <h3 className="time-report-section-title">実績ログ</h3>
-          <p className="time-report-section-description">
-            hook が自動記録した実績と、手動で追加した実績の生ログです。手動で追加した行(agent:
-            manual)だけ削除できます — hook
-            記録を誤って消さないよう、削除ボタンは手動行にしか出しません。実績を手動で「追加」する
-            には右の GitHub ペイン(「実績を手動で記録」)を使ってください。
-          </p>
-          <WorkLogList workLogs={workLogs} onDelete={onDeleteWorkLog} />
-        </section>
       </div>
     </div>
   );
-}
-
-interface WorkLogListProps {
-  workLogs: WorkLogDTO[];
-  onDelete: (id: string) => Promise<void>;
-}
-
-/**
- * 実績ログの生一覧(startMs 降順)。App.tsx が保持する reportWorkLogs は GET /api/work-logs の
- * 上限 (新しい順500件、core/work-log.ts の listWorkLogsForProfile 参照) をそのまま引き継ぐため、
- * モーダル内で縦スクロールさせる(CSS の max-height、他フィールドは絞り込まない)。
- */
-function WorkLogList({ workLogs, onDelete }: WorkLogListProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [errorId, setErrorId] = useState<string | null>(null);
-
-  if (workLogs.length === 0) {
-    return <p className="time-report-empty">まだ実績ログがありません</p>;
-  }
-
-  const sorted = [...workLogs].sort((a, b) => b.startMs - a.startMs);
-
-  return (
-    <ul className="time-report-worklog-list">
-      {sorted.map((log) => {
-        const manual = isManualWorkLog(log);
-        return (
-          <li className="time-report-worklog-item" key={log.id}>
-            <span className="time-report-worklog-main">
-              <span className="time-report-worklog-repo">{log.repo}</span>
-              {log.issueRef && <span className="time-report-worklog-issue">#{log.issueRef}</span>}
-              <span
-                className={
-                  manual
-                    ? "time-report-worklog-badge time-report-worklog-badge--manual"
-                    : "time-report-worklog-badge"
-                }
-              >
-                {log.agent ?? "(agent 不明)"}
-              </span>
-            </span>
-            <span className="time-report-worklog-time">
-              {formatWorkLogRange(log.startMs, log.endMs)}(
-              {formatDurationHm(Math.max(0, log.endMs - log.startMs))})
-            </span>
-            {manual && (
-              <button
-                type="button"
-                className="time-report-worklog-delete"
-                aria-label={`${log.repo} の実績ログを削除`}
-                disabled={deletingId === log.id}
-                onClick={() => {
-                  setDeletingId(log.id);
-                  setErrorId(null);
-                  onDelete(log.id)
-                    .catch((err) => {
-                      console.error("kichijitsu: work log delete failed", err);
-                      setErrorId(log.id);
-                    })
-                    .finally(() => setDeletingId(null));
-                }}
-              >
-                ×
-              </button>
-            )}
-            {errorId === log.id && <span className="time-report-error">削除に失敗しました</span>}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** epoch ms のペアを "M/D H:mm–H:mm" 形式で表示する(ブラウザのロケール依存を避けた簡易フォーマット、
- * 秒は表示しない)。日をまたぐ場合も終了側の日付は省略する(実績ログは大半が同日内という想定、
- * 厳密な日またぎ表示が必要なら別途拡張する) */
-function formatWorkLogRange(startMs: number, endMs: number): string {
-  const start = new Date(startMs);
-  const end = new Date(endMs);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const datePart = `${start.getMonth() + 1}/${start.getDate()}`;
-  const startTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
-  const endTime = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
-  return `${datePart} ${startTime}–${endTime}`;
 }

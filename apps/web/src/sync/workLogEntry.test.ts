@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { WorkLogDTO } from "@kichijitsu/shared";
 import type { PlannedBlock } from "../model/types";
-import { datetimeLocalValueToMs } from "./eventEdit";
+import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 import {
   buildWorkLogCreateRequest,
+  buildWorkLogUpdateRequest,
   collectWorkLogOrgCandidates,
   collectWorkLogRepoCandidates,
   combineOrgRepo,
   isManualWorkLog,
   validateWorkLogEntryForm,
+  workLogToFormInput,
   type WorkLogEntryFormInput,
 } from "./workLogEntry";
 
@@ -95,6 +97,65 @@ describe("buildWorkLogCreateRequest", () => {
     );
     expect(req.issueRef).toBe("42");
     expect(req.agent).toBe("codex-cli");
+  });
+});
+
+describe("workLogToFormInput", () => {
+  it("prefills repo/issueRef/agent and converts startMs/endMs to datetime-local values", () => {
+    const startMs = datetimeLocalValueToMs("2026-07-21T10:00", TZ);
+    const endMs = datetimeLocalValueToMs("2026-07-21T11:30", TZ);
+    const input = workLogToFormInput(
+      { id: "x", repo: "acme/web", issueRef: "42", agent: "claude-code", startMs, endMs },
+      TZ,
+    );
+    expect(input).toEqual({
+      repo: "acme/web",
+      issueRef: "42",
+      startLocal: msToDatetimeLocalValue(startMs, TZ),
+      endLocal: msToDatetimeLocalValue(endMs, TZ),
+      agent: "claude-code",
+    });
+  });
+
+  it("maps missing issueRef/agent to empty strings", () => {
+    const input = workLogToFormInput({ id: "x", repo: "acme/web", startMs: 0, endMs: 1 }, TZ);
+    expect(input.issueRef).toBe("");
+    expect(input.agent).toBe("");
+  });
+
+  it("round-trips through buildWorkLogUpdateRequest back to the same instants", () => {
+    const startMs = datetimeLocalValueToMs("2026-07-21T10:00", TZ);
+    const endMs = datetimeLocalValueToMs("2026-07-21T11:30", TZ);
+    const req = buildWorkLogUpdateRequest(
+      workLogToFormInput({ id: "x", repo: "acme/web", startMs, endMs }, TZ),
+      TZ,
+    );
+    expect(req.start).toBe(new Date(startMs).toISOString());
+    expect(req.end).toBe(new Date(endMs).toISOString());
+  });
+});
+
+describe("buildWorkLogUpdateRequest", () => {
+  it("always includes trimmed repo and ISO start/end", () => {
+    const req = buildWorkLogUpdateRequest({ ...BASE_INPUT, repo: "  owner/repo  " }, TZ);
+    expect(req.repo).toBe("owner/repo");
+    expect(req.start).toBe(new Date(datetimeLocalValueToMs(BASE_INPUT.startLocal, TZ)).toISOString());
+    expect(req.end).toBe(new Date(datetimeLocalValueToMs(BASE_INPUT.endLocal, TZ)).toISOString());
+  });
+
+  it("omits issueRef/agent when blank (kept unchanged server-side)", () => {
+    const req = buildWorkLogUpdateRequest(BASE_INPUT, TZ);
+    expect(req.issueRef).toBeUndefined();
+    expect(req.agent).toBeUndefined();
+  });
+
+  it("trims and includes issueRef/agent when provided", () => {
+    const req = buildWorkLogUpdateRequest(
+      { ...BASE_INPUT, issueRef: "  7  ", agent: "  claude-code  " },
+      TZ,
+    );
+    expect(req.issueRef).toBe("7");
+    expect(req.agent).toBe("claude-code");
   });
 });
 

@@ -1,6 +1,6 @@
 import type { PlannedBlock } from "../model/types";
-import type { WorkLogCreateRequest, WorkLogDTO } from "@kichijitsu/shared";
-import { datetimeLocalValueToMs } from "./eventEdit";
+import type { WorkLogCreateRequest, WorkLogDTO, WorkLogUpdateRequest } from "@kichijitsu/shared";
+import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 
 /**
  * 実績の手動追加(TimeReportOverlay「実績を手動で追加」フォーム、docs/mcp.md「エージェントの
@@ -80,6 +80,51 @@ export function buildWorkLogCreateRequest(
   input: WorkLogEntryFormInput,
   timeZone: string,
 ): WorkLogCreateRequest {
+  const startMs = datetimeLocalValueToMs(input.startLocal, timeZone);
+  const endMs = datetimeLocalValueToMs(input.endLocal, timeZone);
+  const issueRef = input.issueRef.trim();
+  const agent = input.agent.trim();
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(endMs).toISOString(),
+    repo: input.repo.trim(),
+    ...(issueRef ? { issueRef } : {}),
+    ...(agent ? { agent } : {}),
+  };
+}
+
+/**
+ * 純関数。既存の work-log (WorkLogDTO) を編集フォームの生入力 (WorkLogEntryFormInput) へ
+ * 変換する — WorkLogModal のインライン編集フォームが「現値でプリフィル」するために使う。
+ * startMs/endMs は msToDatetimeLocalValue で datetime-local の壁時計値 (timeZone のローカル、
+ * 分精度) へ戻す。issueRef/agent は未設定 (undefined) なら空文字にする (フォームの <input> は
+ * 常に string を要求するため)。repo は "org/repo" 形式のまま1つの repo 欄へ入れる —
+ * 編集フォームは手動追加フォームと違い org/repo を分割しない (combineOrgRepo は使わない)。
+ */
+export function workLogToFormInput(dto: WorkLogDTO, timeZone: string): WorkLogEntryFormInput {
+  return {
+    repo: dto.repo,
+    issueRef: dto.issueRef ?? "",
+    startLocal: msToDatetimeLocalValue(dto.startMs, timeZone),
+    endLocal: msToDatetimeLocalValue(dto.endMs, timeZone),
+    agent: dto.agent ?? "",
+  };
+}
+
+/**
+ * 純関数。検証済みの編集フォーム入力から PATCH /api/work-logs/:id のリクエストボディを組み立てる。
+ * buildWorkLogCreateRequest と同じ流儀で、呼び出し側が事前に validateWorkLogEntryForm を呼んで
+ * null (エラー無し) を確認している前提。WorkLogUpdateRequest は「与えたキーだけ更新」する部分更新
+ * だが、編集フォームは repo/開始/終了を必須入力として現値からプリフィルするため、これら3つは常に
+ * 送る (壁時計値 → epoch ms → UTC の ISO 文字列は create と同じ変換)。issueRef/agent は
+ * 空文字/空白のみなら省略する — 省略したキーはサーバー側で現状維持になる (このため空欄にしても
+ * その項目を「消す」ことはできないが、hook 記録の agent を現値でプリフィルしてそのまま送り返す
+ * ことで維持できる、という編集フォームの前提と整合する)。
+ */
+export function buildWorkLogUpdateRequest(
+  input: WorkLogEntryFormInput,
+  timeZone: string,
+): WorkLogUpdateRequest {
   const startMs = datetimeLocalValueToMs(input.startLocal, timeZone);
   const endMs = datetimeLocalValueToMs(input.endLocal, timeZone);
   const issueRef = input.issueRef.trim();
