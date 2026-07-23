@@ -161,13 +161,25 @@ fn augmented_path() -> String {
 
 /// 使用する gh バイナリを決める。設定画面(web 側 localStorage)で明示パスが指定されていれば
 /// (`gh_path`、Tauri のみ表示の「gh のパス」入力)それを検証して使い、空/未指定なら
-/// `resolve_gh_path()` の自動検出にフォールバックする。指定されたのに実在しない場合は、
-/// spawn の分かりにくいエラーにせず「指定した gh のパスが存在しません」と明示して返す。
+/// `resolve_gh_path()` の自動検出にフォールバックする。
+///
+/// **セキュリティ**: フロントは本番サイト(リモート URL)を読む薄いガワで、その localStorage は
+/// XSS で書き換えられうる(このファイル冒頭・gh_api のコメントの脅威モデル)。上書きパスをそのまま
+/// spawn すると「gh 以外の任意のバイナリを選ばせる」余地になり、endpoint のホワイトリストで守っている
+/// 「XSS でも任意コマンドは実行させない」境界が崩れる。そこで上書きは **ファイル名が正しく gh** の
+/// ものだけ許可する(basename が `gh`、Windows は `gh.exe`)。ディレクトリの自由指定は許すが、
+/// 実行されるバイナリ名は gh に固定する。指定が gh 以外/実在しない場合は明示エラーで返す。
 fn select_gh_binary(override_path: Option<String>) -> Result<std::path::PathBuf, String> {
     if let Some(p) = override_path {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
             let path = std::path::PathBuf::from(trimmed);
+            let name = path.file_name().and_then(|n| n.to_str());
+            if name != Some("gh") && name != Some("gh.exe") {
+                return Err(format!(
+                    "gh のパスは末尾が gh(または gh.exe)である必要があります: {trimmed}"
+                ));
+            }
             if !path.exists() {
                 return Err(format!("指定した gh のパスが存在しません: {trimmed}"));
             }
@@ -612,5 +624,31 @@ mod tests {
         assert!(!is_allowed_gh_endpoint(
             "search/issues?per_page=50&q=is:open"
         ));
+    }
+
+    // --- 8. select_gh_binary: 上書きパスは basename が gh のものだけ許可 ---
+
+    #[test]
+    fn select_gh_binary_rejects_non_gh_basename() {
+        // XSS で localStorage を書き換えられても、gh 以外の任意バイナリは選ばせない。
+        let err = select_gh_binary(Some("/tmp/evil".to_string())).unwrap_err();
+        assert!(err.contains("末尾が gh"), "got: {err}");
+        // ディレクトリ末尾(スラッシュ)も basename が gh ではないので拒否。
+        assert!(select_gh_binary(Some("/opt/homebrew/bin/".to_string())).is_err());
+    }
+
+    #[test]
+    fn select_gh_binary_rejects_missing_gh_path() {
+        // basename は gh だが実在しないパスは「存在しません」で明示エラー。
+        let err = select_gh_binary(Some("/no/such/dir/gh".to_string())).unwrap_err();
+        assert!(err.contains("存在しません"), "got: {err}");
+    }
+
+    #[test]
+    fn select_gh_binary_empty_or_none_falls_back_to_auto_detect() {
+        // 空/空白/未指定は自動検出にフォールバックする(resolve_gh_path、常に Ok)。
+        assert!(select_gh_binary(None).is_ok());
+        assert!(select_gh_binary(Some("".to_string())).is_ok());
+        assert!(select_gh_binary(Some("   ".to_string())).is_ok());
     }
 }
