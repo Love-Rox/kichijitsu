@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { distinctIssueRepos, groupWorkLogsByIssue, issueTitleKey } from "./workLogGrouping";
+import {
+  distinctIssueRepos,
+  groupWorkLogsByIssue,
+  issueTitleKey,
+  summarizeWorkLogGroups,
+} from "./workLogGrouping";
 import type { WorkLogDTO } from "@kichijitsu/shared";
 
 function log(
@@ -197,5 +202,23 @@ describe("distinctIssueRepos", () => {
 
   it("空配列は空配列を返す", () => {
     expect(distinctIssueRepos([])).toEqual([]);
+  });
+});
+
+describe("summarizeWorkLogGroups", () => {
+  it("全グループの合計時間・記録数・グループ数をまとめる", () => {
+    const groups = groupWorkLogsByIssue([
+      { id: "a", repo: "o/r", startMs: 1_000, endMs: 2_000, issueRef: "1" }, // 1000
+      { id: "b", repo: "o/r", startMs: 3_000, endMs: 6_000, issueRef: "1" }, // 3000
+      { id: "c", repo: "o/r", startMs: 1_000, endMs: 2_500, issueRef: "2" }, // 1500
+    ]);
+    const s = summarizeWorkLogGroups(groups);
+    expect(s.totalMs).toBe(5_500);
+    expect(s.sessionCount).toBe(3);
+    expect(s.groupCount).toBe(2);
+  });
+
+  it("空配列は 0 集計", () => {
+    expect(summarizeWorkLogGroups([])).toEqual({ totalMs: 0, sessionCount: 0, groupCount: 0 });
   });
 });

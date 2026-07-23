@@ -521,3 +521,27 @@
     flex-direction: column;
   }
 }
+
+/* 実績履歴の見出し + 全体合計(2026-07-23) */
+.work-log-modal-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.work-log-modal-history-total {
+  font-size: 13px;
+  color: #55504a;
+  white-space: nowrap;
+}
+
+.work-log-modal-history-total strong {
+  color: #24211e;
+  font-weight: 700;
+}
+
+.work-log-modal-history-total-sub {
+  color: #8a8478;
+}

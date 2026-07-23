@@ -25,6 +25,7 @@ import {
   distinctIssueRepos,
   groupWorkLogsByIssue,
   issueTitleKey,
+  summarizeWorkLogGroups,
   type WorkLogGroup,
 } from "../sync/workLogGrouping";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
@@ -103,6 +104,7 @@ export function WorkLogModal({
   // 実績履歴を同じ repo+issue の記録でまとめたグループ(グループ並びは最新記録の startMs 降順、
   // グループ内 logs は startMs 降順)。フラットな全件表示から、issue/PR 単位のまとめ表示へ。
   const historyGroups = useMemo(() => groupWorkLogsByIssue(workLogs), [workLogs]);
+  const historySummary = useMemo(() => summarizeWorkLogGroups(historyGroups), [historyGroups]);
   // 実行中の開区間(= timeEntries のうち endMs===null)。フェーズ5b(2026-07-23)で走行状態は
   // サーバー開区間の射影になり、これには MCP など別経路で開始され作業キューに無いものも含む。
   const runningEntries = useMemo(
@@ -225,7 +227,19 @@ export function WorkLogModal({
         </section>
 
         <section className="work-log-modal-section">
-          <h3 className="work-log-modal-section-title">実績履歴</h3>
+          <div className="work-log-modal-section-header">
+            <h3 className="work-log-modal-section-title">実績履歴</h3>
+            {historySummary.sessionCount > 0 && (
+              <span className="work-log-modal-history-total">
+                合計 <strong>{formatDurationHm(historySummary.totalMs)}</strong>
+                <span className="work-log-modal-history-total-sub">
+                  {" · "}
+                  {historySummary.sessionCount}件 / {historySummary.groupCount}
+                  グループ
+                </span>
+              </span>
+            )}
+          </div>
           <p className="work-log-modal-section-desc">
             手動で記録した実績と、hook(Claude Code 等)が自動記録した実績を、同じ issue/PR の記録
             ごとにまとめています(最新の記録が新しいグループから順)。見出しをクリックすると個別の
