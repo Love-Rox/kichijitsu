@@ -1,0 +1,286 @@
+/*
+ * 実績(work-log)専用モーダル(実績 UX 刷新フェーズ2、2026-07-23)。SettingsModal.css /
+ * TimeReportOverlay.css と同じ画面中央固定のモーダル構成・ブランドトークン(生成り #faf7f2・
+ * 墨 #24211e・薄墨 #8a8478・杢 #55504a・罫線 #e5e7eb / #f0ece3・朱 #d7402e)を踏襲する。
+ */
+.work-log-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 33, 30, 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.work-log-modal-card {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: #faf7f2;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  padding: 20px;
+  text-align: left;
+}
+
+.work-log-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0ece3;
+}
+
+.work-log-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+}
+
+.work-log-modal-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.work-log-modal-close:hover {
+  color: #24211e;
+}
+
+.work-log-modal-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0ece3;
+}
+
+.work-log-modal-section:first-of-type {
+  margin-top: 12px;
+}
+
+.work-log-modal-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.work-log-modal-section-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #55504a;
+}
+
+.work-log-modal-empty {
+  font-size: 12px;
+  color: #8a8478;
+  margin: 4px 0;
+}
+
+/* フォーム(手動追加・インライン編集で共有) */
+.work-log-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.work-log-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.work-log-modal-field-row {
+  display: flex;
+  gap: 10px;
+}
+
+.work-log-modal-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.work-log-modal-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #24211e;
+  min-width: 0;
+}
+
+.work-log-modal-input:disabled {
+  background: #f0ece3;
+  color: #8a8478;
+}
+
+.work-log-modal-input:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.work-log-modal-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.work-log-modal-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+
+.work-log-modal-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.work-log-modal-save-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.work-log-modal-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.work-log-modal-text-btn:hover:not(:disabled) {
+  color: #24211e;
+}
+
+.work-log-modal-text-btn:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.work-log-modal-error {
+  font-size: 11px;
+  color: #ef4444;
+}
+
+/* 実績履歴一覧 */
+.work-log-modal-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-log-modal-history-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #24211e;
+}
+
+.work-log-modal-history-item--editing {
+  display: block;
+  background: #fbfaf7;
+}
+
+.work-log-modal-history-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.work-log-modal-history-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.work-log-modal-history-issue {
+  flex: none;
+  color: #8a8478;
+}
+
+.work-log-modal-history-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: #8a8478;
+  background: #f0ece3;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.work-log-modal-history-badge--manual {
+  color: #55504a;
+  background: #eef2e7;
+}
+
+.work-log-modal-history-time {
+  flex: none;
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-log-modal-history-actions,
+.work-log-modal-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 11px;
+  color: #55504a;
+}
+
+@media (max-width: 640px) {
+  .work-log-modal-backdrop {
+    padding: 16px;
+  }
+
+  .work-log-modal-card {
+    width: calc(100vw - 24px);
+    padding: 14px;
+    max-height: min(92vh, 720px);
+  }
+
+  .work-log-modal-field-row {
+    flex-direction: column;
+  }
+}
