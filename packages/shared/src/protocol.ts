@@ -683,3 +683,60 @@ export interface WorkLogUpdateRequest {
   branch?: string;
   agent?: string;
 }
+
+/**
+ * 作業ログの「開区間 (実行中)」経路 (docs/mcp.md「エージェントの作業時間記録」)。開始と停止を
+ * 別々に記録する。開始 = work_logs に end_ms IS NULL の行を1本立てる、停止 = その行に end_ms を
+ * 書き込む。従来の POST /api/work-intervals (完了区間を start/end 同時に記録) はそのまま残る。
+ *
+ * 一意性: (profile_id, repo, issueRef) ごとに開始中は1本まで (issueRef 省略/空は空文字扱い)。
+ * 既に開始中があるのに再度 start されたら no-op で既存を返す (alreadyOpen: true)。
+ * 孤立停止 (対応する開始が無い stop) は何も作らず closed: false / reason: "no_open_interval"。
+ *
+ * start/end は ISO 文字列 (省略時はサーバーの現在時刻)。timeZone は D1 保存では不要だが、
+ * 既存 hook の他経路 (WorkIntervalRequest) と揃えて後方互換のため受け付ける (サーバーは無視する)。
+ */
+export interface WorkIntervalStartRequest {
+  repo: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+  start?: string;
+  timeZone?: string;
+}
+export interface WorkIntervalStartResponse {
+  id: string;
+  /** true = 同一 (repo, issueRef) の開始中が既にあり、新規作成せず既存を返した (no-op)。 */
+  alreadyOpen: boolean;
+}
+export interface WorkIntervalStopRequest {
+  repo: string;
+  issueRef?: string;
+  end?: string;
+  timeZone?: string;
+}
+export interface WorkIntervalStopResponse {
+  /** true = 開始中を停止して確定した。false = 対応する開始中が無かった (孤立停止)。 */
+  closed: boolean;
+  /** closed: true のとき停止した行の id。 */
+  id?: string;
+  /** closed: false のとき理由 ("no_open_interval")。 */
+  reason?: string;
+}
+
+/**
+ * GET /api/work-logs/open (cookie 認証、web 用) — 実行中 (end_ms IS NULL) の開区間一覧。
+ * 確定済み (end_ms 非 NULL) の WorkLogDTO とは別 DTO・別エンドポイントで扱い、GET /api/work-logs
+ * (WorkLogDTO) には開始中が混ざらないようにする (endMs: number のまま無変更に保つため)。
+ */
+export interface OpenWorkIntervalDTO {
+  id: string;
+  repo: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+  startMs: number;
+}
+export interface OpenWorkIntervalsResponse {
+  open: OpenWorkIntervalDTO[];
+}

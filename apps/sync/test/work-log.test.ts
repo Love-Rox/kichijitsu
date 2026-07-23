@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   aggregateWorkLogs,
+  buildOpenWorkIntervalDTO,
   buildWorkLogRow,
   buildWorkLogUpdate,
+  clampIntervalEnd,
+  MIN_WORK_INTERVAL_MS,
   NO_ISSUE_LABEL,
+  openIntervalIssueRefKey,
   resolveManualWorkLogAgent,
+  validateWorkIntervalStart,
+  validateWorkIntervalStop,
   validateWorkLogInput,
+  type OpenWorkIntervalListRow,
   type WorkLogInput,
   type WorkLogListRow,
 } from "../src/core/work-log";
@@ -278,5 +285,110 @@ describe("aggregateWorkLogs", () => {
   it("omits a group entirely when all of its rows are invalid", () => {
     const rows: WorkLogListRow[] = [row({ id: "1", issue_ref: "42", start_ms: 60_000, end_ms: 0 })];
     expect(aggregateWorkLogs(rows)).toEqual([]);
+  });
+});
+
+describe("openIntervalIssueRefKey", () => {
+  it("returns an empty string for undefined issueRef (NULL == empty)", () => {
+    expect(openIntervalIssueRefKey(undefined)).toBe("");
+  });
+
+  it("keeps an empty string as an empty string", () => {
+    expect(openIntervalIssueRefKey("")).toBe("");
+  });
+
+  it("passes a concrete issueRef through unchanged", () => {
+    expect(openIntervalIssueRefKey("42")).toBe("42");
+  });
+});
+
+describe("clampIntervalEnd", () => {
+  it("clamps end up to start + MIN_WORK_INTERVAL_MS when the interval is too short", () => {
+    expect(clampIntervalEnd(1_000, 1_000)).toBe(1_000 + MIN_WORK_INTERVAL_MS);
+    expect(clampIntervalEnd(1_000, 1_000 + 10_000)).toBe(1_000 + MIN_WORK_INTERVAL_MS);
+  });
+
+  it("clamps a negative-length interval (end < start) up to the minimum", () => {
+    expect(clampIntervalEnd(100_000, 0)).toBe(100_000 + MIN_WORK_INTERVAL_MS);
+  });
+
+  it("keeps end unchanged when the interval is already at least the minimum", () => {
+    expect(clampIntervalEnd(1_000, 1_000 + MIN_WORK_INTERVAL_MS)).toBe(1_000 + MIN_WORK_INTERVAL_MS);
+    expect(clampIntervalEnd(1_000, 1_000 + 2 * MIN_WORK_INTERVAL_MS)).toBe(
+      1_000 + 2 * MIN_WORK_INTERVAL_MS,
+    );
+  });
+});
+
+describe("validateWorkIntervalStart", () => {
+  it("returns missing_repo for an empty/whitespace repo", () => {
+    expect(validateWorkIntervalStart({ repo: "" })).toBe("missing_repo");
+    expect(validateWorkIntervalStart({ repo: "   " })).toBe("missing_repo");
+  });
+
+  it("returns invalid_start for an unparseable start", () => {
+    expect(validateWorkIntervalStart({ repo: "r", startIso: "not-a-date" })).toBe("invalid_start");
+  });
+
+  it("returns null when start is omitted (server now)", () => {
+    expect(validateWorkIntervalStart({ repo: "r" })).toBeNull();
+  });
+
+  it("returns null for a valid repo + parseable start", () => {
+    expect(validateWorkIntervalStart({ repo: "r", startIso: "2026-07-23T10:00:00Z" })).toBeNull();
+  });
+});
+
+describe("validateWorkIntervalStop", () => {
+  it("returns missing_repo for an empty/whitespace repo", () => {
+    expect(validateWorkIntervalStop({ repo: "" })).toBe("missing_repo");
+    expect(validateWorkIntervalStop({ repo: "   " })).toBe("missing_repo");
+  });
+
+  it("returns invalid_end for an unparseable end", () => {
+    expect(validateWorkIntervalStop({ repo: "r", endIso: "not-a-date" })).toBe("invalid_end");
+  });
+
+  it("returns null when end is omitted (server now)", () => {
+    expect(validateWorkIntervalStop({ repo: "r" })).toBeNull();
+  });
+
+  it("returns null for a valid repo + parseable end", () => {
+    expect(validateWorkIntervalStop({ repo: "r", endIso: "2026-07-23T11:00:00Z" })).toBeNull();
+  });
+});
+
+describe("buildOpenWorkIntervalDTO", () => {
+  function openRow(
+    overrides: Partial<OpenWorkIntervalListRow> & { id: string },
+  ): OpenWorkIntervalListRow {
+    return {
+      repo: "Love-Rox/kichijitsu",
+      issue_ref: null,
+      branch: null,
+      agent: null,
+      start_ms: 1_000,
+      ...overrides,
+    };
+  }
+
+  it("omits issueRef/branch/agent when null and never carries an end", () => {
+    const dto = buildOpenWorkIntervalDTO(openRow({ id: "1" }));
+    expect(dto).toEqual({ id: "1", repo: "Love-Rox/kichijitsu", startMs: 1_000 });
+    expect("endMs" in dto).toBe(false);
+  });
+
+  it("includes issueRef/branch/agent when present", () => {
+    const dto = buildOpenWorkIntervalDTO(
+      openRow({ id: "2", issue_ref: "42", branch: "feat/x", agent: "claude-code", start_ms: 5_000 }),
+    );
+    expect(dto).toEqual({
+      id: "2",
+      repo: "Love-Rox/kichijitsu",
+      issueRef: "42",
+      branch: "feat/x",
+      agent: "claude-code",
+      startMs: 5_000,
+    });
   });
 });

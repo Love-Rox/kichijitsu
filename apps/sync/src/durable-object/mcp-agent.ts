@@ -43,6 +43,10 @@ import {
   formatDurationHm,
   insertWorkLog,
   listWorkLogsForProfile,
+  startWorkInterval,
+  stopWorkInterval,
+  validateWorkIntervalStart,
+  validateWorkIntervalStop,
   validateWorkLogInput,
 } from "../core/work-log";
 
@@ -322,6 +326,72 @@ export class KichijitsuMcpAgent extends McpAgent<Env, unknown, McpProps> {
         const row = buildWorkLogRow(crypto.randomUUID(), profileId, input, Date.now());
         await insertWorkLog(this.env, row);
         return { content: [{ type: "text", text: JSON.stringify({ id: row.id }) }] };
+      },
+    );
+
+    this.server.registerTool(
+      "start_work_interval",
+      {
+        description:
+          "作業の開始を記録する (開区間を1本立てる、docs/mcp.md)。停止は stop_work_interval で行う。" +
+          "同一 (repo, issueRef) の開始中が既にあれば新規作成せず既存を返す (二重開始の防御)。" +
+          "start (ISO) 省略時はサーバーの現在時刻。",
+        inputSchema: {
+          repo: z.string(),
+          issueRef: z.string().optional(),
+          branch: z.string().optional(),
+          agent: z.string().optional(),
+          start: z.string().optional(),
+          timeZone: z.string().optional(),
+        },
+      },
+      // timeZone は D1 保存では不要 (Date.parse が offset 込みの ISO を直接 epoch ms へ変換する) だが、
+      // 他の work-log ツールと揃えて後方互換のため受け付けたまま無視する。
+      async ({ repo, issueRef, branch, agent, start }) => {
+        const profileId = this.requireProfileId();
+        const validationError = validateWorkIntervalStart({ repo, startIso: start });
+        if (validationError) {
+          throw new Error(`start_work_interval: invalid input (${validationError})`);
+        }
+        const result = await startWorkInterval(this.env, profileId, {
+          repo,
+          issueRef,
+          branch,
+          agent,
+          startIso: start,
+        });
+        const text = result.alreadyOpen
+          ? `既に開始中の作業があります (再開始せず既存を返しました)。id=${result.id}`
+          : `作業を開始しました。id=${result.id}`;
+        return { content: [{ type: "text", text }] };
+      },
+    );
+
+    this.server.registerTool(
+      "stop_work_interval",
+      {
+        description:
+          "作業の停止を記録する (対応する開区間に end を書き込んで確定、docs/mcp.md)。" +
+          "対応する開始中が無い場合は何も記録しない (孤立停止を無視)。" +
+          "end (ISO) 省略時はサーバーの現在時刻。",
+        inputSchema: {
+          repo: z.string(),
+          issueRef: z.string().optional(),
+          end: z.string().optional(),
+          timeZone: z.string().optional(),
+        },
+      },
+      async ({ repo, issueRef, end }) => {
+        const profileId = this.requireProfileId();
+        const validationError = validateWorkIntervalStop({ repo, endIso: end });
+        if (validationError) {
+          throw new Error(`stop_work_interval: invalid input (${validationError})`);
+        }
+        const result = await stopWorkInterval(this.env, profileId, { repo, issueRef, endIso: end });
+        const text = result.closed
+          ? `作業を停止しました。id=${result.id}`
+          : `対応する開始中の作業が見つかりませんでした (何も記録していません、reason=${result.reason})。`;
+        return { content: [{ type: "text", text }] };
       },
     );
 

@@ -13,6 +13,7 @@ import {
   type WatchRow,
 } from "./core/watch-service";
 import { computeChannelToken } from "./watch-token";
+import { AUTO_CLOSE_CAP_MS, autoCloseStaleOpenIntervals } from "./core/work-log";
 
 export { UserSyncDO } from "./durable-object/user-sync-do";
 export { ProfileHubDO } from "./durable-object/profile-hub-do";
@@ -35,6 +36,7 @@ app.onError((err, c) => {
 /**
  * 6時間おき (wrangler.jsonc の triggers.crons) に、期限が24時間以内に迫った watch channel を
  * 再登録する。個々の watch の再登録失敗はログして続行する (次の Cron 実行でまた対象になる)。
+ * 併せて、未停止で放置された作業ログの開区間 (end_ms IS NULL) を自動クローズする。
  */
 async function handleScheduled(_event: ScheduledController, env: Env): Promise<void> {
   const { results } = await env.DB.prepare("SELECT * FROM watches").all<WatchRow>();
@@ -49,6 +51,16 @@ async function handleScheduled(_event: ScheduledController, env: Env): Promise<v
         err,
       );
     }
+  }
+
+  // 未停止のまま AUTO_CLOSE_CAP_MS (12時間) を超えた開区間を自動クローズする (区間長を上限で丸める)。
+  try {
+    const closed = await autoCloseStaleOpenIntervals(env, Date.now(), AUTO_CLOSE_CAP_MS);
+    if (closed > 0) {
+      console.log(`cron: auto-closed ${closed} stale open work interval(s)`);
+    }
+  } catch (err) {
+    console.error("cron: failed to auto-close stale open work intervals", err);
   }
 }
 
