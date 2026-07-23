@@ -44,6 +44,11 @@ import type {
   WorkLogDTO,
   WorkLogsResponse,
   WorkLogUpdateRequest,
+  WorkIntervalStartRequest,
+  WorkIntervalStartResponse,
+  WorkIntervalStopRequest,
+  WorkIntervalStopResponse,
+  OpenWorkIntervalsResponse,
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { populateProfileId, requireAuth } from "../middleware";
@@ -86,9 +91,14 @@ import {
   buildWorkLogRow,
   deleteWorkLog,
   insertWorkLog,
+  listOpenWorkIntervals,
   listWorkLogsForProfile,
   resolveManualWorkLogAgent,
+  startWorkInterval,
+  stopWorkInterval,
   updateWorkLog,
+  validateWorkIntervalStart,
+  validateWorkIntervalStop,
   validateWorkLogInput,
 } from "../core/work-log";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-do";
@@ -711,6 +721,89 @@ apiRoutes.post("/api/work-logs", requireAuth, async (c) => {
   await insertWorkLog(c.env, row);
 
   return c.json<WorkLogCreateResponse>({ id: row.id }, 200);
+});
+
+// 作業ログの開区間 (実行中) 経路 (docs/mcp.md、0011、2026-07-23)。開始/停止を別々に記録する。
+// hook 用の POST /api/work-intervals/start・/stop (routes/work-intervals.ts, Bearer 認証) とは
+// 認証経路が別 — こちらは web 用のセッション cookie (requireAuth)。同じ core (startWorkInterval/
+// stopWorkInterval) を呼ぶ。型検証は POST /api/work-logs と同じ流儀 (repo は string 必須、任意
+// フィールドは省略か string、非文字列は 400 missing_fields)。
+apiRoutes.post("/api/work-logs/start", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  let body: WorkIntervalStartRequest;
+  try {
+    body = await c.req.json<WorkIntervalStartRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (typeof body?.repo !== "string") {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+  if (
+    (body.issueRef !== undefined && typeof body.issueRef !== "string") ||
+    (body.branch !== undefined && typeof body.branch !== "string") ||
+    (body.agent !== undefined && typeof body.agent !== "string") ||
+    (body.start !== undefined && typeof body.start !== "string")
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const validationError = validateWorkIntervalStart({ repo: body.repo, startIso: body.start });
+  if (validationError) {
+    return c.json<ApiError>({ error: validationError }, 400);
+  }
+
+  const result = await startWorkInterval(c.env, profileId, {
+    repo: body.repo,
+    issueRef: body.issueRef,
+    branch: body.branch,
+    agent: body.agent,
+    startIso: body.start,
+  });
+  return c.json<WorkIntervalStartResponse>(result, 200);
+});
+
+// 開区間の停止 (cookie 認証)。対応する開始中が無い孤立停止は何も作らず 200 +
+// { closed: false, reason: "no_open_interval" } を返す (誤った 0分記録を作らない)。
+apiRoutes.post("/api/work-logs/stop", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+
+  let body: WorkIntervalStopRequest;
+  try {
+    body = await c.req.json<WorkIntervalStopRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (typeof body?.repo !== "string") {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+  if (
+    (body.issueRef !== undefined && typeof body.issueRef !== "string") ||
+    (body.end !== undefined && typeof body.end !== "string")
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const validationError = validateWorkIntervalStop({ repo: body.repo, endIso: body.end });
+  if (validationError) {
+    return c.json<ApiError>({ error: validationError }, 400);
+  }
+
+  const result = await stopWorkInterval(c.env, profileId, {
+    repo: body.repo,
+    issueRef: body.issueRef,
+    endIso: body.end,
+  });
+  return c.json<WorkIntervalStopResponse>(result, 200);
+});
+
+// 実行中 (end_ms IS NULL) の開区間一覧 (cookie 認証)。確定済み (GET /api/work-logs → WorkLogDTO)
+// とは別 DTO・別経路 — WorkLogDTO.endMs を number のまま保つため、開始中はここだけで返す。
+apiRoutes.get("/api/work-logs/open", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  const open = await listOpenWorkIntervals(c.env, profileId);
+  return c.json<OpenWorkIntervalsResponse>({ open });
 });
 
 // 実績の手動削除 (手入力の訂正用、2026-07-22)。対象は id が指すプロファイル自身の work_log 行のみ

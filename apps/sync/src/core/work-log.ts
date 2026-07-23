@@ -9,6 +9,7 @@
  * 本体を持たない」原則には反しない。
  */
 
+import type { OpenWorkIntervalDTO } from "@kichijitsu/shared";
 import { isAccountInProfile } from "../accounts";
 
 export interface WorkLogInput {
@@ -31,7 +32,12 @@ export function resolveManualWorkLogAgent(agent?: string): string {
   return agent && agent.trim().length > 0 ? agent.trim() : "manual";
 }
 
-/** work_logs テーブルの1行。DB のカラム名 (snake_case) とは insertWorkLog が対応付ける。 */
+/**
+ * work_logs テーブルの1行。DB のカラム名 (snake_case) とは insertWorkLog が対応付ける。
+ * endMs は number | null — null = 開始済み・未停止 (実行中) の開区間 (0011 で end_ms を
+ * NULL 許容に変更、startWorkInterval が null で挿入する)。完了区間の挿入経路 (buildWorkLogRow)
+ * は常に number を入れる。
+ */
 export interface WorkLogRow {
   id: string;
   profileId: string;
@@ -40,7 +46,7 @@ export interface WorkLogRow {
   branch?: string;
   agent?: string;
   startMs: number;
-  endMs: number;
+  endMs: number | null;
   createdAt: number;
 }
 
@@ -109,7 +115,8 @@ export async function insertWorkLog(env: Env, row: WorkLogRow): Promise<void> {
       row.branch ?? null,
       row.agent ?? null,
       row.startMs,
-      row.endMs,
+      // 開区間 (実行中) は endMs = null をそのまま NULL として bind する (startWorkInterval 経由)。
+      row.endMs ?? null,
       row.createdAt,
     )
     .run();
@@ -249,6 +256,11 @@ export interface WorkLogListRow {
  * するため)。profileId でスコープし、sinceMs/untilMs (epoch ms、任意) で start_ms/end_ms を
  * 絞り込む。新しい順・上限500件は元の実装の挙動をそのまま踏襲 (変更していない)。
  * D1 に直接触れるため、insertWorkLog と同じ理由で単体テストは書かない。
+ *
+ * end_ms IS NOT NULL の確定済み行のみ返す (0011 の開区間対応、2026-07-23)。実行中 (end_ms IS
+ * NULL) の開区間は listOpenWorkIntervals で別途扱うため、ここでは除外する — これにより既存の
+ * 呼び出し側 (GET /api/work-logs → WorkLogDTO、MCP work_summary の集計) は無変更のまま、
+ * 開始中が混ざらない (WorkLogListRow.end_ms を number のまま扱える)。
  */
 export async function listWorkLogsForProfile(
   env: Env,
@@ -256,7 +268,7 @@ export async function listWorkLogsForProfile(
   sinceMs?: number,
   untilMs?: number,
 ): Promise<WorkLogListRow[]> {
-  const conditions = ["profile_id = ?"];
+  const conditions = ["profile_id = ?", "end_ms IS NOT NULL"];
   const params: (string | number)[] = [profileId];
   if (sinceMs !== undefined) {
     conditions.push("start_ms >= ?");
@@ -335,4 +347,229 @@ export function formatDurationHm(ms: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+// ---------------------------------------------------------------------------
+// 開区間 (実行中) 対応 (docs/mcp.md「エージェントの作業時間記録」、0011、2026-07-23)。
+// 開始と停止を別々に記録する経路。開始 = end_ms IS NULL の行を1本立てる、停止 = その行に
+// end_ms を書き込む。従来の buildWorkLogRow/insertWorkLog (完了区間を一度に記録) は残す。
+// ---------------------------------------------------------------------------
+
+/**
+ * 開区間の最小長 (ms)。apps/web の stopTimer (sync/timeTracking.ts) の MIN_DURATION_MS と揃える —
+ * 停止時に end < start + この値 なら start + この値 にクランプし、誤操作の 0分/負の記録を防ぐ。
+ */
+export const MIN_WORK_INTERVAL_MS = 60_000;
+
+/**
+ * 未停止の開区間を cron が自動クローズするまでの上限区間長 (12時間)。閾値超えの開区間は
+ * end_ms = start_ms + この値 に丸めて閉じる (autoCloseStaleOpenIntervals)。定数の適用は
+ * scheduled ハンドラ (index.ts) が capMs 引数として渡す。
+ */
+export const AUTO_CLOSE_CAP_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * 純関数。一意キー用に issueRef を正規化する。未指定/undefined は空文字にまとめる — DB 側の
+ * 部分ユニークインデックス idx_work_logs_open が COALESCE(issue_ref, '') でキーを作るのと揃え、
+ * 「issue_ref NULL」と「issue_ref 空文字」を同じ開区間キーとして扱うため。
+ */
+export function openIntervalIssueRefKey(issueRef?: string): string {
+  return issueRef ?? "";
+}
+
+/**
+ * 純関数。停止時の end を最小区間長でクランプする。end < start + MIN_WORK_INTERVAL_MS なら
+ * start + MIN_WORK_INTERVAL_MS を返す (apps/web の stopTimer と同じ、誤操作の 0分/負の記録防止)。
+ */
+export function clampIntervalEnd(startMs: number, endMs: number): number {
+  return Math.max(endMs, startMs + MIN_WORK_INTERVAL_MS);
+}
+
+export type WorkIntervalStartValidationError = "missing_repo" | "invalid_start";
+
+/**
+ * 純関数。開始入力の検証。repo 必須。startIso は任意 (省略時サーバー now) だが、来たら ISO として
+ * パース可能であること。validateWorkLogInput の repo/start 検証を開区間用に切り出したもの。
+ */
+export function validateWorkIntervalStart(input: {
+  repo: string;
+  startIso?: string;
+}): WorkIntervalStartValidationError | null {
+  if (!input.repo || input.repo.trim().length === 0) return "missing_repo";
+  if (input.startIso !== undefined && Number.isNaN(Date.parse(input.startIso))) {
+    return "invalid_start";
+  }
+  return null;
+}
+
+export type WorkIntervalStopValidationError = "missing_repo" | "invalid_end";
+
+/**
+ * 純関数。停止入力の検証。repo 必須。endIso は任意 (省略時サーバー now) だが、来たら ISO として
+ * パース可能であること。
+ */
+export function validateWorkIntervalStop(input: {
+  repo: string;
+  endIso?: string;
+}): WorkIntervalStopValidationError | null {
+  if (!input.repo || input.repo.trim().length === 0) return "missing_repo";
+  if (input.endIso !== undefined && Number.isNaN(Date.parse(input.endIso))) {
+    return "invalid_end";
+  }
+  return null;
+}
+
+/** 開始 (startWorkInterval) の入力。start は ISO (省略時サーバー now)。 */
+export interface WorkIntervalStartInput {
+  repo: string;
+  issueRef?: string;
+  branch?: string;
+  agent?: string;
+  startIso?: string;
+}
+
+/** 停止 (stopWorkInterval) の入力。end は ISO (省略時サーバー now)。 */
+export interface WorkIntervalStopInput {
+  repo: string;
+  issueRef?: string;
+  endIso?: string;
+}
+
+/**
+ * 開区間 (end_ms IS NULL) の SELECT 結果1行 (DB のカラム名 = snake_case)。end_ms は持たない
+ * (実行中なので常に NULL)。
+ */
+export interface OpenWorkIntervalListRow {
+  id: string;
+  repo: string;
+  issue_ref: string | null;
+  branch: string | null;
+  agent: string | null;
+  start_ms: number;
+}
+
+/**
+ * 純関数。開区間の1行を OpenWorkIntervalDTO に変換する。issueRef/branch/agent は値があるときだけ
+ * 積む (WorkLogDTO のマッピングと同じ流儀)。end は持たない (実行中)。
+ */
+export function buildOpenWorkIntervalDTO(row: OpenWorkIntervalListRow): OpenWorkIntervalDTO {
+  return {
+    id: row.id,
+    repo: row.repo,
+    ...(row.issue_ref ? { issueRef: row.issue_ref } : {}),
+    ...(row.branch ? { branch: row.branch } : {}),
+    ...(row.agent ? { agent: row.agent } : {}),
+    startMs: row.start_ms,
+  };
+}
+
+/**
+ * 開始。同一 (profileId, repo, issueRef) の開区間 (end_ms IS NULL) が既にあれば no-op で
+ * { id, alreadyOpen: true } を返す (二重 start の防御 — DB の部分ユニークインデックスとも整合)。
+ * 無ければ end_ms = NULL の行を1本立てて { id, alreadyOpen: false }。start_ms は startIso があれば
+ * その epoch ms、無ければ now。issueRef の一致は COALESCE(issue_ref, '') で NULL/空文字を同一視する
+ * (openIntervalIssueRefKey と揃える)。start/repo の検証は呼び出し側が validateWorkIntervalStart で
+ * 事前に済ませる前提 (buildWorkLogRow と同じ役割分担)。D1 直呼びのため insertWorkLog と同じ理由で
+ * 本体の単体テストは書かない — 検証・キー正規化・DTO 変換の純ロジックは別関数でテストする。
+ */
+export async function startWorkInterval(
+  env: Env,
+  profileId: string,
+  input: WorkIntervalStartInput,
+): Promise<{ id: string; alreadyOpen: boolean }> {
+  const key = openIntervalIssueRefKey(input.issueRef);
+  const existing = await env.DB.prepare(
+    "SELECT id FROM work_logs WHERE profile_id = ? AND repo = ? AND COALESCE(issue_ref, '') = ? AND end_ms IS NULL LIMIT 1",
+  )
+    .bind(profileId, input.repo, key)
+    .first<{ id: string }>();
+  if (existing) {
+    return { id: existing.id, alreadyOpen: true };
+  }
+
+  const now = Date.now();
+  const startMs = input.startIso !== undefined ? Date.parse(input.startIso) : now;
+  const row: WorkLogRow = {
+    id: crypto.randomUUID(),
+    profileId,
+    repo: input.repo,
+    issueRef: input.issueRef,
+    branch: input.branch,
+    agent: input.agent,
+    startMs,
+    endMs: null,
+    createdAt: now,
+  };
+  await insertWorkLog(env, row);
+  return { id: row.id, alreadyOpen: false };
+}
+
+/**
+ * 停止。同一 (profileId, repo, issueRef) の開区間 (end_ms IS NULL) を探し、無ければ孤立停止として
+ * 何も作らず { closed: false, reason: "no_open_interval" } を返す (誤った 0分記録を作らない)。あれば
+ * その行の end_ms を endIso (無ければ now) の epoch ms で更新する。end は clampIntervalEnd で最小
+ * 区間長にクランプする (誤操作の 0分/負の記録防止、apps/web stopTimer と同じ)。end/repo の検証は
+ * 呼び出し側が validateWorkIntervalStop で事前に済ませる前提。D1 直呼びのため本体の単体テストは
+ * 書かない (insertWorkLog と同じ理由)。
+ */
+export async function stopWorkInterval(
+  env: Env,
+  profileId: string,
+  input: WorkIntervalStopInput,
+): Promise<{ closed: boolean; id?: string; reason?: string }> {
+  const key = openIntervalIssueRefKey(input.issueRef);
+  const existing = await env.DB.prepare(
+    "SELECT id, start_ms FROM work_logs WHERE profile_id = ? AND repo = ? AND COALESCE(issue_ref, '') = ? AND end_ms IS NULL LIMIT 1",
+  )
+    .bind(profileId, input.repo, key)
+    .first<{ id: string; start_ms: number }>();
+  if (!existing) {
+    return { closed: false, reason: "no_open_interval" };
+  }
+
+  const now = Date.now();
+  const endMs = input.endIso !== undefined ? Date.parse(input.endIso) : now;
+  const clamped = clampIntervalEnd(existing.start_ms, endMs);
+  await env.DB.prepare("UPDATE work_logs SET end_ms = ? WHERE id = ?")
+    .bind(clamped, existing.id)
+    .run();
+  return { closed: true, id: existing.id };
+}
+
+/**
+ * 開区間 (end_ms IS NULL) の一覧。profileId でスコープし、新しい順で返す。GET /api/work-logs/open が
+ * OpenWorkIntervalsResponse として返す。確定済み (listWorkLogsForProfile) とは別経路 — 実行中は
+ * WorkLogDTO に混ぜない (endMs: number を保つ)。D1 直呼びのため本体の単体テストは書かない
+ * (行→DTO 変換は純関数 buildOpenWorkIntervalDTO でテストする)。
+ */
+export async function listOpenWorkIntervals(
+  env: Env,
+  profileId: string,
+): Promise<OpenWorkIntervalDTO[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, repo, issue_ref, branch, agent, start_ms FROM work_logs WHERE profile_id = ? AND end_ms IS NULL ORDER BY start_ms DESC",
+  )
+    .bind(profileId)
+    .all<OpenWorkIntervalListRow>();
+  return results.map(buildOpenWorkIntervalDTO);
+}
+
+/**
+ * 未停止で放置された開区間 (end_ms IS NULL かつ start_ms < nowMs - capMs) を自動クローズする。
+ * end_ms = start_ms + capMs に丸めて区間長を上限で切り (実行中を無限に延ばさない)、閉じた件数を
+ * 返す。cron (scheduled ハンドラ) が nowMs=Date.now()・capMs=AUTO_CLOSE_CAP_MS で呼ぶ。D1 直呼び
+ * のため本体の単体テストは書かない (insertWorkLog と同じ理由)。
+ */
+export async function autoCloseStaleOpenIntervals(
+  env: Env,
+  nowMs: number,
+  capMs: number,
+): Promise<number> {
+  const threshold = nowMs - capMs;
+  const result = await env.DB.prepare(
+    "UPDATE work_logs SET end_ms = start_ms + ? WHERE end_ms IS NULL AND start_ms < ?",
+  )
+    .bind(capMs, threshold)
+    .run();
+  return result.meta.changes ?? 0;
 }
