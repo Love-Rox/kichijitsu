@@ -41,6 +41,7 @@ import type {
   WorkLogCreateResponse,
   WorkLogDTO,
   WorkLogsResponse,
+  WorkLogUpdateRequest,
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { populateProfileId, requireAuth } from "../middleware";
@@ -83,6 +84,7 @@ import {
   insertWorkLog,
   listWorkLogsForProfile,
   resolveManualWorkLogAgent,
+  updateWorkLog,
   validateWorkLogInput,
 } from "../core/work-log";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-do";
@@ -653,6 +655,74 @@ apiRoutes.delete("/api/work-logs/:id", requireAuth, async (c) => {
   const id = c.req.param("id");
 
   const result = await deleteWorkLog(c.env, profileId, id);
+  if (result === "not_found") {
+    return c.json<ApiError>({ error: "work_log_not_found" }, 403);
+  }
+  return c.body(null, 204);
+});
+
+// 実績の手動編集 (手入力の後追い訂正用、2026-07-23)。全フィールド任意の部分更新 —
+// body に含めたキーだけを更新する。認証・所有チェックの方針は DELETE /api/work-logs/:id と同じ
+// (セッション cookie / 他プロファイル・存在しない id は区別せず 403 work_log_not_found)。
+// 型検証・部分検証は POST /api/work-logs と同じ流儀 (存在するフィールドは各々 string、
+// 非文字列は 400 missing_fields)。start/end/repo が来た分だけ validateWorkLogInput 相当で検証する。
+//
+// start<end の検証方針: start と end の「両方」が同時に来たときだけ行う。片方だけの部分更新では
+// 相手側の値が body に無く、更新後の整合を判定するには既存行の start_ms/end_ms を追加で SELECT
+// するか、updateWorkLog の戻り値 ("updated"|"not_found") に検証失敗を混ぜる必要があり、DELETE と
+// 揃えた薄い所有チェックの流儀に対して複雑さが見合わない。片方更新で区間が反転しても、集計側
+// (core/work-log.ts の aggregateWorkLogs) が start_ms >= end_ms の行を除外する防御を既に持つため、
+// ここでは「両方来たときだけ」に留める (docs 無し・実装判断)。
+apiRoutes.patch("/api/work-logs/:id", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  const id = c.req.param("id");
+
+  let body: WorkLogUpdateRequest;
+  try {
+    body = await c.req.json<WorkLogUpdateRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  // 全フィールド任意だが、存在するなら string のみ許す (非文字列は下流の Date.parse/D1 bind で
+  // 事故になるため、POST と同じく 400 missing_fields に落とす)。
+  if (
+    (body?.start !== undefined && typeof body.start !== "string") ||
+    (body?.end !== undefined && typeof body.end !== "string") ||
+    (body?.repo !== undefined && typeof body.repo !== "string") ||
+    (body?.issueRef !== undefined && typeof body.issueRef !== "string") ||
+    (body?.branch !== undefined && typeof body.branch !== "string") ||
+    (body?.agent !== undefined && typeof body.agent !== "string")
+  ) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  // 与えられた分だけ validateWorkLogInput 相当の検証を行う (部分更新)。
+  if (body.repo !== undefined && body.repo.trim().length === 0) {
+    return c.json<ApiError>({ error: "missing_repo" }, 400);
+  }
+  if (body.start !== undefined && Number.isNaN(Date.parse(body.start))) {
+    return c.json<ApiError>({ error: "invalid_start" }, 400);
+  }
+  if (body.end !== undefined && Number.isNaN(Date.parse(body.end))) {
+    return c.json<ApiError>({ error: "invalid_end" }, 400);
+  }
+  // start<end は両方揃ったときだけ (上のコメント参照)。
+  if (
+    body.start !== undefined &&
+    body.end !== undefined &&
+    Date.parse(body.start) >= Date.parse(body.end)
+  ) {
+    return c.json<ApiError>({ error: "start_not_before_end" }, 400);
+  }
+
+  const result = await updateWorkLog(c.env, profileId, id, {
+    startIso: body.start,
+    endIso: body.end,
+    repo: body.repo,
+    issueRef: body.issueRef,
+    branch: body.branch,
+    agent: body.agent,
+  });
   if (result === "not_found") {
     return c.json<ApiError>({ error: "work_log_not_found" }, 403);
   }
