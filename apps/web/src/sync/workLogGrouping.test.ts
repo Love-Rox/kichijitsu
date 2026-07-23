@@ -115,6 +115,43 @@ describe("groupWorkLogsByIssue", () => {
     expect(groups[0].sessionCount).toBe(3);
   });
 
+  it("issueRef が owner/repo#番号 の完全参照なら、作業 repo が違っても同じ issue にまとまる", () => {
+    // MCP(claude-code)は issueRef に別 repo の issue を完全参照で入れる。実装した repo が
+    // 違っても、同じ issue(scouty#33488)は1グループにまとめたい(今回のバグ修正)。
+    const logs: WorkLogDTO[] = [
+      log("a", "lapras-inc/lapras", 1_000, 2_000, { issueRef: "lapras-inc/scouty#33488" }),
+      log("b", "lapras-inc/scouty", 3_000, 4_000, { issueRef: "lapras-inc/scouty#33488" }),
+    ];
+    const groups = groupWorkLogsByIssue(logs);
+    expect(groups.length).toBe(1);
+    expect(groups[0].repo).toBe("lapras-inc/scouty"); // 所属 repo(issue 側)
+    expect(groups[0].issueRef).toBe("33488");
+    expect(groups[0].sessionCount).toBe(2);
+  });
+
+  it("完全参照(owner/repo#番号)と素の番号が同じ issue を指すなら同一グループに正規化", () => {
+    // UI タイマー/手動は作業 repo に対する素の番号、MCP は完全参照 — 同じ issue なら1つに。
+    const logs: WorkLogDTO[] = [
+      log("a", "lapras-inc/scouty", 1_000, 2_000, { issueRef: "33488" }),
+      log("b", "lapras-inc/lapras", 3_000, 4_000, { issueRef: "lapras-inc/scouty#33488" }),
+    ];
+    const groups = groupWorkLogsByIssue(logs);
+    expect(groups.length).toBe(1);
+    expect(groups[0].repo).toBe("lapras-inc/scouty");
+    expect(groups[0].issueRef).toBe("33488");
+  });
+
+  it("#番号(所属 repo なし)は作業 repo に対する番号として扱う", () => {
+    const logs: WorkLogDTO[] = [
+      log("a", "owner/repo", 1_000, 2_000, { issueRef: "#7" }),
+      log("b", "owner/repo", 3_000, 4_000, { issueRef: "7" }),
+    ];
+    const groups = groupWorkLogsByIssue(logs);
+    expect(groups.length).toBe(1);
+    expect(groups[0].repo).toBe("owner/repo");
+    expect(groups[0].issueRef).toBe("7");
+  });
+
   it("空配列は空配列を返す", () => {
     expect(groupWorkLogsByIssue([])).toEqual([]);
   });
