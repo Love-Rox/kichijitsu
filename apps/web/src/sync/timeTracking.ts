@@ -13,7 +13,11 @@ import type { PlannedBlock, TimeEntry } from "../model/types";
  * 組み立てる/確定するだけの単純な関数に留める。
  */
 
-/** ▶/⏹ ボタンが必要とする最小限のアイテムメタ。PlannedBlock はこれを構造的に満たす */
+/**
+ * ▶/⏹ ボタンが必要とする最小限のアイテムメタ。PlannedBlock / GitHubWorkItemDTO はこれを
+ * 構造的に満たす。実績 UX 刷新フェーズ5b(2026-07-23)以降、▶ 押下時に repo+number を
+ * サーバーの start/stop API へ渡すためのアダプタとして使う。
+ */
 export interface TimerLinkedItem {
   linkedItemId: string;
   itemType: "issue" | "pr";
@@ -21,39 +25,6 @@ export interface TimerLinkedItem {
   repo: string;
   number: number;
   url: string;
-}
-
-/** 最低計測時間(誤クリックで 0 分の記録ができてしまうのを防ぐガード) */
-const MIN_DURATION_MS = 60_000;
-
-/**
- * ▶ ボタン/ヘッダーから呼ばれる。endMs=null (走行中) の新規エントリを組み立てるだけで、
- * 「既に同じ item が走行中でないか」の判定は行わない(呼び出し側 = App.onStartTimer が
- * timeEntryStore.isRunning() で判定してから呼ぶ前提)。
- */
-export function startTimer(item: TimerLinkedItem, nowMs: number = Date.now()): TimeEntry {
-  return {
-    id: `te:${item.linkedItemId}:${nowMs}`,
-    linkedItemId: item.linkedItemId,
-    itemType: item.itemType,
-    title: item.title,
-    repo: item.repo,
-    number: item.number,
-    url: item.url,
-    startMs: nowMs,
-    endMs: null,
-  };
-}
-
-/**
- * ⏹ ボタンから呼ばれる。走行中(endMs===null)のエントリを確定する。
- * 既に確定済み(endMs!==null)のエントリを渡された場合は何もせずそのまま返す(冪等)。
- * endMs は `max(nowMs, startMs + MIN_DURATION_MS)` にクランプし、誤操作で
- * 0分/負の長さの記録が残らないようにする。
- */
-export function stopTimer(entry: TimeEntry, nowMs: number = Date.now()): TimeEntry {
-  if (entry.endMs !== null) return entry;
-  return { ...entry, endMs: Math.max(nowMs, entry.startMs + MIN_DURATION_MS) };
 }
 
 /** 走行中は nowMs までの経過、確定済みは endMs-startMs をそのまま返す */

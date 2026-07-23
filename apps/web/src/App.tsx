@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
 import type {
@@ -33,6 +33,11 @@ import type {
   TasksSyncRequest,
   TasksSyncResponse,
   WatchRequest,
+  OpenWorkIntervalDTO,
+  OpenWorkIntervalsResponse,
+  WorkIntervalStartRequest,
+  WorkIntervalStopRequest,
+  WorkIntervalStopResponse,
   WorkLogCreateRequest,
   WorkLogDTO,
   WorkLogsResponse,
@@ -70,8 +75,8 @@ import {
   fetchRepoIssues,
 } from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
-import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
-import { workLogRequestFromTimer } from "./sync/workLogEntry";
+import type { TimerLinkedItem } from "./sync/timeTracking";
+import { isIntervalRunning, openIntervalsToTimeEntries } from "./sync/openIntervals";
 import {
   buildVisibleCalendarsRequest,
   mergeServerVisibleCalendarsWithPending,
@@ -133,12 +138,10 @@ import {
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   deletePlannedBlock,
-  deleteTimeEntry,
   getAllAllDayOccurrences,
   getAllGitHubItems,
   getAllPlannedBlocks,
   getAllTasks,
-  getAllTimeEntries,
   getDeclinedVisibilitySettings,
   getExpansionState,
   getHiddenTaskLists,
@@ -156,7 +159,6 @@ import {
   putPlannedBlock,
   putSeries,
   putTask,
-  putTimeEntry,
   setDeclinedVisibilitySettings,
   setHiddenTaskLists,
   setSyncBackfillVersion,
@@ -730,10 +732,11 @@ function App() {
       // Google 同期とは無関係なので、以後この値がサーバーから再取得されることは無い
       // (ローカル操作のみで更新される)
       const allPlannedBlocks = await getAllPlannedBlocks(database);
-      // 手動タイマーの実績エントリ (docs/github-integration.md「時間計測」増分2): 同じく全件ロード
-      const allTimeEntries = await getAllTimeEntries(database);
+      // 手動タイマーの走行中状態は実績 UX 刷新フェーズ5b(2026-07-23)でサーバー開区間
+      // (GET /api/work-logs/open)を単一の真実にしたため、ここで IndexedDB から TimeEntry を
+      // 読み込むことはしない(timeEntryStore は開区間の射影キャッシュとして下の effect が満たす)。
 
-      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロック・実績エントリの
+      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロックの
       // 初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
       if (!cancelled) {
         await store.batch(async () => {
@@ -741,14 +744,11 @@ function App() {
             await taskStore.batch(async () => {
               await githubStore.batch(async () => {
                 await plannedStore.batch(async () => {
-                  await timeEntryStore.batch(async () => {
-                    if (all) store.load(all);
-                    allDayStore.load(allDays);
-                    taskStore.load(allTasks);
-                    githubStore.load(allGitHubItems);
-                    plannedStore.load(allPlannedBlocks);
-                    timeEntryStore.load(allTimeEntries);
-                  });
+                  if (all) store.load(all);
+                  allDayStore.load(allDays);
+                  taskStore.load(allTasks);
+                  githubStore.load(allGitHubItems);
+                  plannedStore.load(allPlannedBlocks);
                 });
               });
             });
@@ -2268,31 +2268,70 @@ function App() {
     [db, plannedStore],
   );
 
-  // ---- 手動タイマー・実績記録 (docs/github-integration.md「時間計測」増分2、2026-07-20) ----
-  // 走行中(endMs===null)のエントリは従来どおりローカル専用: timeEntryStore(メモリ)と
-  // IndexedDB の timeEntries ストアだけを更新する(走行表示 = RunningTimersIndicator 用)。
-  // **停止(⏹)時だけ**は実績 UX 刷新フェーズ4(2026-07-23)で work_logs へ統一した — 確定を
-  // ローカルの TimeEntry として残さず、POST /api/work-logs へ保存してからローカルを破棄する
-  // (onStopTimer は work-log ハンドラに依存するため下の handleCreateWorkLog 群の後で定義する)。
+  // ---- 手動タイマー・実績記録 (実績 UX 刷新フェーズ5b、2026-07-23) ----
+  // 走行中(実行中)状態は「サーバーの開区間(GET /api/work-logs/open)」を単一の真実とする。
+  // ▶/⏹ はローカルの TimeEntry を作らず、POST /api/work-logs/start・/stop を叩く。
+  // timeEntryStore は開区間を射影した「走行中キャッシュ」として残す — WeekGrid(触れない
+  // ファイル)と RunningTimersIndicator が既存の TimeEntry[] を消費するため、それらを
+  // 書き換えずに済むよう、開区間 → TimeEntry[] を openIntervalsToTimeEntries で作って
+  // timeEntryStore.replaceAll で流し込む(下の射影 effect)。これにより MCP など別経路で
+  // 開始された開区間もポーリングで反映される。
   //
-  // **単一走行の制約は無い**(2026-07-20 仕様変更、ユーザー要望): 別々の linkedItemId は
-  // 同時に何本でも走行できる。onStartTimer は既存の走行中エントリを自動 stop しない —
-  // 防ぐのは「同じ item の二重走行」だけ(isRunning() で判定して no-op にする)。
-  // onStopTimer も対象 item だけを止め、他 item の並走には触れない。
+  // **単一走行の制約は無い**: 別々の repo+issue は同時に何本でも走行できる。二重 start は
+  // サーバーが no-op(alreadyOpen)にするので UI 側は無条件に叩いてよい。stop も対象の
+  // repo+issue だけを止め、他の並走には触れない。
 
-  /** ▶ ボタン(PlannedBlockCard)/ヘッダーから呼ばれる */
+  // 実行中の開区間一覧(サーバー共有)。起動時・実績系 UI を開いたとき・start/stop 後・
+  // 45秒ポーリング(github 連携時のみ)で取得する。
+  const [openIntervals, setOpenIntervals] = useState<OpenWorkIntervalDTO[]>([]);
+
+  // GET /api/work-logs/open。401/ネットワークエラーは握って現状維持(他の実績経路と同じ
+  // 「取りこぼしより安全側」)。ユーザー操作起点でも定期ポーリングからも呼ぶ。
+  const refetchOpenIntervals = useCallback(async () => {
+    try {
+      const res = await checkedFetch("/api/work-logs/open");
+      if (!res.ok) return;
+      const data = (await res.json()) as OpenWorkIntervalsResponse;
+      setOpenIntervals(data.open);
+    } catch (err) {
+      console.warn("kichijitsu: GET /api/work-logs/open failed", err);
+    }
+  }, [checkedFetch]);
+
+  // 走行表示が有効な間(= github 連携済み。タイマーは github の issue/PR 前提)だけ 45秒
+  // ポーリングする。マウント時に即時1回取得し、以後 45秒間隔。github 未連携なら開区間は
+  // 常に空(ポーリングもしない)。MCP など別経路の start/stop もこのポーリングで反映される。
+  useEffect(() => {
+    if (!me.github) return;
+    void refetchOpenIntervals();
+    const id = window.setInterval(() => void refetchOpenIntervals(), 45_000);
+    return () => window.clearInterval(id);
+  }, [me.github, refetchOpenIntervals]);
+
+  /** ▶ ボタン(PlannedBlockCard / 作業キュー / ヘッダー)から呼ばれる。サーバーで開区間を開始する */
   const onStartTimer = useCallback(
     (item: TimerLinkedItem) => {
-      if (!db) return;
-      // 同一 item の二重走行だけを防ぐ(他 item が走行中でも無条件に新規 start してよい)
-      if (timeEntryStore.isRunning(item.linkedItemId)) return;
-      const entry = startTimer(item);
-      timeEntryStore.upsert(entry);
-      putTimeEntry(db, entry).catch((err) => {
-        console.error("kichijitsu: failed to persist time entry start", err);
-      });
+      // 二重 start はサーバーが no-op(alreadyOpen)にするので押しても害はないが、既に開区間が
+      // あると分かっているなら余計な往復を避けて即 return する(走行表示は既に出ている)。
+      if (isIntervalRunning(openIntervals, item.repo, item.number)) return;
+      checkedFetch("/api/work-logs/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: item.repo,
+          issueRef: String(item.number),
+          agent: "timer",
+        } satisfies WorkIntervalStartRequest),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`POST /api/work-logs/start failed: ${res.status}`);
+          return refetchOpenIntervals();
+        })
+        .catch((err) => {
+          console.warn("kichijitsu: failed to start work interval", err);
+        });
     },
-    [db, timeEntryStore],
+    [checkedFetch, openIntervals, refetchOpenIntervals],
   );
 
   // ヘッダーの走行中インジケーター(RunningTimersIndicator)と、レポートを開いたときの
@@ -2314,6 +2353,23 @@ function App() {
   // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
   const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
   const reportTimeEntries = useTimeEntries(timeEntryStore);
+
+  // 開区間 → 走行中 TimeEntry[] の射影(フェーズ5b)。開区間には title/url/type が無いので、
+  // 作業キュー(githubQueue)と予定タイムブロックから repo+number でメタを補完する。
+  // plannedStore.getAll() は毎回新配列を返すため、useMemo は version(安定した数値)で張って
+  // 無駄な再計算を避ける。射影を timeEntryStore.replaceAll へ流し込むと WeekGrid /
+  // RunningTimersIndicator / WorkLogModal / レポートが既存のまま走行表示を得る。
+  const plannedVersion = useSyncExternalStore(plannedStore.subscribe, plannedStore.getVersion);
+  const projectedRunning = useMemo(
+    () => openIntervalsToTimeEntries(openIntervals, plannedStore.getAll(), githubQueue),
+    // plannedVersion で plannedStore.getAll() の内容変化を検知する(getAll 自体は依存に入れない)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openIntervals, githubQueue, plannedVersion],
+  );
+  useEffect(() => {
+    // replaceAll は内容が完全一致なら通知しない(45秒ポーリングの空振りで再描画しない)
+    timeEntryStore.replaceAll(projectedRunning);
+  }, [projectedRunning, timeEntryStore]);
 
   // hook 実績・commit 推定の取得トリガー(docs/github-integration.md「時間計測」増分2 Part B、
   // GitHubPane 増分2で拡張)。当初は TimeReportOverlay を開いたとき(reportOpen)だけだったが、
@@ -2352,10 +2408,12 @@ function App() {
         console.warn("kichijitsu: GET /api/work-logs failed", err);
         if (!cancelled) setReportWorkLogs([]);
       });
+    // 実績系 UI を開いた瞬間に開区間も最新化する(45秒ポーリング待ちで最大45秒古いのを防ぐ)。
+    void refetchOpenIntervals();
     return () => {
       cancelled = true;
     };
-  }, [needsActualsData, fetchWorkLogs]);
+  }, [needsActualsData, fetchWorkLogs, refetchOpenIntervals]);
 
   // TimeReportOverlay の手動追加フォーム/削除ボタンから、書き込み成功後の再取得に使う
   // (キャンセルガードは持たない — ユーザー操作起点の一回限りの呼び出しで、上の effect と違って
@@ -2422,44 +2480,51 @@ function App() {
   );
 
   // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / WorkLogModal)から
-  // 呼ばれる。対象 linkedItemId の走行中エントリだけを止める。実績 UX 刷新フェーズ4(2026-07-23):
-  // 停止した実績はローカルの確定 TimeEntry として残さず work_logs へ統一する —
-  //   1. stopTimer() で endMs を確定(誤操作の 0分記録は MIN_DURATION_MS にクランプ)
-  //   2. handleCreateWorkLog(POST /api/work-logs)で work_logs へ保存(agent="timer")
-  //   3. 成功したらローカルの TimeEntry を store + IndexedDB から削除 → 確定済みエントリを
-  //      残さないことで work_logs との二重計上を避ける
-  // 失敗時は走行中エントリをそのまま残す(store を書き換えない)ので ▶/⏹ は「計測中」のまま —
-  // ユーザーはもう一度 ⏹ を押して再送できる(putTimeEntry 失敗ハンドリングと同じ「実害の少ない」
-  // 握り方で console.warn に留める)。他 item の並走には触れない。
-  // handleCreateWorkLog / deleteTimeEntry に依存するため、タイマー節ではなくここで定義する。
+  // 呼ばれる。対象 linkedItemId の開区間だけをサーバーで停止する(フェーズ5b、2026-07-23)。
+  //   1. 走行中キャッシュ(timeEntryStore=開区間の射影)から linkedItemId で該当エントリを引き、
+  //      その id で元の開区間を特定して repo+issueRef を得る(開区間側が単一の真実)。
+  //   2. POST /api/work-logs/stop で確定。サーバーが work_logs に end を書き、開区間から外れる。
+  //   3. 成功後に開区間を再取得(走行解除)し、確定分を反映するため work-logs も再取得する。
+  // 対応する開始が無い({closed:false, reason:"no_open_interval"})= 既に停止/孤立。警告のみ
+  // 出し、UI は開区間の再取得で整合させる(走行解除)。失敗時も console.warn に留める(次の
+  // ポーリングか再操作で回復できる、他の実績経路と同じ「実害の少ない」握り方)。他の並走には触れない。
   const onStopTimer = useCallback(
     (linkedItemId: string) => {
-      if (!db) return;
       const running = timeEntryStore
         .getRunningEntries()
         .find((e) => e.linkedItemId === linkedItemId);
       if (!running) return;
-      const stopped = stopTimer(running);
-      // 楽観的に store を書き換えず、work_logs への保存が成功してからローカルを消す。保存が失敗
-      // したら走行中のまま残し、ユーザーが再度 ⏹ で再試行できるようにする(二重計上も起きない)。
-      handleCreateWorkLog(workLogRequestFromTimer(stopped))
-        .then(() => {
-          timeEntryStore.remove([stopped.id]);
-          deleteTimeEntry(db, stopped.id).catch((err) => {
+      // 射影 TimeEntry.id は開区間の id なので、元の開区間から repo/issueRef を正確に取る。
+      // 万一開区間が見つからなくても、射影が持つ repo/number からフォールバックで組み立てる。
+      const interval = openIntervals.find((iv) => iv.id === running.id);
+      const repo = interval?.repo ?? running.repo;
+      const issueRef = interval ? interval.issueRef : running.number > 0 ? String(running.number) : undefined;
+      checkedFetch("/api/work-logs/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo,
+          ...(issueRef ? { issueRef } : {}),
+        } satisfies WorkIntervalStopRequest),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`POST /api/work-logs/stop failed: ${res.status}`);
+          const data = (await res.json()) as WorkIntervalStopResponse;
+          if (!data.closed) {
             console.warn(
-              "kichijitsu: work-log saved but failed to delete local time entry",
-              err,
+              "kichijitsu: stop had no open interval (already stopped/orphan)",
+              data.reason,
             );
-          });
+          }
+          // 走行解除(開区間再取得)+ 確定分を履歴/レポートへ反映(work-logs 再取得)。
+          await refetchOpenIntervals();
+          await refetchWorkLogs();
         })
         .catch((err) => {
-          console.warn(
-            "kichijitsu: failed to save work-log on timer stop; leaving timer running",
-            err,
-          );
+          console.warn("kichijitsu: failed to stop work interval", err);
         });
     },
-    [db, timeEntryStore, handleCreateWorkLog],
+    [checkedFetch, timeEntryStore, openIntervals, refetchOpenIntervals, refetchWorkLogs],
   );
 
   const reportHookActualByLinkedItem = useMemo(

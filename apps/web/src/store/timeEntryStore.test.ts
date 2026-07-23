@@ -103,6 +103,49 @@ describe("TimeEntryStore", () => {
     });
   });
 
+  describe("replaceAll(サーバー開区間の射影)", () => {
+    it("内容を丸ごと置き換え、削除された id は消える", () => {
+      const store = new TimeEntryStore();
+      store.load([entry("a", "item-a", 0, null), entry("b", "item-b", 0, null)]);
+      store.replaceAll([entry("b", "item-b", 0, null), entry("c", "item-c", 0, null)]);
+      expect(
+        store
+          .getRunningEntries()
+          .map((e) => e.id)
+          .sort(),
+      ).toEqual(["b", "c"]);
+      expect(store.get("a")).toBeUndefined();
+    });
+
+    it("内容が完全一致なら通知しない(ポーリング空振りで再描画しない)", () => {
+      const store = new TimeEntryStore();
+      const listener = vi.fn();
+      store.load([entry("a", "item-a", 0, null)]);
+      store.subscribe(listener);
+      store.replaceAll([entry("a", "item-a", 0, null)]);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("startMs など1フィールドでも変われば通知する", () => {
+      const store = new TimeEntryStore();
+      const listener = vi.fn();
+      store.load([entry("a", "item-a", 0, null)]);
+      store.subscribe(listener);
+      store.replaceAll([entry("a", "item-a", 500, null)]);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("件数が変われば通知する", () => {
+      const store = new TimeEntryStore();
+      const listener = vi.fn();
+      store.load([entry("a", "item-a", 0, null)]);
+      store.subscribe(listener);
+      store.replaceAll([]);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(store.getRunningEntries()).toHaveLength(0);
+    });
+  });
+
   it("batch 中の複数 upsert は1回の通知にまとまる", async () => {
     const store = new TimeEntryStore();
     const listener = vi.fn();
