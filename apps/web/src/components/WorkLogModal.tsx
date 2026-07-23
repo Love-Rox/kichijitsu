@@ -1,7 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import type { WorkLogCreateRequest, WorkLogDTO, WorkLogUpdateRequest } from "@kichijitsu/shared";
-import type { PlannedBlock } from "../model/types";
-import { formatDurationHm } from "../sync/timeTracking";
+import type {
+  GitHubWorkItemDTO,
+  WorkLogCreateRequest,
+  WorkLogDTO,
+  WorkLogUpdateRequest,
+} from "@kichijitsu/shared";
+import type { PlannedBlock, TimeEntry } from "../model/types";
+import { entryDurationMs, formatDurationHm, type TimerLinkedItem } from "../sync/timeTracking";
 import {
   buildWorkLogCreateRequest,
   buildWorkLogUpdateRequest,
@@ -20,6 +25,16 @@ import "./WorkLogModal.css";
 export interface WorkLogModalProps {
   workLogs: WorkLogDTO[];
   plannedBlocks: PlannedBlock[];
+  /** 未完了の作業キュー(issue/PR)。タイマー節で ▶/⏹ を出す元データ(GitHubPane と同じ一覧) */
+  githubQueue: GitHubWorkItemDTO[];
+  /** 走行中判定・経過表示用の全 TimeEntry(endMs===null が走行中)。GitHubPane 側の ▶/⏹ と共有 */
+  timeEntries: TimeEntry[];
+  /** 経過時間表示に使う現在時刻(App.tsx の timerNowMs、走行中があるとき1秒 tick で更新) */
+  nowMs: number;
+  /** ▶ から呼ばれる。走行中エントリ(ローカル)を作る(App.onStartTimer) */
+  onStartTimer: (item: TimerLinkedItem) => void;
+  /** ⏹ から呼ばれる。対象を停止して work_logs へ保存する(App.onStopTimer) */
+  onStopTimer: (linkedItemId: string) => void;
   /** datetime-local の入力/表示をアプリ設定のタイムゾーンのローカル壁時計として解釈するために使う */
   timeZone: string;
   /** 実績を手動で追加する。成功後は App.tsx が work-logs を再取得して反映する(非楽観更新) */
@@ -49,6 +64,11 @@ export interface WorkLogModalProps {
 export function WorkLogModal({
   workLogs,
   plannedBlocks,
+  githubQueue,
+  timeEntries,
+  nowMs,
+  onStartTimer,
+  onStopTimer,
   timeZone,
   onCreate,
   onUpdate,
@@ -70,6 +90,16 @@ export function WorkLogModal({
     () => [...workLogs].sort((a, b) => b.startMs - a.startMs),
     [workLogs],
   );
+  // linkedItemId(= GitHubWorkItemDTO.id)→ 走行中エントリ。作業キュー各行の ▶/⏹ 切り替えと
+  // 経過表示に使う。走行中(endMs===null)は同一 linkedItemId につき高々1件という不変条件
+  // (timeEntryStore 側が担保)なので Map で1件持てば足りる。
+  const runningByLinkedItem = useMemo(() => {
+    const map = new Map<string, TimeEntry>();
+    for (const e of timeEntries) {
+      if (e.endMs === null) map.set(e.linkedItemId, e);
+    }
+    return map;
+  }, [timeEntries]);
 
   return (
     <div className="work-log-modal-backdrop">
@@ -91,6 +121,30 @@ export function WorkLogModal({
             ×
           </button>
         </div>
+
+        <section className="work-log-modal-section">
+          <h3 className="work-log-modal-section-title">未完了の issue/PR(タイマー)</h3>
+          <p className="work-log-modal-section-desc">
+            作業キューの issue/PR です。▶ で計測を開始し、⏹ で停止すると実績(work_log)として
+            保存され、下の実績履歴に現れます(GitHubPane やヘッダーからも操作できます)。
+          </p>
+          {githubQueue.length === 0 ? (
+            <p className="work-log-modal-empty">未完了の issue/PR はありません</p>
+          ) : (
+            <ul className="work-log-modal-timer-list">
+              {githubQueue.map((item) => (
+                <TimerQueueRow
+                  key={item.id}
+                  item={item}
+                  running={runningByLinkedItem.get(item.id) ?? null}
+                  nowMs={nowMs}
+                  onStartTimer={onStartTimer}
+                  onStopTimer={onStopTimer}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="work-log-modal-section">
           <h3 className="work-log-modal-section-title">実績を手動で記録</h3>
@@ -126,6 +180,81 @@ export function WorkLogModal({
         </section>
       </div>
     </div>
+  );
+}
+
+interface TimerQueueRowProps {
+  item: GitHubWorkItemDTO;
+  /** 走行中エントリ(この item を計測中)。null なら停止中で ▶ を出す */
+  running: TimeEntry | null;
+  nowMs: number;
+  onStartTimer: (item: TimerLinkedItem) => void;
+  onStopTimer: (linkedItemId: string) => void;
+}
+
+/**
+ * 作業キュー1行のタイマー操作(実績 UX 刷新フェーズ4、2026-07-23)。GitHubPane / WeekGrid の
+ * ▶/⏹ と同じ App.onStartTimer/onStopTimer を叩くだけの薄い行 — 走行中判定・経過表示は
+ * RunningTimersIndicator と同じ entryDurationMs / formatDurationHm を再利用する。
+ * GitHubWorkItemDTO(shared)は TimerLinkedItem を構造的に満たす(id→linkedItemId、type→itemType)
+ * ので、▶ 押下時にその形へ詰め替えて渡す(planned.ts の buildPlannedBlock と同じ対応関係)。
+ */
+function TimerQueueRow({ item, running, nowMs, onStartTimer, onStopTimer }: TimerQueueRowProps) {
+  return (
+    <li className="work-log-modal-timer-item">
+      <a
+        className={`work-log-modal-timer-link work-log-modal-timer-link--${item.type}`}
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`${item.repo} #${item.number} ${item.title}`}
+      >
+        <span className="work-log-modal-timer-kind" aria-hidden="true">
+          {item.type === "pr" ? "PR" : "Iss"}
+        </span>
+        <span className="work-log-modal-timer-main">
+          <span className="work-log-modal-timer-title">{item.title}</span>
+          <span className="work-log-modal-timer-meta">
+            {item.repo} #{item.number}
+          </span>
+        </span>
+      </a>
+      {running ? (
+        <>
+          <span className="work-log-modal-timer-elapsed" aria-live="polite">
+            計測中 {formatDurationHm(entryDurationMs(running, nowMs))}
+          </span>
+          <button
+            type="button"
+            className="work-log-modal-timer-btn work-log-modal-timer-btn--stop"
+            onClick={() => onStopTimer(item.id)}
+            aria-label={`${item.repo} #${item.number} のタイマーを停止`}
+            title="停止して実績を保存"
+          >
+            ⏹
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="work-log-modal-timer-btn work-log-modal-timer-btn--start"
+          onClick={() =>
+            onStartTimer({
+              linkedItemId: item.id,
+              itemType: item.type,
+              title: item.title,
+              repo: item.repo,
+              number: item.number,
+              url: item.url,
+            })
+          }
+          aria-label={`${item.repo} #${item.number} のタイマーを開始`}
+          title="計測を開始"
+        >
+          ▶
+        </button>
+      )}
+    </li>
   );
 }
 

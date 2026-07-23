@@ -269,6 +269,118 @@
   color: #55504a;
 }
 
+/* 未完了 issue/PR タイマー一覧(実績 UX 刷新フェーズ4)。GitHubPane の作業キュー行と同じ
+   種別バッジ色(issue=紫 #6e5494 / PR=緑 #0b8043)を踏襲する。 */
+.work-log-modal-timer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-log-modal-timer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #24211e;
+}
+
+.work-log-modal-timer-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.work-log-modal-timer-link:hover .work-log-modal-timer-title {
+  text-decoration: underline;
+}
+
+.work-log-modal-timer-kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.4;
+}
+
+.work-log-modal-timer-link--issue .work-log-modal-timer-kind {
+  background: #6e5494;
+}
+
+.work-log-modal-timer-link--pr .work-log-modal-timer-kind {
+  background: #0b8043;
+}
+
+.work-log-modal-timer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.work-log-modal-timer-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.work-log-modal-timer-meta {
+  font-size: 11px;
+  color: #8a8478;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-log-modal-timer-elapsed {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0b8043;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-log-modal-timer-btn {
+  flex: none;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: #55504a;
+}
+
+.work-log-modal-timer-btn:hover {
+  background: #f0ece3;
+  color: #24211e;
+}
+
+.work-log-modal-timer-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.work-log-modal-timer-btn--stop {
+  color: var(--logo-aka, #d7402e);
+  border-color: #f0d3ce;
+}
+
 @media (max-width: 640px) {
   .work-log-modal-backdrop {
     padding: 16px;

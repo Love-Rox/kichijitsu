@@ -69,6 +69,7 @@ import {
 } from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import { startTimer, stopTimer, type TimerLinkedItem } from "./sync/timeTracking";
+import { workLogRequestFromTimer } from "./sync/workLogEntry";
 import {
   buildVisibleCalendarsRequest,
   mergeServerVisibleCalendarsWithPending,
@@ -130,6 +131,7 @@ import {
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   deletePlannedBlock,
+  deleteTimeEntry,
   getAllAllDayOccurrences,
   getAllGitHubItems,
   getAllPlannedBlocks,
@@ -2255,8 +2257,11 @@ function App() {
   );
 
   // ---- 手動タイマー・実績記録 (docs/github-integration.md「時間計測」増分2、2026-07-20) ----
-  // plannedBlock 系と同じくローカル専用: timeEntryStore(メモリ)と IndexedDB の timeEntries
-  // ストアだけを更新し、ネットワーク呼び出しは一切行わない。commit からの自動推定は増分3。
+  // 走行中(endMs===null)のエントリは従来どおりローカル専用: timeEntryStore(メモリ)と
+  // IndexedDB の timeEntries ストアだけを更新する(走行表示 = RunningTimersIndicator 用)。
+  // **停止(⏹)時だけ**は実績 UX 刷新フェーズ4(2026-07-23)で work_logs へ統一した — 確定を
+  // ローカルの TimeEntry として残さず、POST /api/work-logs へ保存してからローカルを破棄する
+  // (onStopTimer は work-log ハンドラに依存するため下の handleCreateWorkLog 群の後で定義する)。
   //
   // **単一走行の制約は無い**(2026-07-20 仕様変更、ユーザー要望): 別々の linkedItemId は
   // 同時に何本でも走行できる。onStartTimer は既存の走行中エントリを自動 stop しない —
@@ -2273,23 +2278,6 @@ function App() {
       timeEntryStore.upsert(entry);
       putTimeEntry(db, entry).catch((err) => {
         console.error("kichijitsu: failed to persist time entry start", err);
-      });
-    },
-    [db, timeEntryStore],
-  );
-
-  /** ⏹ ボタン(PlannedBlockCard)/ヘッダーから呼ばれる。対象 linkedItemId の走行中エントリだけを止める */
-  const onStopTimer = useCallback(
-    (linkedItemId: string) => {
-      if (!db) return;
-      const running = timeEntryStore
-        .getRunningEntries()
-        .find((e) => e.linkedItemId === linkedItemId);
-      if (!running) return;
-      const stopped = stopTimer(running);
-      timeEntryStore.upsert(stopped);
-      putTimeEntry(db, stopped).catch((err) => {
-        console.error("kichijitsu: failed to persist time entry stop", err);
       });
     },
     [db, timeEntryStore],
@@ -2419,6 +2407,47 @@ function App() {
       await refetchWorkLogs();
     },
     [checkedFetch, refetchWorkLogs],
+  );
+
+  // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / WorkLogModal)から
+  // 呼ばれる。対象 linkedItemId の走行中エントリだけを止める。実績 UX 刷新フェーズ4(2026-07-23):
+  // 停止した実績はローカルの確定 TimeEntry として残さず work_logs へ統一する —
+  //   1. stopTimer() で endMs を確定(誤操作の 0分記録は MIN_DURATION_MS にクランプ)
+  //   2. handleCreateWorkLog(POST /api/work-logs)で work_logs へ保存(agent="timer")
+  //   3. 成功したらローカルの TimeEntry を store + IndexedDB から削除 → 確定済みエントリを
+  //      残さないことで work_logs との二重計上を避ける
+  // 失敗時は走行中エントリをそのまま残す(store を書き換えない)ので ▶/⏹ は「計測中」のまま —
+  // ユーザーはもう一度 ⏹ を押して再送できる(putTimeEntry 失敗ハンドリングと同じ「実害の少ない」
+  // 握り方で console.warn に留める)。他 item の並走には触れない。
+  // handleCreateWorkLog / deleteTimeEntry に依存するため、タイマー節ではなくここで定義する。
+  const onStopTimer = useCallback(
+    (linkedItemId: string) => {
+      if (!db) return;
+      const running = timeEntryStore
+        .getRunningEntries()
+        .find((e) => e.linkedItemId === linkedItemId);
+      if (!running) return;
+      const stopped = stopTimer(running);
+      // 楽観的に store を書き換えず、work_logs への保存が成功してからローカルを消す。保存が失敗
+      // したら走行中のまま残し、ユーザーが再度 ⏹ で再試行できるようにする(二重計上も起きない)。
+      handleCreateWorkLog(workLogRequestFromTimer(stopped))
+        .then(() => {
+          timeEntryStore.remove([stopped.id]);
+          deleteTimeEntry(db, stopped.id).catch((err) => {
+            console.warn(
+              "kichijitsu: work-log saved but failed to delete local time entry",
+              err,
+            );
+          });
+        })
+        .catch((err) => {
+          console.warn(
+            "kichijitsu: failed to save work-log on timer stop; leaving timer running",
+            err,
+          );
+        });
+    },
+    [db, timeEntryStore, handleCreateWorkLog],
   );
 
   const reportHookActualByLinkedItem = useMemo(
@@ -3302,6 +3331,11 @@ function App() {
         <WorkLogModal
           workLogs={reportWorkLogs}
           plannedBlocks={reportPlannedBlocks}
+          githubQueue={githubQueue}
+          timeEntries={reportTimeEntries}
+          nowMs={timerNowMs}
+          onStartTimer={onStartTimer}
+          onStopTimer={onStopTimer}
           timeZone={timeZone}
           onCreate={handleCreateWorkLog}
           onUpdate={handleUpdateWorkLog}

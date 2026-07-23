@@ -1,4 +1,4 @@
-import type { PlannedBlock } from "../model/types";
+import type { PlannedBlock, TimeEntry } from "../model/types";
 import type { WorkLogCreateRequest, WorkLogDTO, WorkLogUpdateRequest } from "@kichijitsu/shared";
 import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 
@@ -90,6 +90,38 @@ export function buildWorkLogCreateRequest(
     repo: input.repo.trim(),
     ...(issueRef ? { issueRef } : {}),
     ...(agent ? { agent } : {}),
+  };
+}
+
+/**
+ * 純関数。停止済み(endMs !== null)の手動タイマー実績 (TimeEntry) を POST /api/work-logs の
+ * リクエストボディへ変換する(実績 UX 刷新フェーズ4、2026-07-23)。タイマー停止時に
+ * App.onStopTimer がこれを組み立てて work_logs へ保存し、成功したらローカルの TimeEntry を
+ * 破棄する — これにより実績は work_logs 一本に統一され、ローカルの確定済み TimeEntry と
+ * サーバー実績の二重計上を避ける。
+ *
+ * 変換規則:
+ *   - start/end: epoch ms を `new Date(ms).toISOString()` で UTC の ISO 文字列へ
+ *     (buildWorkLogCreateRequest と同じ、サーバーは ISO 文字列を期待する)。
+ *   - repo: entry.repo をそのまま("owner/repo" 形式で非正規化済み)。
+ *   - issueRef: entry.number を文字列化(サーバーの issueRef は string)。
+ *   - agent: "timer" 固定 — 手動フォーム由来 ("manual") や hook 由来 (具体名) と区別でき、
+ *     WorkLogModal/レポートでタイマー実績を見分けられる。
+ *
+ * endMs が null(走行中)のまま渡すのは呼び出し側のバグ。ISO 変換で NaN の文字列を送って
+ * サーバーを 400 にするより、ここで明示的に投げて呼び出し側で気付けるようにする
+ * (App.onStopTimer は必ず stopTimer() で確定してから呼ぶ)。
+ */
+export function workLogRequestFromTimer(entry: TimeEntry): WorkLogCreateRequest {
+  if (entry.endMs === null) {
+    throw new Error("workLogRequestFromTimer: entry must be stopped (endMs !== null)");
+  }
+  return {
+    start: new Date(entry.startMs).toISOString(),
+    end: new Date(entry.endMs).toISOString(),
+    repo: entry.repo,
+    issueRef: String(entry.number),
+    agent: "timer",
   };
 }
 
