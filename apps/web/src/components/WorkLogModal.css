@@ -335,6 +335,24 @@
   font-weight: 600;
 }
 
+/* `repo #番号` の参照部分(常に表示)。 */
+.work-log-modal-group-heading-ref {
+  font-weight: 600;
+}
+
+/* issue/PR タイトル(解決できたときだけ添える)。参照と区別できるよう控えめに、
+   前に区切りを挟む。長いタイトルは見出し全体の ellipsis に任せる。 */
+.work-log-modal-group-heading-title {
+  font-weight: 400;
+  color: #6b655c;
+}
+
+.work-log-modal-group-heading-title::before {
+  content: "—";
+  margin: 0 6px;
+  color: #b8b2a6;
+}
+
 .work-log-modal-group-meta {
   flex: none;
   display: flex;

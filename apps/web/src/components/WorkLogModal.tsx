@@ -21,7 +21,12 @@ import {
   WORK_LOG_ENTRY_ERROR_MESSAGES,
   type WorkLogEntryFormInput,
 } from "../sync/workLogEntry";
-import { groupWorkLogsByIssue, type WorkLogGroup } from "../sync/workLogGrouping";
+import {
+  distinctIssueRepos,
+  groupWorkLogsByIssue,
+  issueTitleKey,
+  type WorkLogGroup,
+} from "../sync/workLogGrouping";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./WorkLogModal.css";
 
@@ -115,6 +120,45 @@ export function WorkLogModal({
     [githubQueue, runningLinkedIds],
   );
 
+  // 実績履歴のグループ見出しに出す issue/PR タイトルのルックアップ(`repo#番号 → title`)。
+  // issue を持つグループの所属 repo を重複排除し、各 repo の open issue/PR 一覧を1回だけ取得して
+  // 埋める。取得済み repo は fetchedIssueReposRef で覚えて二重取得を避ける。fetchRepoIssues は
+  // open のみ返すため closed issue のタイトルは引けない — その場合は従来の `repo #番号` のまま。
+  // 取得失敗は握って warn のみ(タイトルが出ないだけで履歴表示は止めない)。
+  const [issueTitles, setIssueTitles] = useState<Record<string, string>>({});
+  const fetchedIssueReposRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const targets = distinctIssueRepos(historyGroups).filter(
+      (repo) => !fetchedIssueReposRef.current.has(repo),
+    );
+    if (targets.length === 0) return;
+    let cancelled = false;
+    for (const repo of targets) {
+      // 先にマークして(取得中・失敗も含め)同じ repo を二重に取りにいかないようにする。
+      fetchedIssueReposRef.current.add(repo);
+      fetchRepoIssues(repo)
+        .then((issues) => {
+          if (cancelled) return;
+          setIssueTitles((prev) => {
+            const next = { ...prev };
+            for (const issue of issues) {
+              next[issueTitleKey(repo, issue.number)] = issue.title;
+            }
+            return next;
+          });
+        })
+        .catch((err) => {
+          console.warn(
+            `kichijitsu: 実績履歴の issue タイトル取得に失敗 (${repo}、タイトルは省略)`,
+            err,
+          );
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [historyGroups, fetchRepoIssues]);
+
   return (
     <div className="work-log-modal-backdrop">
       <div
@@ -196,6 +240,11 @@ export function WorkLogModal({
                 <WorkLogGroupItem
                   key={group.key}
                   group={group}
+                  issueTitle={
+                    group.issueRef
+                      ? issueTitles[issueTitleKey(group.repo, group.issueRef)]
+                      : undefined
+                  }
                   // 最新グループ(先頭)だけ既定で開く。それ以外は折りたたみ。
                   defaultOpen={index === 0}
                   timeZone={timeZone}
@@ -693,6 +742,8 @@ function ManualWorkLogForm({
 
 interface WorkLogGroupItemProps {
   group: WorkLogGroup;
+  /** 解決できた issue/PR タイトル(open のみ引ける)。未解決・closed・issue 無しは undefined。 */
+  issueTitle?: string;
   /** 初期表示で展開しておくか(最新グループのみ true を渡す想定)。 */
   defaultOpen: boolean;
   timeZone: string;
@@ -709,13 +760,18 @@ interface WorkLogGroupItemProps {
  */
 function WorkLogGroupItem({
   group,
+  issueTitle,
   defaultOpen,
   timeZone,
   onUpdate,
   onDelete,
 }: WorkLogGroupItemProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const heading = group.issueRef ? `${group.repo} #${group.issueRef}` : group.repo;
+  // `repo #番号`(issue 無しは repo のみ)。issue タイトルが解決できていれば見出しに添える。
+  const ref = group.issueRef ? `${group.repo} #${group.issueRef}` : group.repo;
+  const title = group.issueRef ? issueTitle : undefined;
+  // title 属性(ホバー)にはタイトル込みのフル見出しを入れる。
+  const fullHeading = title ? `${ref} — ${title}` : ref;
   return (
     <li className="work-log-modal-group">
       <button
@@ -727,8 +783,9 @@ function WorkLogGroupItem({
         <span className="work-log-modal-group-caret" aria-hidden="true">
           {open ? "▾" : "▸"}
         </span>
-        <span className="work-log-modal-group-heading" title={heading}>
-          {heading}
+        <span className="work-log-modal-group-heading" title={fullHeading}>
+          <span className="work-log-modal-group-heading-ref">{ref}</span>
+          {title && <span className="work-log-modal-group-heading-title">{title}</span>}
         </span>
         <span className="work-log-modal-group-meta">
           <span className="work-log-modal-group-total">{formatDurationHm(group.totalMs)}</span>

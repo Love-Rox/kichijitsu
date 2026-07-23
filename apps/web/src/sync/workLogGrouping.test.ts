@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { groupWorkLogsByIssue } from "./workLogGrouping";
+import { distinctIssueRepos, groupWorkLogsByIssue, issueTitleKey } from "./workLogGrouping";
 import type { WorkLogDTO } from "@kichijitsu/shared";
 
 function log(
@@ -154,5 +154,48 @@ describe("groupWorkLogsByIssue", () => {
 
   it("空配列は空配列を返す", () => {
     expect(groupWorkLogsByIssue([])).toEqual([]);
+  });
+});
+
+describe("issueTitleKey", () => {
+  it("`${repo}#${number}` を組み立てる(number は数値でも文字列でも同じキー)", () => {
+    expect(issueTitleKey("owner/repo", 42)).toBe("owner/repo#42");
+    expect(issueTitleKey("owner/repo", "42")).toBe("owner/repo#42");
+  });
+
+  it("fetch 側(数値)とグループ側(文字列)で同じキーになる", () => {
+    expect(issueTitleKey("lapras-inc/scouty", 33488)).toBe(
+      issueTitleKey("lapras-inc/scouty", "33488"),
+    );
+  });
+});
+
+describe("distinctIssueRepos", () => {
+  it("issue 付きグループの所属 repo を出現順で重複排除して返す", () => {
+    const groups = groupWorkLogsByIssue([
+      log("a", "owner/repo-a", 9_000, 9_500, { issueRef: "1" }),
+      log("b", "owner/repo-a", 8_000, 8_500, { issueRef: "2" }),
+      log("c", "owner/repo-b", 7_000, 7_500, { issueRef: "3" }),
+    ]);
+    expect(distinctIssueRepos(groups)).toEqual(["owner/repo-a", "owner/repo-b"]);
+  });
+
+  it("issue 無しグループ(issueRef undefined)は対象外", () => {
+    const groups = groupWorkLogsByIssue([
+      log("a", "owner/repo-a", 9_000, 9_500), // issue 無し
+      log("b", "owner/repo-b", 8_000, 8_500, { issueRef: "5" }),
+    ]);
+    expect(distinctIssueRepos(groups)).toEqual(["owner/repo-b"]);
+  });
+
+  it("完全参照で正規化された所属 repo(作業 repo ではなく)を返す", () => {
+    const groups = groupWorkLogsByIssue([
+      log("a", "lapras-inc/lapras", 1_000, 2_000, { issueRef: "lapras-inc/scouty#33488" }),
+    ]);
+    expect(distinctIssueRepos(groups)).toEqual(["lapras-inc/scouty"]);
+  });
+
+  it("空配列は空配列を返す", () => {
+    expect(distinctIssueRepos([])).toEqual([]);
   });
 });
