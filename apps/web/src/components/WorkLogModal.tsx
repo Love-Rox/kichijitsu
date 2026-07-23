@@ -21,6 +21,7 @@ import {
   WORK_LOG_ENTRY_ERROR_MESSAGES,
   type WorkLogEntryFormInput,
 } from "../sync/workLogEntry";
+import { groupWorkLogsByIssue, type WorkLogGroup } from "../sync/workLogGrouping";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./WorkLogModal.css";
 
@@ -94,10 +95,9 @@ export function WorkLogModal({
     () => collectWorkLogOrgCandidates(workLogs, plannedBlocks),
     [workLogs, plannedBlocks],
   );
-  const history = useMemo(
-    () => [...workLogs].sort((a, b) => b.startMs - a.startMs),
-    [workLogs],
-  );
+  // 実績履歴を同じ repo+issue の記録でまとめたグループ(グループ並びは最新記録の startMs 降順、
+  // グループ内 logs は startMs 降順)。フラットな全件表示から、issue/PR 単位のまとめ表示へ。
+  const historyGroups = useMemo(() => groupWorkLogsByIssue(workLogs), [workLogs]);
   // 実行中の開区間(= timeEntries のうち endMs===null)。フェーズ5b(2026-07-23)で走行状態は
   // サーバー開区間の射影になり、これには MCP など別経路で開始され作業キューに無いものも含む。
   const runningEntries = useMemo(
@@ -183,17 +183,21 @@ export function WorkLogModal({
         <section className="work-log-modal-section">
           <h3 className="work-log-modal-section-title">実績履歴</h3>
           <p className="work-log-modal-section-desc">
-            手動で記録した実績と、hook(Claude Code 等)が自動記録した実績の全件です(新しい順)。
-            どちらも編集・削除できます — agent 欄で手動(manual)/hook の記録を見分けられます。
+            手動で記録した実績と、hook(Claude Code 等)が自動記録した実績を、同じ issue/PR の記録
+            ごとにまとめています(最新の記録が新しいグループから順)。見出しをクリックすると個別の
+            記録が開き、それぞれ編集・削除できます — agent 欄で手動(manual)/hook の記録を
+            見分けられます。
           </p>
-          {history.length === 0 ? (
+          {historyGroups.length === 0 ? (
             <p className="work-log-modal-empty">まだ実績がありません</p>
           ) : (
-            <ul className="work-log-modal-history-list">
-              {history.map((log) => (
-                <WorkLogHistoryRow
-                  key={log.id}
-                  log={log}
+            <ul className="work-log-modal-group-list">
+              {historyGroups.map((group, index) => (
+                <WorkLogGroupItem
+                  key={group.key}
+                  group={group}
+                  // 最新グループ(先頭)だけ既定で開く。それ以外は折りたたみ。
+                  defaultOpen={index === 0}
                   timeZone={timeZone}
                   onUpdate={onUpdate}
                   onDelete={onDelete}
@@ -687,6 +691,68 @@ function ManualWorkLogForm({
   );
 }
 
+interface WorkLogGroupItemProps {
+  group: WorkLogGroup;
+  /** 初期表示で展開しておくか(最新グループのみ true を渡す想定)。 */
+  defaultOpen: boolean;
+  timeZone: string;
+  onUpdate: (id: string, req: WorkLogUpdateRequest) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
+
+/**
+ * 実績履歴のグループ1つ(同じ repo+issue の記録のまとまり、2026-07-23)。見出し行に repo・
+ * #issue番号(issue 無しは repo のみ)・合計時間・件数・最新日時を出し、クリックで展開/折りたたみ。
+ * 開閉はローカル state(既定は折りたたみ、呼び出し側が defaultOpen=true を渡した最新グループのみ開く)。
+ * 展開時は既存の WorkLogHistoryRow(編集/削除)をグループ内 logs で描画する — 個別の編集・削除
+ * 挙動は従来のまま。手動/hook の混在は各行の agent バッジで区別できるので、見出しには出さない。
+ */
+function WorkLogGroupItem({
+  group,
+  defaultOpen,
+  timeZone,
+  onUpdate,
+  onDelete,
+}: WorkLogGroupItemProps) {
+  const [open, setOpen] = useState(defaultOpen);
+  const heading = group.issueRef ? `${group.repo} #${group.issueRef}` : group.repo;
+  return (
+    <li className="work-log-modal-group">
+      <button
+        type="button"
+        className="work-log-modal-group-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="work-log-modal-group-caret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="work-log-modal-group-heading" title={heading}>
+          {heading}
+        </span>
+        <span className="work-log-modal-group-meta">
+          <span className="work-log-modal-group-total">{formatDurationHm(group.totalMs)}</span>
+          <span className="work-log-modal-group-count">{group.sessionCount}件</span>
+          <span className="work-log-modal-group-latest">{formatWorkLogDate(group.latestStartMs)}</span>
+        </span>
+      </button>
+      {open && (
+        <ul className="work-log-modal-history-list work-log-modal-group-logs">
+          {group.logs.map((log) => (
+            <WorkLogHistoryRow
+              key={log.id}
+              log={log}
+              timeZone={timeZone}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 interface WorkLogHistoryRowProps {
   log: WorkLogDTO;
   timeZone: string;
@@ -930,4 +996,12 @@ function formatWorkLogRange(startMs: number, endMs: number): string {
   const startTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
   const endTime = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
   return `${datePart} ${startTime}–${endTime}`;
+}
+
+/** グループ見出しの「最新日時」表示。epoch ms を "M/D H:mm" 形式に整形する
+ * (formatWorkLogRange と同じロケール非依存の簡易フォーマット)。 */
+function formatWorkLogDate(startMs: number): string {
+  const d = new Date(startMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
