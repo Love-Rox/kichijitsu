@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 import type { GitHubWorkItemDTO, WorkLogCreateRequest, WorkLogDTO } from "@kichijitsu/shared";
 import type { PlannedBlock, TimeEntry } from "../model/types";
@@ -508,13 +508,25 @@ function ManualWorkLogSection({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const repoCandidates = collectWorkLogRepoCandidates(workLogs, plannedBlocks);
-  const orgCandidates = collectWorkLogOrgCandidates(workLogs, plannedBlocks);
+  // フォームの1キーストロークごとに再レンダーされるが、これらの候補・直近リストは
+  // workLogs/plannedBlocks にしか依存しないため useMemo で入力中の再計算を間引く。
+  const repoCandidates = useMemo(
+    () => collectWorkLogRepoCandidates(workLogs, plannedBlocks),
+    [workLogs, plannedBlocks],
+  );
+  const orgCandidates = useMemo(
+    () => collectWorkLogOrgCandidates(workLogs, plannedBlocks),
+    [workLogs, plannedBlocks],
+  );
 
-  const recentManual = [...workLogs]
-    .filter(isManualWorkLog)
-    .sort((a, b) => b.startMs - a.startMs)
-    .slice(0, RECENT_MANUAL_LIMIT);
+  const recentManual = useMemo(
+    () =>
+      [...workLogs]
+        .filter(isManualWorkLog)
+        .sort((a, b) => b.startMs - a.startMs)
+        .slice(0, RECENT_MANUAL_LIMIT),
+    [workLogs],
+  );
 
   function resetForm() {
     setOrg("");

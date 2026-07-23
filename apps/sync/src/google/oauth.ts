@@ -69,7 +69,11 @@ export interface GoogleOAuthConfig {
   redirectUri: string;
 }
 
-export function buildAuthorizationUrl(config: GoogleOAuthConfig, state: string): string {
+export function buildAuthorizationUrl(
+  config: GoogleOAuthConfig,
+  state: string,
+  loginHint?: string,
+): string {
   const url = new URL(AUTH_ENDPOINT);
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", config.redirectUri);
@@ -78,6 +82,11 @@ export function buildAuthorizationUrl(config: GoogleOAuthConfig, state: string):
   // refresh_token を確実に受け取るための組み合わせ (offline + 毎回同意を強制)
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
+  // login_hint を渡すと Google 側で対象アカウントが事前選択される (再連携の導線用)。
+  // メールアドレスであり秘密情報ではない。空文字は「指定なし」として扱う。
+  if (loginHint) {
+    url.searchParams.set("login_hint", loginHint);
+  }
   url.searchParams.set("state", state);
   return url.toString();
 }

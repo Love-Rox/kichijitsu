@@ -298,8 +298,11 @@ export function WeekGrid({
   // スライド中の「先へ進んだ日数」。0=idle(中央パネル表示)。スワイプは ±1、←/→ ボタンは
   // ±dayCount。baseStripPercent(slideDays, dayCount) が strip の基準%に変換する。
   const [slideDays, setSlideDays] = useState(0);
-  // true の間は transform の transition を切る(スワップ直後の瞬間ジャンプを無アニメで行うため)
-  const [instant, setInstant] = useState(true);
+  // true の間は transform の transition を切る(スワップ直後の瞬間ジャンプを無アニメで行うため)。
+  // 初期値は false ―― マウント直後は center===weekStart で何もアニメーションしない(遷移元が無い)ため
+  // true にする必要が無く、むしろ true だと「初回ナビ前の最初のスワイプ(stay)」のスナップが
+  // transition:none で瞬間移動してしまう(初回ナビが instant を false にするまで直らない)。
+  const [instant, setInstant] = useState(false);
   const slideTimeoutRef = useRef<number | undefined>(undefined);
   // .week-grid ルート。スワイプ指追従は React state ではなくここへ CSS 変数(--swipe-dx)を
   // 命令的にセットして行う(pointermove ごとに WeekGrid 全体を再レンダーするとカクつくため)。
