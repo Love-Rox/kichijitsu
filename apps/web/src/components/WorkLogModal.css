@@ -276,6 +276,106 @@
   color: #55504a;
 }
 
+/* 実績履歴グループ(同じ repo+issue の記録のまとまり、2026-07-23)。見出し行(summary)+
+   折りたたみ可能な個別記録リスト。トークンは既存の履歴/フォームと共通(生成り #faf7f2・
+   墨 #24211e・薄墨 #8a8478・杢 #55504a・罫線 #e5e7eb / #f0ece3・朱 #d7402e)。 */
+.work-log-modal-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.work-log-modal-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.work-log-modal-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: #24211e;
+}
+
+.work-log-modal-group-summary:hover {
+  background: #fbfaf7;
+}
+
+.work-log-modal-group-summary:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+.work-log-modal-group-caret {
+  flex: none;
+  font-size: 10px;
+  color: #8a8478;
+  width: 12px;
+}
+
+.work-log-modal-group-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.work-log-modal-group-meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-log-modal-group-total {
+  font-weight: 600;
+  color: #55504a;
+}
+
+.work-log-modal-group-count {
+  color: #8a8478;
+}
+
+.work-log-modal-group-latest {
+  color: #8a8478;
+}
+
+/* 展開時の個別記録リスト(既存 .work-log-modal-history-list を継承しつつ、グループ枠内の
+   余白と上罫線を足す)。 */
+.work-log-modal-group-logs {
+  padding: 8px 10px 10px;
+  border-top: 1px solid #f0ece3;
+  background: #fbfaf7;
+}
+
+@media (max-width: 640px) {
+  .work-log-modal-group-meta {
+    gap: 6px;
+  }
+
+  .work-log-modal-group-latest {
+    display: none;
+  }
+}
+
 /* 未完了 issue/PR タイマー一覧(実績 UX 刷新フェーズ4)。GitHubPane の作業キュー行と同じ
    種別バッジ色(issue=紫 #6e5494 / PR=緑 #0b8043)を踏襲する。 */
 .work-log-modal-timer-list {
