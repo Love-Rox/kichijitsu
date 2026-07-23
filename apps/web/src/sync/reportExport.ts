@@ -10,10 +10,11 @@ import { aggregatePlannedVsActual, type ReportRow as PlannedVsActualRow } from "
  *
  * TimeReportOverlay.tsx は表示のたびに aggregatePlannedVsActual/hookActualByLinkedItem/
  * estimateByItemKey の3つを個別に呼んで行内で突き合わせている(表示ロジックと突合ロジックが
- * 密結合)。ここではその3経路を1つの `ReportRow[]` にマージする層を切り出し、
- * GitHubPane.tsx の実績セクションと CSV/コピー出力の両方から同じ行データを再利用できるようにする
- * (TimeReportOverlay 自身はこのマージ関数を使わず既存のまま — 表側の重複は許容し、
- * 突合ロジックの重複だけを避ける、という設計判断は上位ドキュメント参照)。
+ * 密結合)。ここではその3経路を1つの `ReportRow[]` にマージする層を切り出し、CSV/コピー
+ * 出力から同じ行データを再利用できるようにする。実績 UX 刷新(2026-07-23)で CSV エクスポートは
+ * 旧 GitHubPane 実績セクションから TimeReportOverlay へ移設したため、現在の利用側は
+ * TimeReportOverlay の CSV 出力(表側の予定/実績表示は従来どおり aggregatePlannedVsActual を
+ * 直接使い、突合ロジックの重複だけを避ける設計は据え置き)。
  */
 
 /** buildReportRows が返す1行。予定/実績(手動)は既存 ReportRow、hook 実績・推定を追加で持つ */

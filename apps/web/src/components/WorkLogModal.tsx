@@ -56,6 +56,12 @@ export interface WorkLogModalProps {
   fetchRepos: () => Promise<GitHubRepoRef[]>;
   /** repo 選択時にその repo の open issue/PR を取得する(issue/PR プルダウン用)。 */
   fetchRepoIssues: (repo: string) => Promise<GitHubRepoIssue[]>;
+  /**
+   * 詳細レポート(予定 vs 実績、TimeReportOverlay)を開く導線。実績 UX 刷新(2026-07-23)で
+   * 旧 GitHubPane 実績セクションの「詳細」ボタンをここへ移した。呼び出し側(App.tsx)は
+   * このモーダルを閉じてからレポートを開く(閉じないと二重モーダルになるため)。省略時はボタン非表示。
+   */
+  onOpenReport?: () => void;
   onClose: () => void;
 }
 
@@ -88,6 +94,7 @@ export function WorkLogModal({
   onDelete,
   fetchRepos,
   fetchRepoIssues,
+  onOpenReport,
   onClose,
 }: WorkLogModalProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -172,14 +179,26 @@ export function WorkLogModal({
       >
         <div className="work-log-modal-header">
           <span className="work-log-modal-title">実績の記録・編集</span>
-          <button
-            type="button"
-            className="work-log-modal-close"
-            onClick={onClose}
-            aria-label="閉じる"
-          >
-            ×
-          </button>
+          <div className="work-log-modal-header-actions">
+            {onOpenReport && (
+              <button
+                type="button"
+                className="work-log-modal-report-btn"
+                onClick={onOpenReport}
+                title="issue / PR ごとの予定と実績を突き合わせたレポートを開きます"
+              >
+                詳細レポート(予定 vs 実績)
+              </button>
+            )}
+            <button
+              type="button"
+              className="work-log-modal-close"
+              onClick={onClose}
+              aria-label="閉じる"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <section className="work-log-modal-section">

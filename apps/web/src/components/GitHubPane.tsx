@@ -1,11 +1,8 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
-import type { GitHubWorkItemDTO, WorkLogDTO } from "@kichijitsu/shared";
-import type { PlannedBlock, TimeEntry } from "../model/types";
+import type { GitHubWorkItemDTO } from "@kichijitsu/shared";
 import { groupWorkItemsByKind } from "../sync/workQueue";
 import { WORKITEM_DND_MIME } from "../sync/planned";
-import { buildReportRows, reportRowsToCsv, type ActualsReportRow } from "../sync/reportExport";
-import { formatDurationHm } from "../sync/timeTracking";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import type { PaneMode } from "../layout/paneMode";
 import { PanelIcon, PinIcon } from "./icons";
@@ -33,25 +30,6 @@ export interface GitHubPaneProps {
    * コンポーネントがアンマウントされてもドラッグ操作自体はブラウザ側で継続する。
    */
   onDragStart: () => void;
-  // 実績セクション(docs/github-integration.md「時間計測」増分2、GitHubPane 増分2)。
-  // buildReportRows (sync/reportExport.ts) に必要な4入力をそのまま渡す — App.tsx 側で
-  // ペインが開いていて GitHub 連携済みのときに取得したデータ(TimeReportOverlay と同じ
-  // reportWorkLogs/prCommitEstimates を再利用、二重取得はしない)。
-  reportPlannedBlocks: PlannedBlock[];
-  reportTimeEntries: TimeEntry[];
-  reportWorkLogs: WorkLogDTO[];
-  prCommitEstimatesByKey: Record<string, number>;
-  /** レポート集計の「現在時刻」(走行中タイマーの経過を含めるため)。App.tsx の timerNowMs をそのまま渡す */
-  nowMs: number;
-  /** 詳細レポート(TimeReportOverlay)を開くボタンから呼ばれる */
-  onOpenDetailReport: () => void;
-  /**
-   * 実績(work-log)専用モーダル(WorkLogModal、実績 UX 刷新フェーズ2、2026-07-23)を開く。
-   * 従来ここ(右ペイン)にあった手動追加フォーム+直近一覧(ManualWorkLogSection)は、過去記録の
-   * 編集/削除もまとめて WorkLogModal へ集約した。ペイン側は「実績を記録・編集」ボタンでモーダルを
-   * 開く導線だけを持つ(書き込み/削除ハンドラの配線はモーダル側=App.tsx が受け持つ)。
-   */
-  onOpenWorkLogModal: () => void;
 }
 
 /**
@@ -86,13 +64,6 @@ export function GitHubPane({
   onRefresh,
   onReconnect,
   onDragStart,
-  reportPlannedBlocks,
-  reportTimeEntries,
-  reportWorkLogs,
-  prCommitEstimatesByKey,
-  nowMs,
-  onOpenDetailReport,
-  onOpenWorkLogModal,
 }: GitHubPaneProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const isOverlay = mode === "overlay";
@@ -140,22 +111,11 @@ export function GitHubPane({
           onReconnect={onReconnect}
           onDragStart={onDragStart}
         />
-        <ActualsSection
-          plannedBlocks={reportPlannedBlocks}
-          timeEntries={reportTimeEntries}
-          workLogs={reportWorkLogs}
-          estimatesByKey={prCommitEstimatesByKey}
-          nowMs={nowMs}
-          onOpenDetailReport={onOpenDetailReport}
-          onOpenWorkLogModal={onOpenWorkLogModal}
-        />
         {/*
-         * 将来拡張の布石(今回は実装しない、docs/github-integration.md 参照):
-         *   - MCP 取得セクション(D1 の work-log 側 MCP ツール経由での実績取得。ここでは
-         *     App.tsx が GET /api/work-logs で取得したものをそのまま使っているのみ)
-         *   - GitHub レーン項目集約セクション
-         * 追加時は WorkQueueSection/ActualsSection と同じ形("github-pane-section" を返す
-         * コンポーネント)でここに並べて足すか、sections を配列化して map する形に発展させる。
+         * 実績(記録/タイマー/履歴/詳細レポート導線)は WorkLogModal(ヘッダーの「実績」ボタンや
+         * ドラッグ予定化からの導線)へ集約したため、右ペインは「作業キュー」専用に絞った
+         * (実績 UX 刷新、2026-07-23)。将来セクションを足すなら WorkQueueSection と同じ形
+         * ("github-pane-section" を返すコンポーネント)でここに並べる。
          */}
       </div>
     </div>
@@ -314,151 +274,5 @@ function WorkQueueSkeleton() {
       <div className="github-pane-skeleton-line" />
       <div className="github-pane-skeleton-line github-pane-skeleton-line--short" />
     </div>
-  );
-}
-
-interface ActualsSectionProps {
-  plannedBlocks: PlannedBlock[];
-  timeEntries: TimeEntry[];
-  workLogs: WorkLogDTO[];
-  estimatesByKey: Record<string, number>;
-  nowMs: number;
-  onOpenDetailReport: () => void;
-  onOpenWorkLogModal: () => void;
-}
-
-const REPORT_CSV_FILENAME = "kichijitsu-report.csv";
-
-/**
- * 実績セクション(docs/github-integration.md「時間計測」増分2 Part B、GitHubPane 増分2)。
- * sync/reportExport.ts の buildReportRows で「予定/実績(手動)/実績(hook)/推定」を1行に
- * マージし、ペインの幅に収まるコンパクトな表で見渡せるようにする。詳細な内訳(比率バー等)は
- * 従来通り TimeReportOverlay(「詳細を開く」ボタン)に譲る — このセクションはサマリ+出力の役割。
- *
- * workLogs/estimatesByKey は App.tsx がペイン可視時に取得する(TimeReportOverlay と同じ
- * state を再利用、専用の取得は行わない)。取得前・取得失敗時は空のまま渡ってくる想定で、
- * その場合は該当行の hookActualMs/estimateMs が undefined になり「—」表示になるだけで
- * 予定/実績(手動)自体の表示は成立する(呼び出し側の App.tsx コメント参照)。
- */
-function ActualsSection({
-  plannedBlocks,
-  timeEntries,
-  workLogs,
-  estimatesByKey,
-  nowMs,
-  onOpenDetailReport,
-  onOpenWorkLogModal,
-}: ActualsSectionProps) {
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const rows = buildReportRows({ plannedBlocks, timeEntries, workLogs, estimatesByKey }, nowMs);
-
-  function handleDownloadCsv() {
-    const csv = reportRowsToCsv(rows);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = REPORT_CSV_FILENAME;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function handleCopyCsv() {
-    const csv = reportRowsToCsv(rows);
-    try {
-      await navigator.clipboard.writeText(csv);
-      setCopyState("copied");
-    } catch (err) {
-      console.warn("kichijitsu: clipboard.writeText failed", err);
-      setCopyState("failed");
-    }
-    window.setTimeout(() => setCopyState("idle"), 2000);
-  }
-
-  return (
-    <section className="github-pane-section">
-      <div className="github-pane-section-header">
-        <h3 className="github-pane-section-title">実績</h3>
-        <div className="github-pane-actuals-actions">
-          <button
-            type="button"
-            className="github-pane-actuals-btn"
-            onClick={handleDownloadCsv}
-            disabled={rows.length === 0}
-          >
-            CSV
-          </button>
-          <button
-            type="button"
-            className="github-pane-actuals-btn"
-            onClick={handleCopyCsv}
-            disabled={rows.length === 0}
-          >
-            {copyState === "copied" ? "コピー済み" : copyState === "failed" ? "失敗" : "コピー"}
-          </button>
-          <button type="button" className="github-pane-actuals-btn" onClick={onOpenDetailReport}>
-            詳細
-          </button>
-          <button
-            type="button"
-            className="github-pane-actuals-btn"
-            onClick={onOpenWorkLogModal}
-            title="実績を手動で記録したり、過去の実績を編集・削除します"
-          >
-            記録・編集
-          </button>
-        </div>
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="github-pane-empty-all">まだ予定・実績がありません</p>
-      ) : (
-        <div className="github-pane-actuals-table-wrap">
-          <table className="github-pane-actuals-table">
-            <thead>
-              <tr>
-                <th>アイテム</th>
-                <th>予定</th>
-                <th title="▶/⏹ で現在計測中のタイマーの経過。停止すると実績へ保存されます">計測中</th>
-                <th title="work_logs に保存された作業時間(タイマーの停止・手動記録・hook をまとめた値)">
-                  実績
-                </th>
-                <th>推定</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <ActualsRow key={row.linkedItemId} row={row} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ActualsRow({ row }: { row: ActualsReportRow }) {
-  return (
-    <tr>
-      <td className="github-pane-actuals-item">
-        <a
-          href={row.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={`${row.repo} #${row.number} ${row.title}`}
-        >
-          #{row.number} {row.title}
-        </a>
-      </td>
-      <td className="github-pane-actuals-num">{formatDurationHm(row.plannedMs)}</td>
-      <td className="github-pane-actuals-num">{formatDurationHm(row.actualMs)}</td>
-      <td className="github-pane-actuals-num">
-        {row.hookActualMs === undefined ? "—" : formatDurationHm(row.hookActualMs)}
-      </td>
-      <td className="github-pane-actuals-num">
-        {row.estimateMs === undefined ? "—" : `≈${formatDurationHm(row.estimateMs)}`}
-      </td>
-    </tr>
   );
 }

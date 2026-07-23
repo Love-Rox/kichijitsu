@@ -1,13 +1,24 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import type { WorkLogDTO } from "@kichijitsu/shared";
 import type { PlannedBlock, TimeEntry } from "../model/types";
 import { reportItemKey } from "../sync/estimateActual";
+import { buildReportRows, reportRowsToCsv } from "../sync/reportExport";
 import { aggregatePlannedVsActual, formatDurationHm } from "../sync/timeTracking";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./TimeReportOverlay.css";
 
+const REPORT_CSV_FILENAME = "kichijitsu-report.csv";
+
 export interface TimeReportOverlayProps {
   plannedBlocks: PlannedBlock[];
   timeEntries: TimeEntry[];
+  /**
+   * work_logs 実績(CSV 出力用)。実績 UX 刷新(2026-07-23)で旧 GitHubPane 実績セクションの
+   * CSV エクスポートをこのレポートへ移した。buildReportRows で予定/実績(手動)/hook 実績/推定を
+   * 1行にマージして CSV 化する — 画面の hookActualByLinkedItem は集計済みの値でキー突合前の
+   * 生ログではないため、CSV は生の workLogs から buildReportRows で組み直す。
+   */
+  workLogs: WorkLogDTO[];
   /** 走行中エントリの経過を含めて集計するための現在時刻 */
   nowMs: number;
   /**
@@ -46,6 +57,7 @@ export interface TimeReportOverlayProps {
 export function TimeReportOverlay({
   plannedBlocks,
   timeEntries,
+  workLogs,
   nowMs,
   estimatedByKey,
   estimatesLoading,
@@ -54,8 +66,38 @@ export function TimeReportOverlay({
 }: TimeReportOverlayProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   useCloseOnOutsideOrEscape(true, cardRef, onClose);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   const rows = aggregatePlannedVsActual(plannedBlocks, timeEntries, nowMs);
+
+  // CSV は画面表示(aggregatePlannedVsActual + 別々の hook/推定)とは別に、生の workLogs から
+  // buildReportRows で予定/実績(手動)/hook 実績/推定を1行へマージし直して組む(reportExport.ts の純関数)。
+  function csvRows() {
+    return buildReportRows({ plannedBlocks, timeEntries, workLogs, estimatesByKey: estimatedByKey }, nowMs);
+  }
+
+  function handleDownloadCsv() {
+    const csv = reportRowsToCsv(csvRows());
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = REPORT_CSV_FILENAME;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleCopyCsv() {
+    const csv = reportRowsToCsv(csvRows());
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopyState("copied");
+    } catch (err) {
+      console.warn("kichijitsu: clipboard.writeText failed", err);
+      setCopyState("failed");
+    }
+    window.setTimeout(() => setCopyState("idle"), 2000);
+  }
 
   return (
     <div className="time-report-backdrop">
@@ -67,9 +109,29 @@ export function TimeReportOverlay({
       >
         <div className="time-report-header">
           <span className="time-report-title">予定 vs 実績</span>
-          <button type="button" className="time-report-close" onClick={onClose} aria-label="閉じる">
-            ×
-          </button>
+          <div className="time-report-header-actions">
+            <button
+              type="button"
+              className="time-report-csv-btn"
+              onClick={handleDownloadCsv}
+              disabled={rows.length === 0}
+              title="予定・実績・推定を CSV(分単位)でダウンロードします"
+            >
+              CSV
+            </button>
+            <button
+              type="button"
+              className="time-report-csv-btn"
+              onClick={handleCopyCsv}
+              disabled={rows.length === 0}
+              title="CSV をクリップボードにコピーします"
+            >
+              {copyState === "copied" ? "コピー済み" : copyState === "failed" ? "失敗" : "コピー"}
+            </button>
+            <button type="button" className="time-report-close" onClick={onClose} aria-label="閉じる">
+              ×
+            </button>
+          </div>
         </div>
         <p className="time-report-description">
           issue / PR
