@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { WorkLogDTO } from "@kichijitsu/shared";
-import type { PlannedBlock, TimeEntry } from "../model/types";
+import type { PlannedBlock } from "../model/types";
 import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 import {
   buildWorkLogCreateRequest,
@@ -10,7 +10,6 @@ import {
   combineOrgRepo,
   isManualWorkLog,
   validateWorkLogEntryForm,
-  workLogRequestFromTimer,
   workLogToFormInput,
   type WorkLogEntryFormInput,
 } from "./workLogEntry";
@@ -269,39 +268,5 @@ describe("combineOrgRepo", () => {
 
   it("ignores org when repo already contains a slash (avoids double-join)", () => {
     expect(combineOrgRepo("acme", "beta/web")).toBe("beta/web");
-  });
-});
-
-describe("workLogRequestFromTimer", () => {
-  const STOPPED: TimeEntry = {
-    id: "te:ghq:owner/repo:issue:42:1000",
-    linkedItemId: "ghq:owner/repo:issue:42",
-    itemType: "issue",
-    title: "バグを直す",
-    repo: "owner/repo",
-    number: 42,
-    url: "https://github.com/owner/repo/issues/42",
-    startMs: Date.UTC(2026, 6, 23, 1, 0, 0),
-    endMs: Date.UTC(2026, 6, 23, 2, 30, 0),
-  };
-
-  it("converts start/end epoch ms to UTC ISO strings", () => {
-    const req = workLogRequestFromTimer(STOPPED);
-    expect(req.start).toBe("2026-07-23T01:00:00.000Z");
-    expect(req.end).toBe("2026-07-23T02:30:00.000Z");
-  });
-
-  it("carries repo through and stringifies number into issueRef", () => {
-    const req = workLogRequestFromTimer(STOPPED);
-    expect(req.repo).toBe("owner/repo");
-    expect(req.issueRef).toBe("42");
-  });
-
-  it('tags the request with agent "timer"', () => {
-    expect(workLogRequestFromTimer(STOPPED).agent).toBe("timer");
-  });
-
-  it("throws when the entry is still running (endMs === null)", () => {
-    expect(() => workLogRequestFromTimer({ ...STOPPED, endMs: null })).toThrow();
   });
 });

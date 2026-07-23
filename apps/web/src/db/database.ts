@@ -413,27 +413,10 @@ export async function deletePlannedBlock(
   await db.delete("plannedBlocks", id);
 }
 
-/**
- * 手動タイマーの実績エントリ (docs/github-integration.md「時間計測」増分2)。plannedBlocks 系と
- * 同様、展開ウィンドウの概念が無いため全件取得で読み込む(起動時に丸ごと TimeEntryStore へ
- * ロードする用途)。
- */
-export async function getAllTimeEntries(db: IDBPDatabase<KichijitsuDB>): Promise<TimeEntry[]> {
-  return db.getAll("timeEntries");
-}
-
-/** 1件の作成・更新(▶ での開始・⏹ での確定、いずれもローカルのみ) */
-export async function putTimeEntry(
-  db: IDBPDatabase<KichijitsuDB>,
-  entry: TimeEntry,
-): Promise<void> {
-  await db.put("timeEntries", entry);
-}
-
-/** 現状 UI からは呼ばれないが、plannedBlocks の delete と対にして用意しておく */
-export async function deleteTimeEntry(db: IDBPDatabase<KichijitsuDB>, id: string): Promise<void> {
-  await db.delete("timeEntries", id);
-}
+// 手動タイマーの実績エントリ (timeEntries ストア) の読み書きヘルパは、実績 UX 刷新フェーズ5b
+// (2026-07-23)で走行中状態をサーバー開区間 (GET /api/work-logs/open) に一本化した際に不要に
+// なったため削除した。timeEntries オブジェクトストア自体はスキーマ互換性のため残す(既存
+// ユーザーの IndexedDB に既に存在するが、以後は読み書きしない)。
 
 /**
  * [fromMs, toMs) に重なる occurrence を返す。

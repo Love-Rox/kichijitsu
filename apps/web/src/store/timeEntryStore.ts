@@ -17,6 +17,21 @@ import type { TimeEntry } from "../model/types";
  * 一切触られない。▶/⏹ は全てローカルのみ (App.tsx の onStartTimer/onStopTimer がこのストアと
  * IndexedDB の timeEntries ストアだけを更新する。ネットワーク呼び出しは一切無い)。
  */
+/** replaceAll の空振り判定用。表示に影響する全フィールドを比較する。 */
+function timeEntriesEqual(a: TimeEntry, b: TimeEntry): boolean {
+  return (
+    a.id === b.id &&
+    a.linkedItemId === b.linkedItemId &&
+    a.itemType === b.itemType &&
+    a.title === b.title &&
+    a.repo === b.repo &&
+    a.number === b.number &&
+    a.url === b.url &&
+    a.startMs === b.startMs &&
+    a.endMs === b.endMs
+  );
+}
+
 export class TimeEntryStore {
   private byId = new Map<string, TimeEntry>();
   private listeners = new Set<() => void>();
@@ -49,6 +64,30 @@ export class TimeEntryStore {
   /** 開始(新規作成)・停止(endMs 確定)いずれも同じ経路(id が既存なら上書き) */
   upsert(entry: TimeEntry): void {
     this.byId.set(entry.id, entry);
+    this.bump();
+  }
+
+  /**
+   * サーバー開区間の射影(実績 UX 刷新フェーズ5b、2026-07-23)で走行中キャッシュを丸ごと
+   * 置き換える。GET /api/work-logs/open のポーリングごとに呼ばれるため、内容が現状と完全に
+   * 一致するときは通知しない(45秒ポーリングの空振りで WeekGrid/ヘッダーを再描画しない)。
+   * これにより「開区間 → 射影 → replaceAll → 通知 → 再描画 → 射影…」の無駄なループも防ぐ。
+   */
+  replaceAll(entries: Iterable<TimeEntry>): void {
+    const next = new Map<string, TimeEntry>();
+    for (const e of entries) next.set(e.id, e);
+    if (next.size === this.byId.size) {
+      let identical = true;
+      for (const [id, e] of next) {
+        const prev = this.byId.get(id);
+        if (!prev || !timeEntriesEqual(prev, e)) {
+          identical = false;
+          break;
+        }
+      }
+      if (identical) return;
+    }
+    this.byId = next;
     this.bump();
   }
 

@@ -243,6 +243,10 @@ export interface TimeEntry {
   /** html_url。クリックで新規タブに開く */
   url: string;
   startMs: number;
-  /** null = 走行中。stopTimer() で確定値が入る */
+  /**
+   * null = 走行中。実績 UX 刷新フェーズ5b(2026-07-23)以降、走行中状態はサーバー開区間
+   * (GET /api/work-logs/open)を射影した TimeEntry として表す(endMs は常に null)。
+   * 確定済み(endMs 非 null)の実績は work_logs 側で扱い、このモデルには入らない。
+   */
   endMs: number | null;
 }

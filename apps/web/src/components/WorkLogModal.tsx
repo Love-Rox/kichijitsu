@@ -98,16 +98,22 @@ export function WorkLogModal({
     () => [...workLogs].sort((a, b) => b.startMs - a.startMs),
     [workLogs],
   );
-  // linkedItemId(= GitHubWorkItemDTO.id)→ 走行中エントリ。作業キュー各行の ▶/⏹ 切り替えと
-  // 経過表示に使う。走行中(endMs===null)は同一 linkedItemId につき高々1件という不変条件
-  // (timeEntryStore 側が担保)なので Map で1件持てば足りる。
-  const runningByLinkedItem = useMemo(() => {
-    const map = new Map<string, TimeEntry>();
-    for (const e of timeEntries) {
-      if (e.endMs === null) map.set(e.linkedItemId, e);
-    }
-    return map;
-  }, [timeEntries]);
+  // 実行中の開区間(= timeEntries のうち endMs===null)。フェーズ5b(2026-07-23)で走行状態は
+  // サーバー開区間の射影になり、これには MCP など別経路で開始され作業キューに無いものも含む。
+  const runningEntries = useMemo(
+    () => timeEntries.filter((e) => e.endMs === null),
+    [timeEntries],
+  );
+  // 実行中の linkedItemId 集合。作業キューのうち未走行のものだけ ▶ を出すために使う
+  // (走行中の作業キュー item は上の「実行中」リストに開区間として現れる)。
+  const runningLinkedIds = useMemo(
+    () => new Set(runningEntries.map((e) => e.linkedItemId)),
+    [runningEntries],
+  );
+  const idleQueue = useMemo(
+    () => githubQueue.filter((item) => !runningLinkedIds.has(item.id)),
+    [githubQueue, runningLinkedIds],
+  );
 
   return (
     <div className="work-log-modal-backdrop">
@@ -131,26 +137,34 @@ export function WorkLogModal({
         </div>
 
         <section className="work-log-modal-section">
-          <h3 className="work-log-modal-section-title">未完了の issue/PR(タイマー)</h3>
+          <h3 className="work-log-modal-section-title">タイマー(実行中・作業キュー)</h3>
           <p className="work-log-modal-section-desc">
-            作業キューの issue/PR です。▶ で計測を開始し、⏹ で停止すると実績(work_log)として
-            保存され、下の実績履歴に現れます(GitHubPane やヘッダーからも操作できます)。
+            実行中のタイマー(サーバー共有の開区間)を上に、未計測の作業キュー issue/PR を下に
+            表示します。▶ で計測を開始、⏹ で停止すると実績(work_log)として保存され、下の実績
+            履歴に現れます(GitHubPane やヘッダーからも操作できます)。MCP など別経路で開始された
+            計測(作業キューに無いもの)も実行中として表示します。
           </p>
-          {githubQueue.length === 0 ? (
-            <p className="work-log-modal-empty">未完了の issue/PR はありません</p>
-          ) : (
+          {runningEntries.length > 0 && (
             <ul className="work-log-modal-timer-list">
-              {githubQueue.map((item) => (
-                <TimerQueueRow
-                  key={item.id}
-                  item={item}
-                  running={runningByLinkedItem.get(item.id) ?? null}
+              {runningEntries.map((entry) => (
+                <RunningEntryRow
+                  key={entry.id}
+                  entry={entry}
                   nowMs={nowMs}
-                  onStartTimer={onStartTimer}
                   onStopTimer={onStopTimer}
                 />
               ))}
             </ul>
+          )}
+          {idleQueue.length > 0 && (
+            <ul className="work-log-modal-timer-list">
+              {idleQueue.map((item) => (
+                <TimerQueueRow key={item.id} item={item} onStartTimer={onStartTimer} />
+              ))}
+            </ul>
+          )}
+          {runningEntries.length === 0 && idleQueue.length === 0 && (
+            <p className="work-log-modal-empty">実行中の計測も未完了の issue/PR もありません</p>
           )}
         </section>
 
@@ -193,23 +207,69 @@ export function WorkLogModal({
   );
 }
 
-interface TimerQueueRowProps {
-  item: GitHubWorkItemDTO;
-  /** 走行中エントリ(この item を計測中)。null なら停止中で ▶ を出す */
-  running: TimeEntry | null;
+interface RunningEntryRowProps {
+  /** 実行中の開区間の射影(endMs===null)。作業キューに無い MCP 由来のものも来る */
+  entry: TimeEntry;
   nowMs: number;
-  onStartTimer: (item: TimerLinkedItem) => void;
   onStopTimer: (linkedItemId: string) => void;
 }
 
 /**
- * 作業キュー1行のタイマー操作(実績 UX 刷新フェーズ4、2026-07-23)。GitHubPane / WeekGrid の
- * ▶/⏹ と同じ App.onStartTimer/onStopTimer を叩くだけの薄い行 — 走行中判定・経過表示は
- * RunningTimersIndicator と同じ entryDurationMs / formatDurationHm を再利用する。
- * GitHubWorkItemDTO(shared)は TimerLinkedItem を構造的に満たす(id→linkedItemId、type→itemType)
- * ので、▶ 押下時にその形へ詰め替えて渡す(planned.ts の buildPlannedBlock と同じ対応関係)。
+ * 実行中の1行(フェーズ5b、2026-07-23)。サーバー開区間の射影 TimeEntry を「実行中(経過)+ ⏹」で
+ * 出す。タイトルは補完できていればそれを、無ければ `repo #number` を見出しにする(MCP 由来など
+ * 作業キューにも予定にも無い開区間はメタが引けず title が空文字になる)。⏹ は開区間の
+ * linkedItemId で App.onStopTimer を呼ぶ(RunningTimersIndicator と同じ経路)。
  */
-function TimerQueueRow({ item, running, nowMs, onStartTimer, onStopTimer }: TimerQueueRowProps) {
+function RunningEntryRow({ entry, nowMs, onStopTimer }: RunningEntryRowProps) {
+  const heading = entry.title.trim() ? entry.title : `${entry.repo} #${entry.number}`;
+  return (
+    <li className="work-log-modal-timer-item">
+      <a
+        className={`work-log-modal-timer-link work-log-modal-timer-link--${entry.itemType}`}
+        href={entry.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`${entry.repo} #${entry.number} ${entry.title}`.trim()}
+      >
+        <span className="work-log-modal-timer-kind" aria-hidden="true">
+          {entry.itemType === "pr" ? "PR" : "Iss"}
+        </span>
+        <span className="work-log-modal-timer-main">
+          <span className="work-log-modal-timer-title">{heading}</span>
+          <span className="work-log-modal-timer-meta">
+            {entry.repo}
+            {entry.number > 0 ? ` #${entry.number}` : ""}
+          </span>
+        </span>
+      </a>
+      <span className="work-log-modal-timer-elapsed" aria-live="polite">
+        実行中 {formatDurationHm(entryDurationMs(entry, nowMs))}
+      </span>
+      <button
+        type="button"
+        className="work-log-modal-timer-btn work-log-modal-timer-btn--stop"
+        onClick={() => onStopTimer(entry.linkedItemId)}
+        aria-label={`${entry.repo} #${entry.number} のタイマーを停止`}
+        title="停止して実績を保存"
+      >
+        ⏹
+      </button>
+    </li>
+  );
+}
+
+interface TimerQueueRowProps {
+  item: GitHubWorkItemDTO;
+  onStartTimer: (item: TimerLinkedItem) => void;
+}
+
+/**
+ * 未計測の作業キュー1行(フェーズ5b、2026-07-23)。走行中の item は上の「実行中」リストに
+ * 開区間として出るため、この行は常に ▶(未走行)だけを出す。GitHubWorkItemDTO(shared)は
+ * TimerLinkedItem を構造的に満たす(id→linkedItemId、type→itemType)ので、▶ 押下時にその形へ
+ * 詰め替えて App.onStartTimer に渡す(サーバーに開区間を開始させる)。
+ */
+function TimerQueueRow({ item, onStartTimer }: TimerQueueRowProps) {
   return (
     <li className="work-log-modal-timer-item">
       <a
@@ -229,41 +289,24 @@ function TimerQueueRow({ item, running, nowMs, onStartTimer, onStopTimer }: Time
           </span>
         </span>
       </a>
-      {running ? (
-        <>
-          <span className="work-log-modal-timer-elapsed" aria-live="polite">
-            計測中 {formatDurationHm(entryDurationMs(running, nowMs))}
-          </span>
-          <button
-            type="button"
-            className="work-log-modal-timer-btn work-log-modal-timer-btn--stop"
-            onClick={() => onStopTimer(item.id)}
-            aria-label={`${item.repo} #${item.number} のタイマーを停止`}
-            title="停止して実績を保存"
-          >
-            ⏹
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className="work-log-modal-timer-btn work-log-modal-timer-btn--start"
-          onClick={() =>
-            onStartTimer({
-              linkedItemId: item.id,
-              itemType: item.type,
-              title: item.title,
-              repo: item.repo,
-              number: item.number,
-              url: item.url,
-            })
-          }
-          aria-label={`${item.repo} #${item.number} のタイマーを開始`}
-          title="計測を開始"
-        >
-          ▶
-        </button>
-      )}
+      <button
+        type="button"
+        className="work-log-modal-timer-btn work-log-modal-timer-btn--start"
+        onClick={() =>
+          onStartTimer({
+            linkedItemId: item.id,
+            itemType: item.type,
+            title: item.title,
+            repo: item.repo,
+            number: item.number,
+            url: item.url,
+          })
+        }
+        aria-label={`${item.repo} #${item.number} のタイマーを開始`}
+        title="計測を開始"
+      >
+        ▶
+      </button>
     </li>
   );
 }

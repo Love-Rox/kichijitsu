@@ -3,20 +3,8 @@ import {
   aggregatePlannedVsActual,
   entryDurationMs,
   formatDurationHm,
-  startTimer,
-  stopTimer,
-  type TimerLinkedItem,
 } from "./timeTracking";
 import type { PlannedBlock, TimeEntry } from "../model/types";
-
-const ITEM: TimerLinkedItem = {
-  linkedItemId: "ghq:owner/repo:issue:42",
-  itemType: "issue",
-  title: "バグを直す",
-  repo: "owner/repo",
-  number: 42,
-  url: "https://github.com/owner/repo/issues/42",
-};
 
 function planned(linkedItemId: string, startMs: number, endMs: number): PlannedBlock {
   return {
@@ -51,49 +39,6 @@ function entry(
     ...overrides,
   };
 }
-
-describe("startTimer", () => {
-  it("endMs=null の走行中エントリを組み立てる", () => {
-    const e = startTimer(ITEM, 1_000);
-    expect(e).toEqual({
-      id: "te:ghq:owner/repo:issue:42:1000",
-      linkedItemId: "ghq:owner/repo:issue:42",
-      itemType: "issue",
-      title: "バグを直す",
-      repo: "owner/repo",
-      number: 42,
-      url: "https://github.com/owner/repo/issues/42",
-      startMs: 1_000,
-      endMs: null,
-    });
-  });
-
-  it("nowMs を省略しても Date.now() 由来で一意になる", () => {
-    const a = startTimer(ITEM);
-    const b = startTimer(ITEM, Date.now() + 1);
-    expect(a.id).not.toBe(b.id);
-  });
-});
-
-describe("stopTimer", () => {
-  it("走行中エントリの endMs を nowMs で埋める", () => {
-    const e = entry("x", 0, null);
-    const stopped = stopTimer(e, 5 * 60_000);
-    expect(stopped.endMs).toBe(5 * 60_000);
-  });
-
-  it("最低1分(MIN_DURATION_MS)を下回らない", () => {
-    const e = entry("x", 0, null);
-    const stopped = stopTimer(e, 10_000); // 10秒後に止めても1分に切り上げ
-    expect(stopped.endMs).toBe(60_000);
-  });
-
-  it("既に確定済み(endMs!==null)のエントリはそのまま返す(冪等)", () => {
-    const e = entry("x", 0, 10_000);
-    const stopped = stopTimer(e, 999_999);
-    expect(stopped).toEqual(e);
-  });
-});
 
 describe("entryDurationMs", () => {
   it("走行中は nowMs までの経過を返す", () => {
