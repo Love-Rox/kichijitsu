@@ -10,7 +10,7 @@ import type { GitHubWorkItemDTO, GitHubWorkKind } from "@kichijitsu/shared";
 export const WORK_QUEUE_SECTION_LABELS: Record<GitHubWorkKind, string> = {
   review_requested: "レビュー依頼",
   assigned: "自分の担当",
-  authored: "自分の PR",
+  authored: "自分の issue/PR",
 };
 
 /** セクション表示順(review_requested → assigned → authored 固定) */
