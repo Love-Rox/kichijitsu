@@ -21,7 +21,7 @@ export interface GitHubQueueDeps {
 const QUERIES: { kind: GitHubWorkKind; query: string }[] = [
   { kind: "review_requested", query: "is:open is:pr review-requested:@me" },
   { kind: "assigned", query: "is:open is:issue assignee:@me" },
-  { kind: "authored", query: "is:open is:pr author:@me" },
+  { kind: "authored", query: "is:open author:@me" },
 ];
 
 /**

@@ -20,7 +20,7 @@ describe("groupWorkItemsByKind", () => {
   it("3セクション(review_requested / assigned / authored)を固定順で返す", () => {
     const sections = groupWorkItemsByKind([]);
     expect(sections.map((s) => s.kind)).toEqual(["review_requested", "assigned", "authored"]);
-    expect(sections.map((s) => s.label)).toEqual(["レビュー依頼", "自分の担当", "自分の PR"]);
+    expect(sections.map((s) => s.label)).toEqual(["レビュー依頼", "自分の担当", "自分の issue/PR"]);
   });
 
   it("kind ごとに該当する item だけをセクションへ振り分ける", () => {

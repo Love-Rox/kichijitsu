@@ -109,7 +109,7 @@ const WORK_QUEUE_ENDPOINTS: { kind: GitHubWorkKind; endpoint: string }[] = [
     endpoint: "search/issues?q=is:open is:pr review-requested:@me&per_page=50",
   },
   { kind: "assigned", endpoint: "search/issues?q=is:open is:issue assignee:@me&per_page=50" },
-  { kind: "authored", endpoint: "search/issues?q=is:open is:pr author:@me&per_page=50" },
+  { kind: "authored", endpoint: "search/issues?q=is:open author:@me&per_page=50" },
 ];
 
 /** `/search/issues` レスポンス item (必要フィールドのみ、sync 側 GitHubSearchItem と同形)。 */
