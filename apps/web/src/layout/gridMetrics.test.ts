@@ -7,6 +7,8 @@ import {
   dayColumnLeftInsetPx,
   dayHeightPx,
   DEFAULT_HOUR_HEIGHT,
+  formatWorkLogDateTime,
+  formatWorkLogRange,
   HOUR_HEIGHT_PRESETS,
   HOUR_HEIGHT_STEP,
   locationLineClamp,
@@ -337,5 +339,28 @@ describe("locationLineClamp", () => {
       expect(lines).toBeGreaterThanOrEqual(prev);
       prev = lines;
     }
+  });
+});
+
+describe("formatWorkLogDateTime / formatWorkLogRange", () => {
+  // 2026-07-25 09:05 JST = 2026-07-25T00:05:00Z
+  const startMs = Date.UTC(2026, 6, 25, 0, 5);
+  const endMs = Date.UTC(2026, 6, 25, 1, 30);
+
+  it("timeZone の壁時計として整形する(時刻はゼロ詰め)", () => {
+    expect(formatWorkLogDateTime(startMs, "Asia/Tokyo")).toBe("7/25 09:05");
+    expect(formatWorkLogRange(startMs, endMs, "Asia/Tokyo")).toBe("7/25 09:05–10:30");
+  });
+
+  it("ブラウザではなく渡された timeZone を使う(実バグ修正の要点)", () => {
+    // 同じ epoch ms でも timeZone が違えば日付・時刻が変わる(UTC では前日 0:05)
+    expect(formatWorkLogDateTime(startMs, "UTC")).toBe("7/25 00:05");
+    expect(formatWorkLogDateTime(startMs, "America/Los_Angeles")).toBe("7/24 17:05");
+    expect(formatWorkLogRange(startMs, endMs, "UTC")).toBe("7/25 00:05–01:30");
+  });
+
+  it("期間は終了側の日付を省略する(日をまたいでも開始日のみ)", () => {
+    const overnightEnd = Date.UTC(2026, 6, 25, 16, 0); // 翌 7/26 01:00 JST
+    expect(formatWorkLogRange(startMs, overnightEnd, "Asia/Tokyo")).toBe("7/25 09:05–01:00");
   });
 });

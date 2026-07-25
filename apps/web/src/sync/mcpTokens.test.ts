@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { mcpTokenLabel, mcpTokenLastUsedLabel } from "./mcpTokens";
+import { mcpTokenCreatedLabel, mcpTokenLabel, mcpTokenLastUsedLabel } from "./mcpTokens";
 
 describe("mcpTokenLabel", () => {
   it("label があればそのまま返す", () => {
@@ -23,5 +23,12 @@ describe("mcpTokenLastUsedLabel", () => {
   it("lastUsedAt があれば toLocaleString された文字列を返す", () => {
     const ms = Date.UTC(2026, 6, 20, 12, 0, 0);
     expect(mcpTokenLastUsedLabel({ lastUsedAt: ms })).toBe(new Date(ms).toLocaleString());
+  });
+});
+
+describe("mcpTokenCreatedLabel", () => {
+  it("createdAt を toLocaleString で整形する(lastUsed 側と同じ形)", () => {
+    const ms = Date.UTC(2026, 6, 20, 12, 0, 0);
+    expect(mcpTokenCreatedLabel({ createdAt: ms })).toBe(new Date(ms).toLocaleString());
   });
 });

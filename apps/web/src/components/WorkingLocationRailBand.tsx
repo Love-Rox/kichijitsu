@@ -1,14 +1,13 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { useHoverTooltip } from "../hooks/useHoverTooltip";
 import { formatDetailDateTime, formatRange } from "../layout/gridMetrics";
 import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
-import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { PlaceIcon } from "./icons";
 
-const HOVER_DELAY_MS = 400;
 const PLACE_ICON_SIZE_PX = 12;
 
 interface WorkingLocationRailBandProps {
@@ -74,62 +73,26 @@ export function WorkingLocationRailBand({
   timeZone,
   calendarLookup,
 }: WorkingLocationRailBandProps) {
-  const hoverTimeoutRef = useRef<number | undefined>(undefined);
-  const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
   const { subject, groupMembers } = item;
 
-  function hideTooltip() {
-    if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = undefined;
-    }
-    if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = "none";
-      tooltipShownRef.current = false;
-    }
-  }
-
-  function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl();
-    // 勤務場所の「場所」は title 自体が表す(例: 自宅/オフィス、要件どおり)。location
-    // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない
-    // (旧点ピン版からの決定を維持)。
-    const rangeLabel = formatRange(subject.startMs, subject.endMs, timeZone);
-    fillTooltipContent(el, subject.title, rangeLabel);
-    el.style.display = "block";
-    positionTooltip(el, clientX, clientY);
-    tooltipShownRef.current = true;
-  }
-
-  // pointerenter/leave/move によるホバーツールチップは OooRailLine.tsx と同一の実装
-  // (ドラッグを持たないので EventBlock のような dragRef ガードは不要)
-  function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined;
-      showTooltip(clientX, clientY);
-    }, HOVER_DELAY_MS);
-  }
-
-  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (tooltipShownRef.current) {
-      positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
-    }
-  }
-
-  function handlePointerLeave() {
-    hideTooltip();
-  }
+  // ホバーツールチップは OooRailLine.tsx と共通の hook(hooks/useHoverTooltip.ts、
+  // 2026-07-25)。ドラッグを持たないので suppress は渡さない。
+  // 勤務場所の「場所」は title 自体が表す(例: 自宅/オフィス、要件どおり)。location
+  // フィールドは勤務場所では通常使わないため、ツールチップの補足行には出さない
+  // (旧点ピン版からの決定を維持)。
+  const tooltip = useHoverTooltip(() => ({
+    title: subject.title,
+    rangeLabel: formatRange(subject.startMs, subject.endMs, timeZone),
+  }));
 
   // クリック(デスクトップ)・タップ(タッチ、ブラウザが touchend から click を合成する)の
   // どちらもこの1本の onClick で受ける(OooRailLine.tsx と同じ流儀。この要素自体が
   // ドラッグ不可のため click/drag 判別は不要)
   function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
-    hideTooltip();
+    tooltip.hide();
     setDetailPos({ x: e.clientX, y: e.clientY });
   }
 
@@ -142,9 +105,9 @@ export function WorkingLocationRailBand({
       <div
         className="day-workloc-band"
         style={{ top, height, left }}
-        onPointerEnter={handlePointerEnter}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
+        onPointerEnter={tooltip.onPointerEnter}
+        onPointerMove={tooltip.onPointerMove}
+        onPointerLeave={tooltip.onPointerLeave}
         onClick={handleClick}
       >
         <PlaceIcon

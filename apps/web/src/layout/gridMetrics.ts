@@ -282,6 +282,40 @@ export function formatRange(startMs: number, endMs: number, timeZone: string): s
   return `${formatTime(startMs, timeZone)} – ${formatTime(endMs, timeZone)}`;
 }
 
+/** 実績(work-log)表示の時刻部分「09:05」。時・分ともゼロ詰めする(下の2関数の共通部分) */
+function formatPaddedTime(zdt: Temporal.ZonedDateTime): string {
+  return `${String(zdt.hour).padStart(2, "0")}:${String(zdt.minute).padStart(2, "0")}`;
+}
+
+/**
+ * 実績(work-log)一覧の日時表示「7/25 09:05」(2026-07-25 のリファクタ フェーズ1b で
+ * GitHubPane.tsx のローカル関数 formatWorkLogDate から移設)。
+ *
+ * 移設の理由は実バグ修正: 元の実装は `new Date(ms).getHours()` 等で**ブラウザの実行時
+ * タイムゾーン**を使っていたため、アプリ設定の timeZone(Asia/Tokyo など)と食い違う環境では
+ * 「入力側(sync/workLogEntry.ts の workLogToFormInput は timeZone を尊重)で記録した時刻」と
+ * 「履歴の表示」がずれていた。他の時刻表示(formatTime/formatDetailDateTime)と同じく
+ * Temporal + timeZone で解釈する。
+ *
+ * 時刻をゼロ詰めするのは意図的で、グリッド側の formatTime(「9:05」)とは形が違う ――
+ * 実績履歴は行が縦に密に並ぶため、桁が揃っている方が読み取りやすい(移設前の見た目も同じ)。
+ */
+export function formatWorkLogDateTime(ms: number, timeZone: string): string {
+  const zdt = Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone);
+  return `${zdt.month}/${zdt.day} ${formatPaddedTime(zdt)}`;
+}
+
+/**
+ * 実績1件の期間表示「7/25 09:05–10:30」(GitHubPane.tsx の formatWorkLogRange から移設)。
+ * 終了側の日付を省略するのは移設前と同じ ―― 実績は大半が同日内に収まるという想定
+ * (日をまたぐ記録では終了時刻だけが見えるが、開始日付との差は所要時間表示で補える)。
+ */
+export function formatWorkLogRange(startMs: number, endMs: number, timeZone: string): string {
+  const start = Temporal.Instant.fromEpochMilliseconds(startMs).toZonedDateTimeISO(timeZone);
+  const end = Temporal.Instant.fromEpochMilliseconds(endMs).toZonedDateTimeISO(timeZone);
+  return `${start.month}/${start.day} ${formatPaddedTime(start)}–${formatPaddedTime(end)}`;
+}
+
 /** WeekGrid の曜日ヘッダーと EventBlock の詳細ポップオーバーで共有する曜日ラベル */
 export const WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 

@@ -5,10 +5,12 @@ import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 import {
   buildWorkLogCreateRequest,
   buildWorkLogUpdateRequest,
+  collectRepoOwners,
   collectWorkLogOrgCandidates,
   collectWorkLogRepoCandidates,
   combineOrgRepo,
   isManualWorkLog,
+  reposForOwner,
   validateWorkLogEntryForm,
   workLogToFormInput,
   type WorkLogEntryFormInput,
@@ -139,7 +141,9 @@ describe("buildWorkLogUpdateRequest", () => {
   it("always includes trimmed repo and ISO start/end", () => {
     const req = buildWorkLogUpdateRequest({ ...BASE_INPUT, repo: "  owner/repo  " }, TZ);
     expect(req.repo).toBe("owner/repo");
-    expect(req.start).toBe(new Date(datetimeLocalValueToMs(BASE_INPUT.startLocal, TZ)).toISOString());
+    expect(req.start).toBe(
+      new Date(datetimeLocalValueToMs(BASE_INPUT.startLocal, TZ)).toISOString(),
+    );
     expect(req.end).toBe(new Date(datetimeLocalValueToMs(BASE_INPUT.endLocal, TZ)).toISOString());
   });
 
@@ -268,5 +272,48 @@ describe("combineOrgRepo", () => {
 
   it("ignores org when repo already contains a slash (avoids double-join)", () => {
     expect(combineOrgRepo("acme", "beta/web")).toBe("beta/web");
+  });
+});
+
+describe("collectRepoOwners", () => {
+  const repos = [
+    { owner: "zzz-org", repo: "b" },
+    { owner: "Love-Rox", repo: "kichijitsu" },
+    { owner: "Love-Rox", repo: "other" },
+    { owner: "acme", repo: "a" },
+  ];
+
+  it("owner を重複排除して昇順に並べる", () => {
+    expect(collectRepoOwners(repos)).toEqual(["acme", "Love-Rox", "zzz-org"]);
+  });
+
+  it("空配列なら空配列", () => {
+    expect(collectRepoOwners([])).toEqual([]);
+  });
+});
+
+describe("reposForOwner", () => {
+  const repos = [
+    { owner: "Love-Rox", repo: "kichijitsu" },
+    { owner: "Love-Rox", repo: "another" },
+    { owner: "acme", repo: "widget" },
+  ];
+
+  it("選択中 org の repo 名だけを昇順で返す", () => {
+    expect(reposForOwner(repos, "Love-Rox")).toEqual(["another", "kichijitsu"]);
+    expect(reposForOwner(repos, "acme")).toEqual(["widget"]);
+  });
+
+  it("org 未選択(空文字)なら空配列(まだ絞り込めない)", () => {
+    expect(reposForOwner(repos, "")).toEqual([]);
+  });
+
+  it("該当 owner が無ければ空配列", () => {
+    expect(reposForOwner(repos, "unknown")).toEqual([]);
+  });
+
+  it('返すのは repo 名のみ("org/repo" にはしない — 結合は combineOrgRepo が担う)', () => {
+    expect(reposForOwner(repos, "acme")).toEqual(["widget"]);
+    expect(combineOrgRepo("acme", reposForOwner(repos, "acme")[0])).toBe("acme/widget");
   });
 });

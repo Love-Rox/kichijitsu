@@ -1,15 +1,13 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { useHoverTooltip } from "../hooks/useHoverTooltip";
 import { formatAllDayDateRange, formatDetailDateTime, formatRange } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
 import type { OooRailItem } from "../layout/oooRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
-import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
-
-const HOVER_DELAY_MS = 400;
 
 /** OooRailItem.subject が時刻予定(Occurrence)かどうかの構造的ガード */
 function isTimedSubject(subject: Occurrence | AllDayOccurrence): subject is Occurrence {
@@ -65,61 +63,26 @@ export function OooRailLine({
   timeZone,
   calendarLookup,
 }: OooRailLineProps) {
-  const hoverTimeoutRef = useRef<number | undefined>(undefined);
-  const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
   const { subject, groupMembers } = item;
 
-  function hideTooltip() {
-    if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = undefined;
-    }
-    if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = "none";
-      tooltipShownRef.current = false;
-    }
-  }
-
-  function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl();
-    const rangeLabel = isTimedSubject(subject)
+  // ホバーツールチップは AllDayBar.tsx / EventBlock.tsx と共通の hook
+  // (hooks/useHoverTooltip.ts、2026-07-25)。ドラッグを持たないので suppress は渡さない
+  const tooltip = useHoverTooltip(() => ({
+    title: subject.title,
+    rangeLabel: isTimedSubject(subject)
       ? formatRange(subject.startMs, subject.endMs, timeZone)
-      : formatAllDayDateRange(subject.startDate, subject.endDate);
-    fillTooltipContent(el, subject.title, rangeLabel, subject.location);
-    el.style.display = "block";
-    positionTooltip(el, clientX, clientY);
-    tooltipShownRef.current = true;
-  }
-
-  // pointerenter/leave/move によるホバーツールチップは AllDayBar.tsx と同一の実装
-  // (ドラッグを持たないので EventBlock のような dragRef ガードは不要)
-  function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined;
-      showTooltip(clientX, clientY);
-    }, HOVER_DELAY_MS);
-  }
-
-  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (tooltipShownRef.current) {
-      positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
-    }
-  }
-
-  function handlePointerLeave() {
-    hideTooltip();
-  }
+      : formatAllDayDateRange(subject.startDate, subject.endDate),
+    location: subject.location,
+  }));
 
   // クリック(デスクトップ)・タップ(タッチ、ブラウザが touchend から click を合成する)の
   // どちらもこの1本の onClick で受ける。EventBlock のような「移動量で click/drag を判別」する
   // 仕組みは不要(この要素自体がドラッグ不可のため)
   function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
-    hideTooltip();
+    tooltip.hide();
     setDetailPos({ x: e.clientX, y: e.clientY });
   }
 
@@ -147,9 +110,9 @@ export function OooRailLine({
           left,
           backgroundColor: displayColor,
         }}
-        onPointerEnter={handlePointerEnter}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
+        onPointerEnter={tooltip.onPointerEnter}
+        onPointerMove={tooltip.onPointerMove}
+        onPointerLeave={tooltip.onPointerLeave}
         onClick={handleClick}
       />
       {detailPos &&

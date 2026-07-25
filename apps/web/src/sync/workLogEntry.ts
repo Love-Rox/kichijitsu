@@ -1,5 +1,10 @@
 import type { PlannedBlock } from "../model/types";
-import type { WorkLogCreateRequest, WorkLogDTO, WorkLogUpdateRequest } from "@kichijitsu/shared";
+import type {
+  GitHubRepoRef,
+  WorkLogCreateRequest,
+  WorkLogDTO,
+  WorkLogUpdateRequest,
+} from "@kichijitsu/shared";
 import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 
 /**
@@ -181,6 +186,36 @@ export function collectWorkLogOrgCandidates(
     if (slash > 0) orgs.add(repo.slice(0, slash));
   }
   return Array.from(orgs).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 純関数。手動記録フォームの org プルダウンの選択肢 ―― GET /api/github/repos で得た repo 一覧から
+ * owner を重複排除して localeCompare の昇順に並べる。上の collectWorkLogOrgCandidates とは出どころが
+ * 違う(あちらは既存実績/予定の repo 文字列から作る datalist の候補、こちらは実データの repo 一覧から
+ * 作る select の選択肢)ので別関数にしてある。並びを揃えている理由も同じ ―― 毎回同じ順で出た方が
+ * 使う側にとって分かりやすいため。
+ */
+export function collectRepoOwners(repos: readonly Pick<GitHubRepoRef, "owner">[]): string[] {
+  const owners = new Set<string>();
+  for (const r of repos) owners.add(r.owner);
+  return Array.from(owners).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 純関数。手動記録フォームの repo プルダウンの選択肢 ―― 選択中の org(owner)に属する repo 名を
+ * localeCompare の昇順で返す。org 未選択(空文字)は「まだ絞り込めない」として空配列を返す
+ * (フォーム側は repo select を disabled にして「先に org を選択」を出す)。
+ * 返すのは repo 名のみ("org/repo" ではない) ―― 送信時に combineOrgRepo が結合する。
+ */
+export function reposForOwner(
+  repos: readonly Pick<GitHubRepoRef, "owner" | "repo">[],
+  org: string,
+): string[] {
+  if (!org) return [];
+  return repos
+    .filter((r) => r.owner === org)
+    .map((r) => r.repo)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /**
