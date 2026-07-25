@@ -20,7 +20,7 @@ import { packColumns, type Positioned } from "./packColumns";
 
 /**
  * 長さ0(start===end)や数分の短い帯は、表示上 RAIL_MIN_BAND_HEIGHT_PX(16px)ぶんの
- * 高さを占める(OooRailLine.tsx/WorkingLocationRailBand.tsx が Math.max(実高さ, 16px) で
+ * 高さを占める(RailBand.tsx/RailBand.tsx が Math.max(実高さ, 16px) で
  * 描画するため)。この「見た目の下限」を無視して実時間だけで重なり判定すると、
  * 例えば同時刻(start===end)の OOO と勤務場所が「重なっていない」と判定されて同じ列
  * (縦)に置かれてしまい、結局は視覚的に重なる(どちらも16px分の矩形を同じ位置に描く)。

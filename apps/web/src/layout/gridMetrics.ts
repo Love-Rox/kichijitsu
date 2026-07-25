@@ -141,7 +141,7 @@ export const RAIL_BAND_WIDTH_PX = 12;
 /**
  * OOO バー・勤務場所帯の最低表示高さ(px)。両レールとも矩形の中に上端の飾り(OOO の白い
  * × / 勤務場所の PlaceIcon)を収める都合上、長さ0(start===end)や数分の短い帯でも
- * この高さを下回らないようにする。以前は OooRailLine.tsx / WorkingLocationRailBand.tsx が
+ * この高さを下回らないようにする。以前は RailBand.tsx / RailBand.tsx が
  * それぞれ独自にローカル定数(MIN_BAR_HEIGHT_PX/MIN_BAND_HEIGHT_PX、どちらも値16)を
  * 持っていたが、railStack.ts の列パッキングが「重なり判定」にもこの値を使う必要が
  * あるため(表示上 16px を占める帯は、実時間が重ならなくても視覚的には重なりうる)、

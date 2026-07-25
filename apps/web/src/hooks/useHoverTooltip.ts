@@ -28,7 +28,7 @@ export interface HoverTooltipHandlers {
 /**
  * 予定系 UI 共通のホバーツールチップ(2026-07-25 リファクタ フェーズ1a)。
  *
- * なぜ hook にしたか: EventBlock / AllDayBar / OooRailLine / WorkingLocationRailBand の
+ * なぜ hook にしたか: EventBlock / AllDayBar / RailBand(variant="ooo") / RailBand(variant="workingLocation") の
  * 4コンポーネントに、hoverTimeoutRef + tooltipShownRef + showTooltip/hideTooltip +
  * pointerenter/move/leave という同じ実装(HOVER_DELAY_MS = 400 の再定義込み)が写されていた。
  * DOM 操作自体は components/eventPopoverShared.ts で既に共有済みだったので、残っていた

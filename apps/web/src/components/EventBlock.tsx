@@ -425,7 +425,7 @@ export function EventBlock({
   //   - tentative: 半透明(event--rsvp-tentative、CSS 側で opacity)
   //   - declined: タイトル打ち消し線 + 全体を淡色に(event--rsvp-declined)
   // 勤務場所 (workingLocation) は WeekGrid 側で packColumns の入力から除外され、専用の
-  // 帯レール(layout/workingLocationRail.ts、WorkingLocationRailBand.tsx)へ振り分けられる
+  // 帯レール(layout/workingLocationRail.ts、RailBand.tsx)へ振り分けられる
   // ため、このコンポーネントに occurrence.isWorkingLocation===true が渡ってくることはない
   // (2026-07-22 帯化 ―― さらに前のコミットにあった「稀に時刻付きで届いた場合の保険」として
   // の opacity 0.5・枠なし表示は、対象が location フィールドの取り違えだったため撤去した)。

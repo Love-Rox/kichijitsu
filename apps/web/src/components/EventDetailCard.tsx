@@ -14,7 +14,7 @@ import { EventEditForm } from "./EventEditForm";
 
 /**
  * クリック詳細ポップオーバー一式(2026-07-25 リファクタ フェーズ1a で EventBlock.tsx から
- * 移設)。移設理由: MonthView / AllDayBar / OooRailLine / WorkingLocationRailBand の4ファイルは
+ * 移設)。移設理由: MonthView / AllDayBar / RailBand(variant="ooo") / RailBand(variant="workingLocation") の4ファイルは
  * このポップオーバーを使うためだけに、ドラッグ処理・useHourHeight・snap を抱えた 1100行超の
  * EventBlock.tsx を import していた。中身は一切変えていない(EventBlock.tsx からは互換のため
  * re-export しているので、既存の `from "./EventBlock"` も動く)。

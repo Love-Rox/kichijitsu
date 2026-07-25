@@ -1,33 +1,25 @@
 import type { GitHubCiRunDTO } from "@kichijitsu/shared";
-import { msToTopPx } from "../layout/gridMetrics";
+import { clusterByTopPx, type TopPxCluster } from "../layout/clusterByTopPx";
 
 /**
  * GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b「CI/Actions
  * 実行をタイムラインに薄く重ねる」) の DTO→日ごとのレイアウト変換を担う純関数層。
  * sync/mapActivity.ts (フェーズ③実績オーバーレイ Part B) を鏡にした実装 — commit 実績が
  * 日列右端の `.day-activity-rail` に乗るのに対し、CI 実行は左端の `.day-ci-rail` に乗せて
- * 分離する(DayColumn.tsx 参照)。クラスタリングのしきい値・アンカー方式は mapActivity.ts と
- * 完全に同じ(近接タイムスタンプを1クラスタにまとめ、密集時の視認性/クリック可能性を保つ)。
+ * 分離する(DayColumn.tsx 参照)。
+ *
+ * クラスタリング本体は 2026-07-26 に layout/clusterByTopPx.ts へ共通化した ―― 「しきい値・
+ * アンカー方式は mapActivity.ts と完全に同じ」と両ファイルのコメントが自認していた実装が
+ * 行単位で重複していたため。このファイルに残っているのは CI 固有の型付けと、マーカーの
+ * ステータス区分(下記2関数)だけ。
  */
 
 /** 1日ぶんの GitHubCiRunDTO をまとめたクラスタ(近接タイムスタンプの run 群) */
-export interface GitHubCiCluster {
-  /** msToTopPx(anchorMs, dayStartMs, hourHeight) の結果。クラスタの代表位置(先頭アイテムの位置) */
-  topPx: number;
-  /** クラスタに属する items。timestampMs 昇順 */
-  items: GitHubCiRunDTO[];
-  /** items.length のショートカット(呼び出し側の可読性のため) */
-  count: number;
-}
-
-/** クラスタ化のしきい値(px)。sync/mapActivity.ts の CLUSTER_THRESHOLD_PX と同じ値・同じ理由。 */
-const CLUSTER_THRESHOLD_PX = 6;
+export type GitHubCiCluster = TopPxCluster<GitHubCiRunDTO>;
 
 /**
  * [dayStartMs, dayEndMs) に収まる GitHubCiRunDTO を抽出し、timestampMs 昇順に並べた上で、
- * CLUSTER_THRESHOLD_PX 以内で連続するアイテムを1クラスタにまとめる。半開区間の境界の扱いは
- * sync/mapActivity.ts の layoutDayActivity と同じ(dayStartMs ちょうどは含む、dayEndMs ちょうどは
- * 除外する)。入力配列は変更しない。
+ * 近接するアイテムを1クラスタにまとめる(clusterByTopPx)。入力配列は変更しない。
  */
 export function layoutDayCiRuns(
   items: GitHubCiRunDTO[],
@@ -35,23 +27,7 @@ export function layoutDayCiRuns(
   dayEndMs: number,
   hourHeight: number,
 ): GitHubCiCluster[] {
-  const dayItems = items
-    .filter((it) => it.timestampMs >= dayStartMs && it.timestampMs < dayEndMs)
-    .sort((a, b) => a.timestampMs - b.timestampMs);
-
-  const clusters: GitHubCiCluster[] = [];
-  for (const item of dayItems) {
-    const topPx = msToTopPx(item.timestampMs, dayStartMs, hourHeight);
-    const current = clusters[clusters.length - 1];
-    // アンカー(クラスタ先頭アイテムの topPx、更新しない)との距離で判定する(mapActivity.ts と同じ)
-    if (current && topPx - current.topPx <= CLUSTER_THRESHOLD_PX) {
-      current.items.push(item);
-      current.count = current.items.length;
-    } else {
-      clusters.push({ topPx, items: [item], count: 1 });
-    }
-  }
-  return clusters;
+  return clusterByTopPx(items, dayStartMs, dayEndMs, hourHeight);
 }
 
 /**
