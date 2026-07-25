@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ServerEvent } from "@kichijitsu/shared";
+import { calendarKey } from "../layout/keys";
 
 /** changed イベントのバースト対策: 同じ (accountId, calendarId) の連続 changed をまとめる待ち時間 */
 const CHANGED_DEBOUNCE_MS = 2000;
@@ -35,7 +36,7 @@ export function createChangedDebouncer(
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function schedule(accountId: string, calendarId: string): void {
-    const key = `${accountId}:${calendarId}`;
+    const key = calendarKey(accountId, calendarId);
     const existing = timers.get(key);
     if (existing !== undefined) clearTimeout(existing);
     const timer = setTimeout(() => {

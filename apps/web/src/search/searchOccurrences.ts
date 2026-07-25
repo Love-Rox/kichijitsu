@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
+import { calendarKey } from "../layout/keys";
 
 /**
  * 予定検索(フェーズ6)。DOM/React に依存しない純粋関数として切り出し、単体テストしやすくしてある。
@@ -50,7 +51,7 @@ function passesVisibility(
 ): boolean {
   if (!visibleCalendarKeys) return true;
   if (target.accountId === undefined || target.calendarId === undefined) return true; // ローカルデータは常に対象
-  return visibleCalendarKeys.has(`${target.accountId}:${target.calendarId}`);
+  return visibleCalendarKeys.has(calendarKey(target.accountId, target.calendarId));
 }
 
 function matchesQuery(

@@ -1,5 +1,5 @@
 import type { PlannedBlock } from "../model/types";
-import { minutesToPx, pxToMinutes } from "../layout/gridMetrics";
+import { pxToMinutes } from "../layout/gridMetrics";
 import { snapEndMs, snapStartMs } from "../layout/snap";
 
 /**
@@ -85,23 +85,12 @@ export function buildPlannedBlock(
   };
 }
 
-/** その日の 0:00 からの px オフセット(EventBlock/DayColumn と同じ座標系) */
-export function plannedBlockTopPx(
-  startMs: number,
-  dayStartMs: number,
-  hourHeight: number,
-): number {
-  return minutesToPx((startMs - dayStartMs) / 60_000, hourHeight);
-}
-
-/** 最低 4px を保証した高さ(px) */
-export function plannedBlockHeightPx(
-  startMs: number,
-  endMs: number,
-  hourHeight: number,
-): number {
-  return Math.max(minutesToPx((endMs - startMs) / 60_000, hourHeight), 4);
-}
+/**
+ * 座標変換 (plannedBlockTopPx / plannedBlockHeightPx) は layout/gridMetrics.ts の
+ * msToTopPx / msRangeToHeightPx へ移した (2026-07-25)。予定ブロック専用の名前と置き場所の
+ * せいで、まったく同じ式が DayColumn/EventBlock/mapActivity/mapCiRuns に13箇所も
+ * 手書きで再実装されていたため ―― 座標系の出どころは gridMetrics.ts 1箇所に寄せる。
+ */
 
 /**
  * 移動ドラッグ確定用: rawStartMs をスナップし、元の長さを保ったまま新しい開始/終了時刻を返す

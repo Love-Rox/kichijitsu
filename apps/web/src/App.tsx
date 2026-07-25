@@ -84,6 +84,15 @@ import {
 } from "./sync/visibleCalendars";
 import { createSyncScheduler } from "./sync/syncScheduler";
 import { buildSyncRequest } from "./sync/syncRequest";
+import {
+  deleteJson,
+  getJson,
+  jsonInit,
+  patchJson,
+  postJson,
+  postJsonVoid,
+  sendJson,
+} from "./sync/httpJson";
 import { decideSyncBackfillTargets } from "./sync/syncBackfill";
 import {
   DEFAULT_DECLINED_VISIBILITY,
@@ -172,9 +181,22 @@ import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrenc
 import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
 import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
 import { stepAnchor } from "./layout/dayGrid";
-import { effectivePaneMode, shouldCloseOtherPaneOnOpen, type PaneMode } from "./layout/paneMode";
+import {
+  effectivePaneMode,
+  isPaneMode,
+  shouldCloseOtherPaneOnOpen,
+  type PaneMode,
+} from "./layout/paneMode";
 import { resolveMiniMonthNavigation } from "./layout/miniMonth";
 import { addToSet, removeFromSet } from "./layout/setOps";
+import { calendarKey, taskListKey } from "./layout/keys";
+import { readStored, writeStored } from "./layout/localStore";
+import {
+  dayCountForView,
+  initialTimelineStart,
+  isView,
+  timelineRangeMs,
+} from "./layout/viewRange";
 import "./App.css";
 
 /**
@@ -183,21 +205,11 @@ import "./App.css";
  * WeekGrid はこのうち 'month' 以外を dayCount 可変の同一グリッドとして描画する。
  * View 型そのものは keyboard/shortcuts.ts を正としてそこから import する
  * (グローバルショートカットの view 切替キーが同じ許容規則を参照する必要があるため)。
+ *
+ * view から表示範囲を導く純関数(dayCountForView / isView / initialTimelineStart /
+ * timelineRangeMs)は layout/viewRange.ts へ移した(2026-07-25)。ここに残っているのは
+ * localStorage を読む初期化系(副作用あり)だけ。
  */
-
-/** view ごとの表示日数。'month' は WeekGrid を使わないため呼ばない想定(0を返す) */
-function dayCountForView(view: View): number {
-  switch (view) {
-    case "week":
-      return 7;
-    case "day3":
-      return 3;
-    case "day1":
-      return 1;
-    case "month":
-      return 0;
-  }
-}
 
 /** 同期対象の (accountId, taskListId) ペア(docs/google-tasks.md)。selectedTargets のタスク版 */
 interface TaskListTarget {
@@ -207,18 +219,9 @@ interface TaskListTarget {
 
 const VIEW_STORAGE_KEY = "kichijitsu:view";
 
-function isView(value: string): value is View {
-  return value === "week" || value === "month" || value === "day3" || value === "day1";
-}
-
 /** localStorage に保存された前回選択 view を読む。プライベートモード等で無効なら null */
 function loadStoredView(): View | null {
-  try {
-    const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    return v && isView(v) ? v : null;
-  } catch {
-    return null;
-  }
+  return readStored<View | null>(VIEW_STORAGE_KEY, (v) => (isView(v) ? v : null), null);
 }
 
 /** 初回マウント時の view の決め方(localStorage 優先、無ければ画面幅から)。App() の useState 初期化子から呼ぶ */
@@ -239,29 +242,20 @@ const HOUR_HEIGHT_STORAGE_KEY = "kichijitsu:hourHeight";
 
 /** localStorage に保存された前回のズーム値(px)。未保存/不正/プライベートモード等なら既定値 */
 function loadStoredHourHeight(): number {
-  try {
-    const v = window.localStorage.getItem(HOUR_HEIGHT_STORAGE_KEY);
-    if (v === null) return DEFAULT_HOUR_HEIGHT;
-    return normalizeHourHeight(v);
-  } catch {
-    return DEFAULT_HOUR_HEIGHT;
-  }
+  // normalizeHourHeight は範囲外/不正値も既定へ丸める(null を返さない)ので、
+  // fallback が効くのは「未保存」と「localStorage が使えない」のときだけ
+  return readStored(HOUR_HEIGHT_STORAGE_KEY, normalizeHourHeight, DEFAULT_HOUR_HEIGHT);
 }
 
 const PANE_MODE_STORAGE_KEY = "kichijitsu:paneMode";
 
-function isPaneMode(value: string): value is PaneMode {
-  return value === "docked" || value === "overlay";
-}
-
 /** localStorage に保存された前回選択の GitHub ペイン配置モードを読む。プライベートモード等で無効なら null */
 function loadStoredPaneMode(): PaneMode | null {
-  try {
-    const v = window.localStorage.getItem(PANE_MODE_STORAGE_KEY);
-    return v && isPaneMode(v) ? v : null;
-  } catch {
-    return null;
-  }
+  return readStored<PaneMode | null>(
+    PANE_MODE_STORAGE_KEY,
+    (v) => (isPaneMode(v) ? v : null),
+    null,
+  );
 }
 
 /**
@@ -282,24 +276,11 @@ const LEFT_PANE_OPEN_STORAGE_KEY = "kichijitsu:leftPaneOpen";
  * null(呼び出し側で「初回は開いた状態を既定にする」フォールバックを行う想定)。
  */
 function loadStoredLeftPaneOpen(): boolean | null {
-  try {
-    const v = window.localStorage.getItem(LEFT_PANE_OPEN_STORAGE_KEY);
-    if (v === "1") return true;
-    if (v === "0") return false;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 初回マウント時の timelineStart の決め方。week は従来通り「今週の月曜」から始めるが、
- * day3/day1 は「今日」を先頭日にする(月曜始まりにすると、週の後半に開いたときに
- * 過去の日しか見えない/今日が画面外になりうるため、3日/1日タイムラインでは意味がない)。
- */
-function initialTimelineStart(view: View): Temporal.PlainDate {
-  const today = Temporal.Now.plainDateISO();
-  return view === "week" ? mondayOf(today) : today;
+  return readStored<boolean | null>(
+    LEFT_PANE_OPEN_STORAGE_KEY,
+    (v) => (v === "1" ? true : v === "0" ? false : null),
+    null,
+  );
 }
 
 /**
@@ -311,21 +292,6 @@ function initialTimelineStart(view: View): Temporal.PlainDate {
  */
 const DEMO_SEED_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "1";
-
-/**
- * [start, start+dayCount日) の epoch ms 範囲(timeZone の壁時計基準)。
- * week/day3/day1 のどのタイムラインビューでも共通で使う(モバイル対応フェーズ2で
- * dayCount=7 固定の weekRangeMs から一般化)。
- */
-function timelineRangeMs(
-  start: Temporal.PlainDate,
-  dayCount: number,
-  timeZone: string,
-): { fromMs: number; toMs: number } {
-  const fromMs = start.toZonedDateTime({ timeZone }).epochMilliseconds;
-  const toMs = start.add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds;
-  return { fromMs, toMs };
-}
 
 // 週切替アニメーション(WeekGrid 側 SLIDE_MS=200ms)より少し長めに連打をロックする
 const NAV_LOCK_MS = 220;
@@ -357,20 +323,12 @@ function App() {
   // ユーザーが明示的に選んだ view を覚えておき、次回訪問時のデフォルトにする(任意機能)。
   // localStorage が使えない環境(プライベートモード等)では静かに無視する
   useEffect(() => {
-    try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, view);
-    } catch {
-      /* ignore */
-    }
+    writeStored(VIEW_STORAGE_KEY, view);
   }, [view]);
 
   // 時間軸ズームの永続化(view と同じ流儀。保存するのは実 px 値)
   useEffect(() => {
-    try {
-      window.localStorage.setItem(HOUR_HEIGHT_STORAGE_KEY, String(hourHeight));
-    } catch {
-      /* ignore */
-    }
+    writeStored(HOUR_HEIGHT_STORAGE_KEY, String(hourHeight));
   }, [hourHeight]);
 
   // WeekGrid の ⌘/Ctrl+ホイールズームから呼ばれる。値の clamp は呼び出し側(WeekGrid /
@@ -386,11 +344,7 @@ function App() {
   const [paneMode, setPaneMode] = useState<PaneMode>(() => loadStoredPaneMode() ?? "overlay");
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(PANE_MODE_STORAGE_KEY, paneMode);
-    } catch {
-      /* ignore */
-    }
+    writeStored(PANE_MODE_STORAGE_KEY, paneMode);
   }, [paneMode]);
 
   // 狭幅では docked を選べない(effectivePaneMode 参照)ので、実際に GitHubPane へ渡すモードは
@@ -403,11 +357,7 @@ function App() {
   const [leftPaneOpen, setLeftPaneOpen] = useState(() => loadStoredLeftPaneOpen() ?? true);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(LEFT_PANE_OPEN_STORAGE_KEY, leftPaneOpen ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
+    writeStored(LEFT_PANE_OPEN_STORAGE_KEY, leftPaneOpen ? "1" : "0");
   }, [leftPaneOpen]);
 
   const store = useMemo(() => new OccurrenceStore(), []);
@@ -455,7 +405,9 @@ function App() {
   // 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を持つ(デフォルト全 ON、
   // db/database.ts の getHiddenTaskLists 参照)。カレンダー選択と非対称にサーバー同期は
   // 行わずこの端末のみのローカル設定(将来 PUT /api/visible-task-lists 相当を足す余地はある)
-  const [hiddenTaskLists, setHiddenTaskListsState] = useState<Set<string>>(new Set());
+  // ReadonlySet で持つのは layout/setOps.ts の addToSet/removeFromSet(変化が無ければ同じ参照を
+  // 返す)をそのまま setState に渡せるようにするため。読み手(CalendarPane/WeekGrid)は has だけ使う
+  const [hiddenTaskLists, setHiddenTaskListsState] = useState<ReadonlySet<string>>(new Set());
   // 上の hiddenTaskLists 永続化 effect が、init effect の IndexedDB 読み込み完了前に
   // 空集合で上書きしてしまわないためのガード(visibleCalendarsLoadedRef と同じ役割)
   const hiddenTaskListsLoadedRef = useRef(false);
@@ -613,11 +565,10 @@ function App() {
   // (登録は best-effort。失敗してもアラームポーリングが補うので UI はブロックしない)
   const postWatch = useCallback(
     (accountId: string, calendarId: string, enabled: boolean) => {
-      checkedFetch("/api/watch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, calendarId, enabled } satisfies WatchRequest),
-      })
+      checkedFetch(
+        "/api/watch",
+        jsonInit("POST", { accountId, calendarId, enabled } satisfies WatchRequest),
+      )
         .then((res) => {
           if (!res.ok) {
             console.warn(
@@ -640,11 +591,10 @@ function App() {
     async (accountId: string, calendarIds: string[]): Promise<boolean> => {
       let ok: boolean;
       try {
-        const res = await checkedFetch("/api/visible-calendars", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildVisibleCalendarsRequest(accountId, calendarIds)),
-        });
+        const res = await checkedFetch(
+          "/api/visible-calendars",
+          jsonInit("PUT", buildVisibleCalendarsRequest(accountId, calendarIds)),
+        );
         ok = res.ok;
         if (!ok) {
           console.warn(
@@ -1248,13 +1198,10 @@ function App() {
         if (fetchInFlightRef.current.has(account.id)) continue; // 並行フェッチ防止
         fetchInFlightRef.current.add(account.id);
         try {
-          const res = await checkedFetch(
+          const calendars = await getJson<CalendarListEntryDTO[]>(
+            checkedFetch,
             `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
           );
-          if (!res.ok) {
-            throw new Error(`GET /api/calendars failed (${account.id}): ${res.status}`);
-          }
-          const calendars = (await res.json()) as CalendarListEntryDTO[];
           if (isCancelled()) return;
           setCalendarsByAccount((prev) => ({ ...prev, [account.id]: calendars }));
           // このアカウントにまだ選択状態が無ければ(=サーバーにも configured なエントリが
@@ -1390,18 +1337,19 @@ function App() {
   const syncCalendarOnce = useCallback(
     async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
       if (!db) return;
-      const syncRes = await checkedFetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          buildSyncRequest(
-            accountId,
-            calendarId,
-            deviceIdRef.current,
-            forceFull,
-          ) satisfies SyncRequest,
-        ),
-      });
+      // postJson ではなく sendJson なのは、失敗メッセージに (accountId/calendarId) を残すため
+      // ―― どのカレンダーの同期が失敗したかが console から読めなくなるのを避ける
+      const syncRes = await sendJson(
+        checkedFetch,
+        "POST",
+        "/api/sync",
+        buildSyncRequest(
+          accountId,
+          calendarId,
+          deviceIdRef.current,
+          forceFull,
+        ) satisfies SyncRequest,
+      );
       if (!syncRes.ok) {
         throw new Error(`POST /api/sync failed (${accountId}/${calendarId}): ${syncRes.status}`);
       }
@@ -1427,7 +1375,7 @@ function App() {
   // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
   const syncCalendar = useCallback(
     (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
-      syncSchedulerRef.current.schedule(`${accountId}:${calendarId}`, () =>
+      syncSchedulerRef.current.schedule(calendarKey(accountId, calendarId), () =>
         syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
       ),
     [syncCalendarOnce],
@@ -1438,11 +1386,11 @@ function App() {
   const syncTaskList = useCallback(
     async (accountId: string, taskListId: string) => {
       if (!db) return;
-      const res = await checkedFetch("/api/tasks/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, taskListId } satisfies TasksSyncRequest),
-      });
+      // syncCalendarOnce と同じ理由で sendJson 止まり(メッセージの (accountId/taskListId) を残す)
+      const res = await sendJson(checkedFetch, "POST", "/api/tasks/sync", {
+        accountId,
+        taskListId,
+      } satisfies TasksSyncRequest);
       if (!res.ok) {
         throw new Error(`POST /api/tasks/sync failed (${accountId}/${taskListId}): ${res.status}`);
       }
@@ -1624,10 +1572,11 @@ function App() {
     if (!db) return;
     const targets = selectedTaskListTargets();
     const toSync = targets.filter(
-      (t) => !autoSyncedTaskListsRef.current.has(`${t.accountId}:${t.taskListId}`),
+      (t) => !autoSyncedTaskListsRef.current.has(taskListKey(t.accountId, t.taskListId)),
     );
     if (toSync.length === 0) return;
-    for (const t of toSync) autoSyncedTaskListsRef.current.add(`${t.accountId}:${t.taskListId}`);
+    for (const t of toSync)
+      autoSyncedTaskListsRef.current.add(taskListKey(t.accountId, t.taskListId));
     Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId))).then(
       (results) => {
         for (const result of results) {
@@ -1680,13 +1629,12 @@ function App() {
   // 表示 ON/OFF に関係なく続行する(selectedTaskListTargets 参照、再 ON 時の即時性を優先)
   const handleToggleTaskList = useCallback(
     (accountId: string, taskListId: string, nextChecked: boolean) => {
-      const key = `${accountId}:${taskListId}`;
-      setHiddenTaskListsState((prev) => {
-        const next = new Set(prev);
-        if (nextChecked) next.delete(key);
-        else next.add(key);
-        return next;
-      });
+      const key = taskListKey(accountId, taskListId);
+      // 表示 ON なら「非表示集合」から外す / OFF なら入れる。setOps は変化が無ければ同じ参照を
+      // 返すので、同じ状態のまま呼ばれても無駄な再レンダー/再永続化が起きない
+      setHiddenTaskListsState((prev) =>
+        nextChecked ? removeFromSet(prev, key) : addToSet(prev, key),
+      );
     },
     [],
   );
@@ -1714,14 +1662,7 @@ function App() {
   // catch して表示するので、ここでは reject をそのまま伝播する
   const handleDisconnectAccount = useCallback(
     async (accountId: string) => {
-      const res = await checkedFetch("/api/account", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId } satisfies DisconnectRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`DELETE /api/account failed: ${res.status}`);
-      }
+      await deleteJson(checkedFetch, "/api/account", { accountId } satisfies DisconnectRequest);
 
       setMe((prev) => {
         const accounts = prev.accounts.filter((a) => a.id !== accountId);
@@ -1773,10 +1714,7 @@ function App() {
   // ローカルの GitHub アイテムも畳む(IndexedDB/store の両方)。失敗時は呼び出し元
   // (設定パネルのインライン確認 UI、handleDisconnectAccount と同じ流儀)が catch して表示する
   const handleDisconnectGitHub = useCallback(async () => {
-    const res = await checkedFetch("/api/github", { method: "DELETE" });
-    if (!res.ok) {
-      throw new Error(`DELETE /api/github failed: ${res.status}`);
-    }
+    await deleteJson(checkedFetch, "/api/github");
     setMe((prev) => ({ ...prev, github: null }));
     setGithubAuthExpired(false);
     // 作業キュー(フェーズ②Part B)も畳む。IndexedDB には入れていないので state を空にするだけ
@@ -1800,15 +1738,11 @@ function App() {
   // (パネル側がローカル state として持ち、「閉じる」でのみ消える)。失敗時は throw する。
   const handleCreateMcpToken = useCallback(
     async (label: string | undefined): Promise<McpTokenCreateResponse> => {
-      const res = await checkedFetch("/api/mcp-tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label } satisfies McpTokenCreateRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`POST /api/mcp-tokens failed: ${res.status}`);
-      }
-      const created = (await res.json()) as McpTokenCreateResponse;
+      const created = await postJson<McpTokenCreateRequest, McpTokenCreateResponse>(
+        checkedFetch,
+        "/api/mcp-tokens",
+        { label },
+      );
       setMcpTokens((prev) => [
         ...prev,
         { id: created.id, label: created.label, createdAt: created.createdAt, lastUsedAt: null },
@@ -1823,14 +1757,7 @@ function App() {
   // (handleDeleteBlockRule と同じ流儀)
   const handleDeleteMcpToken = useCallback(
     async (id: string) => {
-      const res = await checkedFetch("/api/mcp-tokens", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id } satisfies McpTokenDeleteRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`DELETE /api/mcp-tokens failed: ${res.status}`);
-      }
+      await deleteJson(checkedFetch, "/api/mcp-tokens", { id } satisfies McpTokenDeleteRequest);
       setMcpTokens((prev) => prev.filter((t) => t.id !== id));
     },
     [checkedFetch],
@@ -1841,15 +1768,11 @@ function App() {
   // 失敗時は throw してオーバーレイ側(呼び出し元)にエラー表示を委ねる
   const handleCreateBlockRule = useCallback(
     async (req: BlockRuleUpsertRequest) => {
-      const res = await checkedFetch("/api/block-rules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req satisfies BlockRuleUpsertRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`POST /api/block-rules failed: ${res.status}`);
-      }
-      const saved = (await res.json()) as BlockRuleDTO;
+      const saved = await postJson<BlockRuleUpsertRequest, BlockRuleDTO>(
+        checkedFetch,
+        "/api/block-rules",
+        req,
+      );
       setBlockRules((prev) => {
         const idx = prev.findIndex((r) => r.id === saved.id);
         if (idx === -1) return [...prev, saved];
@@ -1865,14 +1788,7 @@ function App() {
   // オーバーレイ側にエラー表示を委ねる(行ごとの確認 UI は持たない、削除は即時実行)
   const handleDeleteBlockRule = useCallback(
     async (id: string) => {
-      const res = await checkedFetch("/api/block-rules", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildBlockRuleDeleteRequest(id)),
-      });
-      if (!res.ok) {
-        throw new Error(`DELETE /api/block-rules failed: ${res.status}`);
-      }
+      await deleteJson(checkedFetch, "/api/block-rules", buildBlockRuleDeleteRequest(id));
       setBlockRules((prev) => prev.filter((r) => r.id !== id));
     },
     [checkedFetch],
@@ -1947,11 +1863,7 @@ function App() {
         let ok = false;
         if (patchReq) {
           try {
-            const res = await checkedFetch("/api/event/patch", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patchReq),
-            });
+            const res = await checkedFetch("/api/event/patch", jsonInit("POST", patchReq));
             ok = res.ok;
             if (!ok) {
               console.error(
@@ -2011,13 +1923,10 @@ function App() {
         let ok = false;
         let eventId: string | undefined;
         try {
-          const res = await checkedFetch("/api/event/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(
-              buildEventCreateRequest({ title, startMs, endMs, target, timeZone }),
-            ),
-          });
+          const res = await checkedFetch(
+            "/api/event/create",
+            jsonInit("POST", buildEventCreateRequest({ title, startMs, endMs, target, timeZone })),
+          );
           ok = res.ok;
           if (ok) {
             const data = (await res.json()) as EventCreateResponse;
@@ -2087,11 +1996,7 @@ function App() {
         let ok = false;
         if (deleteReq) {
           try {
-            const res = await checkedFetch("/api/event/delete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(deleteReq),
-            });
+            const res = await checkedFetch("/api/event/delete", jsonInit("POST", deleteReq));
             ok = res.ok;
             if (!ok) {
               console.error(
@@ -2168,11 +2073,9 @@ function App() {
       if (!patchReq) {
         throw new Error("kichijitsu: could not build edit EventPatchRequest");
       }
-      const res = await checkedFetch("/api/event/patch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchReq),
-      });
+      // httpJson の postJson ではなく sendJson + 自前 throw にしてあるのは、
+      // このメッセージ(kichijitsu: 接頭辞 + "(edit)")を変えないため
+      const res = await sendJson(checkedFetch, "POST", "/api/event/patch", patchReq);
       if (!res.ok) {
         throw new Error(`kichijitsu: POST /api/event/patch (edit) failed: ${res.status}`);
       }
@@ -2239,11 +2142,9 @@ function App() {
       if (!req) {
         throw new Error("kichijitsu: could not build EventRsvpRequest");
       }
-      const res = await checkedFetch("/api/event/rsvp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
-      });
+      // 422 を RsvpNotAttendeeError に振り替える必要があるため、throw する高レベル関数ではなく
+      // Response をそのまま受け取る sendJson を使う
+      const res = await sendJson(checkedFetch, "POST", "/api/event/rsvp", req);
       if (res.status === 422) {
         throw new RsvpNotAttendeeError();
       }
@@ -2368,19 +2269,12 @@ function App() {
       // 二重 start はサーバーが no-op(alreadyOpen)にするので押しても害はないが、既に開区間が
       // あると分かっているなら余計な往復を避けて即 return する(走行表示は既に出ている)。
       if (isIntervalRunning(openIntervals, item.repo, item.number)) return;
-      checkedFetch("/api/work-logs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repo: item.repo,
-          issueRef: String(item.number),
-          agent: "timer",
-        } satisfies WorkIntervalStartRequest),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`POST /api/work-logs/start failed: ${res.status}`);
-          return refetchOpenIntervals();
-        })
+      postJsonVoid(checkedFetch, "/api/work-logs/start", {
+        repo: item.repo,
+        issueRef: String(item.number),
+        agent: "timer",
+      } satisfies WorkIntervalStartRequest)
+        .then(() => refetchOpenIntervals())
         .catch((err) => {
           console.warn("kichijitsu: failed to start work interval", err);
         });
@@ -2484,14 +2378,7 @@ function App() {
   // 失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateBlockRule と同じ流儀)。
   const handleCreateWorkLog = useCallback(
     async (req: WorkLogCreateRequest) => {
-      const res = await checkedFetch("/api/work-logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req satisfies WorkLogCreateRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`POST /api/work-logs failed: ${res.status}`);
-      }
+      await postJsonVoid<WorkLogCreateRequest>(checkedFetch, "/api/work-logs", req);
       await refetchWorkLogs();
     },
     [checkedFetch, refetchWorkLogs],
@@ -2502,12 +2389,7 @@ function App() {
   // (handleDeleteBlockRule と同じ流儀)。
   const handleDeleteWorkLog = useCallback(
     async (id: string) => {
-      const res = await checkedFetch(`/api/work-logs/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        throw new Error(`DELETE /api/work-logs/${id} failed: ${res.status}`);
-      }
+      await deleteJson(checkedFetch, `/api/work-logs/${encodeURIComponent(id)}`);
       await refetchWorkLogs();
     },
     [checkedFetch, refetchWorkLogs],
@@ -2518,14 +2400,11 @@ function App() {
   // 再取得)。失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateWorkLog と同じ流儀)。
   const handleUpdateWorkLog = useCallback(
     async (id: string, req: WorkLogUpdateRequest) => {
-      const res = await checkedFetch(`/api/work-logs/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req satisfies WorkLogUpdateRequest),
-      });
-      if (!res.ok) {
-        throw new Error(`PATCH /api/work-logs/${id} failed: ${res.status}`);
-      }
+      await patchJson<WorkLogUpdateRequest>(
+        checkedFetch,
+        `/api/work-logs/${encodeURIComponent(id)}`,
+        req,
+      );
       await refetchWorkLogs();
     },
     [checkedFetch, refetchWorkLogs],
@@ -2551,17 +2430,15 @@ function App() {
       const interval = openIntervals.find((iv) => iv.id === running.id);
       const repo = interval?.repo ?? running.repo;
       const issueRef = interval ? interval.issueRef : running.number > 0 ? String(running.number) : undefined;
-      checkedFetch("/api/work-logs/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      postJson<WorkIntervalStopRequest, WorkIntervalStopResponse>(
+        checkedFetch,
+        "/api/work-logs/stop",
+        {
           repo,
           ...(issueRef ? { issueRef } : {}),
-        } satisfies WorkIntervalStopRequest),
-      })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`POST /api/work-logs/stop failed: ${res.status}`);
-          const data = (await res.json()) as WorkIntervalStopResponse;
+        },
+      )
+        .then(async (data) => {
           if (!data.closed) {
             console.warn(
               "kichijitsu: stop had no open interval (already stopped/orphan)",
@@ -2631,11 +2508,10 @@ function App() {
       };
     }
 
-    checkedFetch("/api/github/pr-commits", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: prItems } satisfies PullCommitsRequest),
-    })
+    checkedFetch(
+      "/api/github/pr-commits",
+      jsonInit("POST", { items: prItems } satisfies PullCommitsRequest),
+    )
       .then(async (res) => {
         if (res.status === 401) {
           if (!cancelled) setGithubAuthExpired(true);
@@ -2688,11 +2564,7 @@ function App() {
         let ok = false;
         if (patchReq) {
           try {
-            const res = await checkedFetch("/api/task/patch", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patchReq),
-            });
+            const res = await checkedFetch("/api/task/patch", jsonInit("POST", patchReq));
             // レスポンス (TaskPatchResponse) は ok フラグのみで、正本は次回「同期」で還流する想定
             // (buildEventPatchRequest 経由の handlePersist と同じ流儀。ボディは読み捨てる)
             ok = res.ok;
@@ -2910,7 +2782,7 @@ function App() {
   const visibleCalendarKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const [accountId, calendarIds] of Object.entries(visibleCalendars)) {
-      for (const calendarId of calendarIds) keys.add(`${accountId}:${calendarId}`);
+      for (const calendarId of calendarIds) keys.add(calendarKey(accountId, calendarId));
     }
     return keys;
   }, [visibleCalendars]);
@@ -2920,7 +2792,7 @@ function App() {
     const lookup = new Map<string, CalendarInfo>();
     for (const [accountId, calendars] of Object.entries(calendarsByAccount)) {
       for (const cal of calendars) {
-        lookup.set(`${accountId}:${cal.id}`, {
+        lookup.set(calendarKey(accountId, cal.id), {
           summary: cal.summary,
           backgroundColor: cal.backgroundColor,
         });

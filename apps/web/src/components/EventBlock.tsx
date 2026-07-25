@@ -9,6 +9,7 @@ import type {
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, OccurrenceLink } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
+import { calendarKey } from "../layout/keys";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHourHeight } from "../hooks/useHourHeight";
 import {
@@ -25,7 +26,7 @@ import {
   formatTime,
   isBusyPlaceholder,
   locationLineClamp,
-  minutesToPx,
+  msToTopPx,
   pxToMinutes,
 } from "../layout/gridMetrics";
 import {
@@ -411,7 +412,7 @@ export function EventBlock({
       const durationMs = ds.originalEndMs - ds.originalStartMs;
       const snappedEnd = snappedStart + durationMs;
 
-      const newTopPx = minutesToPx((snappedStart - targetDayStartMs) / 60_000, hourHeight);
+      const newTopPx = msToTopPx(snappedStart, targetDayStartMs, hourHeight);
       const dxPx = (targetIndex - dayIndex) * ds.columnWidthPx;
       const dyPx = newTopPx - ds.originalTopPx;
       el.style.transform = `translate(${dxPx}px, ${dyPx}px)`;
@@ -427,7 +428,7 @@ export function EventBlock({
         disableSnap: e.altKey,
       });
       const newHeightPx = Math.max(
-        minutesToPx((snappedEnd - ds.dayStartMs) / 60_000, hourHeight) - ds.originalTopPx,
+        msToTopPx(snappedEnd, ds.dayStartMs, hourHeight) - ds.originalTopPx,
         4,
       );
       el.style.height = `${newHeightPx}px`;
@@ -877,7 +878,7 @@ export function EventDetailCard({
     .map((m) => {
       const info =
         m.accountId && m.calendarId
-          ? calendarLookup.get(`${m.accountId}:${m.calendarId}`)
+          ? calendarLookup.get(calendarKey(m.accountId, m.calendarId))
           : undefined;
       return info
         ? { key: m.id, color: info.backgroundColor ?? "#9ca3af", summary: info.summary }

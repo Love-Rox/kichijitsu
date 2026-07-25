@@ -9,6 +9,7 @@ import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
 import type { WriteTargetCandidate } from "../sync/eventCreate";
+import { calendarKeyOf } from "../layout/keys";
 import {
   draftFromAllDayOccurrence,
   draftFromOccurrence,
@@ -130,7 +131,7 @@ export function MonthView({
     () =>
       occurrences.filter(
         (o) =>
-          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          (o.source !== "google" || visibleCalendarKeys.has(calendarKeyOf(o))) &&
           !shouldHideDeclined(o, declinedVisibility),
       ),
     [occurrences, visibleCalendarKeys, declinedVisibility],
@@ -147,7 +148,7 @@ export function MonthView({
     () =>
       allDayOccurrencesRaw.filter(
         (o) =>
-          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          (o.source !== "google" || visibleCalendarKeys.has(calendarKeyOf(o))) &&
           !shouldHideDeclined(o, declinedVisibility),
       ),
     [allDayOccurrencesRaw, visibleCalendarKeys, declinedVisibility],

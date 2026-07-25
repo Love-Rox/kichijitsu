@@ -10,8 +10,6 @@ import {
   computeDropStartMs,
   DEFAULT_PLANNED_DURATION_MS,
   parseDroppedWorkItem,
-  plannedBlockHeightPx,
-  plannedBlockTopPx,
   WORKITEM_DND_MIME,
   type DroppedWorkItem,
 } from "../sync/planned";
@@ -28,6 +26,8 @@ import {
   formatTime,
   isBusyPlaceholder,
   minutesToPx,
+  msRangeToHeightPx,
+  msToTopPx,
   pxToMinutes,
   RAIL_BAND_WIDTH_PX,
   RAIL_MIN_BAND_HEIGHT_PX,
@@ -232,7 +232,7 @@ export function DayColumn({
   const draftInputRef = useRef<HTMLInputElement>(null);
 
   const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs;
-  const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000, hourHeight);
+  const nowTop = msToTopPx(nowMs, dayStartMs, hourHeight);
 
   // カスケードの前面/背面(WeekGrid.tsx から移設、ロジックは変更なし)
   const stackZ = new Map<string, number>();
@@ -360,8 +360,8 @@ export function DayColumn({
     };
     if (moved) {
       columnEl.appendChild(ghostEl);
-      ghostEl.style.top = `${minutesToPx((pendingStartMs - dayStartMs) / 60_000, hourHeight)}px`;
-      ghostEl.style.height = `${Math.max(minutesToPx((pendingEndMs - pendingStartMs) / 60_000, hourHeight), 4)}px`;
+      ghostEl.style.top = `${msToTopPx(pendingStartMs, dayStartMs, hourHeight)}px`;
+      ghostEl.style.height = `${msRangeToHeightPx(pendingStartMs, pendingEndMs, hourHeight)}px`;
     }
   }
 
@@ -442,8 +442,8 @@ export function DayColumn({
     ds.pendingStartMs = startMs;
     ds.pendingEndMs = endMs;
 
-    ds.ghostEl.style.top = `${minutesToPx((startMs - dayStartMs) / 60_000, hourHeight)}px`;
-    ds.ghostEl.style.height = `${Math.max(minutesToPx((endMs - startMs) / 60_000, hourHeight), 4)}px`;
+    ds.ghostEl.style.top = `${msToTopPx(startMs, dayStartMs, hourHeight)}px`;
+    ds.ghostEl.style.height = `${msRangeToHeightPx(startMs, endMs, hourHeight)}px`;
   }
 
   function handleColumnPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
@@ -564,9 +564,8 @@ export function DayColumn({
     >
       {positioned.map(({ item: group, column, columnCount }) => {
         const occurrence = group.primary;
-        const durationMin = (occurrence.endMs - occurrence.startMs) / 60_000;
-        const topPx = minutesToPx((occurrence.startMs - dayStartMs) / 60_000, hourHeight);
-        const heightPx = Math.max(minutesToPx(durationMin, hourHeight), 4);
+        const topPx = msToTopPx(occurrence.startMs, dayStartMs, hourHeight);
+        const heightPx = msRangeToHeightPx(occurrence.startMs, occurrence.endMs, hourHeight);
         // コンパクト表示の判定は px 基準(時間軸ズーム対応、2026-07-25)。既定ズームでは
         // 従来の「40分未満」と完全に一致する(gridMetrics.ts の COMPACT_THRESHOLD_PX 参照)
         const isCompact = heightPx < COMPACT_THRESHOLD_PX;
@@ -614,8 +613,8 @@ export function DayColumn({
                 key={block.id}
                 block={block}
                 dayStartMs={dayStartMs}
-                top={plannedBlockTopPx(block.startMs, dayStartMs, hourHeight)}
-                height={plannedBlockHeightPx(block.startMs, block.endMs, hourHeight)}
+                top={msToTopPx(block.startMs, dayStartMs, hourHeight)}
+                height={msRangeToHeightPx(block.startMs, block.endMs, hourHeight)}
                 leftPct={leftPct}
                 widthPct={widthPct}
                 timeZone={timeZone}
@@ -749,8 +748,8 @@ export function DayColumn({
           ref={draftRef}
           className="day-column-create-draft"
           style={{
-            top: minutesToPx((draft.startMs - dayStartMs) / 60_000, hourHeight),
-            height: Math.max(minutesToPx((draft.endMs - draft.startMs) / 60_000, hourHeight), 4),
+            top: msToTopPx(draft.startMs, dayStartMs, hourHeight),
+            height: msRangeToHeightPx(draft.startMs, draft.endMs, hourHeight),
           }}
         >
           <input

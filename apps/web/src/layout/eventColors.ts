@@ -7,6 +7,8 @@
  * 必要なフィールドだけを構造的に受け取る形にしてある。
  */
 
+import { calendarKey } from "./keys";
+
 export interface ColorLookupTarget {
   accountId?: string;
   calendarId?: string;
@@ -58,7 +60,7 @@ export function resolveEventColor(
 ): string {
   const info =
     target.accountId && target.calendarId
-      ? calendarLookup.get(`${target.accountId}:${target.calendarId}`)
+      ? calendarLookup.get(calendarKey(target.accountId, target.calendarId))
       : undefined;
   return info?.backgroundColor ?? target.color;
 }

@@ -1,5 +1,5 @@
 import type { GitHubCiRunDTO } from "@kichijitsu/shared";
-import { minutesToPx } from "../layout/gridMetrics";
+import { msToTopPx } from "../layout/gridMetrics";
 
 /**
  * GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b「CI/Actions
@@ -12,7 +12,7 @@ import { minutesToPx } from "../layout/gridMetrics";
 
 /** 1日ぶんの GitHubCiRunDTO をまとめたクラスタ(近接タイムスタンプの run 群) */
 export interface GitHubCiCluster {
-  /** minutesToPx((anchorMs - dayStartMs)/60000) の結果。クラスタの代表位置(先頭アイテムの位置) */
+  /** msToTopPx(anchorMs, dayStartMs, hourHeight) の結果。クラスタの代表位置(先頭アイテムの位置) */
   topPx: number;
   /** クラスタに属する items。timestampMs 昇順 */
   items: GitHubCiRunDTO[];
@@ -41,7 +41,7 @@ export function layoutDayCiRuns(
 
   const clusters: GitHubCiCluster[] = [];
   for (const item of dayItems) {
-    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000, hourHeight);
+    const topPx = msToTopPx(item.timestampMs, dayStartMs, hourHeight);
     const current = clusters[clusters.length - 1];
     // アンカー(クラスタ先頭アイテムの topPx、更新しない)との距離で判定する(mapActivity.ts と同じ)
     if (current && topPx - current.topPx <= CLUSTER_THRESHOLD_PX) {

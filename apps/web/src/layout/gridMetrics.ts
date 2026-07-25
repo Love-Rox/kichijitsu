@@ -222,6 +222,35 @@ export function pxToMinutes(px: number, hourHeight: number): number {
 }
 
 /**
+ * epoch ms → 日列内の縦位置(px)。その日の 0:00 (dayStartMs) からのオフセット。
+ *
+ * 2026-07-25 の共通化: `minutesToPx((ms - dayStartMs) / 60_000, hourHeight)` という
+ * 同じ式が DayColumn/EventBlock/mapActivity/mapCiRuns に9箇所、
+ * 高さ側(下の msRangeToHeightPx)が4箇所コピペされていた。正解は sync/planned.ts に
+ * あった plannedBlockTopPx / plannedBlockHeightPx(最低4pxの床込み)だったが、
+ * 「予定タイムブロック専用」の名前と置き場所のせいで他から使われていなかったため、
+ * 座標系の出どころであるこのモジュール(minutesToPx の隣)へ移して汎用名に改めた。
+ *
+ * hourHeight は既定引数を付けない ―― このモジュール冒頭のコメントどおり、
+ * 渡し忘れがズームの効かないバグとして静かに入り込むのを型で防ぐため。
+ */
+export function msToTopPx(ms: number, dayStartMs: number, hourHeight: number): number {
+  return minutesToPx((ms - dayStartMs) / 60_000, hourHeight);
+}
+
+/**
+ * [startMs, endMs) の長さ → カードの高さ(px)。最低 4px を保証する。
+ *
+ * 4px の床は「長さ0や数分の予定でも掴める帯として見える」ための下限で、
+ * plannedBlockHeightPx から引き継いだ既存挙動(sync/planned.test.ts の期待値と同じ)。
+ * レール(OOO/勤務場所)は帯の中に飾りを収める都合でより大きい床
+ * (RAIL_MIN_BAND_HEIGHT_PX)を使うため、そちらはこの関数を通さない。
+ */
+export function msRangeToHeightPx(startMs: number, endMs: number, hourHeight: number): number {
+  return Math.max(minutesToPx((endMs - startMs) / 60_000, hourHeight), 4);
+}
+
+/**
  * ズーム変更後のスクロール位置(scrollTop)。ズーム前に「ビューポート内 anchorPx の位置に
  * 見えていた時刻」が、ズーム後も同じ位置に留まるように補正する ―― これが無いと拡大/縮小の
  * たびに見ている時間帯が上下へ飛んでしまう。⌘/Ctrl+ホイールではポインタ位置、−/+ ボタンや

@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vite-plus/test";
-import { effectivePaneMode, shouldCloseOtherPaneOnOpen } from "./paneMode";
+import { effectivePaneMode, isPaneMode, shouldCloseOtherPaneOnOpen } from "./paneMode";
+
+describe("isPaneMode", () => {
+  it("docked / overlay だけを PaneMode とみなす", () => {
+    expect(isPaneMode("docked")).toBe(true);
+    expect(isPaneMode("overlay")).toBe(true);
+  });
+
+  it("未知の文字列・空文字は PaneMode ではない(壊れた localStorage 値の防波堤)", () => {
+    expect(isPaneMode("")).toBe(false);
+    expect(isPaneMode("Docked")).toBe(false);
+    expect(isPaneMode("floating")).toBe(false);
+  });
+});
 
 describe("effectivePaneMode", () => {
   it("狭幅では常に overlay を返す(docked が選ばれていても上書きする)", () => {

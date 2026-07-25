@@ -1,5 +1,5 @@
 import type { GitHubActivityDTO } from "@kichijitsu/shared";
-import { minutesToPx } from "../layout/gridMetrics";
+import { msToTopPx } from "../layout/gridMetrics";
 
 /**
  * GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B) の
@@ -16,7 +16,7 @@ import { minutesToPx } from "../layout/gridMetrics";
 
 /** 1日ぶんの GitHubActivityDTO をまとめたクラスタ(近接タイムスタンプの commit 群) */
 export interface GitHubActivityCluster {
-  /** minutesToPx((anchorMs - dayStartMs)/60000) の結果。クラスタの代表位置(先頭アイテムの位置) */
+  /** msToTopPx(anchorMs, dayStartMs, hourHeight) の結果。クラスタの代表位置(先頭アイテムの位置) */
   topPx: number;
   /** クラスタに属する items。timestampMs 昇順 */
   items: GitHubActivityDTO[];
@@ -58,7 +58,7 @@ export function layoutDayActivity(
 
   const clusters: GitHubActivityCluster[] = [];
   for (const item of dayItems) {
-    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000, hourHeight);
+    const topPx = msToTopPx(item.timestampMs, dayStartMs, hourHeight);
     const current = clusters[clusters.length - 1];
     // アンカー(クラスタ先頭アイテムの topPx、更新しない)との距離で判定する
     if (current && topPx - current.topPx <= CLUSTER_THRESHOLD_PX) {
