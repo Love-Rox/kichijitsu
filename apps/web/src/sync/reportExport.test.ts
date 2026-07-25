@@ -143,6 +143,170 @@ describe("buildReportRows", () => {
     }
   });
 
+  // 行の母集合は「予定タイムブロック ∪ 走行中タイマー ∪ work_logs」(2026-07-25 修正)。
+  // フェーズ5b 以降 timeEntries は走行中のみなので、確定実績しか無い item を落とすと
+  // レポート/CSV が空になる。
+  describe("行の母集合(予定 ∪ work_logs)", () => {
+    it("予定のみ: 予定 X / 実績なしの行が出る", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [
+            planned("ghq:owner/repo:issue:1", 0, 60 * 60_000, { itemType: "issue", number: 1 }),
+          ],
+          timeEntries: [],
+          workLogs: [],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].plannedMs).toBe(60 * 60_000);
+      expect(rows[0].hookActualMs).toBeUndefined();
+    });
+
+    it("実績のみ(予定ブロック無し): work_logs 由来の「予定0/実績X」行が出る", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [],
+          timeEntries: [],
+          workLogs: [
+            workLog({ repo: "owner/repo", issueRef: "42", startMs: 0, endMs: 1_800_000 }),
+          ],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        linkedItemId: "ghq:owner/repo:issue:42",
+        itemType: "issue",
+        repo: "owner/repo",
+        number: 42,
+        title: "",
+        url: "https://github.com/owner/repo/issues/42",
+        plannedMs: 0,
+        actualMs: 0,
+        hookActualMs: 1_800_000,
+      });
+    });
+
+    it("両方ある: 予定と work_logs が同じ item なら1行にマージされる", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [
+            planned("ghq:owner/repo:issue:42", 0, 60 * 60_000, { itemType: "issue", number: 42 }),
+          ],
+          timeEntries: [],
+          workLogs: [
+            workLog({ repo: "owner/repo", issueRef: "42", startMs: 0, endMs: 1_800_000 }),
+          ],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].title).toBe("予定タイトル");
+      expect(rows[0].plannedMs).toBe(60 * 60_000);
+      expect(rows[0].hookActualMs).toBe(1_800_000);
+    });
+
+    it("同じ issue に複数の work_log があれば1行に合算される", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [],
+          timeEntries: [],
+          workLogs: [
+            workLog({ repo: "owner/repo", issueRef: "42", startMs: 0, endMs: 1_800_000 }),
+            workLog({ repo: "owner/repo", issueRef: "42", startMs: 10_000_000, endMs: 13_600_000 }),
+          ],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].hookActualMs).toBe(5_400_000);
+    });
+
+    it("予定側が pr 行なら work_logs 由来の issue 行を重複して作らない", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [
+            planned("ghq:owner/repo:pr:7", 0, 60 * 60_000, { itemType: "pr", number: 7 }),
+          ],
+          timeEntries: [],
+          workLogs: [workLog({ repo: "owner/repo", issueRef: "7", startMs: 0, endMs: 3_600_000 })],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows.map((r) => r.linkedItemId)).toEqual(["ghq:owner/repo:pr:7"]);
+      expect(rows[0].hookActualMs).toBe(3_600_000);
+    });
+
+    it("issueRef が `owner/repo#番号` の完全参照なら issue の所属 repo で行を作る", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [],
+          timeEntries: [],
+          workLogs: [
+            workLog({
+              repo: "owner/impl",
+              issueRef: "owner/spec#3",
+              startMs: 0,
+              endMs: 3_600_000,
+            }),
+          ],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].linkedItemId).toBe("ghq:owner/spec:issue:3");
+      expect(rows[0].repo).toBe("owner/spec");
+      expect(rows[0].hookActualMs).toBe(3_600_000);
+    });
+
+    it("issue 番号が無い/非数値の work_log は行にしない(item に紐づけられないため)", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [],
+          timeEntries: [],
+          workLogs: [
+            workLog({ repo: "owner/repo", startMs: 0, endMs: 3_600_000 }),
+            workLog({ repo: "owner/repo", issueRef: "feat/foo", startMs: 0, endMs: 3_600_000 }),
+          ],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      expect(rows).toEqual([]);
+    });
+
+    it("実績合計(計測中 + work_logs)の降順に並ぶ", () => {
+      const rows = buildReportRows(
+        {
+          plannedBlocks: [
+            planned("ghq:owner/repo:issue:1", 0, 10 * 60 * 60_000, { number: 1 }),
+          ],
+          timeEntries: [],
+          workLogs: [workLog({ repo: "owner/repo", issueRef: "2", startMs: 0, endMs: 3_600_000 })],
+          estimatesByKey: {},
+        },
+        0,
+      );
+
+      // 予定 10h の行より、work_logs で 1h の実績がある行が上に来る
+      expect(rows.map((r) => r.number)).toEqual([2, 1]);
+    });
+  });
+
   it("予定だけ/実績だけの item も行として含める(aggregatePlannedVsActual と同じ網羅性)", () => {
     const blocks = [planned("planned-only", 0, 60 * 60_000)];
     const entries = [entry("actual-only", 0, 30 * 60_000)];
@@ -223,6 +387,22 @@ describe("reportRowsToCsv", () => {
     const csv = reportRowsToCsv(rows);
     const dataLine = csv.split("\r\n")[1];
     expect(dataLine.startsWith('"owner,repo",1,')).toBe(true);
+  });
+
+  it("予定ブロックの無い work_logs 由来の行も出力される(title は空、予定は0分)", () => {
+    const rows = buildReportRows(
+      {
+        plannedBlocks: [],
+        timeEntries: [],
+        workLogs: [workLog({ repo: "owner/repo", issueRef: "42", startMs: 0, endMs: 1_800_000 })],
+        estimatesByKey: {},
+      },
+      0,
+    );
+    const csv = reportRowsToCsv(rows);
+    const lines = csv.split("\r\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe("owner/repo,42,issue,,0,0,30,");
   });
 
   it("hook 実績・推定が両方揃っている行は分単位で出力する", () => {
