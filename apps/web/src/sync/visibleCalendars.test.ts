@@ -4,7 +4,38 @@ import {
   mergeServerVisibleCalendars,
   mergeServerVisibleCalendarsWithPending,
   nextPendingVisiblePuts,
+  nextVisibleCalendarsForAccount,
 } from "./visibleCalendars";
+
+describe("nextVisibleCalendarsForAccount", () => {
+  it("ON にすると末尾に追加する", () => {
+    expect(nextVisibleCalendarsForAccount(["cal-a"], "cal-b", true)).toEqual(["cal-a", "cal-b"]);
+  });
+
+  it("ON で既に含まれていれば同じ配列参照をそのまま返す(無駄な再レンダーを増やさない)", () => {
+    const current = ["cal-a"];
+    expect(nextVisibleCalendarsForAccount(current, "cal-a", true)).toBe(current);
+  });
+
+  it("OFF にすると取り除く", () => {
+    expect(nextVisibleCalendarsForAccount(["cal-a", "cal-b"], "cal-a", false)).toEqual(["cal-b"]);
+  });
+
+  it("OFF で含まれていなくても空振りするだけ(新しい配列を返す)", () => {
+    const current = ["cal-a"];
+    const next = nextVisibleCalendarsForAccount(current, "cal-b", false);
+    expect(next).toEqual(["cal-a"]);
+    expect(next).not.toBe(current);
+  });
+
+  it("最後の1件を OFF にすると空配列になる(「全部外した意思」を空配列で表す)", () => {
+    expect(nextVisibleCalendarsForAccount(["cal-a"], "cal-a", false)).toEqual([]);
+  });
+
+  it("未設定(空配列)から ON にすると1件だけになる", () => {
+    expect(nextVisibleCalendarsForAccount([], "cal-a", true)).toEqual(["cal-a"]);
+  });
+});
 
 describe("mergeServerVisibleCalendars", () => {
   it("サーバーに configured なエントリはサーバー側の値を採用する", () => {

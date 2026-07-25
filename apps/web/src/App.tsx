@@ -1,35 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
-import type {
-  AccountDTO,
-  CalendarListEntryDTO,
-  DisconnectRequest,
-  MeResponse,
-  SyncRequest,
-  SyncResponse,
-  TaskListDTO,
-  TaskListsResponse,
-  TasksSyncRequest,
-  TasksSyncResponse,
-  WatchRequest,
-} from "@kichijitsu/shared";
 import { hookActualByLinkedItem } from "./sync/hookActual";
-import { resolveDefaultWriteTarget, type WriteTargetCandidate } from "./sync/eventCreate";
-import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
-import {
-  buildVisibleCalendarsRequest,
-  mergeServerVisibleCalendarsWithPending,
-  nextPendingVisiblePuts,
-} from "./sync/visibleCalendars";
-import { createSyncScheduler } from "./sync/syncScheduler";
-import { buildSyncRequest } from "./sync/syncRequest";
-import { deleteJson, getJson, jsonInit, sendJson } from "./sync/httpJson";
-import { decideSyncBackfillTargets } from "./sync/syncBackfill";
-import {
-  DEFAULT_DECLINED_VISIBILITY,
-  type DeclinedVisibilitySettings,
-} from "./sync/declinedVisibility";
+import { deleteJson } from "./sync/httpJson";
 import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
 import { WeekGrid } from "./components/WeekGrid";
 import { HourHeightControl } from "./components/HourHeightControl";
@@ -48,60 +21,29 @@ import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import { useBlockRules } from "./hooks/useBlockRules";
+import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
 import { useMasuVisible } from "./hooks/useMasuVisible";
 import { useMcpTokens } from "./hooks/useMcpTokens";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useOffline } from "./hooks/useOffline";
 import { usePlannedBlockHandlers } from "./hooks/usePlannedBlockHandlers";
-import { useServerEvents } from "./hooks/useServerEvents";
 import { useTimelineNavigation } from "./hooks/useTimelineNavigation";
 import { useTimers } from "./hooks/useTimers";
 import { useWorkLogs } from "./hooks/useWorkLogs";
-import {
-  generateDummyOccurrences,
-  generateDummyOverrides,
-  generateDummySeries,
-} from "./model/dummy";
-import type { Occurrence } from "./model/types";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
 import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
 import { TimeEntryStore, useTimeEntries } from "./store/timeEntryStore";
-import {
-  CURRENT_SYNC_BACKFILL_VERSION,
-  cleanupDemoData,
-  cleanupLegacyGoogleData,
-  countSeries,
-  getAllAllDayOccurrences,
-  getAllGitHubItems,
-  getAllPlannedBlocks,
-  getAllTasks,
-  getDeclinedVisibilitySettings,
-  getExpansionState,
-  getHiddenTaskLists,
-  getOccurrencesBetween,
-  getOrCreateDeviceId,
-  getSyncBackfillVersion,
-  getVisibleCalendars,
-  openKichijitsuDB,
-  putOccurrences,
-  putOverride,
-  putSeries,
-  setDeclinedVisibilitySettings,
-  setHiddenTaskLists,
-  setSyncBackfillVersion,
-  setVisibleCalendars,
-  type KichijitsuDB,
-  type VisibleCalendarsMap,
-} from "./db/database";
+import { bootstrapDatabase } from "./db/bootstrap";
+import type { KichijitsuDB } from "./db/database";
 import { ensureExpanded } from "./expansion/ensureExpanded";
 import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrences";
-import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
 import { monthGridRangeMs } from "./layout/monthGrid";
 import {
   effectivePaneMode,
@@ -109,8 +51,7 @@ import {
   shouldCloseOtherPaneOnOpen,
   type PaneMode,
 } from "./layout/paneMode";
-import { addToSet, removeFromSet } from "./layout/setOps";
-import { calendarKey, taskListKey } from "./layout/keys";
+import { calendarKey } from "./layout/keys";
 import { readStored, writeStored } from "./layout/localStore";
 import { timelineRangeMs } from "./layout/viewRange";
 import "./App.css";
@@ -125,12 +66,6 @@ import "./App.css";
  * 置き場所についてはそちらのコメントを参照。App.tsx はフックの返り値を各コンポーネントへ
  * 配線し、表示範囲(timelineRangeMs)で fetch を回すだけになっている。
  */
-
-/** 同期対象の (accountId, taskListId) ペア(docs/google-tasks.md)。selectedTargets のタスク版 */
-interface TaskListTarget {
-  accountId: string;
-  taskListId: string;
-}
 
 /**
  * 時間軸ズーム(2026-07-25、ユーザー要望)。1時間あたりの px 高さをこの端末のローカル設定として
@@ -272,51 +207,11 @@ function App() {
   const timeEntryStore = useMemo(() => new TimeEntryStore(), []);
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null);
 
-  // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
-  // カレンダー一覧を取得し、選択中カレンダー(IndexedDB meta に永続化)ごとに同期する。
-  const [me, setMe] = useState<MeResponse>({
-    connected: false,
-    accounts: [],
-    visibleCalendars: {},
-    github: null,
-  });
-  const [calendarsByAccount, setCalendarsByAccount] = useState<
-    Record<string, CalendarListEntryDTO[]>
-  >({});
-  const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({});
-  // アカウントごとのタスクリスト一覧(docs/google-tasks.md)。tasks スコープ未付与(403)の
-  // アカウントはエントリが付かないまま = タスク機能オフとして扱う。同期対象
-  // (selectedTaskListTargets)は常にここの全件 ―― 表示 ON/OFF (hiddenTaskLists、下)とは
-  // 独立していて、非表示にしても同期は止めない(左ペイン増分2、db/database.ts の
-  // getHiddenTaskLists コメント参照)
-  const [taskListsByAccount, setTaskListsByAccount] = useState<Record<string, TaskListDTO[]>>({});
-  // tasks スコープ未付与のアカウント id 集合(docs/google-tasks.md、2026-07-20 追加の
-  // .../auth/tasks スコープより前に連携した、または granular consent で外したアカウント)。
-  // GET /api/tasklists が 403 を返したアカウントをここに覚えておき、設定モーダルで
-  // 「再連携」導線を出す(そのまま静かにスキップするだけだとタスクが無言で消え、原因に
-  // 気づけないため)。200 で取れたアカウントは外す ―― 再連携でスコープを得たら消える。
-  const [tasksScopeMissingAccounts, setTasksScopeMissingAccounts] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  // タスクリスト表示 ON/OFF(左ペイン増分2、2026-07-22)。visibleCalendars とは逆に
-  // 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を持つ(デフォルト全 ON、
-  // db/database.ts の getHiddenTaskLists 参照)。カレンダー選択と非対称にサーバー同期は
-  // 行わずこの端末のみのローカル設定(将来 PUT /api/visible-task-lists 相当を足す余地はある)
-  // ReadonlySet で持つのは layout/setOps.ts の addToSet/removeFromSet(変化が無ければ同じ参照を
-  // 返す)をそのまま setState に渡せるようにするため。読み手(CalendarPane/WeekGrid)は has だけ使う
-  const [hiddenTaskLists, setHiddenTaskListsState] = useState<ReadonlySet<string>>(new Set());
-  // 上の hiddenTaskLists 永続化 effect が、init effect の IndexedDB 読み込み完了前に
-  // 空集合で上書きしてしまわないためのガード(visibleCalendarsLoadedRef と同じ役割)
-  const hiddenTaskListsLoadedRef = useRef(false);
-  // 「不参加を表示」設定(参加ステータス表示、2026-07-22)。左ペイン(CalendarPane)の
-  // 「表示」セクションで ON/OFF する。hiddenTaskLists と同じ流儀 ―― この端末のみの
-  // ローカル設定で、サーバー同期はしない(db/database.ts の getDeclinedVisibilitySettings 参照)
-  const [declinedVisibility, setDeclinedVisibilityState] = useState<DeclinedVisibilitySettings>(
-    DEFAULT_DECLINED_VISIBILITY,
-  );
-  // 上の declinedVisibility 永続化 effect が、init effect の IndexedDB 読み込み完了前に
-  // 既定値で上書きしてしまわないためのガード(hiddenTaskListsLoadedRef と同じ役割)
-  const declinedVisibilityLoadedRef = useRef(false);
+  // マルチアカウント対応 (2026-07-19) の状態(me / カレンダー一覧 / 選択中カレンダー /
+  // タスクリスト一覧 / tasks スコープ未付与アカウント / タスクリスト非表示集合 /
+  // 不参加表示設定)とその取得・永続化・連携解除は hooks/useGoogleAccounts.ts へ移した
+  // (リファクタリング フェーズ2 ⑥、2026-07-25。下の useGoogleAccounts 呼び出し参照)。
+  // 同期(POST /api/sync)側は hooks/useCalendarSync.ts で、両者を繋ぐグルーだけがここに残る。
   const [panelOpen, setPanelOpen] = useState(false);
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false);
@@ -341,49 +236,17 @@ function App() {
   // (GitHubPane)へ集約した。開閉は右ペインの paneOpen が兼ねるため専用 state は持たない
   // ―― データは reportWorkLogs/reportPlannedBlocks をそのままペインへ渡す。
   // hook 実績 (work_logs) の一覧 state と取得/作成/更新/削除は hooks/useWorkLogs.ts へ移した
-  // (リファクタリング フェーズ2 ⑤、2026-07-25。下の useWorkLogs 呼び出し参照)
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
-  // 保存失敗のフラッシュ表示 (saveError) と移動確認ダイアログ (moveConfirm) の state は、
-  // それを立てる変更系ハンドラごと hooks/useEventMutations.ts へ移した
-  // (リファクタリング フェーズ2 ④、2026-07-25。下の useEventMutations 呼び出し参照)
-  const autoSyncedRef = useRef(false);
-  // 「このアカウントのカレンダー一覧は初回フェッチ済み/フェッチ中」フラグ。
-  // me.accounts effect が同じアカウントに何度も初回フェッチを走らせないためのもの。
-  // 取得失敗したアカウントの再フェッチ(リトライ)はこれとは別に calendarsByAccount の
-  // 有無で判定する(下の panelOpen effect 参照)
-  const fetchedAccountsRef = useRef(new Set<string>());
-  // 同一アカウントへの並行フェッチ防止(初回フェッチとパネルオープン時のリトライが
-  // 同時に走るケースがあるため)
-  const fetchInFlightRef = useRef(new Set<string>());
-  // 「このアカウントのタスクリスト一覧は初回フェッチ済み/フェッチ中」フラグ(fetchedAccountsRef のタスク版)
-  const fetchedTaskAccountsRef = useRef(new Set<string>());
-  // 新規に見つかった (accountId, taskListId) を一度だけ自動同期するための既知集合
-  // (`${accountId}:${taskListId}` キー、runSync の手動同期とは別に初回表示を早める用途)
-  const autoSyncedTaskListsRef = useRef(new Set<string>());
-  // getVisibleCalendars(db) での初回ロードが終わるまでは、下の永続化 effect を
-  // 発火させない({} で上書きしてしまわないためのガード)
-  const visibleCalendarsLoadedRef = useRef(false);
-  // PUT /api/visible-calendars の lost update 防止 (2026-07-21)。オフライン中/失敗時に
-  // その accountId の最新 calendarIds を記録しておき、checkMe (起動時・online 復帰時) の
-  // 先頭で再送してから /api/me をマージする(sync/visibleCalendars.ts 参照)
-  const pendingVisiblePutsRef = useRef<Map<string, string[]>>(new Map());
-  // syncCalendar (増分同期・全同期) の同一 (accountId, calendarId) 多重実行ガード (2026-07-21)。
-  // SSE hello/changed・起動時 runSync・カレンダー選択トグルなど複数経路から await なしで
-  // 多重に発火しうるため、キー単位で直列化する (sync/syncScheduler.ts 参照)
-  const syncSchedulerRef = useRef(createSyncScheduler());
-  // 端末ごと syncToken (2026-07-21): この端末の deviceId (IndexedDB meta に永続化、
-  // db/database.ts の getOrCreateDeviceId 参照)。init effect で db を開いた直後に取得して
-  // ここへ入れる。POST /api/sync の body に含めることで、サーバー (UserSyncDO) が
-  // (calendar_id, device_id) 単位で syncToken を管理できるようにする — 端末Aの同期が
-  // 進めたトークンで端末Bが差分を取りこぼす設計欠陥の修正 (sync/syncRequest.ts 参照)。
-  // 理論上 db より先に syncCalendarOnce が走ることは無いが、念のため null 許容にしてあり、
-  // null のままなら (旧クライアントと同じ) レガシー共有トークン動作にフォールバックする
-  const deviceIdRef = useRef<string | null>(null);
-  // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
-  // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
-  // レンダーごとに更新するだけで、これ自体は再レンダーを起こさない)
-  const visibleCalendarsRef = useRef<VisibleCalendarsMap>({});
-  visibleCalendarsRef.current = visibleCalendars;
+  // (リファクタリング フェーズ2 ⑤、2026-07-25。下の useWorkLogs 呼び出し参照)。
+  //
+  // ここに無くなった残りの state / ref の行き先(いずれも 2026-07-25 のフェーズ2):
+  //  - 保存失敗のフラッシュ表示 (saveError)・移動確認ダイアログ (moveConfirm) →
+  //    それを立てる変更系ハンドラごと hooks/useEventMutations.ts(④)
+  //  - 同期状態 (syncStatus) と同期の直列化・自動同期の一回きり判定の ref
+  //    (syncSchedulerRef / autoSyncedRef / autoSyncedTaskListsRef / deviceIdRef) →
+  //    hooks/useCalendarSync.ts(⑥)
+  //  - 一覧のフェッチ済み判定と PUT の pending 追跡の ref (fetchedAccountsRef /
+  //    fetchInFlightRef / fetchedTaskAccountsRef / visibleCalendarsLoadedRef /
+  //    pendingVisiblePutsRef / visibleCalendarsRef) → hooks/useGoogleAccounts.ts(⑥)
 
   // オフライン表示(brand/README.md「枡オーナメント」節: 空枡+「オフライン」)。
   // fetch 経路は checkedFetch を薄く差し込んで判定する(useOffline.ts 参照)
@@ -409,223 +272,49 @@ function App() {
     [markOffline, markOnline],
   );
 
-  // POST /api/watch — 選択中カレンダーの push 通知登録/解除。fire-and-forget
-  // (登録は best-effort。失敗してもアラームポーリングが補うので UI はブロックしない)
-  const postWatch = useCallback(
-    (accountId: string, calendarId: string, enabled: boolean) => {
-      checkedFetch(
-        "/api/watch",
-        jsonInit("POST", { accountId, calendarId, enabled } satisfies WatchRequest),
-      )
-        .then((res) => {
-          if (!res.ok) {
-            console.warn(
-              `kichijitsu: POST /api/watch failed (${accountId}/${calendarId}): ${res.status}`,
-            );
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: POST /api/watch failed", err);
-        });
-    },
-    [checkedFetch],
-  );
-
-  // PUT /api/visible-calendars — カレンダー選択をサーバーに保存する (端末間同期、2026-07-20)。
-  // 失敗(fetch 例外・非2xx)したら pendingVisiblePutsRef に記録し、checkMe が online 復帰時に
-  // 再送する(lost update 防止、2026-07-21。sync/visibleCalendars.ts の nextPendingVisiblePuts
-  // 参照)。成否を呼び出し側が判定できるよう boolean を返す
-  const putVisibleCalendarsOnce = useCallback(
-    async (accountId: string, calendarIds: string[]): Promise<boolean> => {
-      let ok: boolean;
-      try {
-        const res = await checkedFetch(
-          "/api/visible-calendars",
-          jsonInit("PUT", buildVisibleCalendarsRequest(accountId, calendarIds)),
-        );
-        ok = res.ok;
-        if (!ok) {
-          console.warn(
-            `kichijitsu: PUT /api/visible-calendars failed (${accountId}): ${res.status}`,
-          );
-        }
-      } catch (err) {
-        ok = false;
-        console.warn("kichijitsu: PUT /api/visible-calendars failed", err);
-      }
-      pendingVisiblePutsRef.current = nextPendingVisiblePuts(
-        pendingVisiblePutsRef.current,
-        accountId,
-        calendarIds,
-        ok ? "success" : "failure",
-      );
-      return ok;
-    },
-    [checkedFetch],
-  );
-
-  // handleToggleCalendar のトグル時と、fetchCalendarsFor の初回 primary デフォルト選択時に
-  // 呼ぶ fire-and-forget 版: UI/IndexedDB は既に楽観的更新済みなので、失敗してもロールバックしない
-  // (選択はローカルに残るため動作は継続でき、オフライン表示は checkedFetch の markOffline に委ねる。
-  // 失敗の追跡は putVisibleCalendarsOnce 内の pendingVisiblePutsRef が担う)
-  const putVisibleCalendars = useCallback(
-    (accountId: string, calendarIds: string[]) => {
-      void putVisibleCalendarsOnce(accountId, calendarIds);
-    },
-    [putVisibleCalendarsOnce],
-  );
+  // POST /api/watch(push 通知登録)と PUT /api/visible-calendars(カレンダー選択の
+  // 端末間同期・lost update 防止つき)は、それを使うトグル/一覧取得ごと
+  // hooks/useGoogleAccounts.ts へ移した(フェーズ2 ⑥)。
 
   // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
   // グリッド中央に枡インジケーターをオーバーレイし、初期化完了で消す
   const initializing = db === null;
   const initIndicator = useMasuVisible(initializing);
-  const syncIndicator = useMasuVisible(syncStatus === "syncing");
 
-  // 起動時: DB を開く → 初回のみ dummy データをシード → 表示週ぶんを展開 →
-  // 展開済み範囲全体(単発イベント込み)を store に反映する → 選択中カレンダーを読み込む
+  /*
+   * 起動時の IndexedDB 読み込み(DB を開く → deviceId → レガシー/デモ掃除 → 表示範囲ぶんの
+   * 展開 → 各ストアへの初回反映 → 表示設定の読み込み → db state の確定)は db/bootstrap.ts へ
+   * 移した(リファクタリング フェーズ2 ⑦、2026-07-25)。順序そのものが仕様なので、
+   * batch のネスト(初期描画のチラつき防止)も含めてあちらで固めてテストを書いてある。
+   * ここに残るのは「マウント時に1回だけ呼ぶ」配線と cancelled フラグだけ。
+   *
+   * このコールバック群(setDeviceId / loadStored*)は宣言順ではこの effect より後ろにある
+   * フックの返り値だが、effect の本体はレンダー完了後に実行されるので参照して問題ない
+   * (依存配列に置くとレンダー中に評価されて TDZ になるため、それは避ける ―― 依存は
+   * 従来どおり空のまま、下の eslint-disable も維持する)。
+   */
   useEffect(() => {
     let cancelled = false;
 
-    async function init() {
-      const database = await openKichijitsuDB();
-      if (cancelled) return;
+    // 表示範囲はマウント時点の view/monthCursor/timelineStart/dayCount で固定してよい
+    // (この effect は初回マウント時にのみ実行される)
+    const initialRange =
+      view === "month"
+        ? monthGridRangeMs(monthCursor, timeZone)
+        : timelineRangeMs(timelineStart, dayCount, timeZone);
 
-      // 端末ごと syncToken (2026-07-21): db を開いた直後に deviceId を取得/生成しておく。
-      // 以後の syncCalendarOnce (POST /api/sync) がこれを body に含める
-      const deviceId = await getOrCreateDeviceId(database);
-      if (cancelled) return;
-      deviceIdRef.current = deviceId;
-
-      // レガシー掃除(一回きり・冪等): ID スコープ化 (2026-07-19) 以前の旧形式
-      // Google データ (`g:<eventId>`、accountId/calendarId フィールドなし) は
-      // 現行のフィルタにマッチしない不可視の残骸なので削除する。0件なら何も出さない
-      const legacyCleanup = await cleanupLegacyGoogleData(database);
-      if (cancelled) return;
-      const legacyTotal =
-        legacyCleanup.seriesRemoved +
-        legacyCleanup.occurrencesRemoved +
-        legacyCleanup.overridesRemoved;
-      if (legacyTotal > 0) {
-        console.info(
-          `kichijitsu: legacy Google data cleanup removed ${legacyTotal} record(s) ` +
-            `(series=${legacyCleanup.seriesRemoved}, occurrences=${legacyCleanup.occurrencesRemoved}, ` +
-            `overrides=${legacyCleanup.overridesRemoved})`,
-        );
-      }
-
-      // デモ/シードデータの一回きりクリーンアップ (実データ運用への移行、2026-07-20):
-      // DEMO_SEED_ENABLED が false の通常起動では二度とシードされないが、過去に
-      // シード済みだった環境の残骸を掃除する。cleanupLegacyGoogleData と同じ流儀で
-      // 起動のたびに呼んでよい(冪等・0件なら何も出さない)
-      const demoCleanup = await cleanupDemoData(database);
-      if (cancelled) return;
-      const demoTotal =
-        demoCleanup.seriesRemoved + demoCleanup.occurrencesRemoved + demoCleanup.overridesRemoved;
-      if (demoTotal > 0) {
-        console.info(
-          `kichijitsu: demo data cleanup removed ${demoTotal} record(s) ` +
-            `(series=${demoCleanup.seriesRemoved}, occurrences=${demoCleanup.occurrencesRemoved}, ` +
-            `overrides=${demoCleanup.overridesRemoved})`,
-        );
-      }
-
-      // ダミーシード投入は開発時の明示的なオプトイン (?demo=1) のときだけ (DEMO_SEED_ENABLED 参照)。
-      // 実データ運用では絶対に自動投入しない
-      if (DEMO_SEED_ENABLED) {
-        const existingSeriesCount = await countSeries(database);
-        if (existingSeriesCount === 0) {
-          const series = generateDummySeries(timeZone);
-          const overrides = generateDummyOverrides(series);
-          const singles = generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone);
-          await putSeries(database, series);
-          await Promise.all(overrides.map((o) => putOverride(database, o)));
-          await putOccurrences(database, singles);
-        }
-      }
-      if (cancelled) return;
-
-      const initialRange =
-        view === "month"
-          ? monthGridRangeMs(monthCursor, timeZone)
-          : timelineRangeMs(timelineStart, dayCount, timeZone);
-      await ensureExpanded(database, store, initialRange.fromMs, initialRange.toMs);
-      if (cancelled) return;
-
-      const state = await getExpansionState(database);
-      let all: Occurrence[] | undefined;
-      if (state) {
-        all = await getOccurrencesBetween(database, state.expandedFromMs, state.expandedToMs);
-      }
-
-      // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
-      const allDays = await getAllAllDayOccurrences(database);
-      // Google タスク (docs/google-tasks.md): 終日予定と同じく全件を丸ごとロードする
-      const allTasks = await getAllTasks(database);
-      // GitHub アイテム (docs/github-integration.md フェーズ①Part B): 同じく全件ロード。
-      // ここでは前回取得のキャッシュを表示するだけで、最新化は me.github 判明後の別 effect が行う
-      const allGitHubItems = await getAllGitHubItems(database);
-      // 予定タイムブロック (docs/github-integration.md「時間計測」増分1): 同じく全件ロード。
-      // Google 同期とは無関係なので、以後この値がサーバーから再取得されることは無い
-      // (ローカル操作のみで更新される)
-      const allPlannedBlocks = await getAllPlannedBlocks(database);
-      // 手動タイマーの走行中状態は実績 UX 刷新フェーズ5b(2026-07-23)でサーバー開区間
-      // (GET /api/work-logs/open)を単一の真実にしたため、ここで IndexedDB から TimeEntry を
-      // 読み込むことはしない(timeEntryStore は開区間の射影キャッシュとして下の effect が満たす)。
-
-      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロックの
-      // 初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
-      if (!cancelled) {
-        await store.batch(async () => {
-          await allDayStore.batch(async () => {
-            await taskStore.batch(async () => {
-              await githubStore.batch(async () => {
-                await plannedStore.batch(async () => {
-                  if (all) store.load(all);
-                  allDayStore.load(allDays);
-                  taskStore.load(allTasks);
-                  githubStore.load(allGitHubItems);
-                  plannedStore.load(allPlannedBlocks);
-                });
-              });
-            });
-          });
-        });
-      }
-
-      const storedVisible = await getVisibleCalendars(database);
-      if (!cancelled) {
-        // ここで単純に setVisibleCalendarsState(storedVisible) すると、下の
-        // 「me.accounts が増えるたびにカレンダー一覧を取得する」effect が
-        // (/api/me・/api/calendars は同一プロセス内の高速な往復のため) この
-        // DB 読み込みより先に primary デフォルト選択を書き込んでいた場合、
-        // それを空の storedVisible で握り潰してしまう(= 一生 primary が
-        // 選ばれないまま {} が永続化される既知のバグだった)。
-        // 既に state にある値(prev)を優先してマージすることで、どちらが
-        // 先に解決してもデフォルト選択が失われないようにする
-        setVisibleCalendarsState((prev) => ({ ...storedVisible, ...prev }));
-        visibleCalendarsLoadedRef.current = true;
-      }
-
-      // タスクリスト表示 ON/OFF(左ペイン増分2): サーバー同期が無くこの端末の IndexedDB が
-      // 唯一の正なので、visibleCalendars のような server/prev マージは不要 ―― 素直に読み込むだけ
-      const storedHiddenTaskLists = await getHiddenTaskLists(database);
-      if (!cancelled) {
-        setHiddenTaskListsState(storedHiddenTaskLists);
-        hiddenTaskListsLoadedRef.current = true;
-      }
-
-      // 「不参加を表示」設定(参加ステータス表示): hiddenTaskLists と同じくこの端末の
-      // IndexedDB が唯一の正なので、素直に読み込むだけでよい
-      const storedDeclinedVisibility = await getDeclinedVisibilitySettings(database);
-      if (!cancelled) {
-        setDeclinedVisibilityState(storedDeclinedVisibility);
-        declinedVisibilityLoadedRef.current = true;
-      }
-
-      if (!cancelled) setDb(database);
-    }
-
-    init().catch((err) => {
+    bootstrapDatabase({
+      stores: { store, allDayStore, taskStore, githubStore, plannedStore },
+      initialRange,
+      timeZone,
+      demoSeedEnabled: DEMO_SEED_ENABLED,
+      isCancelled: () => cancelled,
+      onDeviceId: setDeviceId,
+      onVisibleCalendars: loadStoredVisibleCalendars,
+      onHiddenTaskLists: loadStoredHiddenTaskLists,
+      onDeclinedVisibility: loadStoredDeclinedVisibility,
+      onReady: setDb,
+    }).catch((err) => {
       console.error("kichijitsu: initialization failed", err);
     });
 
@@ -649,57 +338,37 @@ function App() {
     });
   }, [db, view, timelineStart, dayCount, monthCursor, timeZone, store]);
 
-  // Google 連携状態を確認する。バックエンド (apps/sync) が起動していない場合の
-  // fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)。
-  // 起動時に1回、加えてブラウザの online イベントでも再確認する(オフライン復帰時)
-  const checkMe = useCallback(async () => {
-    // /api/me を取得する前に、オフライン中/失敗で溜まった pending な PUT
-    // /api/visible-calendars を先に再送する(lost update 防止、2026-07-21)。
-    // ここで直近のローカル選択をサーバーに反映してから「サーバー勝ち」マージに
-    // 入らないと、オフライン中に変えた選択が古いサーバー値に潰されてしまう
-    const pendingEntries = [...pendingVisiblePutsRef.current.entries()];
-    if (pendingEntries.length > 0) {
-      await Promise.all(
-        pendingEntries.map(([accountId, calendarIds]) =>
-          putVisibleCalendarsOnce(accountId, calendarIds),
-        ),
-      );
-    }
-
-    try {
-      const res = await checkedFetch("/api/me");
-      if (!res.ok) {
-        setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
-        return;
-      }
-      const data = (await res.json()) as MeResponse;
-      setMe(data);
-      // サーバーに configured なエントリを取り込む(サーバーが正)。無いアカウントは
-      // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す。
-      // 再送してもなお失敗が残っている accountId(pendingVisiblePutsRef に残存)は、
-      // サーバー勝ちマージのあとでローカル値に復元する(mergeServerVisibleCalendarsWithPending
-      // 参照。init effect の IndexedDB ロードとの解決順序に依存しない — どちらが先でも
-      // 既存のレース対策(prev 優先マージ)と両立する)
-      const stillPending = [...pendingVisiblePutsRef.current.keys()];
-      setVisibleCalendarsState((prev) =>
-        mergeServerVisibleCalendarsWithPending(prev, data.visibleCalendars, stillPending),
-      );
-    } catch {
-      setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
-    }
-  }, [checkedFetch, putVisibleCalendarsOnce]);
-
-  useEffect(() => {
-    checkMe();
-  }, [checkMe]);
-
-  useEffect(() => {
-    function onOnline() {
-      checkMe();
-    }
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, [checkMe]);
+  /**
+   * Google 連携アカウントと表示設定(hooks/useGoogleAccounts.ts)。GET /api/me の再取得
+   * (起動時・online 復帰時)、カレンダー/タスクリスト一覧の取得、選択状態のサーバー保存
+   * (PUT /api/visible-calendars、lost update 防止つき)と IndexedDB 永続化、アカウント
+   * 連携解除がすべて入っている(リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 呼び出し位置: `me` を下の useBlockRules / useGitHubData が引数に取るため、ここより
+   * 後ろには置けない(フックの引数はレンダー中に評価される)。移設前は永続化 effect と
+   * 一覧取得 effect が useGitHubData の後に登録されていたが、それらは初回マウント時には
+   * すべてガードで空振りし、GitHub 系 effect と読み書きする state も分かれているため
+   * 登録順の入れ替えで挙動は変わらない(フック側のコメントに詳細)。
+   * 返り値は JSX 側の既存の名前に別名で受けて、呼び出し箇所を一切変えずに済ませている。
+   */
+  const {
+    me,
+    calendarsByAccount,
+    visibleCalendars,
+    taskListsByAccount,
+    tasksScopeMissingAccounts,
+    hiddenTaskLists,
+    declinedVisibility,
+    loadStoredVisibleCalendars,
+    loadStoredHiddenTaskLists,
+    loadStoredDeclinedVisibility,
+    toggleCalendarVisibility,
+    toggleTaskList: handleToggleTaskList,
+    toggleShowDeclined: handleToggleShowDeclined,
+    toggleKeepOrganizerDeclined: handleToggleKeepOrganizerDeclined,
+    disconnectAccount,
+    clearGitHubConnection,
+  } = useGoogleAccounts({ db, store, allDayStore, taskStore, panelOpen, checkedFetch });
 
   // カレンダーブロックのルール一覧 + 作成/削除(hooks/useBlockRules.ts)。取得タイミング
   // (me.connected になったら一度だけ)も含めてフック側にあるので、ここは配線だけ。
@@ -748,152 +417,6 @@ function App() {
     checkedFetch,
   });
 
-  // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
-  // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
-  useEffect(() => {
-    if (!db || !visibleCalendarsLoadedRef.current) return;
-    setVisibleCalendars(db, visibleCalendars).catch((err) => {
-      console.error("kichijitsu: failed to persist visibleCalendars", err);
-    });
-  }, [db, visibleCalendars]);
-
-  // hiddenTaskLists(左ペイン増分2)が変わるたびに IndexedDB meta へ永続化する。
-  // visibleCalendars の永続化 effect と同じ流儀(初回ロード完了までは待つ)
-  useEffect(() => {
-    if (!db || !hiddenTaskListsLoadedRef.current) return;
-    setHiddenTaskLists(db, hiddenTaskLists).catch((err) => {
-      console.error("kichijitsu: failed to persist hiddenTaskLists", err);
-    });
-  }, [db, hiddenTaskLists]);
-
-  // declinedVisibility(参加ステータス表示)が変わるたびに IndexedDB meta へ永続化する。
-  // hiddenTaskLists の永続化 effect と同じ流儀(初回ロード完了までは待つ)
-  useEffect(() => {
-    if (!db || !declinedVisibilityLoadedRef.current) return;
-    setDeclinedVisibilitySettings(db, declinedVisibility).catch((err) => {
-      console.error("kichijitsu: failed to persist declinedVisibility", err);
-    });
-  }, [db, declinedVisibility]);
-
-  // アカウント一覧ぶんのカレンダー一覧を取得し、state に反映する共通処理。
-  // 「me.accounts が増えたときの初回フェッチ」と「設定パネルを開いたときの
-  // 未取得/取得失敗アカウントのリトライ」の両方から使う。
-  // 初回連携時(=このアカウントの visibleCalendars が未設定)はデフォルトで primary のみ選択する
-  const fetchCalendarsFor = useCallback(
-    async (accounts: AccountDTO[], isCancelled: () => boolean) => {
-      for (const account of accounts) {
-        if (fetchInFlightRef.current.has(account.id)) continue; // 並行フェッチ防止
-        fetchInFlightRef.current.add(account.id);
-        try {
-          const calendars = await getJson<CalendarListEntryDTO[]>(
-            checkedFetch,
-            `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
-          );
-          if (isCancelled()) return;
-          setCalendarsByAccount((prev) => ({ ...prev, [account.id]: calendars }));
-          // このアカウントにまだ選択状態が無ければ(=サーバーにも configured なエントリが
-          // 無く、ローカルにも無い)primary をデフォルト選択し、その場で watch も登録し、
-          // 次回別端末でも同じ選択になるようサーバーにも保存する(初回連携時)
-          const alreadySelected = visibleCalendarsRef.current[account.id] !== undefined;
-          const primary = calendars.find((c) => c.primary) ?? calendars[0];
-          setVisibleCalendarsState((prev) => {
-            if (prev[account.id] !== undefined) return prev; // 既に選択状態があるなら上書きしない
-            if (!primary) return prev;
-            return { ...prev, [account.id]: [primary.id] };
-          });
-          if (!alreadySelected && primary) {
-            postWatch(account.id, primary.id, true);
-            putVisibleCalendars(account.id, [primary.id]);
-          }
-        } catch (err) {
-          console.error("kichijitsu: failed to load calendars", err);
-        } finally {
-          fetchInFlightRef.current.delete(account.id);
-        }
-      }
-    },
-    [checkedFetch, postWatch, putVisibleCalendars],
-  );
-
-  // me.accounts が増えるたびに、まだ取得していないアカウントのカレンダー一覧を取りに行く(初回のみ)
-  useEffect(() => {
-    const toFetch = me.accounts.filter((a) => !fetchedAccountsRef.current.has(a.id));
-    if (toFetch.length === 0) return;
-    for (const account of toFetch) fetchedAccountsRef.current.add(account.id);
-
-    let cancelled = false;
-    fetchCalendarsFor(toFetch, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [me.accounts, fetchCalendarsFor]);
-
-  // アカウント一覧ぶんのタスクリスト一覧を取得する(docs/google-tasks.md)。fetchCalendarsFor と
-  // 対になる処理だが、タスクは v1 でトグル UI が無いためデフォルト選択・watch 登録の類は無く、
-  // 単純に一覧を state へ反映するだけでよい。tasks スコープ未付与のアカウントは
-  // GET /api/tasklists が 403 を返す想定 — その場合はタスク機能オフとして静かにスキップする
-  // (審査ポリシー上、未使用スコープは要求しないため実装済みでもユーザーが同意していなければ 403 になる)。
-  // バックエンド不在(502 相当)やその他のネットワークエラーもコンソールを汚さないよう warn 止まりにする。
-  const fetchTaskListsFor = useCallback(
-    async (accounts: AccountDTO[], isCancelled: () => boolean) => {
-      for (const account of accounts) {
-        try {
-          const res = await checkedFetch(
-            `/api/tasklists?accountId=${encodeURIComponent(account.id)}`,
-          );
-          if (res.status === 403) {
-            // tasks スコープ未付与: タスク一覧の取得自体は静かにスキップしつつ、
-            // 設定モーダルの再連携導線用にアカウント id を覚えておく(挙動は従来どおり)。
-            if (isCancelled()) return;
-            setTasksScopeMissingAccounts((prev) => addToSet(prev, account.id));
-            continue;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/tasklists failed (${account.id}): ${res.status}`);
-            continue;
-          }
-          const data = (await res.json()) as TaskListsResponse;
-          if (isCancelled()) return;
-          setTaskListsByAccount((prev) => ({ ...prev, [account.id]: data.taskLists }));
-          // スコープを得られた(200)ので未付与集合から外す ―― 再連携後の再取得で消える
-          setTasksScopeMissingAccounts((prev) => removeFromSet(prev, account.id));
-        } catch (err) {
-          console.warn("kichijitsu: failed to load task lists", err);
-        }
-      }
-    },
-    [checkedFetch],
-  );
-
-  // me.accounts が増えるたびに、まだ取得していないアカウントのタスクリスト一覧を取りに行く(初回のみ)
-  useEffect(() => {
-    const toFetch = me.accounts.filter((a) => !fetchedTaskAccountsRef.current.has(a.id));
-    if (toFetch.length === 0) return;
-    for (const account of toFetch) fetchedTaskAccountsRef.current.add(account.id);
-
-    let cancelled = false;
-    fetchTaskListsFor(toFetch, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [me.accounts, fetchTaskListsFor]);
-
-  // 設定パネルを開いたとき、カレンダー一覧がまだ無いアカウント(未取得中、または
-  // 初回フェッチが失敗して calendarsByAccount に一度もエントリが入らなかったもの)を
-  // 再フェッチする。panelOpen が true になった瞬間にのみ試みる(閉じている間や、
-  // 開いたままの再レンダーごとに何度も走らないよう依存を panelOpen だけに絞る)
-  useEffect(() => {
-    if (!panelOpen) return;
-    const toRetry = me.accounts.filter((a) => calendarsByAccount[a.id] === undefined);
-    if (toRetry.length === 0) return;
-    let cancelled = false;
-    fetchCalendarsFor(toRetry, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelOpen]);
-
   // MCP トークン一覧 + 発行/失効(hooks/useMcpTokens.ts)。取得タイミング(設定パネルが
   // 開いた瞬間だけ)も含めてフック側にあるので、ここは配線だけ
   const {
@@ -902,280 +425,59 @@ function App() {
     deleteMcpToken: handleDeleteMcpToken,
   } = useMcpTokens({ panelOpen, checkedFetch });
 
-  // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
-  // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)。
-  // forceFull (2026-07-22、同期バックフィル用) は通常同期では省略して
-  // false 扱いにする — runSyncBackfillIfNeeded だけが明示的に true を渡す
-  const syncCalendarOnce = useCallback(
-    async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
-      if (!db) return;
-      // postJson ではなく sendJson なのは、失敗メッセージに (accountId/calendarId) を残すため
-      // ―― どのカレンダーの同期が失敗したかが console から読めなくなるのを避ける
-      const syncRes = await sendJson(
-        checkedFetch,
-        "POST",
-        "/api/sync",
-        buildSyncRequest(
-          accountId,
-          calendarId,
-          deviceIdRef.current,
-          forceFull,
-        ) satisfies SyncRequest,
-      );
-      if (!syncRes.ok) {
-        throw new Error(`POST /api/sync failed (${accountId}/${calendarId}): ${syncRes.status}`);
-      }
-      const syncData = (await syncRes.json()) as SyncResponse;
-      await applySyncResponse(db, store, allDayStore, syncData, {
-        accountId,
-        calendarId,
-        defaultColor,
-      });
-    },
-    [db, store, allDayStore, checkedFetch],
-  );
-
-  // 1つの (accountId, calendarId) を同期する共通処理。runSync のループ、SSE hello/changed、
-  // カレンダーを新規選択した直後の即時同期など複数経路から await なしで多重に発火しうるため、
-  // syncSchedulerRef (キー = `${accountId}:${calendarId}`) で直列化する。同一カレンダーの
-  // 増分同期と全同期(410 フォールバック)が交錯して IndexedDB の削除→再投入が競合するのを防ぐ
-  // (2026-07-21、sync/syncScheduler.ts 参照)。
-  // forceFull はそのまま syncCalendarOnce に通す — ただし schedule() は同一キーの走行中は
-  // 新しい run を無視して既存の run を再実行するだけ(sync/syncScheduler.ts の runLoop 参照)
-  // なので、理論上「非 forceFull の同期が走行中に forceFull の要求が来る」と forceFull が
-  // 無視されて通常の再実行になり得る。runSyncBackfillIfNeeded は起動時の runSync 完了を
-  // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
-  const syncCalendar = useCallback(
-    (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
-      syncSchedulerRef.current.schedule(calendarKey(accountId, calendarId), () =>
-        syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
-      ),
-    [syncCalendarOnce],
-  );
-
-  // 1つの (accountId, taskListId) を同期する共通処理(docs/google-tasks.md、syncCalendar のタスク版)。
-  // Tasks API には syncToken が無く、応答は常にそのタスクリストの全件 (protocol.ts 参照)。
-  const syncTaskList = useCallback(
-    async (accountId: string, taskListId: string) => {
-      if (!db) return;
-      // syncCalendarOnce と同じ理由で sendJson 止まり(メッセージの (accountId/taskListId) を残す)
-      const res = await sendJson(checkedFetch, "POST", "/api/tasks/sync", {
-        accountId,
-        taskListId,
-      } satisfies TasksSyncRequest);
-      if (!res.ok) {
-        throw new Error(`POST /api/tasks/sync failed (${accountId}/${taskListId}): ${res.status}`);
-      }
-      const data = (await res.json()) as TasksSyncResponse;
-      await applyTasksSyncResponse(db, taskStore, data, { accountId, taskListId });
-    },
-    [db, taskStore, checkedFetch],
-  );
-
-  // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色・primary か)。
-  // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする。
-  // primary フラグは新規予定の書き込み先決定 (defaultWriteTarget、フェーズ5) にも使う
-  const selectedTargets = useCallback((): WriteTargetCandidate[] => {
-    const targets: WriteTargetCandidate[] = [];
-    for (const account of me.accounts) {
-      const calendars = calendarsByAccount[account.id] ?? [];
-      for (const calendarId of visibleCalendars[account.id] ?? []) {
-        const cal = calendars.find((c) => c.id === calendarId);
-        targets.push({
-          accountId: account.id,
-          calendarId,
-          primary: cal?.primary,
-          defaultColor: cal?.backgroundColor,
-        });
-      }
-    }
-    return targets;
-  }, [me.accounts, calendarsByAccount, visibleCalendars]);
-
-  // 取得済みの全 (accountId, taskListId) ペア一覧。v1 はタスクリストの表示 ON/OFF が無いため
-  // (docs/google-tasks.md の TODO)、fetchTaskListsFor で取れたものは無条件に同期対象にする
-  const selectedTaskListTargets = useCallback((): TaskListTarget[] => {
-    const targets: TaskListTarget[] = [];
-    for (const account of me.accounts) {
-      for (const taskList of taskListsByAccount[account.id] ?? []) {
-        targets.push({ accountId: account.id, taskListId: taskList.id });
-      }
-    }
-    return targets;
-  }, [me.accounts, taskListsByAccount]);
-
-  // 新規予定 (フェーズ5) のデフォルトの書き込み先: 選択中カレンダーのうち primary が
-  // あればそれ、無ければ先頭 (resolveDefaultWriteTarget、規則は eventCreate.ts 参照)。
-  // null なら空き領域クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
-  const defaultWriteTarget = useMemo(
-    () => resolveDefaultWriteTarget(selectedTargets()),
-    [selectedTargets],
-  );
-
-  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペア +
-  // 取得済みの全 (accountId, taskListId) ペアを並行に同期する(docs/google-tasks.md でタスクも合流)
-  const runSync = useCallback(async () => {
-    if (!db) return;
-    const targets = selectedTargets();
-    const taskTargets = selectedTaskListTargets();
-    if (targets.length === 0 && taskTargets.length === 0) return;
-
-    setSyncStatus("syncing");
-    const results = await Promise.allSettled([
-      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor)),
-      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
-    ]);
-    let hadError = false;
-    for (const result of results) {
-      if (result.status === "rejected") {
-        hadError = true;
-        console.error("kichijitsu: sync failed", result.reason);
-      }
-    }
-    setSyncStatus(hadError ? "error" : "idle");
-  }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
-
-  // 同期バックフィル (2026-07-22、旧 runOooBackfillIfNeeded の一般化。db/database.ts の
-  // CURRENT_SYNC_BACKFILL_VERSION コメント参照)。起動時の自動同期 (runSync、下の useEffect) が
-  // 終わった直後に1回だけ呼ぶ: runSync 自体を forceFull にはしない(手動「同期」ボタンや
-  // SSE hello/changed からも runSync/syncCalendar 経由の通常同期が随時走るため、runSync 自体を
-  // forceFull 化すると毎回全同期になってしまう。起動直後の1回だけ、という条件を素直に表せるのは
-  // こちらの「runSync の後に別途走らせる」方式のほうだった)。
-  //
-  // 選択中の全 (accountId, calendarId) を forceFull: true で同期し、1つも失敗しなければ
-  // 現行世代 (CURRENT_SYNC_BACKFILL_VERSION) を保存する。一部でも失敗したら保存せず、次回起動時に
-  // また全対象を再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
-  // setSyncBackfillVersion コメント参照)。
-  const runSyncBackfillIfNeeded = useCallback(async () => {
-    if (!db) return;
-    const savedVersion = await getSyncBackfillVersion(db);
-    const targets = decideSyncBackfillTargets(
-      savedVersion,
-      CURRENT_SYNC_BACKFILL_VERSION,
-      selectedTargets(),
-    );
-    if (targets.length === 0) return;
-
-    const results = await Promise.allSettled(
-      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
-    );
-    const allOk = results.every((r) => r.status === "fulfilled");
-    if (allOk) {
-      await setSyncBackfillVersion(db, CURRENT_SYNC_BACKFILL_VERSION);
-    } else {
-      for (const result of results) {
-        if (result.status === "rejected") {
-          console.error("kichijitsu: sync backfill failed, will retry next launch", result.reason);
-        }
-      }
-    }
-  }, [db, selectedTargets, syncCalendar]);
-
-  // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
-  // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
-  const handleServerHello = useCallback(async () => {
-    if (!db) return;
-    const targets = selectedTargets();
-    if (targets.length === 0) return;
-
-    setSyncStatus("syncing");
-    let hadError = false;
-    for (const t of targets) {
-      try {
-        await syncCalendar(t.accountId, t.calendarId, t.defaultColor);
-      } catch (err) {
-        hadError = true;
-        console.error("kichijitsu: SSE hello sync failed", err);
-      }
-    }
-    setSyncStatus(hadError ? "error" : "idle");
-  }, [db, selectedTargets, syncCalendar]);
-
-  // SSE changed 受信時: 該当 (accountId, calendarId) が選択中の場合のみ sync する
-  // (通知のペイロード自体は信用せず、選択状態は常にクライアント側の visibleCalendars で判定する)
-  const handleServerChanged = useCallback(
-    (accountId: string, calendarId: string) => {
-      if (!db) return;
-      if (!(visibleCalendars[accountId] ?? []).includes(calendarId)) return;
-      const defaultColor = calendarsByAccount[accountId]?.find(
-        (c) => c.id === calendarId,
-      )?.backgroundColor;
-
-      setSyncStatus("syncing");
-      syncCalendar(accountId, calendarId, defaultColor)
-        .then(() => setSyncStatus("idle"))
-        .catch((err) => {
-          console.error("kichijitsu: SSE changed sync failed", err);
-          setSyncStatus("error");
-        });
-    },
-    [db, visibleCalendars, calendarsByAccount, syncCalendar],
-  );
-
-  // アカウントが1つ以上連携済みの間だけ SSE (GET /api/events) に接続する。
-  // hello/changed のハンドラは上の handleServerHello/handleServerChanged に委譲し、
-  // 接続状態は useOffline (markOnline/markOffline) と連動させる
-  useServerEvents({
-    enabled: me.accounts.length > 0,
-    onHello: handleServerHello,
-    onChanged: handleServerChanged,
-    onOpen: markOnline,
-    onError: markOffline,
+  /**
+   * Google カレンダー/タスクの同期(hooks/useCalendarSync.ts)。1カレンダー単位の同期
+   * (POST /api/sync、syncScheduler による直列化つき)・タスクリストの同期・手動/起動時の
+   * 一巡同期 (runSync) と同期バックフィル・SSE (hello/changed) の配線・新規予定の既定の
+   * 書き込み先 (defaultWriteTarget) が入っている(リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 表示状態は useGoogleAccounts から**一方向に**渡すだけで、逆向き(「カレンダーを選んだら
+   * そのカレンダーを即同期する」)はこの下の handleToggleCalendar が繋ぐ ―― 相互参照する
+   * フックを作らず、循環は配線層に置くという判断。
+   *
+   * 呼び出し位置は移設前の syncCalendarOnce 宣言位置に揃えてある(このフックが登録する
+   * effect は SSE 接続 → 起動時の自動同期 → タスクリストの初回同期の3本で、useMcpTokens の
+   * 後・useEventMutations の前という登録順を保つため)。
+   */
+  const {
+    syncStatus,
+    defaultWriteTarget,
+    runSync,
+    syncCalendar,
+    setDeviceId,
+    forgetAutoSyncedTaskLists,
+  } = useCalendarSync({
+    db,
+    store,
+    allDayStore,
+    taskStore,
+    accounts: me.accounts,
+    calendarsByAccount,
+    visibleCalendars,
+    taskListsByAccount,
+    checkedFetch,
+    markOnline,
+    markOffline,
   });
 
-  // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
-  // 完了後に続けて runSyncBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
-  // (runSync 自体)とバックフィルの forceFull 同期が同時に飛んで syncScheduler 上で
-  // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある
-  useEffect(() => {
-    if (!db || me.accounts.length === 0 || Object.keys(visibleCalendars).length === 0) return;
-    if (autoSyncedRef.current) return;
-    autoSyncedRef.current = true;
-    runSync().then(() => runSyncBackfillIfNeeded());
-  }, [db, me.accounts, visibleCalendars, runSync, runSyncBackfillIfNeeded]);
+  // 同期中の枡インジケーター。syncStatus が useCalendarSync の返り値になったため、
+  // initIndicator (初回ロード) と並べて上に置くことはできず(フックの引数はレンダー中に
+  // 評価されるため)ここへ下げてある。挙動は同じ(useMasuVisible は自身の active だけを見る)
+  const syncIndicator = useMasuVisible(syncStatus === "syncing");
 
-  // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
-  // (docs/google-tasks.md)。fetchTaskListsFor の完了タイミングは calendarsByAccount/visibleCalendars の
-  // 準備完了と揃わないことがあるため、上の「起動時1回だけ」の autoSyncedRef とは別に、
-  // タスクリスト単位で「初めて見つかった」ことを autoSyncedTaskListsRef で判定する。
-  // Tasks API には push 通知が無い (docs/google-tasks.md) ため、以降の更新反映は「同期」ボタン
-  // (runSync) 頼みになる — TODO: 定期ポーリングでの自動更新
-  useEffect(() => {
-    if (!db) return;
-    const targets = selectedTaskListTargets();
-    const toSync = targets.filter(
-      (t) => !autoSyncedTaskListsRef.current.has(taskListKey(t.accountId, t.taskListId)),
-    );
-    if (toSync.length === 0) return;
-    for (const t of toSync)
-      autoSyncedTaskListsRef.current.add(taskListKey(t.accountId, t.taskListId));
-    Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId))).then(
-      (results) => {
-        for (const result of results) {
-          if (result.status === "rejected") {
-            console.error("kichijitsu: initial task list sync failed", result.reason);
-          }
-        }
-      },
-    );
-  }, [db, taskListsByAccount, selectedTaskListTargets, syncTaskList]);
-
-  // 左ペイン(CalendarPane、カレンダーナビゲーション増分1)でのカレンダー表示チェック操作
-  // (旧: カレンダー設定パネル内のチェック、増分1で CalendarPane へ移設。ロジックは無変更)。
-  // 選択時は即座にそのカレンダーだけ同期し、選択解除時はその (accountId, calendarId) の
-  // ローカルデータを削除して store から取り除く
+  /*
+   * 左ペイン(CalendarPane、カレンダーナビゲーション増分1)でのカレンダー表示チェック操作。
+   * useGoogleAccounts(表示状態)と useCalendarSync(同期)を繋ぐ**グルー**で、意図的に
+   * App.tsx に残してある ―― トグルは選択状態を変えるだけでなく「選択した瞬間にその
+   * カレンダーだけ同期する」ため、フックの中に置くと両者が相互参照してしまう
+   * (リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 順序も移設前のまま: state の楽観更新 → POST /api/watch → PUT /api/visible-calendars
+   * (ここまで toggleCalendarVisibility)→ db が無ければ打ち切り → 選択時のみ即時同期。
+   */
   const handleToggleCalendar = useCallback(
     (accountId: string, calendarId: string, nextChecked: boolean) => {
-      const current = visibleCalendars[accountId] ?? [];
-      const nextForAccount = nextChecked
-        ? current.includes(calendarId)
-          ? current
-          : [...current, calendarId]
-        : current.filter((id) => id !== calendarId);
-      setVisibleCalendarsState((prev) => ({ ...prev, [accountId]: nextForAccount }));
-      postWatch(accountId, calendarId, nextChecked);
-      // サーバーへ保存(端末間同期、2026-07-20)。UI/IndexedDB は上ですでに楽観的更新済み
-      putVisibleCalendars(accountId, nextForAccount);
+      toggleCalendarVisibility(accountId, calendarId, nextChecked);
 
       if (!db) return;
 
@@ -1192,93 +494,20 @@ function App() {
         });
       }
     },
-    [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch, putVisibleCalendars],
+    [db, calendarsByAccount, syncCalendar, toggleCalendarVisibility],
   );
 
-  // 左ペイン(CalendarPane、増分2)でのタスクリスト表示チェック操作。カレンダー選択
-  // (handleToggleCalendar)と違いサーバー同期は行わず、ローカルの hiddenTaskLists
-  // (「明示的に OFF にした集合」)を更新するだけ ―― タスクの同期(syncTaskList)自体は
-  // 表示 ON/OFF に関係なく続行する(selectedTaskListTargets 参照、再 ON 時の即時性を優先)
-  const handleToggleTaskList = useCallback(
-    (accountId: string, taskListId: string, nextChecked: boolean) => {
-      const key = taskListKey(accountId, taskListId);
-      // 表示 ON なら「非表示集合」から外す / OFF なら入れる。setOps は変化が無ければ同じ参照を
-      // 返すので、同じ状態のまま呼ばれても無駄な再レンダー/再永続化が起きない
-      setHiddenTaskListsState((prev) =>
-        nextChecked ? removeFromSet(prev, key) : addToSet(prev, key),
-      );
-    },
-    [],
-  );
-
-  // 左ペイン(CalendarPane)の「表示」セクションにある2チェックの操作(参加ステータス表示、
-  // 2026-07-22)。hiddenTaskLists と同じくローカル state を直接更新するだけ(サーバー同期無し)。
-  // 「不参加を表示」チェック本体。
-  const handleToggleShowDeclined = useCallback(() => {
-    setDeclinedVisibilityState((prev) => ({ ...prev, showDeclined: !prev.showDeclined }));
-  }, []);
-
-  // サブオプション「自分が主催の予定は残す」。showDeclined が true のときは意味を持たない
-  // (shouldHideDeclined 参照)が、状態自体は独立して保持する(再度 showDeclined を OFF にした
-  // ときに前回の選択を覚えていてほしいため)。
-  const handleToggleKeepOrganizerDeclined = useCallback(() => {
-    setDeclinedVisibilityState((prev) => ({
-      ...prev,
-      keepOrganizerDeclined: !prev.keepOrganizerDeclined,
-    }));
-  }, []);
-
-  // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
-  // DELETE /api/account に任せ、成功したらそのアカウントに関する状態(accounts・カレンダー一覧・
-  // 選択状態・ローカルの google データ)を全て畳む。失敗時は呼び出し元(パネルの行UI)が
-  // catch して表示するので、ここでは reject をそのまま伝播する
+  /*
+   * アカウント単位の連携解除。本体(DELETE /api/account → 状態の畳み込み → ローカルデータ
+   * 削除)は useGoogleAccounts にあり、ここは同期側の既知集合(自動同期済みタスクリスト、
+   * useCalendarSync)の掃除関数を渡すだけのグルー。移設前はその掃除が畳み込みとローカル
+   * データ削除の**間**にあったため、位置を変えずに済むよう引数で渡す形にしている
+   * (handleToggleCalendar と同じ「循環は配線層に置く」方針)。
+   * 失敗は呼び出し元(パネルの行UI)が catch して表示するので、reject はそのまま伝播する。
+   */
   const handleDisconnectAccount = useCallback(
-    async (accountId: string) => {
-      await deleteJson(checkedFetch, "/api/account", { accountId } satisfies DisconnectRequest);
-
-      setMe((prev) => {
-        const accounts = prev.accounts.filter((a) => a.id !== accountId);
-        const { [accountId]: _removedVisible, ...remainingVisibleCalendars } =
-          prev.visibleCalendars;
-        return {
-          ...prev,
-          connected: accounts.length > 0,
-          accounts,
-          visibleCalendars: remainingVisibleCalendars,
-        };
-      });
-      setCalendarsByAccount((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setVisibleCalendarsState((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      fetchedAccountsRef.current.delete(accountId);
-
-      // タスク側の状態も畳む(docs/google-tasks.md)。カレンダーと同じ流儀
-      setTaskListsByAccount((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      fetchedTaskAccountsRef.current.delete(accountId);
-      setTasksScopeMissingAccounts((prev) => removeFromSet(prev, accountId));
-      for (const key of [...autoSyncedTaskListsRef.current]) {
-        if (key.startsWith(`${accountId}:`)) autoSyncedTaskListsRef.current.delete(key);
-      }
-
-      if (db) {
-        const { deletedOccurrenceIds, deletedAllDayIds } = await deleteGoogleData(
-          db,
-          (k) => k.accountId === accountId,
-        );
-        store.remove(deletedOccurrenceIds);
-        allDayStore.remove(deletedAllDayIds);
-        await deleteTasksForAccount(db, taskStore, accountId);
-      }
-    },
-    [db, store, allDayStore, taskStore, checkedFetch],
+    (accountId: string) => disconnectAccount(accountId, forgetAutoSyncedTaskLists),
+    [disconnectAccount, forgetAutoSyncedTaskLists],
   );
 
   // GitHub 連携解除 (docs/github-integration.md フェーズ①Part B)。DELETE /api/github で
@@ -1287,11 +516,13 @@ function App() {
   // (設定パネルのインライン確認 UI、handleDisconnectAccount と同じ流儀)が catch して表示する
   const handleDisconnectGitHub = useCallback(async () => {
     await deleteJson(checkedFetch, "/api/github");
-    setMe((prev) => ({ ...prev, github: null }));
-    // GitHub 由来のローカルデータ(作業キュー・実績/CI オーバーレイ・再連携フラグの state と、
-    // IndexedDB/store のアイテムレーン)を畳むのは useGitHubData 側の責務
+    // me.github を null に戻すのは useGoogleAccounts 側(me の持ち主)、GitHub 由来の
+    // ローカルデータ(作業キュー・実績/CI オーバーレイ・再連携フラグの state と、
+    // IndexedDB/store のアイテムレーン)を畳むのは useGitHubData 側の責務。
+    // この2つのフックを繋ぐグルーなので handleToggleCalendar と同じくここに残してある
+    clearGitHubConnection();
     await clearGitHubData();
-  }, [checkedFetch, clearGitHubData]);
+  }, [checkedFetch, clearGitHubConnection, clearGitHubData]);
 
   /**
    * 予定・タスクの変更系(hooks/useEventMutations.ts)。ドラッグ/リサイズの確定・新規作成・
