@@ -24,7 +24,7 @@ import { layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
 import { layoutDayCiRuns } from "../sync/mapCiRuns";
 import { packColumns } from "../layout/packColumns";
-import { packDayBars } from "../layout/packDayBars";
+import { buildAllDayPanels, clipToVisibleRows, resolveSharedRows } from "../layout/allDayPanels";
 import { calendarKeyOf, taskListKey } from "../layout/keys";
 import {
   groupDuplicateAllDayOccurrences,
@@ -258,12 +258,6 @@ interface WeekPanelData {
      */
     workingLocationItems: WorkingLocationRailItem[];
   }[];
-}
-
-/** 終日レーンの「+N」表示用。非表示になったバーの件数とタイトル一覧(title 属性で列挙する) */
-interface AllDayOverflowInfo {
-  count: number;
-  titles: string[];
 }
 
 export function WeekGrid({
@@ -665,42 +659,12 @@ export function WeekGrid({
     };
   }, [visibleAllDayOccurrences]);
 
-  // パネルごとに、その N 日ぶんのインデックス [0, dayCount-1] にクリップした区間で
-  // packDayBars する。行の割り当てはここで確定するが、「何行まで見せるか
-  // (sharedVisibleRows)」は3パネル分の最大行数を見てから決めるため、この時点では
-  // 行を絞り込まない
+  // パネルごとの行割り当て・3パネル共有の表示行数・「+N」への振り分けは
+  // layout/allDayPanels.ts の純関数3段に委譲する(2026-07-26 リファクタ フェーズ3a ――
+  // ズレると終日バーが消える/重なる種類のロジックなので、DOM から切り離して
+  // allDayPanels.test.ts で固めてある)。ここでの useMemo の依存関係と呼ぶ順序が仕様。
   const rawAllDayPanels = useMemo(
-    () =>
-      panelStarts.map((panelStart) => {
-        const panelEndDate = panelStart.add({ days: dayCount - 1 });
-        const relevant = groupedAllDayBarOccurrences.filter((g) => {
-          const s = Temporal.PlainDate.from(g.primary.startDate);
-          const e = Temporal.PlainDate.from(g.primary.endDate);
-          return (
-            Temporal.PlainDate.compare(s, panelEndDate) <= 0 &&
-            Temporal.PlainDate.compare(e, panelStart) >= 0
-          );
-        });
-        const clipped = relevant.map((group) => {
-          const s = Temporal.PlainDate.from(group.primary.startDate);
-          const e = Temporal.PlainDate.from(group.primary.endDate);
-          const startDayIndex = Math.max(0, panelStart.until(s, { largestUnit: "day" }).days);
-          const endDayIndex = Math.min(
-            dayCount - 1,
-            panelStart.until(e, { largestUnit: "day" }).days,
-          );
-          return { group, startDayIndex, endDayIndex };
-        });
-        const positioned = packDayBars(
-          clipped,
-          (b) => b.startDayIndex,
-          (b) => b.endDayIndex,
-        );
-        return {
-          panelStart,
-          bars: positioned.map((p) => ({ ...p.item, row: p.row })),
-        };
-      }),
+    () => buildAllDayPanels(panelStarts, dayCount, groupedAllDayBarOccurrences),
     [panelStarts, dayCount, groupedAllDayBarOccurrences],
   );
 
@@ -718,42 +682,16 @@ export function WeekGrid({
     [panelStarts, dayCount, groupedAllDayOooOccurrences],
   );
 
-  // 3週(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行までバーを見せ、
-  // それを超える分は「+N」に畳む。3週の中で1週でも溢れていれば +N 用の1行を全週共通で確保する
-  // (パネルごとに高さが変わるとスライドアニメーション中に見た目が揃わないため)
-  const { allDayVisibleRows, allDayHasOverflow } = useMemo(() => {
-    let maxRows = 0;
-    let anyOverflow = false;
-    for (const panel of rawAllDayPanels) {
-      for (const bar of panel.bars) {
-        maxRows = Math.max(maxRows, bar.row + 1);
-        if (bar.row >= ALLDAY_MAX_VISIBLE_ROWS) anyOverflow = true;
-      }
-    }
-    return {
-      allDayVisibleRows: Math.min(ALLDAY_MAX_VISIBLE_ROWS, maxRows),
-      allDayHasOverflow: anyOverflow,
-    };
-  }, [rawAllDayPanels]);
+  // 3パネル(prev/current/next)で共有する表示行数。行数が多い日があっても最大 3 行まで
+  // バーを見せ、それを超える分は「+N」に畳む(resolveSharedRows のコメント参照)
+  const { visibleRows: allDayVisibleRows, hasOverflow: allDayHasOverflow } = useMemo(
+    () => resolveSharedRows(rawAllDayPanels, ALLDAY_MAX_VISIBLE_ROWS),
+    [rawAllDayPanels],
+  );
   const allDayLaneRows = allDayVisibleRows + (allDayHasOverflow ? 1 : 0);
 
   const allDayPanels = useMemo(
-    () =>
-      rawAllDayPanels.map(({ panelStart, bars }) => {
-        const visibleBars = bars.filter((b) => b.row < allDayVisibleRows);
-        const overflowByDay: AllDayOverflowInfo[] = Array.from({ length: dayCount }, () => ({
-          count: 0,
-          titles: [],
-        }));
-        for (const b of bars) {
-          if (b.row < allDayVisibleRows) continue;
-          for (let d = b.startDayIndex; d <= b.endDayIndex; d++) {
-            overflowByDay[d].count++;
-            overflowByDay[d].titles.push(b.group.primary.title);
-          }
-        }
-        return { panelStart, visibleBars, overflowByDay };
-      }),
+    () => clipToVisibleRows(rawAllDayPanels, allDayVisibleRows, dayCount),
     [rawAllDayPanels, allDayVisibleRows, dayCount],
   );
 

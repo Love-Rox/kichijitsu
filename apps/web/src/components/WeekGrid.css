@@ -801,7 +801,7 @@
  * EventBlock.tsx の hasLocationText 参照)のタイトル直下に、Google カレンダーの予定カードと
  * 同じ体裁で「PlaceIcon + 場所名」の1行を追加する。色は薄墨(#8a8478)で控えめにし、
  * カレンダー色(displayColor)は使わない ―― .event-means-icons や勤務場所帯上端のアイコン
- * (.day-workloc-band-icon、WorkingLocationRailBand.tsx)と同じトーンで統一する。
+ * (.day-workloc-band-icon、RailBand.tsx)と同じトーンで統一する。
  * ドラッグ/クリックの判定を奪わない
  * よう pointer-events:none(mirror タグ・busy バッジと同じ流儀)。min-width:0 は flex 子要素の
  * あふれ処理を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
@@ -1317,7 +1317,7 @@
  *
  * 矩形化 (2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を白文字として矩形に
  * 収まる形に」): 5px レール内の細い4px線から、レール幅いっぱいの12px角丸矩形に変更。
- * 塗り(カレンダー色)は従来どおり OooRailLine.tsx が resolveDisplayColor の結果を
+ * 塗り(カレンダー色)は従来どおり RailBand.tsx が resolveDisplayColor の結果を
  * inline style (backgroundColor) で与える方式を維持。矩形の塗りそのものが色になるため、
  * × (::after) はどの色の上でも読めるよう白固定にする(下記、以前の color: inherit から変更)。
  * top/left/height は DayColumn.tsx が layout/railStack.ts の列パッキング結果から算出して
@@ -1357,7 +1357,7 @@
  * いたが、矩形の中に収まるようバー内側の上部(top: 3px)へ中央寄せし、色は常に白 (#fff) 固定
  * にする(バーの塗り = カレンダー色でも常に読めるようにするため、以前の color: inherit を廃止)。
  * SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法)。
- * 終日 OOO の全高バー (OooRailLine.tsx が startMinutes=0/endMinutes=MINUTES_PER_DAY で渡す) も
+ * 終日 OOO の全高バー (RailBand.tsx が startMinutes=0/endMinutes=MINUTES_PER_DAY で渡す) も
  * 同じクラスを使うため、同じ矩形スタイルがそのまま適用される。
  */
 .day-ooo-line::after {
@@ -1431,7 +1431,7 @@
 }
 
 /*
- * 帯上端の地図ピン(PlaceIcon、WorkingLocationRailBand.tsx が実 DOM の子要素として配置)。
+ * 帯上端の地図ピン(PlaceIcon、RailBand.tsx が実 DOM の子要素として配置)。
  * OOO 帯の × (::after、白文字固定)と同じ「上端に視認性のある印を置く」役割を果たすが、
  * SVG は CSS 疑似要素のコンテンツにしにくいため擬似要素ではなく実要素にしてある。
  * pointer-events: none は親 (.day-workloc-band、同じく none) から自然に継承されるが、

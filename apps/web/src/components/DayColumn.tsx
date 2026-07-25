@@ -14,6 +14,7 @@ import {
   type DroppedWorkItem,
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
+import { clusterOverflowSuffix } from "../layout/clusterByTopPx";
 import { packRailBandColumns } from "../layout/railStack";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import type { OooRailItem } from "../layout/oooRail";
@@ -37,8 +38,7 @@ import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHourHeight } from "../hooks/useHourHeight";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
-import { OooRailLine } from "./OooRailLine";
-import { WorkingLocationRailBand } from "./WorkingLocationRailBand";
+import { RailBand } from "./RailBand";
 import { PlannedBlockCard } from "./PlannedBlock";
 
 /** 空き領域クリックで作る新規予定のデフォルトの長さ(縦ドラッグせずクリックだけで確定した場合) */
@@ -247,7 +247,7 @@ export function DayColumn({
 
   // 終日 OOO(全高ライン)は列パッキングの対象外(既存のまま、要件変更なし)。
   // oooItems には時刻・終日の両方が混在しているので、subject の形(Occurrence には
-  // startMs がある/AllDayOccurrence には無い)で振り分ける。OooRailLine.tsx の
+  // startMs がある/AllDayOccurrence には無い)で振り分ける。RailBand.tsx の
   // isTimedSubject と同じ構造的ガード。
   const timedOooItems = oooItems.filter((item) => "startMs" in item.subject);
   const allDayOooItems = oooItems.filter((item) => !("startMs" in item.subject));
@@ -637,10 +637,9 @@ export function DayColumn({
         <div className="day-activity-rail">
           {activityClusters.map((cluster) => {
             const latest = cluster.items[cluster.items.length - 1];
-            const label =
-              cluster.count > 1
-                ? `${formatTime(latest.timestampMs, timeZone)} ${latest.title} 他${cluster.count - 1}件`
-                : `${formatTime(latest.timestampMs, timeZone)} ${latest.title}`;
+            // 「 他N件」の畳み込み表記は CI レール(下記)と共通の純関数
+            // (layout/clusterByTopPx.ts の clusterOverflowSuffix)
+            const label = `${formatTime(latest.timestampMs, timeZone)} ${latest.title}${clusterOverflowSuffix(cluster.count)}`;
             return (
               <a
                 key={`${cluster.topPx}-${latest.id}`}
@@ -672,8 +671,9 @@ export function DayColumn({
           {/* 終日 OOO(全高ライン)は列パッキングの対象外。常に列0・全高のまま独立して描画する
               (既存の挙動を変えない要件)。 */}
           {allDayOooItems.map((item) => (
-            <OooRailLine
+            <RailBand
               key={item.id}
+              variant="ooo"
               item={item}
               top={0}
               height={minutesToPx(item.endMinutes - item.startMinutes, hourHeight)}
@@ -693,8 +693,9 @@ export function DayColumn({
             );
             const left = column * RAIL_BAND_WIDTH_PX;
             return band.kind === "ooo" ? (
-              <OooRailLine
+              <RailBand
                 key={band.id}
+                variant="ooo"
                 item={band.oooItem}
                 top={top}
                 height={height}
@@ -703,8 +704,9 @@ export function DayColumn({
                 calendarLookup={calendarLookup}
               />
             ) : (
-              <WorkingLocationRailBand
+              <RailBand
                 key={band.id}
+                variant="workingLocation"
                 item={band.workLocItem}
                 top={top}
                 height={height}
@@ -722,10 +724,7 @@ export function DayColumn({
             const latest = cluster.items[cluster.items.length - 1];
             const statusClass = ciMarkerStatusClass(latest);
             const statusLabel = ciStatusLabel(latest);
-            const label =
-              cluster.count > 1
-                ? `${formatTime(latest.timestampMs, timeZone)} ${latest.name} (${statusLabel}) 他${cluster.count - 1}件`
-                : `${formatTime(latest.timestampMs, timeZone)} ${latest.name} (${statusLabel})`;
+            const label = `${formatTime(latest.timestampMs, timeZone)} ${latest.name} (${statusLabel})${clusterOverflowSuffix(cluster.count)}`;
             return (
               <a
                 key={`${cluster.topPx}-${latest.id}`}

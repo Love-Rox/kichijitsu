@@ -1,5 +1,6 @@
 import type { Occurrence } from "../model/types";
 import type { OccurrenceGroup } from "./groupDuplicates";
+import { railItemsForDay, type RailItem } from "./railItems";
 
 /**
  * 勤務場所 (workingLocation) レール表示の DOM/React に依存しない純関数層
@@ -64,42 +65,23 @@ export function splitWorkingLocationGroups(groups: readonly OccurrenceGroup[]): 
 
 /**
  * DayColumn の勤務場所レールに描画する1本(1帯)ぶんのデータ。oooRail.ts の OooRailItem と
- * 完全に同じ形(startMinutes/endMinutes の範囲)にしてある。時刻予定専用(2026-07-22 終日
- * レーンへ統合 ―― 終日はもうこのレールに出ないため、subject/groupMembers は Occurrence
- * のみに絞ってある。以前は `Occurrence | AllDayOccurrence` の合併型だったが、終日を扱わなく
- * なったことで型からも「終日はここに来ない」ことを保証できるようにした)。
+ * 完全に同じ形(layout/railItems.ts の RailItem)で、subject の型だけが違う。時刻予定専用
+ * (2026-07-22 終日レーンへ統合 ―― 終日はもうこのレールに出ないため、subject/groupMembers は
+ * Occurrence のみに絞ってある。以前は `Occurrence | AllDayOccurrence` の合併型だったが、
+ * 終日を扱わなくなったことで型からも「終日はここに来ない」ことを保証できるようにした)。
  */
-export interface WorkingLocationRailItem {
-  /** レール描画・詳細ポップオーバーの React key */
-  id: string;
-  subject: Occurrence;
-  /** 集約グループの全メンバー。EventDetailCard の groupMembers にそのまま渡す */
-  groupMembers: Occurrence[];
-  /** その日の 0:00 からのオフセット(分) */
-  startMinutes: number;
-  endMinutes: number;
-}
+export type WorkingLocationRailItem = RailItem<Occurrence>;
 
 /**
  * 時刻予定の勤務場所 group を [dayStartMs, dayEndMs) にクリップして帯項目化する。
- * oooRail.ts の timedOooRailItems と全く同じロジック ―― 万一日をまたぐ勤務場所が来ても
- * レールが日列の外へはみ出さないよう、開始・終了の両方を日の範囲にクリップする。
+ * 計算本体は OOO レールと共通の railItemsForDay(layout/railItems.ts、2026-07-26 に
+ * 「oooRail.ts の timedOooRailItems と全く同じロジック」だったものを generic 化して統合)。
+ * このラッパーは呼び出し元 (WeekGrid.tsx) 側の意図を名前で示すために残してある。
  */
 export function timedWorkingLocationRailItems(
   workingLocationGroups: readonly OccurrenceGroup[],
   dayStartMs: number,
   dayEndMs: number,
 ): WorkingLocationRailItem[] {
-  const out: WorkingLocationRailItem[] = [];
-  for (const g of workingLocationGroups) {
-    const occ = g.primary;
-    if (occ.startMs >= dayEndMs || occ.endMs <= dayStartMs) continue; // この日と無関係
-    const clippedStartMs = Math.max(occ.startMs, dayStartMs);
-    const clippedEndMs = Math.min(occ.endMs, dayEndMs);
-    const startMinutes = (clippedStartMs - dayStartMs) / 60_000;
-    // 高さ0の帯は見えなくなるので、クリップ後も最低1分ぶんは確保する(oooRail.ts と同じ)
-    const endMinutes = Math.max((clippedEndMs - dayStartMs) / 60_000, startMinutes + 1);
-    out.push({ id: occ.id, subject: occ, groupMembers: g.members, startMinutes, endMinutes });
-  }
-  return out;
+  return railItemsForDay(workingLocationGroups, dayStartMs, dayEndMs);
 }

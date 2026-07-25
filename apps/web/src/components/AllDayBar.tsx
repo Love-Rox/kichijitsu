@@ -69,7 +69,7 @@ export function AllDayBar({
   const isWorkingLoc = isWorkingLocation(occurrence);
 
   // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。
-  // 勤務場所は WorkingLocationRailBand.tsx と同じ決定で location 補足行を出さない
+  // 勤務場所は RailBand.tsx と同じ決定で location 補足行を出さない
   // (title 自体が場所を表す。例: 自宅/オフィス。location フィールドは通常使わない)。
   const tooltip = useHoverTooltip(() => ({
     title: occurrence.title,
@@ -140,7 +140,7 @@ export function AllDayBar({
       >
         {isWorkingLoc && (
           // 先頭の地図ピン(墨色、WeekGrid.css の .allday-bar-working-location-icon が
-          // 色を指定する)。時刻予定側の帯上端ピン(WorkingLocationRailBand.tsx)と同じ
+          // 色を指定する)。時刻予定側の帯上端ピン(RailBand.tsx)と同じ
           // 「勤務場所である」ことを示す視覚的な印。
           <PlaceIcon
             width={WORKING_LOCATION_ICON_SIZE_PX}
