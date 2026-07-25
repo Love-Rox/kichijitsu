@@ -148,6 +148,7 @@ export function applyDraftToOccurrence(
     responseStatus,
     isOrganizer,
     hasConference,
+    conferenceUrl,
     isWorkingLocation,
   } = original;
   const originalStartMs = "originalStartMs" in original ? original.originalStartMs : undefined;
@@ -172,6 +173,7 @@ export function applyDraftToOccurrence(
     responseStatus,
     isOrganizer,
     hasConference,
+    conferenceUrl,
     isWorkingLocation,
     ...(originalStartMs !== undefined ? { originalStartMs } : {}),
   };
@@ -206,6 +208,7 @@ export function applyDraftToAllDayOccurrence(
     responseStatus,
     isOrganizer,
     hasConference,
+    conferenceUrl,
     isWorkingLocation,
   } = original;
   return {
@@ -228,6 +231,7 @@ export function applyDraftToAllDayOccurrence(
     responseStatus,
     isOrganizer,
     hasConference,
+    conferenceUrl,
     isWorkingLocation,
   };
 }

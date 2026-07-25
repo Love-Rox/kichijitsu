@@ -29,9 +29,13 @@ export interface GitHubActivityCluster {
  * 距離以内なら同じクラスタに入れる」固定しきい値で、直前アイテムとの距離ではない
  * (直前アイテムとの距離で連結すると、5px間隔の commit が数十件続くケースで
  * 数十分にまたがるクラスタが数珠つなぎに出来てしまい、「近接した点をまとめる」
- * という目的を外れる)。PX_PER_MINUTE=0.8 (gridMetrics.ts) のもとでは
+ * という目的を外れる)。既定ズーム(48px/h = 0.8px/分)のもとでは
  * 6px ≈ 7.5分に相当し、レール上の点(直径4px程度を想定)が視覚的に重ならない
  * 程度の間隔として選んだ値。
+ *
+ * 時間軸ズーム(2026-07-25)後も px 基準のまま据え置く ―― まとめる理由が「点が視覚的に
+ * 重なる」ことなので、拡大すれば同じ px 距離がより短い時間に相当し、自然に細かく
+ * 分かれる(=拡大したぶんだけ個々の commit が見分けられる)のが望ましい挙動。
  */
 const CLUSTER_THRESHOLD_PX = 6;
 
@@ -46,6 +50,7 @@ export function layoutDayActivity(
   items: GitHubActivityDTO[],
   dayStartMs: number,
   dayEndMs: number,
+  hourHeight: number,
 ): GitHubActivityCluster[] {
   const dayItems = items
     .filter((it) => it.timestampMs >= dayStartMs && it.timestampMs < dayEndMs)
@@ -53,7 +58,7 @@ export function layoutDayActivity(
 
   const clusters: GitHubActivityCluster[] = [];
   for (const item of dayItems) {
-    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000);
+    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000, hourHeight);
     const current = clusters[clusters.length - 1];
     // アンカー(クラスタ先頭アイテムの topPx、更新しない)との距離で判定する
     if (current && topPx - current.topPx <= CLUSTER_THRESHOLD_PX) {

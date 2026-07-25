@@ -12,6 +12,7 @@ import {
   type DroppedWorkItem,
 } from "./planned";
 import { SNAP_MS } from "../layout/snap";
+import { DEFAULT_HOUR_HEIGHT } from "../layout/gridMetrics";
 
 const ITEM: DroppedWorkItem = {
   id: "ghq:owner/repo:issue:42",
@@ -59,16 +60,21 @@ describe("parseDroppedWorkItem", () => {
 describe("computeDropStartMs", () => {
   it("日列の 0:00 からの px オフセットを分に変換し 15分スナップする", () => {
     // dayStartMs=0(15分グリッドに揃っている)なら snap は相対オフセットと一致する。
-    // HOUR_HEIGHT=48px なので 96px = 2時間 = 7,200,000ms 後 (15分の倍数なのでそのままスナップされる)
+    // 既定ズーム(1時間=48px)なので 96px = 2時間 = 7,200,000ms 後 (15分の倍数なのでそのままスナップされる)
     const dayStartMs = 0;
-    const startMs = computeDropStartMs(dayStartMs, /* clientY */ 196, /* columnTop */ 100);
+    const startMs = computeDropStartMs(
+      dayStartMs,
+      /* clientY */ 196,
+      /* columnTop */ 100,
+      DEFAULT_HOUR_HEIGHT,
+    );
     expect(startMs).toBe(dayStartMs + 2 * 60 * 60_000);
   });
 
   it("15分刻みでない位置は最も近いスナップへ丸める", () => {
     const dayStartMs = 0;
     // 48px/hour → 1px = 1.25分。10px ≒ 12.5分 → 15分刻みなら 15分(900_000ms) に丸まる
-    const startMs = computeDropStartMs(dayStartMs, 10, 0);
+    const startMs = computeDropStartMs(dayStartMs, 10, 0, DEFAULT_HOUR_HEIGHT);
     expect(startMs % SNAP_MS).toBe(0);
   });
 });
@@ -99,12 +105,18 @@ describe("buildPlannedBlock", () => {
 describe("plannedBlockTopPx / plannedBlockHeightPx", () => {
   it("top は日の 0:00 からの px オフセット", () => {
     const dayStartMs = 1_700_000_000_000;
-    expect(plannedBlockTopPx(dayStartMs + 60 * 60_000, dayStartMs)).toBe(48); // 1時間 = 48px
+    // 既定ズーム(1時間=48px)
+    expect(plannedBlockTopPx(dayStartMs + 60 * 60_000, dayStartMs, DEFAULT_HOUR_HEIGHT)).toBe(48);
+  });
+
+  it("ズーム(hourHeight)に比例して top/height が変わる", () => {
+    expect(plannedBlockTopPx(60 * 60_000, 0, 96)).toBe(96);
+    expect(plannedBlockHeightPx(0, 60 * 60_000, 24)).toBe(24);
   });
 
   it("height は最低 4px を保証する", () => {
-    expect(plannedBlockHeightPx(0, 0)).toBe(4);
-    expect(plannedBlockHeightPx(0, 60 * 60_000)).toBe(48);
+    expect(plannedBlockHeightPx(0, 0, DEFAULT_HOUR_HEIGHT)).toBe(4);
+    expect(plannedBlockHeightPx(0, 60 * 60_000, DEFAULT_HOUR_HEIGHT)).toBe(48);
   });
 });
 

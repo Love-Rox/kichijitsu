@@ -89,7 +89,9 @@ import {
   DEFAULT_DECLINED_VISIBILITY,
   type DeclinedVisibilitySettings,
 } from "./sync/declinedVisibility";
+import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
 import { WeekGrid } from "./components/WeekGrid";
+import { HourHeightControl } from "./components/HourHeightControl";
 import { MonthView } from "./components/MonthView";
 import { LogoMark, LogoWordmark } from "./components/Logo";
 import { MasuIndicator } from "./components/MasuIndicator";
@@ -227,6 +229,25 @@ function initialView(isNarrow: boolean): View {
   return isNarrow ? "day3" : "week";
 }
 
+/**
+ * 時間軸ズーム(2026-07-25、ユーザー要望)。1時間あたりの px 高さをこの端末のローカル設定として
+ * 覚える。保存するのは「プリセット名」ではなく実際の px 値(ユーザー決定) ―― −/+ の 8px 刻みや
+ * ⌘/Ctrl+ホイールでプリセットから外れた値も、そのまま次回に復元できるようにするため。
+ * 読み込み時の範囲外/不正値は既定 48 に丸める(layout/gridMetrics.ts の normalizeHourHeight)。
+ */
+const HOUR_HEIGHT_STORAGE_KEY = "kichijitsu:hourHeight";
+
+/** localStorage に保存された前回のズーム値(px)。未保存/不正/プライベートモード等なら既定値 */
+function loadStoredHourHeight(): number {
+  try {
+    const v = window.localStorage.getItem(HOUR_HEIGHT_STORAGE_KEY);
+    if (v === null) return DEFAULT_HOUR_HEIGHT;
+    return normalizeHourHeight(v);
+  } catch {
+    return DEFAULT_HOUR_HEIGHT;
+  }
+}
+
 const PANE_MODE_STORAGE_KEY = "kichijitsu:paneMode";
 
 function isPaneMode(value: string): value is PaneMode {
@@ -327,6 +348,10 @@ function App() {
     Temporal.Now.plainDateISO().with({ day: 1 }),
   );
   const dayCount = dayCountForView(view);
+  // 時間軸ズーム(2026-07-25): 1時間あたりの px。view/timelineStart と同じくここが唯一の
+  // 出どころで、WeekGrid(CSS 変数 --hour-height + 日列配下への context)とツールバーの
+  // HourHeightControl が同じ state を共有する。MonthView は時間軸を持たないので無関係。
+  const [hourHeight, setHourHeight] = useState<number>(loadStoredHourHeight);
   const navLockRef = useRef(false);
 
   // ユーザーが明示的に選んだ view を覚えておき、次回訪問時のデフォルトにする(任意機能)。
@@ -338,6 +363,21 @@ function App() {
       /* ignore */
     }
   }, [view]);
+
+  // 時間軸ズームの永続化(view と同じ流儀。保存するのは実 px 値)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HOUR_HEIGHT_STORAGE_KEY, String(hourHeight));
+    } catch {
+      /* ignore */
+    }
+  }, [hourHeight]);
+
+  // WeekGrid の ⌘/Ctrl+ホイールズームから呼ばれる。値の clamp は呼び出し側(WeekGrid /
+  // HourHeightControl)で済んでいるが、ここでも normalize を通して不正値が state に入らないようにする
+  const handleHourHeightChange = useCallback((next: number) => {
+    setHourHeight(normalizeHourHeight(next));
+  }, []);
 
   // GitHub 情報ペイン(GitHubPane、増分1)の配置モード(overlay/docked)。view と同じく
   // ユーザーの明示的な選択を覚えておき、次回訪問時のデフォルトにする。isNarrow による
@@ -2995,6 +3035,19 @@ function App() {
             </>
           )}
         </div>
+        {/*
+         * 時間軸ズーム(2026-07-25、ユーザー要望)。「表示の粗さ」を決める操作なので
+         * ビュー切替(週/月・1日/3日/月)のセグメントの直後に置く ―― 同じ「表示の見え方」を
+         * 変える操作をツールバーの同じ塊にまとめる。時間軸を持たない月表示では出さない。
+         * 狭幅では compact 表示(プリセットを畳んで −/+ と現在値のみ、HourHeightControl.tsx 参照)。
+         */}
+        {view !== "month" && (
+          <HourHeightControl
+            hourHeight={hourHeight}
+            onChange={handleHourHeightChange}
+            compact={isNarrow}
+          />
+        )}
         <div className="toolbar-right">
           {/*
            * モバイル狭幅対応: 年月表示を「7月」/「7/20」まで縮める(スマホヘッダー1段化)。
@@ -3277,6 +3330,9 @@ function App() {
               // スマホでのスワイプ日付移動(同フェーズ増分、2026-07-22)。WeekGrid.tsx 側で
               // longPressCreate(=isNarrow)かつ非アニメーション中のときだけ実際に有効化される
               onSwipeNavigate={handleSwipeNavigate}
+              // 時間軸ズーム(2026-07-25)。WeekGrid が --hour-height と context の出口になる
+              hourHeight={hourHeight}
+              onHourHeightChange={handleHourHeightChange}
             />
           ) : (
             <MonthView

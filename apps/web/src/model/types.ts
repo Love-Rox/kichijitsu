@@ -81,6 +81,14 @@ export interface Occurrence {
    */
   hasConference?: boolean;
   /**
+   * 会議参加 URL (2026-07-25)。GoogleEventDTO.conferenceUrl をそのまま写す (hasConference と
+   * 同じ流儀・同じ伝播パス)。Google Meet やカレンダーのアドオン経由の Zoom/Teams は URL が
+   * location ではなくここにしか入らないため、UI (EventBlock/EventDetailCard) は
+   * layout/meetingLinks.ts の resolveMeetingUrl(conferenceUrl, location) で「開くべき URL」を
+   * 決める。hasConference が true でも undefined のことがある (電話参加のみの会議など)。
+   */
+  conferenceUrl?: string;
+  /**
    * 勤務場所 (workingLocation) の控えめ表示 (2026-07-22)。Google の
    * eventType==='workingLocation' な予定かどうか。true は mapGoogle.ts が付与する
    * (isOutOfOffice と全く同じ伝播: buildSingle/buildAllDay/buildSeries/buildOverride の
@@ -131,6 +139,8 @@ export interface AllDayOccurrence {
   isOrganizer?: boolean;
   /** Occurrence.hasConference と同じ意味 (参加ステータス表示、2026-07-22)。 */
   hasConference?: boolean;
+  /** Occurrence.conferenceUrl と同じ意味 (会議参加 URL、2026-07-25)。 */
+  conferenceUrl?: string;
   /** Occurrence.isWorkingLocation と同じ意味 (勤務場所の控えめ表示、2026-07-22)。 */
   isWorkingLocation?: boolean;
 }

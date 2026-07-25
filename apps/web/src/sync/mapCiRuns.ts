@@ -33,6 +33,7 @@ export function layoutDayCiRuns(
   items: GitHubCiRunDTO[],
   dayStartMs: number,
   dayEndMs: number,
+  hourHeight: number,
 ): GitHubCiCluster[] {
   const dayItems = items
     .filter((it) => it.timestampMs >= dayStartMs && it.timestampMs < dayEndMs)
@@ -40,7 +41,7 @@ export function layoutDayCiRuns(
 
   const clusters: GitHubCiCluster[] = [];
   for (const item of dayItems) {
-    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000);
+    const topPx = minutesToPx((item.timestampMs - dayStartMs) / 60_000, hourHeight);
     const current = clusters[clusters.length - 1];
     // アンカー(クラスタ先頭アイテムの topPx、更新しない)との距離で判定する(mapActivity.ts と同じ)
     if (current && topPx - current.topPx <= CLUSTER_THRESHOLD_PX) {

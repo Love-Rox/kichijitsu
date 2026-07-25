@@ -43,6 +43,8 @@ export interface EventSeries {
   isOrganizer?: boolean;
   /** Occurrence.hasConference と同じ意味(参加ステータス表示、2026-07-22)。isOutOfOffice と同じ伝播。 */
   hasConference?: boolean;
+  /** Occurrence.conferenceUrl と同じ意味(会議参加 URL、2026-07-25)。hasConference と同じ伝播。 */
+  conferenceUrl?: string;
   /**
    * 勤務場所の控えめ表示 (2026-07-22)。Occurrence.isWorkingLocation と同じ意味 ――
    * mapGoogle.ts の buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま
@@ -100,6 +102,12 @@ export interface InstanceOverride {
     isOrganizer?: boolean;
     /** isOutOfOffice と同じ流儀(この例外インスタンス自体が hasConference===true のときのみ true をセット) */
     hasConference?: boolean;
+    /**
+     * 会議参加 URL (2026-07-25)。hasConference と同じ流儀(この例外インスタンス自体が
+     * conferenceUrl を持つときのみセットし、無ければキーを省略して expandSeries 側で
+     * シリーズの conferenceUrl にフォールバックさせる)。
+     */
+    conferenceUrl?: string;
     /**
      * 勤務場所の控えめ表示 (2026-07-22)。isOutOfOffice と同じ流儀(この例外インスタンス自体が
      * eventType==='workingLocation' のときのみ true をセットする。立てないときはキー自体を

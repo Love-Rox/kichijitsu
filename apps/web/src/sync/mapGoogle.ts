@@ -127,23 +127,30 @@ function isWorkingLocationEvent(event: GoogleEventDTO): boolean {
 }
 
 /**
- * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO の3つの派生フィールド
- * (selfResponseStatus/isOrganizer/hasConference) を、値がある分だけスプレッドできる
- * オブジェクトの断片にまとめる。isMirror/isOutOfOffice と同じ「値が無ければキー自体を
- * 持たせない」流儀を3フィールドぶん都度書くと冗長なため、ここに1箇所へ集約した。
+ * 参加ステータス表示 (RSVP、2026-07-22)。GoogleEventDTO の派生フィールド
+ * (selfResponseStatus/isOrganizer/hasConference、および会議参加 URL の conferenceUrl
+ * 2026-07-25) を、値がある分だけスプレッドできるオブジェクトの断片にまとめる。
+ * isMirror/isOutOfOffice と同じ「値が無ければキー自体を持たせない」流儀を複数
+ * フィールドぶん都度書くと冗長なため、ここに1箇所へ集約した。
  * buildSingle/buildAllDay/buildSeries の返り値と buildOverride の patch の両方から使う
  * (patch 側は明示的に「セットしないときはキー省略」を要求するため、この関数の出力を
  * そのまま Object.assign 的にスプレッドするだけで両方の要求を満たせる)。
+ *
+ * conferenceUrl は hasConference と対で届く値 (packages/shared の GoogleEventDTO 参照) なので
+ * 同じ断片に含める ―― これにより単発/終日/シリーズ/例外インスタンスの4パス全てへ、
+ * hasConference と全く同じ経路で伝播する。
  */
 function rsvpFields(event: GoogleEventDTO): {
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   isOrganizer?: boolean;
   hasConference?: boolean;
+  conferenceUrl?: string;
 } {
   return {
     ...(event.selfResponseStatus ? { responseStatus: event.selfResponseStatus } : {}),
     ...(event.isOrganizer ? { isOrganizer: true as const } : {}),
     ...(event.hasConference ? { hasConference: true as const } : {}),
+    ...(event.conferenceUrl ? { conferenceUrl: event.conferenceUrl } : {}),
   };
 }
 

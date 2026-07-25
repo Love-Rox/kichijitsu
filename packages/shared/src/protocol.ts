@@ -61,10 +61,23 @@ export interface GoogleEventDTO {
    * event.hangoutLink) の有無。Google Calendar API は「自分がオンライン/現地のどちらで
    * 参加するか」という attendee 単位の手段を公開していないため、イベント側に会議リンクが
    * 存在するかどうかで近似する(ユーザー決定 2026-07-22、詳細は apps/sync の
-   * deriveHasConference 参照)。true のときのみセットする(実際の URL 等の中身は含めない
-   * ―― リーン維持)。
+   * deriveHasConference 参照)。true のときのみセットする(「参加できる手段があるか」の
+   * 判定はこのフラグ、実際に開く URL は下の conferenceUrl を使う)。
    */
   hasConference?: boolean;
+  /**
+   * 会議への参加 URL (2026-07-25)。event.conferenceData.entryPoints[].uri (entryPointType
+   * ==='video' 優先) または event.hangoutLink から1つだけ選んだもの (詳細は apps/sync の
+   * deriveConferenceUrl)。Google Meet とカレンダーのアドオン経由の Zoom/Teams は URL が
+   * location ではなくここにしか入らないため、「○○で参加」リンクを出すために hasConference
+   * とは別に値そのものを載せる (Slack ハドルは location に URL が入るのでクライアント側で
+   * 判定できる)。
+   *
+   * hasConference が true でも取得できないことがある: entryPoints が電話参加 (tel:) のみの
+   * 会議や、Google が稀に返す空の conferenceData ―― 「会議リンクあり」のアイコンは出るが
+   * 参加リンクは出せないケースとして扱うこと。
+   */
+  conferenceUrl?: string;
 }
 
 /** 連携済みの Google アカウント1件。id は Google の sub */

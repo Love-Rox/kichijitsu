@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { RAIL_BAND_WIDTH_PX } from "./gridMetrics";
+import { DEFAULT_HOUR_HEIGHT, RAIL_BAND_WIDTH_PX } from "./gridMetrics";
 import { packRailBandColumns } from "./railStack";
 
 /** テスト用の最小の帯アイテム。id は結果の対応付け確認に使う */
@@ -13,11 +13,12 @@ function band(id: string, startMinutes: number, endMinutes: number): Band {
   return { id, startMinutes, endMinutes };
 }
 
-function pack(items: Band[]) {
+function pack(items: Band[], hourHeight: number = DEFAULT_HOUR_HEIGHT) {
   return packRailBandColumns(
     items,
     (b) => b.startMinutes,
     (b) => b.endMinutes,
+    hourHeight,
   );
 }
 
@@ -95,6 +96,15 @@ describe("packRailBandColumns", () => {
     const result = pack([a, b, c]);
     expect(columnsById(result)).toEqual({ a: 0, b: 0, c: 0 });
     for (const p of result) expect(p.columnCount).toBe(1);
+  });
+
+  it("表示上の最低高さ(16px)による底上げはズームに追従する(拡大すると同じ時間差でも重ならなくなる)", () => {
+    // 長さ0の点が 10分離れている。既定ズーム(48px/h)では 16px ≒ 20分ぶん底上げされるので
+    // 視覚的に重なる = 別列。拡大(120px/h)すると 16px ≒ 8分ぶんに縮むので重ならず同じ列に乗る。
+    const a = band("a", 0, 0);
+    const b = band("b", 10, 10);
+    expect(columnsById(pack([a, b], 48))).toEqual({ a: 0, b: 1 });
+    expect(columnsById(pack([a, b], 120))).toEqual({ a: 0, b: 0 });
   });
 
   it("column から left(px)を計算できる(RAIL_BAND_WIDTH_PX 刻み)", () => {

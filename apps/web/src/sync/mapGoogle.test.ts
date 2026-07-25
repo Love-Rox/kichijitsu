@@ -883,3 +883,81 @@ describe("mapGoogleEvents: 参加ステータス表示 (RSVP、2026-07-22)", () 
     expect(result.overrides[0].patch).not.toHaveProperty("hasConference");
   });
 });
+
+describe("mapGoogleEvents: 会議参加 URL (conferenceUrl、2026-07-25)", () => {
+  const MEET_URL = "https://meet.google.com/abc-defg-hij";
+
+  it("単発イベントの conferenceUrl を occurrence へ写す", () => {
+    const evt = baseEvent({ id: "conf-single", hasConference: true, conferenceUrl: MEET_URL });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.singles[0].conferenceUrl).toBe(MEET_URL);
+  });
+
+  it("終日イベント (start.date のみ) にも conferenceUrl を写す", () => {
+    const evt = baseEvent({
+      id: "conf-allday",
+      start: { date: "2026-07-20" },
+      end: { date: "2026-07-21" },
+      hasConference: true,
+      conferenceUrl: MEET_URL,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.allDays[0].conferenceUrl).toBe(MEET_URL);
+  });
+
+  it("繰り返し親イベントは EventSeries へ conferenceUrl を写す", () => {
+    const evt = baseEvent({
+      id: "conf-series",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+      hasConference: true,
+      conferenceUrl: MEET_URL,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.series[0].conferenceUrl).toBe(MEET_URL);
+  });
+
+  it("例外インスタンスは InstanceOverride.patch へ conferenceUrl を写す", () => {
+    const evt = baseEvent({
+      id: "conf-exception",
+      recurringEventId: "conf-series",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T18:00:00+09:00", timeZone: "Asia/Tokyo" },
+      hasConference: true,
+      conferenceUrl: MEET_URL,
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.overrides[0].patch).toMatchObject({ conferenceUrl: MEET_URL });
+  });
+
+  it("conferenceUrl の無いイベントはキー自体を持たない (hasConference のみ true = 電話参加のみの会議)", () => {
+    const evt = baseEvent({ id: "conf-url-less", hasConference: true });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.singles[0].hasConference).toBe(true);
+    expect(result.singles[0]).not.toHaveProperty("conferenceUrl");
+  });
+
+  it("conferenceUrl の無い例外インスタンスは patch にキーを持たない(シリーズ側へフォールバックさせるため)", () => {
+    const evt = baseEvent({
+      id: "conf-url-less-exception",
+      recurringEventId: "conf-series",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T14:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T15:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([evt], ctx);
+
+    expect(result.overrides[0].patch).not.toHaveProperty("conferenceUrl");
+  });
+});

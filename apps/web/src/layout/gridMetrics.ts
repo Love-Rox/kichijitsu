@@ -6,9 +6,67 @@ import { Temporal } from "@js-temporal/polyfill";
  * ためだけに独立したモジュールにしてある。
  */
 
-export const HOUR_HEIGHT = 48;
-export const DAY_HEIGHT = HOUR_HEIGHT * 24;
-export const PX_PER_MINUTE = HOUR_HEIGHT / 60;
+/**
+ * 時間軸ズーム(2026-07-25)。かつては `HOUR_HEIGHT = 48` / `DAY_HEIGHT` / `PX_PER_MINUTE` の
+ * 3定数がこの座標系の出どころだったが、1時間の px 高さをユーザーが調整できるようにしたため
+ * 「現在の hourHeight」を呼び出し側から引数で受け取る純関数へ置き換えた。
+ *
+ * 既定引数はあえて付けていない ―― 既定値でフォールバックできてしまうと「hourHeight を
+ * 渡し忘れた箇所だけズームが効かない」というバグが型エラーにならず静かに入り込むため、
+ * minutesToPx/pxToMinutes/pxPerMinute はすべて hourHeight を必須引数にしてある
+ * (テスト・純関数からは DEFAULT_HOUR_HEIGHT を明示的に渡す)。
+ *
+ * CSS 側(WeekGrid.css)は同じ値を `--hour-height` カスタムプロパティとして受け取り、
+ * 1日ぶんの高さ・時間罫線のグラデーションを calc() で組み立てる。React が
+ * .week-grid のインライン style に値を書き込む1箇所だけが CSS 側との接点(WeekGrid.tsx)。
+ */
+export const DEFAULT_HOUR_HEIGHT = 48;
+/** ズームの下限/上限(1時間あたりの px)。ユーザー決定 2026-07-25 */
+export const MIN_HOUR_HEIGHT = 24;
+export const MAX_HOUR_HEIGHT = 120;
+/** −/+ ボタン・⌘/Ctrl+ホイール 1ステップぶんの増減量(px) */
+export const HOUR_HEIGHT_STEP = 8;
+
+/** ワンクリックのプリセット(ユーザー決定 2026-07-25)。現在値が一致していればアクティブ表示にする */
+export const HOUR_HEIGHT_PRESETS = [
+  { id: "compact", label: "コンパクト", short: "小", px: 32 },
+  { id: "normal", label: "標準", short: "中", px: DEFAULT_HOUR_HEIGHT },
+  { id: "relaxed", label: "ゆったり", short: "大", px: 72 },
+] as const;
+
+export type HourHeightPresetId = (typeof HOUR_HEIGHT_PRESETS)[number]["id"];
+
+/** [MIN_HOUR_HEIGHT, MAX_HOUR_HEIGHT] に丸めた整数 px。−/+ とホイールの両方から通す */
+export function clampHourHeight(px: number): number {
+  return Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, Math.round(px)));
+}
+
+/**
+ * localStorage 等の外部から来た値を hourHeight として使える形に正規化する。
+ * 数値化できない/範囲外/NaN は既定(48)へ丸める(範囲内なら clamp と同じ)。
+ * 「プリセット名ではなく実際の px 値を保存する」というユーザー決定に対応して、
+ * 保存値は常に px の文字列として扱う。
+ */
+export function normalizeHourHeight(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_HOUR_HEIGHT;
+  if (n < MIN_HOUR_HEIGHT || n > MAX_HOUR_HEIGHT) return DEFAULT_HOUR_HEIGHT;
+  return Math.round(n);
+}
+
+/** 現在値がどのプリセットと一致するか(一致しなければ null → 呼び出し側は px 値を表示する) */
+export function matchHourHeightPreset(hourHeight: number): HourHeightPresetId | null {
+  return HOUR_HEIGHT_PRESETS.find((p) => p.px === hourHeight)?.id ?? null;
+}
+
+/** 1日(24時間)ぶんの高さ(px)。CSS 側は calc(var(--hour-height) * 24) で同じ値を出す */
+export function dayHeightPx(hourHeight: number): number {
+  return hourHeight * 24;
+}
+
+export function pxPerMinute(hourHeight: number): number {
+  return hourHeight / 60;
+}
 
 /**
  * 日列内のイベント配置(カスケード表示、フェーズ5)の左右ガター。
@@ -66,15 +124,70 @@ export function dayColumnLeftInsetPx(railColumnCount: number): number {
   return railColumnCount * RAIL_BAND_WIDTH_PX + RAIL_CARD_GAP_PX;
 }
 
-/** これ未満の分数の予定はコンパクト表示(1行に時刻+タイトル)にする。WeekGrid/DayColumn 共通 */
-export const COMPACT_THRESHOLD_MIN = 40;
+/**
+ * これ未満の高さ(px)の予定カードはコンパクト表示(1行に時刻+タイトル)にする。
+ *
+ * 時間軸ズーム(2026-07-25)以前は「40分未満」という分単位のしきい値
+ * (COMPACT_THRESHOLD_MIN)だったが、コンパクト表示の理由は「2行ぶんの文字が
+ * 入る高さが無い」という純粋に見た目の制約なので、ズームすると意味が破綻する
+ * (拡大時: 40分=80px もあるのに1行に潰れる/縮小時: 40分=16px でも2行で描こうとする)。
+ * そのため px 基準へ移した。値 32px は既定ズーム(48px/h)における従来の 40分と完全に
+ * 一致する(40分 × 0.8px/分 = 32px)ので、既定ズームでの見た目は変わらない。
+ */
+export const COMPACT_THRESHOLD_PX = 32;
 
-export function minutesToPx(minutes: number): number {
-  return minutes * PX_PER_MINUTE;
+/**
+ * 予定カード本文の1行の高さ(px)。WeekGrid.css の `.event` の font-size: 12px /
+ * line-height: 1.3 と一致させること(どちらかを変えるなら両方直す)。
+ */
+const EVENT_LINE_HEIGHT_PX = 12 * 1.3;
+/** `.event` の上下 padding 合計 (2px × 2) */
+const EVENT_VERTICAL_PADDING_PX = 4;
+/** 非コンパクト表示で場所行より上に必ず入る行数: 時刻ヘッダー行 + タイトル行(タイトルは常に1行省略) */
+const EVENT_LINES_ABOVE_LOCATION = 2;
+
+/**
+ * 予定カードの場所テキスト(.event-location-text)を何行まで表示するか(2026-07-25、
+ * ユーザー要望「収まるなら折り返して読めるようにしたい」)。
+ *
+ * 以前は常に `white-space: nowrap` の1行省略で、長い住所が途中で切れて読めなかった。
+ * カードの高さ(=予定の長さ × 現在のズーム)から時刻ヘッダー行・タイトル行・padding を
+ * 差し引いた残りに入る行数を求め、CSS 変数 `--location-lines` として line-clamp に渡す
+ * (EventBlock.tsx)。時間軸ズームで縦に広げたぶんだけ読める行数が増える。
+ *
+ * 戻り値は最低 1(0行にすると場所が完全に消えてしまい、短い予定で情報が失われる ――
+ * 入り切らないぶんはカード自身の overflow: hidden が従来どおりクリップする)。
+ * 既定ズーム(48px/h)の1時間の予定は 48px なので従来と同じ1行になる。
+ */
+export function locationLineClamp(cardHeightPx: number): number {
+  const remaining =
+    cardHeightPx - EVENT_VERTICAL_PADDING_PX - EVENT_LINES_ABOVE_LOCATION * EVENT_LINE_HEIGHT_PX;
+  return Math.max(1, Math.floor(remaining / EVENT_LINE_HEIGHT_PX));
 }
 
-export function pxToMinutes(px: number): number {
-  return px / PX_PER_MINUTE;
+export function minutesToPx(minutes: number, hourHeight: number): number {
+  return minutes * pxPerMinute(hourHeight);
+}
+
+export function pxToMinutes(px: number, hourHeight: number): number {
+  return px / pxPerMinute(hourHeight);
+}
+
+/**
+ * ズーム変更後のスクロール位置(scrollTop)。ズーム前に「ビューポート内 anchorPx の位置に
+ * 見えていた時刻」が、ズーム後も同じ位置に留まるように補正する ―― これが無いと拡大/縮小の
+ * たびに見ている時間帯が上下へ飛んでしまう。⌘/Ctrl+ホイールではポインタ位置、−/+ ボタンや
+ * プリセットではビューポート中央を anchorPx に使う(WeekGrid.tsx)。
+ * 戻り値は負にならないよう 0 で下限を切る(先頭付近で縮小したときのため)。
+ */
+export function zoomedScrollTop(
+  scrollTop: number,
+  anchorPx: number,
+  fromHourHeight: number,
+  toHourHeight: number,
+): number {
+  const anchorMinutes = pxToMinutes(scrollTop + anchorPx, fromHourHeight);
+  return Math.max(0, minutesToPx(anchorMinutes, toHourHeight) - anchorPx);
 }
 
 export function formatTime(ms: number, timeZone: string): string {

@@ -53,9 +53,15 @@ export function parseDroppedWorkItem(raw: string | null | undefined): DroppedWor
 /**
  * ドロップ位置(pointer の clientY、日列 DOM の getBoundingClientRect().top)から
  * 開始時刻を算出する(15分スナップ、DayColumn.tsx の beginCreateDrag と同じ座標変換)。
+ * hourHeight は現在の時間軸ズーム(1時間あたり px、2026-07-25)。
  */
-export function computeDropStartMs(dayStartMs: number, clientY: number, columnTop: number): number {
-  const rawMs = dayStartMs + pxToMinutes(clientY - columnTop) * 60_000;
+export function computeDropStartMs(
+  dayStartMs: number,
+  clientY: number,
+  columnTop: number,
+  hourHeight: number,
+): number {
+  const rawMs = dayStartMs + pxToMinutes(clientY - columnTop, hourHeight) * 60_000;
   return snapStartMs(rawMs, { originalStartMs: rawMs });
 }
 
@@ -80,13 +86,21 @@ export function buildPlannedBlock(
 }
 
 /** その日の 0:00 からの px オフセット(EventBlock/DayColumn と同じ座標系) */
-export function plannedBlockTopPx(startMs: number, dayStartMs: number): number {
-  return minutesToPx((startMs - dayStartMs) / 60_000);
+export function plannedBlockTopPx(
+  startMs: number,
+  dayStartMs: number,
+  hourHeight: number,
+): number {
+  return minutesToPx((startMs - dayStartMs) / 60_000, hourHeight);
 }
 
 /** 最低 4px を保証した高さ(px) */
-export function plannedBlockHeightPx(startMs: number, endMs: number): number {
-  return Math.max(minutesToPx((endMs - startMs) / 60_000), 4);
+export function plannedBlockHeightPx(
+  startMs: number,
+  endMs: number,
+  hourHeight: number,
+): number {
+  return Math.max(minutesToPx((endMs - startMs) / 60_000, hourHeight), 4);
 }
 
 /**

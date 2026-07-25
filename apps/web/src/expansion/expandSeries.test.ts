@@ -339,6 +339,72 @@ describe("expandSeries", () => {
     });
   });
 
+  describe("conferenceUrl の伝播 (会議参加 URL、2026-07-25)", () => {
+    const MEET_URL = "https://meet.google.com/abc-defg-hij";
+
+    it("series.conferenceUrl を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({
+        hasConference: true,
+        conferenceUrl: MEET_URL,
+        rrule: "FREQ=DAILY;COUNT=2",
+      });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.conferenceUrl).toBe(MEET_URL);
+      }
+    });
+
+    it("series に conferenceUrl が無ければ occurrence 側も undefined のまま", () => {
+      const series = baseSeries({ hasConference: true, rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0].conferenceUrl).toBeUndefined();
+    });
+
+    it("override.patch.conferenceUrl があればシリーズ側より優先し、無ければフォールバックする", () => {
+      const series = baseSeries({
+        hasConference: true,
+        conferenceUrl: MEET_URL,
+        rrule: "FREQ=DAILY;COUNT=2",
+      });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { conferenceUrl: "https://example.zoom.us/j/1234567890" },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.conferenceUrl).toBe(MEET_URL);
+      expect(patched!.conferenceUrl).toBe("https://example.zoom.us/j/1234567890");
+    });
+  });
+
   it("FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)", () => {
     // 2026-01-05 は月曜
     const series = baseSeries({
