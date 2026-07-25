@@ -19,7 +19,7 @@ import type { PlannedBlock, TimeEntry } from "../model/types";
  */
 
 interface TimerItemMeta {
-  /** 走行判定・WorkLogModal/WeekGrid のハイライトに使う。PlannedBlock.linkedItemId と同体系 */
+  /** 走行判定・右ペイン(GitHubPane)/WeekGrid のハイライトに使う。PlannedBlock.linkedItemId と同体系 */
   linkedItemId: string;
   itemType: "issue" | "pr";
   title: string;
@@ -94,7 +94,7 @@ export function openIntervalToTimeEntry(
 
 /**
  * 開区間一覧を走行中 TimeEntry[] へ射影する。TimeEntryStore.replaceAll に渡して WeekGrid /
- * RunningTimersIndicator / WorkLogModal の既存の走行表示を駆動する。
+ * RunningTimersIndicator / 右ペイン(GitHubPane)の既存の走行表示を駆動する。
  */
 export function openIntervalsToTimeEntries(
   intervals: readonly OpenWorkIntervalDTO[],

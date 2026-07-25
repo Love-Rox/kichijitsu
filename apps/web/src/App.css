@@ -168,8 +168,10 @@
 }
 
 /*
- * 「実績」ボタン(実績 UX 刷新、2026-07-23)。実績モーダル(WorkLogModal)をヘッダーから直接
- * 開く。.toolbar-calendar-btn と同じトーン(枠線・パディング・角丸・hover)。バッジは持たない。
+ * 「実績」ボタン(実績 UX 刷新、2026-07-23 → 2026-07-25)。実績モーダルを廃して右ペイン
+ * (GitHubPane)へ集約したのに伴い、このボタンは右ペインの開閉トグルになった。
+ * .toolbar-calendar-btn と同じトーン(枠線・パディング・角丸・hover・開状態の朱枠)。
+ * バッジは持たない(件数バッジは CalendarPane の「作業キュー」ボタン側)。
  */
 .toolbar-actuals-btn {
   display: inline-flex;
@@ -187,6 +189,12 @@
 
 .toolbar-actuals-btn:hover {
   background: #f3f4f6;
+}
+
+/* 右ペインが開いているあいだは押下状態を示す(.toolbar-calendar-btn と同じ流儀) */
+.toolbar-actuals-btn[aria-expanded="true"] {
+  border-color: #d7402e;
+  color: #24211e;
 }
 
 /*

@@ -102,7 +102,6 @@ import { SearchOverlay } from "./components/SearchOverlay";
 import { GitHubPane } from "./components/GitHubPane";
 import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
-import { WorkLogModal } from "./components/WorkLogModal";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import {
@@ -474,10 +473,9 @@ function App() {
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
-  // 実績(work-log)専用モーダル(WorkLogModal、実績 UX 刷新フェーズ2、2026-07-23)。手動追加と
-  // 過去記録の編集/削除を集約する。GitHubPane の「記録・編集」ボタンから開く。開閉のみの state で、
-  // データは reportWorkLogs/reportPlannedBlocks を渡す(reportOpen と同じく専用 state は持たない)
-  const [workLogModalOpen, setWorkLogModalOpen] = useState(false);
+  // 実績(記録/タイマー/履歴)は 2026-07-25 に専用モーダル(WorkLogModal)を廃して右ペイン
+  // (GitHubPane)へ集約した。開閉は右ペインの paneOpen が兼ねるため専用 state は持たない
+  // ―― データは reportWorkLogs/reportPlannedBlocks をそのままペインへ渡す。
   // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B)。
   // レポートを開いたときだけ POST /api/github/pr-commits を取りに行き、キー
   // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
@@ -1147,12 +1145,13 @@ function App() {
       .finally(() => setQueueLoading(false));
   }, [me.github, checkedFetch]);
 
-  // WorkLogModal の手動追加フォーム用の repo / repo-issues 取得(実績 UX 刷新フェーズ3、
-  // 2026-07-23)。githubProvider の統一 API を checkedFetch でバインドして渡すだけ — isTauri()
-  // の gh/server 分岐は githubProvider 側が担う(fetchGithubQueue と同じ考え方)。失敗時の
-  // 手入力フォールバックはモーダル側が握る。
-  const fetchReposForModal = useCallback(() => fetchRepos(checkedFetch), [checkedFetch]);
-  const fetchRepoIssuesForModal = useCallback(
+  // 右ペイン(GitHubPane)の手動記録フォーム用の repo / repo-issues 取得(実績 UX 刷新
+  // フェーズ3、2026-07-23。2026-07-25 に WorkLogModal からペインへ移設)。githubProvider の
+  // 統一 API を checkedFetch でバインドして渡すだけ — isTauri() の gh/server 分岐は
+  // githubProvider 側が担う(fetchGithubQueue と同じ考え方)。失敗時の手入力フォールバックは
+  // ペイン側が握る。実績履歴の issue タイトル補完も fetchRepoIssuesForPane を使う。
+  const fetchReposForPane = useCallback(() => fetchRepos(checkedFetch), [checkedFetch]);
+  const fetchRepoIssuesForPane = useCallback(
     (repo: string) => fetchRepoIssues(repo, checkedFetch),
     [checkedFetch],
   );
@@ -2358,7 +2357,7 @@ function App() {
   // 作業キュー(githubQueue)と予定タイムブロックから repo+number でメタを補完する。
   // plannedStore.getAll() は毎回新配列を返すため、useMemo は version(安定した数値)で張って
   // 無駄な再計算を避ける。射影を timeEntryStore.replaceAll へ流し込むと WeekGrid /
-  // RunningTimersIndicator / WorkLogModal / レポートが既存のまま走行表示を得る。
+  // RunningTimersIndicator / 右ペイン / レポートが既存のまま走行表示を得る。
   const plannedVersion = useSyncExternalStore(plannedStore.subscribe, plannedStore.getVersion);
   const projectedRunning = useMemo(
     () => openIntervalsToTimeEntries(openIntervals, plannedStore.getAll(), githubQueue),
@@ -2373,15 +2372,13 @@ function App() {
 
   // hook 実績・commit 推定の取得トリガー(docs/github-integration.md「時間計測」増分2 Part B、
   // GitHubPane 増分2で拡張)。当初は TimeReportOverlay を開いたとき(reportOpen)だけだったが、
-  // GitHubPane の実績セクション(ActualsSection)も同じデータを使うため、「ペインが開いていて
+  // 右ペイン(GitHubPane)の実績セクションも同じデータを使うため、「ペインが開いていて
   // GitHub 連携済み」でも取得するよう広げる。GitHubPane 自体が `paneOpen && me.github` でしか
   // 描画されない(App.tsx 下部の render 参照)ため、この条件は「実績セクションが実際に見えている」
   // と同値 — 二重取得(reportOpen と paneOpen が両方 true でも1回の effect 実行にしかならない)は
-  // 依存配列がそのまま防ぐ。
-  // WorkLogModal を開いたときも work-logs を取得済みにする。実際にはモーダルは GitHubPane の
-  // ボタンからしか開かず(= paneOpen && me.github が既に true)取得済みのはずだが、fetch トリガーに
-  // 明示的に含めて「モーダルが開いていれば必ず一覧がある」を保証する(将来別導線から開いても崩れない)。
-  const needsActualsData = reportOpen || workLogModalOpen || (paneOpen && !!me.github);
+  // 依存配列がそのまま防ぐ。2026-07-25 に WorkLogModal を廃止し、その開閉フラグ(workLogModalOpen)
+  // をこの条件から外した ―― 実績 UI はすべて paneOpen 経路に集約された。
+  const needsActualsData = reportOpen || (paneOpen && !!me.github);
 
   // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
   // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
@@ -2461,7 +2458,7 @@ function App() {
     [checkedFetch, refetchWorkLogs],
   );
 
-  // WorkLogModal の実績履歴のインライン編集から呼ぶ(2026-07-23)。PATCH /api/work-logs/:id は
+  // 右ペイン(GitHubPane)実績履歴のインライン編集から呼ぶ(2026-07-23)。PATCH /api/work-logs/:id は
   // handleCreateWorkLog/handleDeleteWorkLog と同じセッション cookie 認証・非楽観更新(成功後に
   // 再取得)。失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateWorkLog と同じ流儀)。
   const handleUpdateWorkLog = useCallback(
@@ -2479,7 +2476,7 @@ function App() {
     [checkedFetch, refetchWorkLogs],
   );
 
-  // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / WorkLogModal)から
+  // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / 右ペイン)から
   // 呼ばれる。対象 linkedItemId の開区間だけをサーバーで停止する(フェーズ5b、2026-07-23)。
   //   1. 走行中キャッシュ(timeEntryStore=開区間の射影)から linkedItemId で該当エントリを引き、
   //      その id で元の開区間を特定して repo+issueRef を得る(開区間側が単一の真実)。
@@ -3133,18 +3130,21 @@ function App() {
             </button>
           )}
           {/*
-           * 「実績」ボタン(実績 UX 刷新、2026-07-23)。実績の記録/タイマー/履歴/詳細レポートを
-           * 集約した WorkLogModal をヘッダーから直接開く。従来は右ペイン(GitHubPane)の実績
-           * セクションからしか開けなかったが、ペインを作業キュー専用に絞ったのに伴いこの導線を
-           * ヘッダーへ移した。設定(歯車)と同じく連携アカウントがあるときだけ出す。
+           * 「実績」ボタン(実績 UX 刷新、2026-07-23 → 2026-07-25 に右ペイントグルへ変更)。
+           * 実績の記録/タイマー/履歴は右ペイン(GitHubPane)に集約されたため、このボタンは
+           * モーダルではなく右ペインの開閉トグルになった(paneOpen を共有 ―― CalendarPane の
+           * 「作業キュー」ボタンと同じ state)。ラベルは「実績」のまま、title でペインが開く
+           * ことを補足する。表示条件はペインの描画条件(me.github)と揃える ―― GitHub 未連携で
+           * 押しても何も開かない、という状態を作らないため。
            */}
-          {me.accounts.length > 0 && (
+          {me.github && (
             <button
               type="button"
               className="toolbar-actuals-btn"
-              onClick={() => setWorkLogModalOpen(true)}
+              onClick={toggleGitHubPane}
               aria-label="実績(記録・タイマー・履歴)"
-              title="実績(記録・タイマー・履歴)"
+              title="実績(右ペインを開く: 実行中・作業キュー・記録・履歴)"
+              aria-expanded={paneOpen}
             >
               <span aria-hidden="true">
                 <TimerIcon />
@@ -3338,6 +3338,25 @@ function App() {
               window.location.href = "/auth/github/login";
             }}
             onDragStart={() => setPaneOpen(false)}
+            // 実績(実行中タイマー・手動記録・履歴・詳細レポート導線)。旧 WorkLogModal へ
+            // 渡していたものをそのままペインへ配線し直した(2026-07-25)。needsActualsData に
+            // paneOpen 経路があるので、開いた時点で reportWorkLogs は取得済み(取得前でも
+            // 空配列で描画でき、取得完了で履歴が埋まる)。
+            workLogs={reportWorkLogs}
+            plannedBlocks={reportPlannedBlocks}
+            timeEntries={reportTimeEntries}
+            nowMs={timerNowMs}
+            onStartTimer={onStartTimer}
+            onStopTimer={onStopTimer}
+            timeZone={timeZone}
+            onCreateWorkLog={handleCreateWorkLog}
+            onUpdateWorkLog={handleUpdateWorkLog}
+            onDeleteWorkLog={handleDeleteWorkLog}
+            fetchRepos={fetchReposForPane}
+            fetchRepoIssues={fetchRepoIssuesForPane}
+            // 詳細レポートはモーダルのまま維持。ペインは開いたままでよい(docked なら併存、
+            // overlay でもモーダルが上に載るだけ)。
+            onOpenReport={() => setReportOpen(true)}
           />
         )}
       </main>
@@ -3410,35 +3429,6 @@ function App() {
           estimatesLoading={prCommitEstimatesLoading}
           hookActualByLinkedItem={reportHookActualByLinkedItem}
           onClose={() => setReportOpen(false)}
-        />
-      )}
-      {/*
-       * 実績(work-log)専用モーダル(WorkLogModal、実績 UX 刷新フェーズ2、2026-07-23)。手動追加
-       * フォームと過去記録の編集/削除を集約する。GitHubPane の「記録・編集」ボタンから開く
-       * (workLogModalOpen)。needsActualsData に workLogModalOpen を含めているので、開いた時点で
-       * reportWorkLogs は取得済み(取得前でも空配列で開き、取得完了で履歴が埋まる)。
-       */}
-      {workLogModalOpen && (
-        <WorkLogModal
-          workLogs={reportWorkLogs}
-          plannedBlocks={reportPlannedBlocks}
-          githubQueue={githubQueue}
-          timeEntries={reportTimeEntries}
-          nowMs={timerNowMs}
-          onStartTimer={onStartTimer}
-          onStopTimer={onStopTimer}
-          timeZone={timeZone}
-          onCreate={handleCreateWorkLog}
-          onUpdate={handleUpdateWorkLog}
-          onDelete={handleDeleteWorkLog}
-          fetchRepos={fetchReposForModal}
-          fetchRepoIssues={fetchRepoIssuesForModal}
-          onOpenReport={() => {
-            // モーダルを閉じてから詳細レポートを開く(閉じずに開くと二重モーダルになるため)
-            setWorkLogModalOpen(false);
-            setReportOpen(true);
-          }}
-          onClose={() => setWorkLogModalOpen(false)}
         />
       )}
     </div>
