@@ -1,5 +1,6 @@
 import type { GitHubWorkItemDTO, OpenWorkIntervalDTO } from "@kichijitsu/shared";
 import type { PlannedBlock, TimeEntry } from "../model/types";
+import { issueIdentityNumber, workLogIssueIdentity } from "./workLogGrouping";
 
 /**
  * サーバーの開区間 (GET /api/work-logs/open、OpenWorkIntervalDTO) を「走行中(実行中)状態」の
@@ -16,6 +17,13 @@ import type { PlannedBlock, TimeEntry } from "../model/types";
  * repo+number でメタ(linkedItemId/itemType/title/url)を補完する。補完できない開区間
  * (MCP など別経路で作業キューにも予定にも無いもの)は linkedItemId=開区間の id を使い、
  * `repo #issue` 表示にフォールバックする。
+ *
+ * issueRef の正規化 (2026-07-25): OpenWorkIntervalDTO.issueRef は経路によって形が違う ――
+ * UI タイマー/手動は作業 repo に対する素の `12`、hook/MCP は別 repo も指せる完全参照
+ * `owner/repo#12`。以前ここは `String(number)` との単純一致だけを見ていたため、hook が
+ * 完全参照で開始した開区間を「実行中」と認識できず、同じ issue に2本目の開区間ができたり
+ * `https://github.com/{repo}/issues/owner/repo#12` という壊れた URL を作っていた。判定は
+ * work_logs のグループ化と同じ workLogIssueIdentity(sync/workLogGrouping.ts)に一元化する。
  */
 
 interface TimerItemMeta {
@@ -26,7 +34,8 @@ interface TimerItemMeta {
   url: string;
 }
 
-function metaKey(repo: string, number: number | string): string {
+/** メタ表の引き当てキー。番号は必ず数値に正規化してから渡す(文字列の生 issueRef を混ぜない)。 */
+function metaKey(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
 
@@ -58,10 +67,16 @@ export function buildTimerItemLookup(
   return map;
 }
 
-/** issue/PR どちらでも /issues/N で開ける(PR は GitHub が /pull/N へリダイレクトする)。 */
-function fallbackUrl(repo: string, issueRef: string | undefined): string {
-  if (!issueRef) return `https://github.com/${repo}`;
-  return `https://github.com/${repo}/issues/${issueRef}`;
+/**
+ * メタが引けなかったときの遷移先 URL。issue/PR どちらでも /issues/N で開ける(PR は GitHub が
+ * /pull/N へリダイレクトする)。番号が数値として取れないときは /issues/{生の参照} という
+ * 存在しない URL を作らず、その repo の issue 一覧(番号が無ければ repo トップ)に落とす。
+ * issueRepo は「issue の所属 repo」(完全参照ならそちら、素の番号なら作業 repo)を渡す。
+ */
+function fallbackUrl(issueRepo: string, number: number | undefined, hasIssue: boolean): string {
+  if (number !== undefined) return `https://github.com/${issueRepo}/issues/${number}`;
+  if (hasIssue) return `https://github.com/${issueRepo}/issues`;
+  return `https://github.com/${issueRepo}`;
 }
 
 /**
@@ -69,24 +84,27 @@ function fallbackUrl(repo: string, issueRef: string | undefined): string {
  * linkedItemId/itemType/title/url を補完し、引けなければ id を linkedItemId に流用して
  * `repo #issue` にフォールバックする(title は空文字にし、表示側で repo/number を出す)。
  * id は開区間の id をそのまま使う(ポーリングをまたいで安定するので React key に使える)。
+ *
+ * repo/number/url は「issue の所属 repo + 数値番号」で揃える(workLogIssueIdentity)。作業 repo と
+ * issue の所属 repo が違う完全参照 (`owner/repo#12`) でも、メタ・表示・リンク先が同じ issue を
+ * 指すようにするため ―― 開区間そのものの repo/issueRef は停止 (POST /api/work-logs/stop) 側が
+ * openIntervals から直接読むので、ここで失われても支障は無い。
  */
 export function openIntervalToTimeEntry(
   interval: OpenWorkIntervalDTO,
   lookup: Map<string, TimerItemMeta>,
 ): TimeEntry {
-  const meta = interval.issueRef
-    ? lookup.get(metaKey(interval.repo, interval.issueRef))
-    : undefined;
-  const parsed = interval.issueRef ? Number(interval.issueRef) : 0;
-  const number = Number.isFinite(parsed) ? parsed : 0;
+  const identity = workLogIssueIdentity(interval.repo, interval.issueRef);
+  const number = issueIdentityNumber(identity);
+  const meta = number !== undefined ? lookup.get(metaKey(identity.repo, number)) : undefined;
   return {
     id: interval.id,
     linkedItemId: meta?.linkedItemId ?? interval.id,
     itemType: meta?.itemType ?? "issue",
     title: meta?.title ?? "",
-    repo: interval.repo,
-    number,
-    url: meta?.url ?? fallbackUrl(interval.repo, interval.issueRef),
+    repo: identity.repo,
+    number: number ?? 0,
+    url: meta?.url ?? fallbackUrl(identity.repo, number, identity.hasIssue),
     startMs: interval.startMs,
     endMs: null,
   };
@@ -108,13 +126,17 @@ export function openIntervalsToTimeEntries(
 /**
  * repo + number が実行中(対応する開区間がある)か。type は問わず repo+number(=issueRef)で
  * 判定する — 同一 repo+number が issue と PR の両方であることは実質無く、開区間側に type が
- * 無いため。▶/⏹ の出し分けに使う。
+ * 無いため。▶/⏹ の出し分けと、二重 start を避ける事前チェックに使う。
+ *
+ * 開区間の issueRef は素の `12` と完全参照 `owner/repo#12` の2形態で来るので、両辺を
+ * workLogIssueIdentity のキーへ正規化してから比較する(生文字列一致だと hook が完全参照で
+ * 開始した開区間を取りこぼし、同じ issue に2本目の開区間ができてしまう)。
  */
 export function isIntervalRunning(
   intervals: readonly OpenWorkIntervalDTO[],
   repo: string,
   number: number,
 ): boolean {
-  const ref = String(number);
-  return intervals.some((iv) => iv.repo === repo && (iv.issueRef ?? "") === ref);
+  const target = workLogIssueIdentity(repo, String(number)).key;
+  return intervals.some((iv) => workLogIssueIdentity(iv.repo, iv.issueRef).key === target);
 }

@@ -862,6 +862,17 @@ export function EventDetailCard({
   // Zoom・Teams)のどちらに入っていても1本に解決してからプロバイダを判定する(EventBlock 側と同じ)。
   const meetingUrl = resolveMeetingUrl(subject.conferenceUrl, subject.location);
   const meetingProvider = detectMeetingProvider(meetingUrl);
+  // 参加リンクのラベル。プロバイダが判定できない会議 URL(社内ツール等の未知の entryPoint、
+  // サーバー deriveConferenceUrl の優先順位2)でも参加リンクは出す ―― resolveMeetingUrl の
+  // doc どおり「Google が会議の正本として持っている URL」なので開いてよい。アイコンは
+  // MeetingProviderIcon が provider===null で汎用の VideoIcon に落ちる(2026-07-25)。
+  const meetingLinkLabel = meetingProvider
+    ? `${meetingProviderLabel(meetingProvider)}に参加`
+    : "会議に参加";
+  // 「場所」行を出すかの比較は trim 済み同士で行う ―― resolveMeetingUrl は trim した URL を
+  // 返すため、location の末尾に空白があると生比較では別物になり、参加リンクと同じ URL が
+  // 「場所」行にも生で二重表示されてしまう(2026-07-25)。
+  const locationText = subject.location?.trim();
   const memberCalendars = groupMembers
     .map((m) => {
       const info =
@@ -946,7 +957,11 @@ export function EventDetailCard({
          * 小アイコンと同じ判定基準(occurrence.hasConference/location)を、詳細ポップオーバーでは
          * テキストラベル付きで表示する(要件:「オンライン会議あり / 場所: {location}」)。
          */}
-        {subject.hasConference === true && (
+        {/* 参加リンク(下)を出せるときは、この汎用行は省く ―― 「オンライン会議あり」と
+            「○○に参加」が同じ意味・同じアイコンで2行並ぶ冗長を避ける(2026-07-25)。
+            会議リンクはあるが URL が取れない場合(電話参加のみの entryPoints 等)だけ、
+            従来どおり「会議はある」ことをこの行で示す。 */}
+        {subject.hasConference === true && !meetingUrl && (
           <div className="event-detail-conference">
             <VideoIcon width={12} height={12} />
             オンライン会議あり
@@ -962,7 +977,7 @@ export function EventDetailCard({
          * useCloseOnOutsideOrEscape の contains 判定で「外側クリック」にならないため)。
          * location に会議室名などが別途入っている場合は、この下の「場所」行と両方出る。
          */}
-        {meetingProvider !== null && meetingUrl && (
+        {meetingUrl && (
           <a
             className="event-detail-location event-detail-meeting-link"
             href={meetingUrl}
@@ -971,16 +986,16 @@ export function EventDetailCard({
             title={meetingUrl}
           >
             <MeetingProviderIcon provider={meetingProvider} width={12} height={12} />
-            {meetingProviderLabel(meetingProvider)}に参加
+            {meetingLinkLabel}
           </a>
         )}
         {/* 場所行は「location が参加リンクそのものではない」ときだけ出す ―― Slack ハドルのように
             location = 会議 URL の場合は上の参加リンクと二重になるので省き、Meet のように
             location に会議室名が別途入っている場合は参加リンクと両方出す(2026-07-25)。 */}
-        {subject.location && subject.location !== meetingUrl && (
+        {locationText && locationText !== meetingUrl && (
           <div className="event-detail-location">
             <PlaceIcon width={12} height={12} />
-            場所: {subject.location}
+            場所: {locationText}
           </div>
         )}
         {plainDescription && <div className="event-detail-description">{plainDescription}</div>}

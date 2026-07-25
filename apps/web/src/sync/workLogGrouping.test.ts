@@ -2,8 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   distinctIssueRepos,
   groupWorkLogsByIssue,
+  issueIdentityNumber,
   issueTitleKey,
   summarizeWorkLogGroups,
+  workLogIssueIdentity,
 } from "./workLogGrouping";
 import type { WorkLogDTO } from "@kichijitsu/shared";
 
@@ -159,6 +161,55 @@ describe("groupWorkLogsByIssue", () => {
 
   it("空配列は空配列を返す", () => {
     expect(groupWorkLogsByIssue([])).toEqual([]);
+  });
+});
+
+// issueRef 正規化の唯一の置き場としての契約(2026-07-25)。openIntervals.ts / hookActual.ts が
+// ここに寄せているため、3形態(完全参照 / 素の番号 / 番号なし)の振る舞いを直接固定しておく。
+describe("workLogIssueIdentity", () => {
+  it("完全参照 (owner/repo#番号) は所属 repo と番号に分解する", () => {
+    const id = workLogIssueIdentity("owner/work", "Love-Rox/kichijitsu#12");
+    expect(id.hasIssue).toBe(true);
+    expect(id.repo).toBe("Love-Rox/kichijitsu");
+    expect(id.issueRef).toBe("12");
+  });
+
+  it("素の番号は作業 repo に対する番号として扱い、完全参照と同じキーになる", () => {
+    const bare = workLogIssueIdentity("Love-Rox/kichijitsu", "12");
+    const full = workLogIssueIdentity("owner/work", "Love-Rox/kichijitsu#12");
+    expect(bare.key).toBe(full.key);
+    expect(bare.repo).toBe("Love-Rox/kichijitsu");
+    expect(bare.issueRef).toBe("12");
+  });
+
+  it("番号なし(undefined/空白)は issue 無しになり、issue 付きとはキーが衝突しない", () => {
+    const none = workLogIssueIdentity("owner/repo", undefined);
+    expect(none.hasIssue).toBe(false);
+    expect(none.issueRef).toBeUndefined();
+    expect(none.repo).toBe("owner/repo");
+    expect(workLogIssueIdentity("owner/repo", "   ").key).toBe(none.key);
+    expect(none.key).not.toBe(workLogIssueIdentity("owner/repo", "12").key);
+  });
+
+  it("区切り文字は repo/番号に現れ得ないので、境界のずれでキーが衝突しない", () => {
+    // 区切りを可視文字(例: " ")にすると (repo="a b", 番号="c") と (repo="a", 番号="b c") が
+    // 衝突しうる。NUL 区切りを維持していることの回帰テスト。
+    expect(workLogIssueIdentity("a b", "c").key).not.toBe(workLogIssueIdentity("a", "b c").key);
+    expect(workLogIssueIdentity("a#b", "1").key).not.toBe(workLogIssueIdentity("a", "b#1").key);
+  });
+});
+
+describe("issueIdentityNumber", () => {
+  it("数値の番号は number で返す", () => {
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/repo", "12"))).toBe(12);
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/work", "owner/repo#33488"))).toBe(33488);
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/repo", "#7"))).toBe(7);
+  });
+
+  it("非数値の参照(ブランチ名由来等)と issue 無しは undefined", () => {
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/repo", "feat/foo"))).toBeUndefined();
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/repo", "12a"))).toBeUndefined();
+    expect(issueIdentityNumber(workLogIssueIdentity("owner/repo", undefined))).toBeUndefined();
   });
 });
 

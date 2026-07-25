@@ -1006,13 +1006,17 @@ function WorkLogHistory({
       (repo) => !fetchedIssueReposRef.current.has(repo),
     );
     if (targets.length === 0) return;
-    let cancelled = false;
     for (const repo of targets) {
-      // 先にマークして(取得中・失敗も含め)同じ repo を二重に取りにいかないようにする。
+      // 走り出す前にマークして、同じ repo を二重に取りにいかないようにする。ただし
+      // 「成功しなかった repo」はマークを外す ―― groups は workLogs 由来で毎回新しい配列に
+      // なるため、実績の追加/削除やタイマー停止でこの effect が張り直る。以前は cleanup で
+      // cancelled=true にして結果を捨てていたので、取得中に再実行が起きるとマークだけが残って
+      // その repo のタイトルが永久に出なくなった(2026-07-25 のレビュー指摘)。
+      // 解決した結果は破棄しない: setIssueTitles はマージ更新で、同じ repo を何度書いても
+      // 冪等(アンマウント後の setState は React 19 では警告も無く無視される)なので捨てる理由が無い。
       fetchedIssueReposRef.current.add(repo);
       fetchRepoIssues(repo)
         .then((issues) => {
-          if (cancelled) return;
           setIssueTitles((prev) => {
             const next = { ...prev };
             for (const issue of issues) {
@@ -1022,15 +1026,14 @@ function WorkLogHistory({
           });
         })
         .catch((err) => {
+          // 失敗はマークを外して次回の再実行(実績の増減や再オープン)で取り直せるようにする
+          fetchedIssueReposRef.current.delete(repo);
           console.warn(
             `kichijitsu: 実績履歴の issue タイトル取得に失敗 (${repo}、タイトルは省略)`,
             err,
           );
         });
     }
-    return () => {
-      cancelled = true;
-    };
   }, [groups, fetchRepoIssues]);
 
   if (groups.length === 0) {
@@ -1146,8 +1149,9 @@ type RowMode =
  * 実績履歴の1行。表示モードでは repo・issue・期間・agent を見せ、「編集」でインライン編集フォーム
  * (現値プリフィル)へ、「削除」で行ごとの2段階確認(SettingsModal の AccountDisconnectControl と
  * 同じ流儀)へ切り替える。手動記録・hook 記録のどちらも編集/削除できる(agent バッジで区別)。
- * 編集の保存・削除は非楽観更新 — onUpdate/onDelete 成功後に App.tsx が work-logs を再取得する
- * (成功時は本行が新しいリストで置き換わるため、ここで view へ戻す必要は無い)。
+ * 編集の保存・削除は非楽観更新 — onUpdate/onDelete 成功後に App.tsx が work-logs を再取得する。
+ * 通常は再取得で本行ごと消える(または新しい値で置き換わる)が、再取得が失敗して旧リストが
+ * 残ったときに操作不能な状態で固まらないよう、削除は成功・失敗のどちらでも view に戻す。
  * 420px 幅に収めるため、行は「repo/issue/agent」→「期間」→「操作」の縦積み(GitHubPane.css)。
  */
 function WorkLogHistoryRow({ log, timeZone, onUpdate, onDelete }: WorkLogHistoryRowProps) {
@@ -1197,12 +1201,20 @@ function WorkLogHistoryRow({ log, timeZone, onUpdate, onDelete }: WorkLogHistory
             onClick={() => {
               setMode({ kind: "deleting" });
               setDeleteError(false);
-              onDelete(log.id).catch((err) => {
-                console.error("kichijitsu: work log delete failed", err);
-                setDeleteError(true);
-                setMode({ kind: "view" });
-              });
-              // 成功時は App.tsx が work-logs を再取得して本行ごと消えるため view 復帰は不要
+              onDelete(log.id)
+                .then(() => {
+                  // 成功時も view に戻す。通常は再取得で本行ごと消える(アンマウント後の
+                  // setState は React 19 では無視される)が、App.tsx の refetchWorkLogs は
+                  // 再取得の失敗を握って旧リストを保持するため、行が残ったまま "deleting" で
+                  // ボタンが無効に固まることがあった(2026-07-25 のレビュー指摘)。削除自体の
+                  // 成否とリスト再取得の成否は別物として扱う。
+                  setMode({ kind: "view" });
+                })
+                .catch((err) => {
+                  console.error("kichijitsu: work log delete failed", err);
+                  setDeleteError(true);
+                  setMode({ kind: "view" });
+                });
             }}
           >
             削除する
