@@ -27,6 +27,54 @@ export const MAX_HOUR_HEIGHT = 120;
 /** −/+ ボタン・⌘/Ctrl+ホイール 1ステップぶんの増減量(px) */
 export const HOUR_HEIGHT_STEP = 8;
 
+/**
+ * ⌘/Ctrl + ホイールで1ステップ(= HOUR_HEIGHT_STEP ぶん)ズームするのに必要な wheel deltaY の量。
+ * トラックパッドのピンチは数〜十数の細かい delta が連続して届くため、生の delta ごとに 8px
+ * 動かすと暴走する ―― deltaY を溜めてこのしきい値ぶん貯まるごとに1ステップ進める
+ * (accumulateWheelZoom 参照)。
+ */
+export const WHEEL_ZOOM_DELTA_PER_STEP = 24;
+
+/**
+ * wheel の deltaMode(0=pixel、1=line、2=page)を px 相当へ正規化する。
+ * Firefox 等の line モードは 1行 ≒ 16px、page モードは1操作で確実にしきい値を超える量として
+ * 扱う(どちらも精度は要らない ―― accumulateWheelZoom が1イベント1ステップに丸めるため、
+ * 「しきい値を超えるか否か」だけが意味を持つ)。
+ */
+export function wheelDeltaToPx(deltaY: number, deltaMode: number): number {
+  if (deltaMode === 1) return deltaY * 16;
+  if (deltaMode === 2) return deltaY * WHEEL_ZOOM_DELTA_PER_STEP;
+  return deltaY;
+}
+
+export interface WheelZoomStep {
+  /** 次の wheel イベントへ持ち越す蓄積量(px) */
+  accumPx: number;
+  /** ズームを進める向き。0 = まだしきい値未満(何もしない)、+1 = 縮小方向、-1 = 拡大方向 */
+  direction: -1 | 0 | 1;
+}
+
+/**
+ * ⌘/Ctrl+ホイールのズーム量の蓄積。1イベントで進めるのは最大1ステップに丸める(2026-07-25 修正)。
+ *
+ * かつては `Math.trunc(accum / しきい値)` のステップ数をそのまま HOUR_HEIGHT_STEP に掛けていたため、
+ * マウスホイール1ノッチ(pixel モードで deltaY ≒ 100)で 4 ステップ = 32px も一気に動き、
+ * 48px から下限 24px まで飛んでいた(コメントの「1ステップだけ進める」という意図と実装が矛盾)。
+ * ステップ数を1に丸め、進めたときは余りを捨てる ―― 余りを持ち越すと蓄積が単調に膨らみ、
+ * 逆方向へ回したときに反応するまで何ノッチも必要になるため。
+ * これでマウスの1ノッチ・トラックパッドのピンチ(しきい値ぶん貯まった時点)がどちらも
+ * 「1操作 = HOUR_HEIGHT_STEP(8px)」の体感になる。
+ */
+export function accumulateWheelZoom(
+  accumPx: number,
+  deltaPx: number,
+  thresholdPx: number = WHEEL_ZOOM_DELTA_PER_STEP,
+): WheelZoomStep {
+  const next = accumPx + deltaPx;
+  if (Math.abs(next) < thresholdPx) return { accumPx: next, direction: 0 };
+  return { accumPx: 0, direction: next > 0 ? 1 : -1 };
+}
+
 /** ワンクリックのプリセット(ユーザー決定 2026-07-25)。現在値が一致していればアクティブ表示にする */
 export const HOUR_HEIGHT_PRESETS = [
   { id: "compact", label: "コンパクト", short: "小", px: 32 },
@@ -179,6 +227,11 @@ export function pxToMinutes(px: number, hourHeight: number): number {
  * たびに見ている時間帯が上下へ飛んでしまう。⌘/Ctrl+ホイールではポインタ位置、−/+ ボタンや
  * プリセットではビューポート中央を anchorPx に使う(WeekGrid.tsx)。
  * 戻り値は負にならないよう 0 で下限を切る(先頭付近で縮小したときのため)。
+ *
+ * 重要: scrollTop / fromHourHeight は必ず「ズームを適用する前」の値を渡すこと。
+ * 縮小方向では新しい --hour-height が当たった時点でブラウザが scrollTop を新しい上限へ
+ * クランプしてしまうため、適用後に読んだ scrollTop を渡すと基準がずれて 0時付近へ飛ぶ
+ * (2026-07-25 修正。WeekGrid.tsx はレンダー中にクランプ前の値をスナップショットしている)。
  */
 export function zoomedScrollTop(
   scrollTop: number,

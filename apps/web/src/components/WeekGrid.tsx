@@ -43,10 +43,12 @@ import {
   type WorkingLocationRailItem,
 } from "../layout/workingLocationRail";
 import {
+  accumulateWheelZoom,
   clampHourHeight,
   HOUR_HEIGHT_STEP,
   minutesToPx,
   WEEKDAY_LABELS,
+  wheelDeltaToPx,
   zoomedScrollTop,
 } from "../layout/gridMetrics";
 import { panelAnchors } from "../layout/dayGrid";
@@ -62,14 +64,6 @@ import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
 const SLIDE_MS = 200;
-
-/**
- * ⌘/Ctrl + ホイール1ステップ(= HOUR_HEIGHT_STEP ぶんのズーム)に必要な wheel deltaY の量。
- * マウスホイールの1ノッチは pixel モードで概ね 100 前後、トラックパッドのピンチは
- * 数〜十数の細かい delta が連続して届く ―― 生の delta ごとに 8px 動かすとピンチが暴走するため、
- * deltaY を溜めてこのしきい値ぶん貯まるごとに1ステップだけ進める。
- */
-const WHEEL_ZOOM_DELTA_PER_STEP = 24;
 
 /**
  * 終日レーン(フェーズ5)のレイアウト定数。ROW_HEIGHT はバー1行ぶんの px 高さ、
@@ -385,15 +379,18 @@ export function WeekGrid({
     const handleWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      // deltaMode: 0=pixel, 1=line, 2=page。line/page は概算で px 相当に寄せる
-      const deltaPx = e.deltaMode === 0 ? e.deltaY : e.deltaY * 16;
-      wheelAccumRef.current += deltaPx;
-      const steps = Math.trunc(wheelAccumRef.current / WHEEL_ZOOM_DELTA_PER_STEP);
-      if (steps === 0) return;
-      wheelAccumRef.current -= steps * WHEEL_ZOOM_DELTA_PER_STEP;
+      // deltaMode(0=pixel/1=line/2=page)の正規化とステップ判定は gridMetrics.ts の純関数へ。
+      // 1イベントで進むのは最大1ステップ ―― マウスホイール1ノッチ(pixel モードで deltaY ≒ 100)で
+      // 4ステップぶん飛んでいた不具合の修正(accumulateWheelZoom のコメント参照、2026-07-25)。
+      const { accumPx, direction } = accumulateWheelZoom(
+        wheelAccumRef.current,
+        wheelDeltaToPx(e.deltaY, e.deltaMode),
+      );
+      wheelAccumRef.current = accumPx;
+      if (direction === 0) return;
       const current = hourHeightRef.current;
       // deltaY > 0 (下方向スクロール/ピンチイン) は縮小、< 0 は拡大
-      const next = clampHourHeight(current - steps * HOUR_HEIGHT_STEP);
+      const next = clampHourHeight(current - direction * HOUR_HEIGHT_STEP);
       if (next === current) return;
       hourHeightRef.current = next;
       const rect = el.getBoundingClientRect();
@@ -404,18 +401,40 @@ export function WeekGrid({
     return () => el.removeEventListener("wheel", handleWheel);
   }, [onHourHeightChange]);
 
-  // ズーム変更後に「見ていた時刻」をそのまま保つスクロール補正。CSS 変数 --hour-height が
-  // 適用された同じコミットの後(=DOM の高さが新しいズームになった状態)で走らせる必要があるため
-  // useLayoutEffect を使う(useEffect だと1フレーム古い高さで補正して画面がガタつく)。
+  // ---- ズーム変更後に「見ていた時刻」をそのまま保つスクロール補正 ----
+  //
+  // 補正そのものは useLayoutEffect で行う ―― CSS 変数 --hour-height が適用された同じコミットの
+  // 後(=DOM の高さが新しいズームになった状態)で scrollTop を書かないと画面がガタつくため。
+  // ただし「補正の基準となるズーム前の scrollTop」を useLayoutEffect の中で読んではいけない:
+  // その時点で既に新しい高さが効いており、縮小方向ではブラウザが scrollTop を新しい上限
+  // (24時間ぶんの高さ − ビューポート高)へクランプ済みになっている。例えば 624px の
+  // ビューポートで 120px/h・15:00 が上端(scrollTop=1800)から 72px/h へ縮小すると、上限は
+  // 72*24−624=1104 なので 1800 は 1104 に切られる ―― そのクランプ後の値から逆算すると
+  // 「見ていた時刻」が失われ、縮小のたびに深夜(0時)方向へ飛んでしまう。
+  //
+  // そこで hourHeight が変わった最初のレンダー中(= React がまだ DOM を更新しておらず、古い
+  // --hour-height が効いている時点)にクランプ前の scrollTop をスナップショットしておく。
+  // ref への書き込みはこの「ズームが変わったレンダー」1回だけで、同じ値の再読み取りは
+  // 冪等(StrictMode の二重レンダーでも結果は変わらない)。強制レイアウトのコストも
+  // ズーム操作1回ぶんしか発生しない。
   const prevHourHeightRef = useRef(hourHeight);
+  const zoomFromRef = useRef<{ scrollTop: number; hourHeight: number } | null>(null);
+  if (prevHourHeightRef.current !== hourHeight && zoomFromRef.current === null) {
+    zoomFromRef.current = {
+      scrollTop: scrollRef.current?.scrollTop ?? 0,
+      hourHeight: prevHourHeightRef.current,
+    };
+  }
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const prev = prevHourHeightRef.current;
-    if (!el || prev === hourHeight) return;
+    const from = zoomFromRef.current;
+    // 基準は「補正したかどうか」に関わらず必ず最新へ進める(次回のスナップショット判定用)
     prevHourHeightRef.current = hourHeight;
+    zoomFromRef.current = null;
+    if (!el || !from || from.hourHeight === hourHeight) return;
     const anchorPx = zoomAnchorPxRef.current ?? el.clientHeight / 2;
     zoomAnchorPxRef.current = null;
-    el.scrollTop = zoomedScrollTop(el.scrollTop, anchorPx, prev, hourHeight);
+    el.scrollTop = zoomedScrollTop(from.scrollTop, anchorPx, from.hourHeight, hourHeight);
   }, [hourHeight]);
 
   // weekStart (App が持つ状態) が変わったら center に反映する。
@@ -897,6 +916,9 @@ export function WeekGrid({
       onPointerMove={swipeHandlers.onPointerMove}
       onPointerUp={swipeHandlers.onPointerUp}
       onPointerCancel={swipeHandlers.onPointerCancel}
+      // 指追従中にキャプチャを失った経路でも .is-swiping を必ず落とす保険
+      // (残ると transition:none !important が効いたまま以後の日付移動が瞬間移動になる)
+      onLostPointerCapture={swipeHandlers.onLostPointerCapture}
     >
       <div className="week-grid-header">
         <div className="week-grid-header-gutter" />

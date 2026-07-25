@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  accumulateWheelZoom,
   busyOverlapColors,
   clampHourHeight,
   DAY_COLUMN_INSET_PX,
@@ -7,6 +8,7 @@ import {
   dayHeightPx,
   DEFAULT_HOUR_HEIGHT,
   HOUR_HEIGHT_PRESETS,
+  HOUR_HEIGHT_STEP,
   locationLineClamp,
   matchHourHeightPreset,
   MAX_HOUR_HEIGHT,
@@ -16,6 +18,8 @@ import {
   overlapsBusy,
   pxToMinutes,
   RAIL_BAND_WIDTH_PX,
+  WHEEL_ZOOM_DELTA_PER_STEP,
+  wheelDeltaToPx,
   zoomedScrollTop,
   type TimeInterval,
 } from "./gridMetrics";
@@ -184,6 +188,86 @@ describe("zoomedScrollTop", () => {
 
   it("先頭付近で縮小しても負にならない", () => {
     expect(zoomedScrollTop(0, 200, 120, 24)).toBe(0);
+  });
+
+  // H-3(2026-07-25): 縮小方向でも「見ていた時刻」が保たれることを数値で固定する。
+  // 呼び出し側は必ず「ズーム適用前」の scrollTop を渡すこと(適用後に読むとブラウザの
+  // クランプ済みの値になり、下の期待値どころか 0 付近まで飛ぶ ―― gridMetrics.ts のコメント参照)
+  it("縮小方向でもアンカー位置の時刻が保たれる(120px/h → 32px/h)", () => {
+    // 800px ビューポートの中央(anchorPx=400)を基準に、120px/h で scrollTop=1500。
+    // アンカーの時刻 = (1500 + 400) / 120 h = 15.8333h(15:50)。
+    // 32px/h では 15.8333 * 32 = 506.666… px なので scrollTop = 506.666… - 400 = 106.666…
+    expect(zoomedScrollTop(1500, 400, 120, 32)).toBeCloseTo(106.6667, 3);
+    // アンカー時刻がズーム後も同じ画面位置に来ることの確認(px→時刻の往復)
+    const after = zoomedScrollTop(1500, 400, 120, 32);
+    expect(pxToMinutes(after + 400, 32)).toBeCloseTo(pxToMinutes(1500 + 400, 120), 6);
+  });
+
+  it("拡大方向も同じ式で対称に保たれる(32px/h → 120px/h)", () => {
+    const before = 106.6667;
+    const after = zoomedScrollTop(before, 400, 32, 120);
+    expect(pxToMinutes(after + 400, 120)).toBeCloseTo(pxToMinutes(before + 400, 32), 3);
+  });
+});
+
+describe("wheelDeltaToPx", () => {
+  it("pixel モード(0)はそのまま", () => {
+    expect(wheelDeltaToPx(100, 0)).toBe(100);
+    expect(wheelDeltaToPx(-4.5, 0)).toBe(-4.5);
+  });
+
+  it("line モード(1)は 1行 16px 換算", () => {
+    expect(wheelDeltaToPx(3, 1)).toBe(48);
+  });
+
+  it("page モード(2)は1操作でしきい値を必ず超える量にする", () => {
+    expect(Math.abs(wheelDeltaToPx(1, 2))).toBeGreaterThanOrEqual(WHEEL_ZOOM_DELTA_PER_STEP);
+  });
+});
+
+describe("accumulateWheelZoom", () => {
+  it("しきい値未満は蓄積するだけでズームしない(トラックパッドのピンチの細かい delta)", () => {
+    let accum = 0;
+    for (const delta of [4, 6, 5, 7]) {
+      const r = accumulateWheelZoom(accum, delta);
+      expect(r.direction).toBe(0);
+      accum = r.accumPx;
+    }
+    expect(accum).toBe(22);
+  });
+
+  it("しきい値ぶん貯まったら1ステップだけ進め、余りは捨てる", () => {
+    const r = accumulateWheelZoom(22, 6); // 28 >= 24
+    expect(r.direction).toBe(1);
+    expect(r.accumPx).toBe(0);
+  });
+
+  // H-4(2026-07-25): マウスホイール1ノッチ(pixel モードで deltaY ≒ 100)は
+  // 旧実装では 4 ステップ = 32px 動いていた(48px/h → 下限 24px へ一気に飛ぶ)
+  it("マウスホイール1ノッチ(deltaY=100)でも1ステップだけ(= 8px)", () => {
+    const r = accumulateWheelZoom(0, 100);
+    expect(r.direction).toBe(1);
+    expect(r.accumPx).toBe(0);
+    expect(r.direction * HOUR_HEIGHT_STEP).toBe(8);
+  });
+
+  it("上方向(拡大)も同様に1ステップ", () => {
+    expect(accumulateWheelZoom(0, -100)).toEqual({ accumPx: 0, direction: -1 });
+    expect(accumulateWheelZoom(0, -10).direction).toBe(0);
+  });
+
+  it("しきい値ちょうどで1ステップ(>= 判定)", () => {
+    expect(accumulateWheelZoom(0, WHEEL_ZOOM_DELTA_PER_STEP).direction).toBe(1);
+    expect(accumulateWheelZoom(0, WHEEL_ZOOM_DELTA_PER_STEP - 0.01).direction).toBe(0);
+  });
+
+  it("逆方向へ回すと蓄積が打ち消される(余りを持ち越さないので反応が鈍らない)", () => {
+    const r1 = accumulateWheelZoom(0, 10); // 蓄積 10
+    const r2 = accumulateWheelZoom(r1.accumPx, -10); // 0 に戻る
+    expect(r2).toEqual({ accumPx: 0, direction: 0 });
+    // 1ノッチぶんで余りを捨てているので、次に逆方向へ1ノッチ回せば即座に逆へ進む
+    const notch = accumulateWheelZoom(0, 100);
+    expect(accumulateWheelZoom(notch.accumPx, -100).direction).toBe(-1);
   });
 });
 

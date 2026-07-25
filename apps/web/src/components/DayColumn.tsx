@@ -485,6 +485,34 @@ export function DayColumn({
     createDragRef.current = null;
   }
 
+  /**
+   * ポインタキャプチャを他所に奪われたときの後片付け(2026-07-25)。
+   *
+   * 具体的な経路: 長押しで作成ドラッグに入る(この列が setPointerCapture)→ そのまま横に振ると
+   * useSwipeNavigation が横スワイプ確定として .week-grid へ同じ pointerId のキャプチャを移す。
+   * すると以後の pointermove/up/cancel はこの列に届かず、createDragRef と ghost 要素が
+   * 残置されたままになる(次のタップまで灰色のゴーストが残る/古い pointerId が残る)。
+   * lostpointercapture は「キャプチャを失った要素」に発火するので、ここで確実に破棄する。
+   *
+   * 通常の pointerup 経路では handleColumnPointerUp が先に走って createDragRef を空にしている
+   * (仕様上 lostpointercapture は pointerup の直後)ため、ここは何もしない ―― つまり
+   * 「奪われた/取りこぼした」ときだけ効く。作成の確定(setDraft)は意図的に行わない:
+   * ユーザーの操作は横スワイプへ移っており、そこで入力欄が開くのは誤爆になるため。
+   */
+  function handleColumnLostPointerCapture(e: ReactPointerEvent<HTMLDivElement>) {
+    // lostpointercapture は bubbles: true なので、子孫(EventBlock 等が自前で
+    // setPointerCapture したもの)のぶんも上がってくる。キャプチャを取ったのはこの列自身
+    // (currentTarget)なので、target が一致するときだけ後片付けする。
+    if (e.target !== e.currentTarget) return;
+    const pending = longPressPendingRef.current;
+    if (pending && pending.pointerId === e.pointerId) clearLongPressPending();
+
+    const ds = createDragRef.current;
+    if (!ds || ds.pointerId !== e.pointerId) return;
+    ds.ghostEl.remove();
+    createDragRef.current = null;
+  }
+
   function confirmDraft() {
     const title = draftTitle.trim();
     if (draft && writeTarget && title.length > 0) {
@@ -530,6 +558,7 @@ export function DayColumn({
       onPointerMove={handleColumnPointerMove}
       onPointerUp={handleColumnPointerUp}
       onPointerCancel={handleColumnPointerCancel}
+      onLostPointerCapture={handleColumnLostPointerCapture}
       onDragOver={handleColumnDragOver}
       onDrop={handleColumnDrop}
     >

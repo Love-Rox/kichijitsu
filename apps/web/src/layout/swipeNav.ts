@@ -13,8 +13,27 @@
 export const SWIPE_DIRECTION_MIN_PX = 10;
 /** |dx| が |dy| のこの倍数を超えたら横方向優勢、そうでなければ縦方向(スクロール等)優勢とみなす。
  * スマホの親指スワイプは弧を描いて縦成分が乗りやすいため、やや緩め(1.25)にして「横に振ったのに
- * 縦扱いで反応しない」を減らす ―― 縦スクロールは |dy| が圧倒的に大きく、この値でも安全に vertical へ倒れる */
+ * 縦扱いで反応しない」を減らす ―― 縦スクロールは |dy| が圧倒的に大きく、この値でも安全に vertical へ倒れる。
+ * ただしこの緩さを適用するのは縦成分がまだ小さいうち(SWIPE_VERTICAL_SLOP_PX 以下)だけ ――
+ * 理由は下記 SWIPE_DIRECTION_DOMINANCE_STRICT のコメント参照。 */
 export const SWIPE_DIRECTION_DOMINANCE = 1.25;
+/**
+ * 「ブラウザがまだ縦パンを始めていない」とみなせる縦移動量の上限(px)。
+ * .week-grid-scroll は touch-action: pan-y なので、縦方向の touch slop(Chrome/Safari で概ね
+ * 8px 前後)を超えた時点でブラウザ側のネイティブ縦スクロールが走り始め、こちらが後から
+ * setPointerCapture しても「縦に流れながら横にも追従する」二重挙動は止められない。
+ * そのため縦成分がこの値を超えていたら、横確定の条件を厳しく(STRICT)する。
+ */
+export const SWIPE_VERTICAL_SLOP_PX = 8;
+/**
+ * 縦成分が SWIPE_VERTICAL_SLOP_PX を超えた後に横スワイプへ入るために必要な優勢比。
+ * 斜めスワイプ(例 dx=20 / dy=12)は 1.25 倍だと horizontal に倒れてしまうが、その時点で
+ * 既に縦スクロールが始まっているため見た目が破綻する(縦に流れながら横追従)。
+ * 一方で完全に横方向へ振った速いフリック(例 dx=60 / dy=15 が1イベントで届く)は救いたいので、
+ * 「圧倒的に横」と言える 2.5 倍を要求する ―― 縦成分が slop 以下のうちに横が決まる通常の
+ * 横スワイプ(dy がほぼ 0)はこの経路に入らないため、体感は変わらない。
+ */
+export const SWIPE_DIRECTION_DOMINANCE_STRICT = 2.5;
 /** 指を離した時、パネル幅に対してこの割合を超えて動いていれば前/次へ確定する(18%)。
  * 25% は「引ききらないと戻される」体感が強かったため緩和(スムーズさ優先、2026-07-22) */
 export const SWIPE_SNAP_DISTANCE_RATIO = 0.18;
@@ -36,8 +55,9 @@ export type SwipeAxis = "pending" | "horizontal" | "vertical";
  *
  * - "pending": まだ両軸とも移動量が閾値未満 ―― 判定を保留し、次の pointermove を待つ
  *   (呼び出し側はまだ何もせず、既存のイベントドラッグ/新規作成/スクロールにも介入しない)。
- * - "horizontal": |dx| が |dy| の SWIPE_DIRECTION_DOMINANCE 倍を超えた ―― 横スワイプ確定。
- *   呼び出し側はここで初めて transform 追従を始めてよい。
+ * - "horizontal": |dx| が |dy| の必要優勢比を超えた ―― 横スワイプ確定。呼び出し側はここで
+ *   初めて transform 追従を始めてよい。必要優勢比は縦成分の大きさで2段階
+ *   (|dy| <= SWIPE_VERTICAL_SLOP_PX なら緩い DOMINANCE、超えていたら STRICT)。
  * - "vertical": 横方向が優勢でない(縦優勢、または閾値は超えたが横が明確でない) ―― 従来通り
  *   (縦スクロール・イベントドラッグ・新規作成)に委ねるべきサイン。
  */
@@ -79,11 +99,16 @@ export function classifySwipeAxis(
   dy: number,
   minPx: number = SWIPE_DIRECTION_MIN_PX,
   dominance: number = SWIPE_DIRECTION_DOMINANCE,
+  verticalSlopPx: number = SWIPE_VERTICAL_SLOP_PX,
+  strictDominance: number = SWIPE_DIRECTION_DOMINANCE_STRICT,
 ): SwipeAxis {
   const adx = Math.abs(dx);
   const ady = Math.abs(dy);
   if (adx < minPx && ady < minPx) return "pending";
-  return adx > ady * dominance ? "horizontal" : "vertical";
+  // 縦成分が slop を超えている(=ブラウザのネイティブ縦パンが既に始まっている)なら、
+  // 横確定にはより圧倒的な優勢を要求する(斜めスワイプでの二重挙動を避ける、M-7)
+  const requiredDominance = ady <= verticalSlopPx ? dominance : strictDominance;
+  return adx > ady * requiredDominance ? "horizontal" : "vertical";
 }
 
 /**
