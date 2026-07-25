@@ -122,6 +122,32 @@ export async function insertWorkLog(env: Env, row: WorkLogRow): Promise<void> {
     .run();
 }
 
+/** D1 (SQLite) がユニーク制約違反を報告するときのメッセージ断片。 */
+const UNIQUE_CONSTRAINT_MARKER = "UNIQUE constraint failed";
+
+/** isUniqueConstraintError 用に、エラー的な値からメッセージ文字列を取り出す (取れなければ空文字)。 */
+function errorMessageOf(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  return "";
+}
+
+/**
+ * 純関数。D1 の書き込み例外が「ユニーク制約違反」かを判定する述語。
+ *
+ * D1/SQLite にはエラーコード (SQLITE_CONSTRAINT_UNIQUE 等) を型として取り出す API が無く、
+ * Workers の D1 バインディングは `D1_ERROR: UNIQUE constraint failed: ...` の形の Error を
+ * 投げてくるだけなので、メッセージ断片で判定するしかない。判定をここに切り出しておくのは
+ * (1) 呼び出し側 (startWorkInterval / updateWorkLog) が「制約違反だけを吸収して他は再 throw」を
+ * 取り違えないようにするため、(2) D1 のモックを入れずに単体テストできるようにするため。
+ * 実装によっては元の SQLite エラーが `cause` に包まれるため、1段だけ cause も見る。
+ */
+export function isUniqueConstraintError(err: unknown): boolean {
+  if (errorMessageOf(err).includes(UNIQUE_CONSTRAINT_MARKER)) return true;
+  const cause = err instanceof Error ? err.cause : undefined;
+  return errorMessageOf(cause).includes(UNIQUE_CONSTRAINT_MARKER);
+}
+
 /**
  * work_logs の1件削除 (手動記録の訂正用、DELETE /api/work-logs/:id)。id が存在しない、または
  * 別プロファイルの行なら削除せず "not_found" を返す (「無い id」と「他人の id」を区別しない —
@@ -212,13 +238,23 @@ export function buildWorkLogUpdate(fields: WorkLogUpdateFields): {
  * (validateWorkLogInput を通した後に呼ばれる、buildWorkLogRow と同じ役割分担)。
  * insertWorkLog/deleteWorkLog と同じ理由 (D1 のモックを新規導入しない) で D1 呼び出し本体の
  * 単体テストは書かない — SET 節の組み立ては純関数 buildWorkLogUpdate に切り出してテストする。
+ *
+ * 実行中 (end_ms IS NULL) の行に対する PATCH の扱い (2026-07-25):
+ * この関数は対象行が開区間かどうかを見ない = 実行中の行も同じ経路で部分更新できる。ただし
+ * repo/issueRef を変えると 0011 の部分ユニークインデックス idx_work_logs_open
+ * (profile_id, repo, COALESCE(issue_ref,'')) WHERE end_ms IS NULL に衝突し得る (変更先のキーで
+ * 既に別の開区間が走っている場合)。以前はこの違反が未処理例外になり app.onError 経由で 500 に
+ * なっていたため、ユニーク制約違反だけを捕まえて "conflict" を返し、呼び出し側 (routes/api.ts)
+ * が 409 work_log_conflict にマッピングする。制約違反以外の例外は握り潰さず再 throw する。
+ * なお「start 片方だけの更新で区間が反転し得る」点は routes/api.ts のコメントにある通り意図的な
+ * 現状維持 (集計側 aggregateWorkLogs が start_ms >= end_ms の行を除外して防御している)。
  */
 export async function updateWorkLog(
   env: Env,
   profileId: string,
   id: string,
   fields: WorkLogUpdateFields,
-): Promise<"updated" | "not_found"> {
+): Promise<"updated" | "not_found" | "conflict"> {
   const existing = await env.DB.prepare("SELECT profile_id FROM work_logs WHERE id = ?")
     .bind(id)
     .first<{ profile_id: string }>();
@@ -229,9 +265,16 @@ export async function updateWorkLog(
   if (assignments.length === 0) {
     return "updated";
   }
-  await env.DB.prepare(`UPDATE work_logs SET ${assignments.join(", ")} WHERE id = ?`)
-    .bind(...values, id)
-    .run();
+  try {
+    await env.DB.prepare(`UPDATE work_logs SET ${assignments.join(", ")} WHERE id = ?`)
+      .bind(...values, id)
+      .run();
+  } catch (err) {
+    // 開区間の一意制約に当たった = 変更先のキーで既に実行中の区間がある (上のコメント参照)。
+    // それ以外の失敗は隠さず上へ投げる (500 のままにする)。
+    if (!isUniqueConstraintError(err)) throw err;
+    return "conflict";
+  }
   return "updated";
 }
 
@@ -318,7 +361,11 @@ export function aggregateWorkLogs(rows: WorkLogListRow[]): WorkLogSummaryItem[] 
   for (const row of rows) {
     if (row.start_ms >= row.end_ms) continue;
     const issueRef = row.issue_ref ?? NO_ISSUE_LABEL;
-    const key = `${row.repo} ${issueRef}`;
+    // グルーピングキーの区切りは U+0000 (NUL) — repo/issueRef のどちらにも現れない文字なので
+    // "a" + "b/c" と "a/b" + "c" のようなキー衝突が起きない。ソース上は生の 0x00 バイトではなく
+    // エスケープ表記で書く (生バイトを含むと git がファイルをバイナリ扱いして diff が読めなくなる。
+    // 文字コードは同じなので振る舞いは不変、2026-07-25)。
+    const key = `${row.repo}\u0000${issueRef}`;
     const durationMs = row.end_ms - row.start_ms;
     const existing = buckets.get(key);
     if (existing) {
@@ -464,13 +511,41 @@ export function buildOpenWorkIntervalDTO(row: OpenWorkIntervalListRow): OpenWork
 }
 
 /**
+ * 開区間 (end_ms IS NULL) の id を1件引く。無ければ null。startWorkInterval が「事前チェック」と
+ * 「INSERT がユニーク制約違反したときの引き直し」の2箇所で同じ条件を使うため切り出してある。
+ * issueRefKey は openIntervalIssueRefKey で正規化済みの値を渡す (DB 側の COALESCE(issue_ref,'') と揃える)。
+ */
+async function selectOpenIntervalId(
+  env: Env,
+  profileId: string,
+  repo: string,
+  issueRefKey: string,
+): Promise<string | null> {
+  const existing = await env.DB.prepare(
+    "SELECT id FROM work_logs WHERE profile_id = ? AND repo = ? AND COALESCE(issue_ref, '') = ? AND end_ms IS NULL LIMIT 1",
+  )
+    .bind(profileId, repo, issueRefKey)
+    .first<{ id: string }>();
+  return existing ? existing.id : null;
+}
+
+/**
  * 開始。同一 (profileId, repo, issueRef) の開区間 (end_ms IS NULL) が既にあれば no-op で
  * { id, alreadyOpen: true } を返す (二重 start の防御 — DB の部分ユニークインデックスとも整合)。
  * 無ければ end_ms = NULL の行を1本立てて { id, alreadyOpen: false }。start_ms は startIso があれば
  * その epoch ms、無ければ now。issueRef の一致は COALESCE(issue_ref, '') で NULL/空文字を同一視する
  * (openIntervalIssueRefKey と揃える)。start/repo の検証は呼び出し側が validateWorkIntervalStart で
  * 事前に済ませる前提 (buildWorkLogRow と同じ役割分担)。D1 直呼びのため insertWorkLog と同じ理由で
- * 本体の単体テストは書かない — 検証・キー正規化・DTO 変換の純ロジックは別関数でテストする。
+ * 本体の単体テストは書かない — 検証・キー正規化・DTO 変換・エラー判定の純ロジックは別関数でテストする。
+ *
+ * 二重 start の競合について (2026-07-25):
+ * 事前の SELECT → INSERT は原子的ではないため、▶ の素早い二度押しや hook の再送で2本同時に
+ * 走ると両方が SELECT で「開区間なし」を見てから INSERT に進む (web 側のガードは往復完了まで
+ * 更新されない state を見るので通り抜ける)。負けた側は 0011 の部分ユニークインデックス
+ * idx_work_logs_open に弾かれるが、以前はそれが未処理例外になり app.onError 経由で 500 を返して
+ * いた (hook 経路 POST /api/work-intervals/start では Claude Code に 500 が見える)。そこで INSERT を
+ * try/catch し、ユニーク制約違反なら「既に開始中」= 勝った側の行を引き直して alreadyOpen: true を
+ * 返す。DB がキーの一意性を保証しているので、この扱いは事前 SELECT でヒットした場合と同じ意味になる。
  */
 export async function startWorkInterval(
   env: Env,
@@ -478,13 +553,9 @@ export async function startWorkInterval(
   input: WorkIntervalStartInput,
 ): Promise<{ id: string; alreadyOpen: boolean }> {
   const key = openIntervalIssueRefKey(input.issueRef);
-  const existing = await env.DB.prepare(
-    "SELECT id FROM work_logs WHERE profile_id = ? AND repo = ? AND COALESCE(issue_ref, '') = ? AND end_ms IS NULL LIMIT 1",
-  )
-    .bind(profileId, input.repo, key)
-    .first<{ id: string }>();
-  if (existing) {
-    return { id: existing.id, alreadyOpen: true };
+  const existingId = await selectOpenIntervalId(env, profileId, input.repo, key);
+  if (existingId) {
+    return { id: existingId, alreadyOpen: true };
   }
 
   const now = Date.now();
@@ -500,7 +571,17 @@ export async function startWorkInterval(
     endMs: null,
     createdAt: now,
   };
-  await insertWorkLog(env, row);
+  try {
+    await insertWorkLog(env, row);
+  } catch (err) {
+    // ユニーク制約違反以外 (D1 の一時障害など) は握り潰さず上へ投げる (500 のままにする)。
+    if (!isUniqueConstraintError(err)) throw err;
+    const raced = await selectOpenIntervalId(env, profileId, input.repo, key);
+    // 競合相手の開区間が引けないケース (INSERT 失敗の直後に相手が stop した等) は、
+    // 「開始できたのか」を答えられないのでエラーとして扱う (嘘の id を返さない)。
+    if (!raced) throw err;
+    return { id: raced, alreadyOpen: true };
+  }
   return { id: row.id, alreadyOpen: false };
 }
 

@@ -832,6 +832,13 @@ apiRoutes.delete("/api/work-logs/:id", requireAuth, async (c) => {
 // 揃えた薄い所有チェックの流儀に対して複雑さが見合わない。片方更新で区間が反転しても、集計側
 // (core/work-log.ts の aggregateWorkLogs) が start_ms >= end_ms の行を除外する防御を既に持つため、
 // ここでは「両方来たときだけ」に留める (docs 無し・実装判断)。
+//
+// 実行中 (end_ms IS NULL) の行に対する PATCH (2026-07-25): 対象が開区間かどうかで経路を分けず、
+// 実行中の行も同じ部分更新で編集できる (end を渡せばその場で確定させることもできる)。ただし
+// repo/issueRef を変更先のキーで既に別の開区間が走っている状態に変えると、0011 の部分ユニーク
+// インデックス idx_work_logs_open に衝突する。以前はこれが未処理例外 → app.onError で 500 に
+// なっていたため、updateWorkLog が制約違反を "conflict" として返し、ここで 409 work_log_conflict
+// に変換する (400 ではなく 409: 入力自体は正しく、現在の DB 状態と両立しないため)。
 apiRoutes.patch("/api/work-logs/:id", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   const id = c.req.param("id");
@@ -884,6 +891,10 @@ apiRoutes.patch("/api/work-logs/:id", requireAuth, async (c) => {
   });
   if (result === "not_found") {
     return c.json<ApiError>({ error: "work_log_not_found" }, 403);
+  }
+  if (result === "conflict") {
+    // 開区間の一意制約 (idx_work_logs_open) と両立しない更新 (上のコメント参照)。
+    return c.json<ApiError>({ error: "work_log_conflict" }, 409);
   }
   return c.body(null, 204);
 });
