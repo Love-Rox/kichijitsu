@@ -65,6 +65,34 @@ export function detectMeetingProvider(location: string | undefined): MeetingProv
 }
 
 /**
+ * 「この予定に参加するために開く URL」を決める (会議参加 URL、2026-07-25)。
+ *
+ * 2つの入口がある:
+ * - `conferenceUrl` (Occurrence.conferenceUrl): Google Meet やカレンダーのアドオン経由の
+ *   Zoom/Teams。URL は location ではなく conferenceData/hangoutLink 側にあり、サーバー
+ *   (apps/sync の deriveConferenceUrl) が既に「開いてよい http(s) の URL」1つに絞り込んで
+ *   いるため、ここでは追加の判定をせずそのまま採用する ―― Google が会議の正本として
+ *   持っている URL なので、プロバイダを判定できない (detectMeetingProvider が null になる)
+ *   社内ツール等でも参加リンクとして使えるべき。
+ * - `location`: Slack ハドルのように location に URL がそのまま入るケース。こちらは自由
+ *   テキスト(住所・会議室名)も来るため、detectMeetingProvider が会議 URL と認めたときのみ
+ *   採用する。
+ *
+ * どちらでもなければ undefined (= 参加リンクを出さない)。
+ * 表示ラベル・アイコンの出し分けは呼び出し側が detectMeetingProvider(戻り値) で行う。
+ */
+export function resolveMeetingUrl(
+  conferenceUrl: string | undefined,
+  location: string | undefined,
+): string | undefined {
+  const conference = conferenceUrl?.trim();
+  if (conference) return conference;
+  const raw = location?.trim();
+  if (raw && detectMeetingProvider(raw)) return raw;
+  return undefined;
+}
+
+/**
  * location を UI に文字で出すときの表示文字列。会議 URL なら生 URL の代わりに
  * プロバイダのラベルを返し、それ以外(住所・会議室名)はそのまま返す。
  * ツールチップ・検索結果の1行など「アイコンを添えられない場所」で使う。

@@ -306,6 +306,8 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     const responseStatus = override?.patch?.responseStatus ?? series.responseStatus;
     const isOrganizer = override?.patch?.isOrganizer ?? series.isOrganizer;
     const hasConference = override?.patch?.hasConference ?? series.hasConference;
+    // 会議参加 URL (2026-07-25)。hasConference と全く同じフォールバックの形
+    const conferenceUrl = override?.patch?.conferenceUrl ?? series.conferenceUrl;
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue;
@@ -332,6 +334,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       ...(responseStatus ? { responseStatus } : {}),
       ...(isOrganizer ? { isOrganizer: true } : {}),
       ...(hasConference ? { hasConference: true } : {}),
+      ...(conferenceUrl ? { conferenceUrl } : {}),
     });
   }
 

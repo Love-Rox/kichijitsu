@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { detectMeetingProvider, meetingLocationLabel, meetingProviderLabel } from "./meetingLinks";
+import {
+  detectMeetingProvider,
+  meetingLocationLabel,
+  meetingProviderLabel,
+  resolveMeetingUrl,
+} from "./meetingLinks";
 
 describe("detectMeetingProvider", () => {
   it("Slack ハドル URL(実データ)を slack と判定する", () => {
@@ -98,5 +103,59 @@ describe("meetingLocationLabel", () => {
 
   it("undefined はそのまま undefined", () => {
     expect(meetingLocationLabel(undefined)).toBeUndefined();
+  });
+});
+
+describe("resolveMeetingUrl", () => {
+  it("conferenceUrl があればそれを使う (Google Meet)", () => {
+    expect(resolveMeetingUrl("https://meet.google.com/abc-defg-hij", undefined)).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
+  });
+
+  it("conferenceUrl は location より優先する", () => {
+    expect(resolveMeetingUrl("https://meet.google.com/abc-defg-hij", "第2会議室")).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
+    expect(
+      resolveMeetingUrl(
+        "https://meet.google.com/abc-defg-hij",
+        "https://app.slack.com/huddle/T1/C1",
+      ),
+    ).toBe("https://meet.google.com/abc-defg-hij");
+  });
+
+  it("プロバイダを判定できない conferenceUrl でもそのまま採用する (社内ツール等)", () => {
+    expect(resolveMeetingUrl("https://meeting.example.com/room/42", undefined)).toBe(
+      "https://meeting.example.com/room/42",
+    );
+  });
+
+  it("conferenceUrl が無く location が会議 URL ならそれを使う (Slack ハドル)", () => {
+    expect(resolveMeetingUrl(undefined, "https://app.slack.com/huddle/T25JPTN0M/CGDR6P8KW")).toBe(
+      "https://app.slack.com/huddle/T25JPTN0M/CGDR6P8KW",
+    );
+  });
+
+  it("location が会議 URL でなければ undefined (住所・会議室名は開かない)", () => {
+    expect(resolveMeetingUrl(undefined, "第2会議室")).toBeUndefined();
+    expect(resolveMeetingUrl(undefined, "https://example.com/docs")).toBeUndefined();
+  });
+
+  it("どちらも無ければ undefined", () => {
+    expect(resolveMeetingUrl(undefined, undefined)).toBeUndefined();
+  });
+
+  it("空文字・空白のみは値なしとして扱う", () => {
+    expect(resolveMeetingUrl("", "https://app.slack.com/huddle/T1/C1")).toBe(
+      "https://app.slack.com/huddle/T1/C1",
+    );
+    expect(resolveMeetingUrl("   ", "")).toBeUndefined();
+  });
+
+  it("前後の空白は取り除いて返す", () => {
+    expect(resolveMeetingUrl(" https://meet.google.com/abc-defg-hij ", undefined)).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
   });
 });

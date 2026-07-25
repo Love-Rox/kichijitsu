@@ -151,6 +151,11 @@ const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
  *       eventType 自体のバックフィルとは別に、このフィールドぶんだけ改めて forceFull
  *       同期で行き渡らせる必要があるため世代を1つ上げる(RSVP フィールド追加のときと
  *       全く同じ理由、上の世代2のコメント参照)。
+ *   5 = conferenceUrl (会議参加 URL、2026-07-25)。Google Meet / カレンダーのアドオン経由の
+ *       Zoom・Teams は参加 URL が location ではなく conferenceData/hangoutLink にしか入らず、
+ *       サーバー (apps/sync の deriveConferenceUrl) が新たに DTO へ載せるようにしたフィールド。
+ *       世代4までに同期済みの occurrence/series には当然まだ乗っていないため、forceFull 同期で
+ *       行き渡らせる(世代2・3と全く同じ「クライアント側の新フィールド追加」パターン)。
  */
 const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone"; // 旧キー。getSyncBackfillVersion の移行判定でのみ読む
 const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
@@ -161,7 +166,7 @@ const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
  * 再同期を強制して OOO / RSVP(仮・不参加)/ 勤務場所のフィールドを確実に反映させる。
  * (フィールド追加ではなく「取りこぼしの是正」目的の世代上げ)
  */
-export const CURRENT_SYNC_BACKFILL_VERSION = 4;
+export const CURRENT_SYNC_BACKFILL_VERSION = 5;
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 

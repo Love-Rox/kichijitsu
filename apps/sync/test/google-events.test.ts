@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  deriveConferenceUrl,
   deriveHasConference,
   deriveIsOrganizer,
   deriveSelfResponseStatus,
@@ -136,6 +137,100 @@ describe("deriveHasConference", () => {
   });
 });
 
+describe("deriveConferenceUrl", () => {
+  it("Meet の典型形: entryPointType==='video' の uri を採用する", () => {
+    expect(
+      deriveConferenceUrl(
+        {
+          entryPoints: [
+            { entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" },
+            { entryPointType: "phone", uri: "tel:+81-3-0000-0000" },
+          ],
+        },
+        "https://meet.google.com/abc-defg-hij",
+      ),
+    ).toBe("https://meet.google.com/abc-defg-hij");
+  });
+
+  it("video エントリは配列の順番によらず電話より優先される", () => {
+    expect(
+      deriveConferenceUrl(
+        {
+          entryPoints: [
+            { entryPointType: "phone", uri: "tel:+81-3-0000-0000" },
+            { entryPointType: "video", uri: "https://meet.google.com/xyz-abcd-efg" },
+          ],
+        },
+        undefined,
+      ),
+    ).toBe("https://meet.google.com/xyz-abcd-efg");
+  });
+
+  it("Zoom アドオンの形 (video エントリ + hangoutLink なし) も拾う", () => {
+    expect(
+      deriveConferenceUrl(
+        {
+          entryPoints: [
+            { entryPointType: "video", uri: "https://example.zoom.us/j/1234567890?pwd=xxx" },
+            { entryPointType: "phone", uri: "tel:+81-3-0000-0000" },
+          ],
+        },
+        undefined,
+      ),
+    ).toBe("https://example.zoom.us/j/1234567890?pwd=xxx");
+  });
+
+  it("entryPointType が未知/欠落でも http(s) の uri なら先頭のものを採用する", () => {
+    expect(
+      deriveConferenceUrl({ entryPoints: [{ uri: "https://example.com/meet/1" }] }, undefined),
+    ).toBe("https://example.com/meet/1");
+  });
+
+  it("entryPoints が電話のみなら undefined (tel: は参加リンクにしない)", () => {
+    expect(
+      deriveConferenceUrl(
+        { entryPoints: [{ entryPointType: "phone", uri: "tel:+81-3-0000-0000", pin: "12345" }] },
+        undefined,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("conferenceData が空オブジェクトなら undefined (hasConference は true でも URL は無い)", () => {
+    expect(deriveConferenceUrl({}, undefined)).toBeUndefined();
+    expect(deriveHasConference({}, undefined)).toBe(true);
+  });
+
+  it("conferenceData が無く hangoutLink だけあればそれを使う", () => {
+    expect(deriveConferenceUrl(undefined, "https://meet.google.com/abc-defg-hij")).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
+  });
+
+  it("entryPoints で拾えないときは hangoutLink にフォールバックする", () => {
+    expect(
+      deriveConferenceUrl(
+        { entryPoints: [{ entryPointType: "phone", uri: "tel:+81-3-0000-0000" }] },
+        "https://meet.google.com/fallback-abc",
+      ),
+    ).toBe("https://meet.google.com/fallback-abc");
+  });
+
+  it("両方無ければ undefined", () => {
+    expect(deriveConferenceUrl(undefined, undefined)).toBeUndefined();
+  });
+
+  it("形が想定外 (配列でない entryPoints・要素が文字列・空の hangoutLink) でも throw せず undefined", () => {
+    expect(deriveConferenceUrl({ entryPoints: "nope" }, undefined)).toBeUndefined();
+    expect(deriveConferenceUrl({ entryPoints: ["https://meet.google.com/x"] }, "")).toBeUndefined();
+    expect(deriveConferenceUrl("string", undefined)).toBeUndefined();
+    expect(deriveConferenceUrl(null, undefined)).toBeUndefined();
+  });
+
+  it("http/https 以外のスキームの hangoutLink は採用しない", () => {
+    expect(deriveConferenceUrl(undefined, "tel:+81-3-0000-0000")).toBeUndefined();
+  });
+});
+
 describe("toGoogleEventDTO: RSVP 表示フィールドの配線 (2026-07-22)", () => {
   it("attendees/organizer/conferenceData/hangoutLink から派生フィールドを立て、生の配列は捨てる", () => {
     const dto = toGoogleEventDTO({
@@ -149,6 +244,8 @@ describe("toGoogleEventDTO: RSVP 表示フィールドの配線 (2026-07-22)", (
     expect(dto.selfResponseStatus).toBe("tentative");
     expect(dto.isOrganizer).toBe(true);
     expect(dto.hasConference).toBe(true);
+    // 参加 URL (2026-07-25): hangoutLink だけの形でも conferenceUrl に載る
+    expect(dto.conferenceUrl).toBe("https://meet.google.com/abc-defg-hij");
     // raw な attendees/organizer/conferenceData/hangoutLink は DTO に残らない(リーン維持)
     expect(dto).not.toHaveProperty("attendees");
     expect(dto).not.toHaveProperty("organizer");
@@ -162,9 +259,36 @@ describe("toGoogleEventDTO: RSVP 表示フィールドの配線 (2026-07-22)", (
     expect(dto.selfResponseStatus).toBeUndefined();
     expect(dto.isOrganizer).toBeUndefined();
     expect(dto.hasConference).toBeUndefined();
+    expect(dto.conferenceUrl).toBeUndefined();
     const serialized = JSON.stringify(dto);
     expect(serialized).not.toContain("selfResponseStatus");
     expect(serialized).not.toContain("isOrganizer");
     expect(serialized).not.toContain("hasConference");
+    expect(serialized).not.toContain("conferenceUrl");
+  });
+
+  it("conferenceData の entryPoints から参加 URL を DTO へ写す (2026-07-25)", () => {
+    const dto = toGoogleEventDTO({
+      id: "evt-meet",
+      status: "confirmed",
+      conferenceData: {
+        entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }],
+      },
+    });
+
+    expect(dto.hasConference).toBe(true);
+    expect(dto.conferenceUrl).toBe("https://meet.google.com/abc-defg-hij");
+    expect(dto).not.toHaveProperty("conferenceData");
+  });
+
+  it("電話のみの会議は hasConference だけ立ち、conferenceUrl は付かない (2026-07-25)", () => {
+    const dto = toGoogleEventDTO({
+      id: "evt-phone-only",
+      status: "confirmed",
+      conferenceData: { entryPoints: [{ entryPointType: "phone", uri: "tel:+81-3-0000-0000" }] },
+    });
+
+    expect(dto.hasConference).toBe(true);
+    expect(dto.conferenceUrl).toBeUndefined();
   });
 });
