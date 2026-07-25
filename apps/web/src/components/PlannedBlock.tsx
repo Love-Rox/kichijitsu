@@ -2,14 +2,15 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { PlannedBlock } from "../model/types";
 import { formatRange, pxToMinutes } from "../layout/gridMetrics";
-import { computeMovedRange, computeResizedEndMs, plannedBlockTopPx } from "../sync/planned";
+import { computeMovedRange, computeResizedEndMs } from "../sync/planned";
+import { msToTopPx } from "../layout/gridMetrics";
 import { useHourHeight } from "../hooks/useHourHeight";
 
 interface PlannedBlockCardProps {
   block: PlannedBlock;
   /** このカードが今属している日の 0:00 (epoch ms)。移動ドラッグの着地計算に使う */
   dayStartMs: number;
-  /** その日の 0:00 からの px オフセット(親が計算済み、sync/planned.ts の plannedBlockTopPx) */
+  /** その日の 0:00 からの px オフセット(親が計算済み、layout/gridMetrics.ts の msToTopPx) */
   top: number;
   height: number;
   leftPct: number;
@@ -149,7 +150,7 @@ export function PlannedBlockCard({
         durationMs,
         e.altKey,
       );
-      const newTopPx = plannedBlockTopPx(startMs, ds.dayStartMs, hourHeight);
+      const newTopPx = msToTopPx(startMs, ds.dayStartMs, hourHeight);
       el.style.transform = `translateY(${newTopPx - ds.originalTopPx}px)`;
       ds.pendingStartMs = startMs;
       ds.pendingEndMs = endMs;
@@ -158,7 +159,7 @@ export function PlannedBlockCard({
       const rawEndMs = ds.originalEndMs + pxToMinutes(dy, hourHeight) * 60_000;
       const endMs = computeResizedEndMs(rawEndMs, ds.originalStartMs, ds.originalStartMs, e.altKey);
       const newHeightPx = Math.max(
-        plannedBlockTopPx(endMs, ds.dayStartMs, hourHeight) - ds.originalTopPx,
+        msToTopPx(endMs, ds.dayStartMs, hourHeight) - ds.originalTopPx,
         4,
       );
       el.style.height = `${newHeightPx}px`;

@@ -5,7 +5,10 @@ import type { VisibleCalendarsMap } from "../db/database";
 import { groupCalendarsByAccess } from "../sync/calendarGroups";
 import type { DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import type { View } from "../keyboard/shortcuts";
-import { calendarPaneGroupKey, toggleSetMember } from "../layout/calendarPaneGroups";
+import { calendarPaneGroupKey } from "../layout/calendarPaneGroups";
+import { taskListKey } from "../layout/keys";
+import { readStoredStringSet, writeStoredStringSet } from "../layout/localStore";
+import { toggleSetMember } from "../layout/setOps";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import "./CalendarPane.css";
 
@@ -48,7 +51,7 @@ export interface CalendarPaneProps {
    * 明示的に非表示にした `${accountId}:${taskListId}` の集合(デフォルト全 ON、
    * db/database.ts の getHiddenTaskLists と同じ形。App.tsx がローカルのみで永続化する)。
    */
-  hiddenTaskListKeys: Set<string>;
+  hiddenTaskListKeys: ReadonlySet<string>;
   onToggleTaskList: (accountId: string, taskListId: string, nextChecked: boolean) => void;
 
   // ---- GitHub セクション(左ペイン増分2、ペイン最下部) ----
@@ -84,23 +87,11 @@ const COLLAPSED_ACCOUNTS_STORAGE_KEY = "kichijitsu:calendarPaneCollapsedAccounts
 
 /** localStorage に保存された折りたたみ済みアカウント id 集合を読む。プライベートモード等で無効なら空集合 */
 function loadCollapsedAccounts(): Set<string> {
-  try {
-    const raw = window.localStorage.getItem(COLLAPSED_ACCOUNTS_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((v): v is string => typeof v === "string"));
-  } catch {
-    return new Set();
-  }
+  return readStoredStringSet(COLLAPSED_ACCOUNTS_STORAGE_KEY);
 }
 
 function saveCollapsedAccounts(collapsed: Set<string>): void {
-  try {
-    window.localStorage.setItem(COLLAPSED_ACCOUNTS_STORAGE_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    /* ignore */
-  }
+  writeStoredStringSet(COLLAPSED_ACCOUNTS_STORAGE_KEY, collapsed);
 }
 
 /**
@@ -112,25 +103,17 @@ function saveCollapsedAccounts(collapsed: Set<string>): void {
  */
 const COLLAPSED_GROUPS_STORAGE_KEY = "kichijitsu:calendarPaneCollapsedGroups";
 
-/** 保存された折りたたみ済みグループキー集合を読む。loadCollapsedAccounts と同じ読み込み流儀 */
+/**
+ * 保存された折りたたみ済みグループキー集合を読む。loadCollapsedAccounts と同じ読み込み流儀
+ * ―― 以前は両者がキー名以外 byte-identical な try/catch のコピペだったため、
+ * localStorage 側の定型は layout/localStore.ts に寄せてある (2026-07-25)。
+ */
 function loadCollapsedGroups(): Set<string> {
-  try {
-    const raw = window.localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((v): v is string => typeof v === "string"));
-  } catch {
-    return new Set();
-  }
+  return readStoredStringSet(COLLAPSED_GROUPS_STORAGE_KEY);
 }
 
 function saveCollapsedGroups(collapsed: Set<string>): void {
-  try {
-    window.localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    /* ignore */
-  }
+  writeStoredStringSet(COLLAPSED_GROUPS_STORAGE_KEY, collapsed);
 }
 
 /**
@@ -204,12 +187,7 @@ export function CalendarPane({
 
   function toggleAccountCollapsed(accountId: string) {
     setCollapsedAccounts((prev) => {
-      const next = new Set(prev);
-      if (next.has(accountId)) {
-        next.delete(accountId);
-      } else {
-        next.add(accountId);
-      }
+      const next = toggleSetMember(prev, accountId);
       saveCollapsedAccounts(next);
       return next;
     });
@@ -385,7 +363,7 @@ interface AccountSectionProps {
   onToggleCalendar: (accountId: string, calendarId: string, nextChecked: boolean) => void;
   // ---- タスクリスト選択(左ペイン増分2) ----
   taskLists: TaskListDTO[];
-  hiddenTaskListKeys: Set<string>;
+  hiddenTaskListKeys: ReadonlySet<string>;
   onToggleTaskList: (accountId: string, taskListId: string, nextChecked: boolean) => void;
   // ---- グループ折りたたみ(マイ/他のカレンダー・タスクリスト、2026-07-22) ----
   collapsedGroups: Set<string>;
@@ -564,7 +542,7 @@ function CalendarGroup({
 interface TaskListGroupProps {
   accountId: string;
   taskLists: TaskListDTO[];
-  hiddenTaskListKeys: Set<string>;
+  hiddenTaskListKeys: ReadonlySet<string>;
   onToggleTaskList: (accountId: string, taskListId: string, nextChecked: boolean) => void;
   /** グループ折りたたみ(2026-07-22)。CalendarGroup と同じ流儀 */
   collapsed: boolean;
@@ -609,7 +587,7 @@ function TaskListGroup({
       {!collapsed && (
         <ul className="calendar-pane-list">
           {taskLists.map((list) => {
-            const checked = !hiddenTaskListKeys.has(`${accountId}:${list.id}`);
+            const checked = !hiddenTaskListKeys.has(taskListKey(accountId, list.id));
             return (
               <li className="calendar-pane-item" key={list.id}>
                 <button

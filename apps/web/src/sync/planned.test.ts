@@ -6,8 +6,6 @@ import {
   computeResizedEndMs,
   DEFAULT_PLANNED_DURATION_MS,
   parseDroppedWorkItem,
-  plannedBlockHeightPx,
-  plannedBlockTopPx,
   WORKITEM_DND_MIME,
   type DroppedWorkItem,
 } from "./planned";
@@ -102,23 +100,8 @@ describe("buildPlannedBlock", () => {
   });
 });
 
-describe("plannedBlockTopPx / plannedBlockHeightPx", () => {
-  it("top は日の 0:00 からの px オフセット", () => {
-    const dayStartMs = 1_700_000_000_000;
-    // 既定ズーム(1時間=48px)
-    expect(plannedBlockTopPx(dayStartMs + 60 * 60_000, dayStartMs, DEFAULT_HOUR_HEIGHT)).toBe(48);
-  });
-
-  it("ズーム(hourHeight)に比例して top/height が変わる", () => {
-    expect(plannedBlockTopPx(60 * 60_000, 0, 96)).toBe(96);
-    expect(plannedBlockHeightPx(0, 60 * 60_000, 24)).toBe(24);
-  });
-
-  it("height は最低 4px を保証する", () => {
-    expect(plannedBlockHeightPx(0, 0, DEFAULT_HOUR_HEIGHT)).toBe(4);
-    expect(plannedBlockHeightPx(0, 60 * 60_000, DEFAULT_HOUR_HEIGHT)).toBe(48);
-  });
-});
+// plannedBlockTopPx / plannedBlockHeightPx のテストは layout/gridMetrics.test.ts の
+// msToTopPx / msRangeToHeightPx へ移設 (2026-07-25、座標変換の共通化)
 
 describe("computeMovedRange", () => {
   it("15分スナップしつつ元の長さを保った新しい開始/終了時刻を返す", () => {

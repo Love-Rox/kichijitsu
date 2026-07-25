@@ -10,6 +10,8 @@ import type {
   GitHubWorkItemDTO,
   GitHubWorkKind,
 } from "@kichijitsu/shared";
+import { readStored, removeStored, writeStored } from "../layout/localStore";
+import { getJson, type CheckedFetch } from "./httpJson";
 
 /**
  * GitHub 取得の「プロバイダ」抽象の web 側実装 (docs/github-integration.md
@@ -69,24 +71,20 @@ function tauriInvoke(cmd: string, args: Record<string, unknown>): Promise<unknow
  */
 const GH_PATH_STORAGE_KEY = "kichijitsu:ghPath";
 
-/** 保存された gh パス上書きを読む(前後空白は除去、未設定は空文字)。 */
+/**
+ * 保存された gh パス上書きを読む(前後空白は除去、未設定は空文字)。
+ * localStorage 不可(プライベートモード等)は空文字にフォールバックする
+ * ―― try/catch の定型は layout/localStore.ts へ寄せた (2026-07-25)。
+ */
 export function getGhPathOverride(): string {
-  try {
-    return window.localStorage.getItem(GH_PATH_STORAGE_KEY)?.trim() ?? "";
-  } catch {
-    return "";
-  }
+  return readStored(GH_PATH_STORAGE_KEY, (raw) => raw.trim(), "");
 }
 
 /** gh パス上書きを保存する。空文字なら削除して自動検出に戻す。 */
 export function setGhPathOverride(path: string): void {
-  try {
-    const trimmed = path.trim();
-    if (trimmed) window.localStorage.setItem(GH_PATH_STORAGE_KEY, trimmed);
-    else window.localStorage.removeItem(GH_PATH_STORAGE_KEY);
-  } catch {
-    /* localStorage 不可(プライベートモード等)は握りつぶす — 上書きが効かないだけ */
-  }
+  const trimmed = path.trim();
+  if (trimmed) writeStored(GH_PATH_STORAGE_KEY, trimmed);
+  else removeStored(GH_PATH_STORAGE_KEY);
 }
 
 /**
@@ -729,8 +727,12 @@ export async function fetchPullCommitsViaGh(
 // (fetchGithubQueue と同じ考え方だが、gh 版の他関数と違いサーバー fetch もこの関数内で行う)。
 // ---------------------------------------------------------------------------
 
-/** App.tsx の checkedFetch (オフライン判定を挟む fetch ラッパー) の型。 */
-export type CheckedFetch = (input: string, init?: RequestInit) => Promise<Response>;
+/**
+ * App.tsx の checkedFetch (オフライン判定を挟む fetch ラッパー) の型。
+ * 定義は sync/httpJson.ts へ寄せた (2026-07-25) — 同じ型が2箇所にあると
+ * ドリフトするため。従来どおりこのモジュール経由でも参照できるよう再エクスポートする。
+ */
+export type { CheckedFetch };
 
 /**
  * gh 経路の repo 一覧取得。既存の discoverRepos (`gh api user/repos`) をそのまま再利用する
@@ -778,26 +780,21 @@ export async function fetchRepoIssuesViaGh(repo: string): Promise<GitHubRepoIssu
   return mapGhRepoIssuesToDTO(raw);
 }
 
-/** サーバー経路の repo 一覧取得 (GET /api/github/repos)。非 2xx は Error を投げる。 */
+/** サーバー経路の repo 一覧取得 (GET /api/github/repos)。非 2xx は HttpError を投げる。 */
 async function fetchReposViaServer(checkedFetch: CheckedFetch): Promise<GitHubRepoRef[]> {
-  const res = await checkedFetch("/api/github/repos");
-  if (!res.ok) {
-    throw new Error(`GET /api/github/repos failed: ${res.status}`);
-  }
-  const data = (await res.json()) as GitHubReposResponse;
+  const data = await getJson<GitHubReposResponse>(checkedFetch, "/api/github/repos");
   return data.repos;
 }
 
-/** サーバー経路の repo-issues 取得 (GET /api/github/repo-issues?repo=)。非 2xx は Error を投げる。 */
+/** サーバー経路の repo-issues 取得 (GET /api/github/repo-issues?repo=)。非 2xx は HttpError を投げる。 */
 async function fetchRepoIssuesViaServer(
   repo: string,
   checkedFetch: CheckedFetch,
 ): Promise<GitHubRepoIssue[]> {
-  const res = await checkedFetch(`/api/github/repo-issues?repo=${encodeURIComponent(repo)}`);
-  if (!res.ok) {
-    throw new Error(`GET /api/github/repo-issues failed: ${res.status}`);
-  }
-  const data = (await res.json()) as GitHubRepoIssuesResponse;
+  const data = await getJson<GitHubRepoIssuesResponse>(
+    checkedFetch,
+    `/api/github/repo-issues?repo=${encodeURIComponent(repo)}`,
+  );
   return data.issues;
 }
 

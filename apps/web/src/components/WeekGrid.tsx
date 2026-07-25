@@ -25,6 +25,7 @@ import { layoutDayActivity } from "../sync/mapActivity";
 import { layoutDayCiRuns } from "../sync/mapCiRuns";
 import { packColumns } from "../layout/packColumns";
 import { packDayBars } from "../layout/packDayBars";
+import { calendarKeyOf, taskListKey } from "../layout/keys";
 import {
   groupDuplicateAllDayOccurrences,
   groupDuplicateOccurrences,
@@ -182,7 +183,7 @@ interface WeekGridProps {
    * デフォルト全 ON)。visibleCalendarKeys とは判定方向が逆(こちらは「入っていたら隠す」)
    * なので、TaskItem に対しては has() の結果をそのまま除外条件に使う。
    */
-  hiddenTaskListKeys: Set<string>;
+  hiddenTaskListKeys: ReadonlySet<string>;
   /**
    * 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。showDeclined: false のとき、
    * declined な occurrence/allDayOccurrence を visibleOccurrences/visibleAllDayOccurrences の
@@ -569,7 +570,7 @@ export function WeekGrid({
     () =>
       occurrences.filter(
         (o) =>
-          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          (o.source !== "google" || visibleCalendarKeys.has(calendarKeyOf(o))) &&
           !shouldHideDeclined(o, declinedVisibility),
       ),
     [occurrences, visibleCalendarKeys, declinedVisibility],
@@ -639,7 +640,7 @@ export function WeekGrid({
     () =>
       allDayOccurrencesRaw.filter(
         (o) =>
-          (o.source !== "google" || visibleCalendarKeys.has(`${o.accountId}:${o.calendarId}`)) &&
+          (o.source !== "google" || visibleCalendarKeys.has(calendarKeyOf(o))) &&
           !shouldHideDeclined(o, declinedVisibility),
       ),
     [allDayOccurrencesRaw, visibleCalendarKeys, declinedVisibility],
@@ -765,7 +766,8 @@ export function WeekGrid({
   // タスクは source 分岐が無く常にこの1本のフィルタだけを通る)。
   const tasksRawAll = useTasks(taskStore, allDayFromDate, allDayToDate);
   const tasksRaw = useMemo(
-    () => tasksRawAll.filter((t) => !hiddenTaskListKeys.has(`${t.accountId}:${t.taskListId}`)),
+    () =>
+      tasksRawAll.filter((t) => !hiddenTaskListKeys.has(taskListKey(t.accountId, t.taskListId))),
     [tasksRawAll, hiddenTaskListKeys],
   );
 

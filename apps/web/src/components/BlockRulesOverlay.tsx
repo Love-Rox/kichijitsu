@@ -7,6 +7,8 @@ import type {
   CalendarListEntryDTO,
 } from "@kichijitsu/shared";
 import { buildBlockRuleUpsertRequest, describeBlockRule } from "../sync/blockRules";
+import { calendarKey } from "../layout/keys";
+import { removeFromSet, toggleSetMember } from "../layout/setOps";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./BlockRulesOverlay.css";
 
@@ -18,11 +20,6 @@ export interface BlockRulesOverlayProps {
   onCreate: (req: BlockRuleUpsertRequest) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
-}
-
-/** (accountId, calendarId) を選択 state のキーにする(Set/単一値の比較を文字列で扱うため) */
-function calendarKey(accountId: string, calendarId: string): string {
-  return `${accountId}:${calendarId}`;
 }
 
 /**
@@ -178,7 +175,9 @@ interface NewRuleFormProps {
 }
 
 function NewRuleForm({ accounts, calendarsByAccount, onCreate }: NewRuleFormProps) {
-  const [sourceKeys, setSourceKeys] = useState<Set<string>>(new Set());
+  // ReadonlySet で持つのは layout/setOps.ts の removeFromSet/toggleSetMember をそのまま
+  // setState に渡せるようにするため(App.tsx の tasksScopeMissingAccounts と同じ流儀)
+  const [sourceKeys, setSourceKeys] = useState<ReadonlySet<string>>(new Set());
   const [targetKey, setTargetKey] = useState<string | null>(null);
   const [mode, setMode] = useState<BlockMode>("busy");
   const [submitting, setSubmitting] = useState(false);
@@ -188,15 +187,7 @@ function NewRuleForm({ accounts, calendarsByAccount, onCreate }: NewRuleFormProp
   const hasAnyCalendar = groups.some((g) => g.options.length > 0);
 
   function toggleSource(key: string) {
-    setSourceKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
+    setSourceKeys((prev) => toggleSetMember(prev, key));
     // source として選んだカレンダーは target から外す(同一カレンダーを両方にできない制約)
     if (targetKey === key) setTargetKey(null);
   }
@@ -204,12 +195,8 @@ function NewRuleForm({ accounts, calendarsByAccount, onCreate }: NewRuleFormProp
   function selectTarget(key: string) {
     setTargetKey(key);
     // target として選んだカレンダーは source から外す
-    setSourceKeys((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
+    // (removeFromSet は元々含まないなら同じ参照を返すので、無駄な再レンダーも起きない)
+    setSourceKeys((prev) => removeFromSet(prev, key));
   }
 
   const canSave = sourceKeys.size > 0 && targetKey !== null;

@@ -14,6 +14,8 @@ import {
   MAX_HOUR_HEIGHT,
   MIN_HOUR_HEIGHT,
   minutesToPx,
+  msRangeToHeightPx,
+  msToTopPx,
   normalizeHourHeight,
   overlapsBusy,
   pxToMinutes,
@@ -120,6 +122,46 @@ describe("minutesToPx / pxToMinutes", () => {
   it("dayHeightPx は24時間ぶん(CSS の calc(var(--hour-height) * 24) と一致)", () => {
     expect(dayHeightPx(DEFAULT_HOUR_HEIGHT)).toBe(1152);
     expect(dayHeightPx(24)).toBe(576);
+  });
+});
+
+// sync/planned.ts の plannedBlockTopPx / plannedBlockHeightPx から移設 (2026-07-25、
+// 座標変換の共通化)。DayColumn / EventBlock / mapActivity / mapCiRuns の手書き計算もこれに寄せた。
+describe("msToTopPx", () => {
+  it("top は日の 0:00 (dayStartMs) からの px オフセット", () => {
+    const dayStartMs = 1_700_000_000_000;
+    expect(msToTopPx(dayStartMs, dayStartMs, DEFAULT_HOUR_HEIGHT)).toBe(0);
+    // 既定ズーム(1時間=48px)
+    expect(msToTopPx(dayStartMs + 60 * 60_000, dayStartMs, DEFAULT_HOUR_HEIGHT)).toBe(48);
+    expect(msToTopPx(dayStartMs + 90 * 60_000, dayStartMs, DEFAULT_HOUR_HEIGHT)).toBe(72);
+  });
+
+  it("ズーム(hourHeight)に比例する", () => {
+    expect(msToTopPx(60 * 60_000, 0, 96)).toBe(96);
+    expect(msToTopPx(60 * 60_000, 0, 24)).toBe(24);
+  });
+
+  it("dayStartMs より前の時刻は負の px になる(前日へはみ出す予定のクリップは呼び出し側の責務)", () => {
+    expect(msToTopPx(-60 * 60_000, 0, DEFAULT_HOUR_HEIGHT)).toBe(-48);
+  });
+});
+
+describe("msRangeToHeightPx", () => {
+  it("長さに比例した高さ(px)", () => {
+    expect(msRangeToHeightPx(0, 60 * 60_000, DEFAULT_HOUR_HEIGHT)).toBe(48);
+    expect(msRangeToHeightPx(0, 30 * 60_000, DEFAULT_HOUR_HEIGHT)).toBe(24);
+  });
+
+  it("ズーム(hourHeight)に比例する", () => {
+    expect(msRangeToHeightPx(0, 60 * 60_000, 24)).toBe(24);
+    expect(msRangeToHeightPx(0, 60 * 60_000, 120)).toBe(120);
+  });
+
+  it("最低 4px を保証する(長さ0や数分の予定でも帯として見える)", () => {
+    expect(msRangeToHeightPx(0, 0, DEFAULT_HOUR_HEIGHT)).toBe(4);
+    expect(msRangeToHeightPx(0, 60_000, DEFAULT_HOUR_HEIGHT)).toBe(4);
+    // 最小ズームでも床が効く: 5分 = 2px → 4px
+    expect(msRangeToHeightPx(0, 5 * 60_000, MIN_HOUR_HEIGHT)).toBe(4);
   });
 });
 

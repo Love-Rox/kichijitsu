@@ -13,6 +13,15 @@
 export type PaneMode = "docked" | "overlay";
 
 /**
+ * localStorage 等の外部由来の文字列が PaneMode かどうか(保存値の検証用)。
+ * 型の定義元と型ガードを離すとドリフトするので、App.tsx から移してここに置いた
+ * (viewRange.ts の isView と対になる関数、2026-07-25)。
+ */
+export function isPaneMode(value: string): value is PaneMode {
+  return value === "docked" || value === "overlay";
+}
+
+/**
  * ドッキング常設(docked)は狭幅では窮屈なため選べない — isNarrow のときは常に overlay に
  * フォールバックする。永続化されている PaneMode 自体は書き換えない(広幅に戻れば
  * docked が復元される、App.tsx の paneMode state と isNarrow は別軸)。
