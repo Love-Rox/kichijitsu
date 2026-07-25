@@ -5,6 +5,7 @@ import {
   buildWorkLogRow,
   buildWorkLogUpdate,
   clampIntervalEnd,
+  isUniqueConstraintError,
   MIN_WORK_INTERVAL_MS,
   NO_ISSUE_LABEL,
   openIntervalIssueRefKey,
@@ -285,6 +286,49 @@ describe("aggregateWorkLogs", () => {
   it("omits a group entirely when all of its rows are invalid", () => {
     const rows: WorkLogListRow[] = [row({ id: "1", issue_ref: "42", start_ms: 60_000, end_ms: 0 })];
     expect(aggregateWorkLogs(rows)).toEqual([]);
+  });
+});
+
+describe("isUniqueConstraintError", () => {
+  // 実際に D1 が投げてくる形 (D1_ERROR: ... の prefix 付き) をそのまま判定できること。
+  it("detects the D1 unique constraint error message", () => {
+    expect(
+      isUniqueConstraintError(
+        new Error(
+          "D1_ERROR: UNIQUE constraint failed: index 'idx_work_logs_open': SQLITE_CONSTRAINT",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("detects a bare SQLite unique constraint message", () => {
+    expect(isUniqueConstraintError(new Error("UNIQUE constraint failed: work_logs.id"))).toBe(true);
+  });
+
+  it("detects the message when it is only on the cause (wrapped error)", () => {
+    const wrapped = new Error("D1_ERROR: write failed", {
+      cause: new Error("UNIQUE constraint failed: index 'idx_work_logs_open'"),
+    });
+    expect(isUniqueConstraintError(wrapped)).toBe(true);
+  });
+
+  it("accepts a plain string error value", () => {
+    expect(isUniqueConstraintError("UNIQUE constraint failed: work_logs.id")).toBe(true);
+  });
+
+  // 他のエラーは握り潰さず再 throw させるため、false を返すことが重要。
+  it("returns false for other D1/network errors", () => {
+    expect(isUniqueConstraintError(new Error("D1_ERROR: no such table: work_logs"))).toBe(false);
+    expect(isUniqueConstraintError(new Error("NOT NULL constraint failed: work_logs.repo"))).toBe(
+      false,
+    );
+    expect(isUniqueConstraintError(new Error("network error"))).toBe(false);
+  });
+
+  it("returns false for non-error values", () => {
+    expect(isUniqueConstraintError(undefined)).toBe(false);
+    expect(isUniqueConstraintError(null)).toBe(false);
+    expect(isUniqueConstraintError({ message: "UNIQUE constraint failed" })).toBe(false);
   });
 });
 

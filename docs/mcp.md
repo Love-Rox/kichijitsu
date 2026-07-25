@@ -33,14 +33,49 @@ Claude Code 等の **hooks から作業セッションを記録する**ことで
 時間計測（予定 vs 実績）の「実績」を全自動で取る。手動タイマーより楽で、
 アクティビティ推定より正確な第3の経路。
 
-- ツール: `log_work_interval { start, end, repo, branch, issueRef?, agent }`
-  （SessionStart/Stop hook から呼ぶ。issueRef はブランチ名/commit から推定）
-- **保存先は Google カレンダー自体**: 専用の「kichijitsu 実績」カレンダーに
-  イベントとして書き戻す。サーバーは予定を保存しない原則を維持し、
-  データはユーザーの Google に置かれ、表示は通常の同期パイプラインが拾う
+- ツール（実装済み、いずれも hook / MCP クライアントの両方から使える）:
+  - `log_work_interval { start, end, repo, branch?, issueRef?, agent?, timeZone? }`
+    — 開始と終了が揃った**完了区間**を1件記録する（Stop hook から1回で書く経路）
+  - `start_work_interval { repo, issueRef?, branch?, agent?, start?, timeZone? }`
+    — **開始だけ**を記録する（後述の開区間を1本立てる。SessionStart hook 用）
+  - `stop_work_interval { repo, issueRef?, end?, timeZone? }`
+    — 対応する開区間に end を書き込んで確定する（Stop hook 用）
+  - `work_summary { since?, until? }` — 記録済みの実績を repo + issueRef 単位で集計して返す
+    （読み取り専用。確定済みの区間のみが対象で、実行中の開区間は含まれない）
+- **保存先は kichijitsu の D1（`work_logs` テーブル）**。当初の設計は「専用の
+  『kichijitsu 実績』カレンダーへイベントとして書き戻す」だったが、カレンダーの新規作成には
+  `calendar.events` スコープでは足りず本番で 403 になったため、2026-07-21 に D1 保存へ切り替えた。
+  work-log は Google に正本が無いアプリ固有データなので、「サーバーは Google イベント本体を
+  持たない」原則には反しない（詳細は `apps/sync/src/core/work-log.ts` 冒頭のコメント）。
+  Google アカウントの解決は不要になった（`profileId` だけで書ける）ため、**owner アカウント
+  （`accounts.is_owner = 1`）を解決する処理は廃止済み**。呼び出し元が accountId を渡す余地も無い。
 - hooks は非対話のため、MCP OAuth とは別に自動化用トークン（PAT）を用意する
 - 予定（作業キューからのタイムブロック）と実績（hook 記録）を issueRef で
   突き合わせて item 単位のレポートにする
+
+### 開区間（実行中）の扱い
+
+`start_work_interval` で立てた行は `work_logs.end_ms IS NULL` の状態で保存される
+（= 開始済み・未停止。マイグレーション `0011_work_logs_open_intervals.sql`）。
+
+- **一意性**: `(profile_id, repo, COALESCE(issue_ref, ''))` ごとに開区間は高々1本
+  （部分ユニークインデックス `idx_work_logs_open`、`WHERE end_ms IS NULL`）。
+  `issue_ref` の NULL と空文字は同一キーとして扱う。同じキーで再度開始しても新規作成せず、
+  既存を返す（`{ id, alreadyOpen: true }`）。二度押し等で同時に2本走った場合も、
+  DB の制約で負けた側を「既に開始中」として吸収する（500 にはしない）。
+  確定済み（`end_ms` 非 NULL）の行は同じキーで何本でも持てる。
+- **孤立停止は無視**: 対応する開区間が無い `stop_work_interval` は何も記録せず
+  `{ closed: false, reason: "no_open_interval" }` を返す（0分の偽の実績を作らないため）。
+- **停止時の最小区間長**: `end` が `start + 1分` より前なら `start + 1分` にクランプする
+  （クライアント側の手動タイマーと同じ挙動）。
+- **12時間で自動クローズ**: 停止し忘れた開区間は Cron（6時間おき）が
+  `end_ms = start_ms + 12時間` に丸めて閉じる（実行中が無限に伸びないようにするため）。
+  この自動クローズ分も通常の確定済み区間として集計に入る。
+- 実行中の一覧は `GET /api/work-logs/open` で取得する。集計系（`work_summary` /
+  `GET /api/work-logs`）は確定済みの区間だけを返し、実行中は混ぜない。
+- 実行中の行も `PATCH /api/work-logs/:id`（手動訂正、cookie 認証）で編集できるが、
+  `repo`/`issueRef` を「既に別の開区間が走っているキー」に変える更新は上の一意制約と両立しない
+  ため `409 { "error": "work_log_conflict" }` を返す（入力自体は正しいので 400 ではない）。
 
 ### hook からの記録方法 (実装後、2026-07-21)
 
@@ -61,13 +96,35 @@ curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals \
   }'
 ```
 
-成功すると `{ calendarId, eventId }` を 200 で返す。認証失敗は 401、入力不正
-(start>=end・repo 欠落など) は 400、Google 側の失敗は 502。issueRef はブランチ名や
-commit message から推定して渡す (推定ロジック自体は hook 側の責務、今回のサーバー実装
-スコープ外)。
+成功すると `{ id }` (D1 の `work_logs.id`) を 200 で返す。認証失敗は 401、入力不正
+(start>=end・repo 欠落など) は 400。issueRef はブランチ名や commit message から推定して渡す
+(推定ロジック自体は hook 側の責務、今回のサーバー実装スコープ外)。
 
-対象アカウントは常にプロファイルの owner アカウント (`accounts.is_owner = 1`) — 呼び出し元が
-accountId を指定する余地は無い (MCP ツール `log_work_interval` も REST 経路と同じ解決を使う)。
+書き込み先は D1 の `work_logs` のみで Google は呼ばないため、Google 起因の 502 は無い。
+対象は Bearer トークンが指すプロファイル自身 — accountId (Google アカウント) の解決は
+一切行わない (MCP ツール `log_work_interval` も同じ)。
+
+開始/停止を別々に打つ場合は同じ Bearer 認証で以下を使う (`repo` + `issueRef` が開区間のキー):
+
+```sh
+# セッション開始時 (start 省略時はサーバーの現在時刻)
+curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals/start \
+  -H "Authorization: Bearer ${KICHIJITSU_MCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"Love-Rox/kichijitsu","branch":"'"$(git branch --show-current)"'","agent":"claude-code"}'
+# => { "id": "...", "alreadyOpen": false }   (既に開始中なら alreadyOpen: true で既存の id)
+
+# セッション終了時 (end 省略時はサーバーの現在時刻)
+curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals/stop \
+  -H "Authorization: Bearer ${KICHIJITSU_MCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"Love-Rox/kichijitsu"}'
+# => { "closed": true, "id": "..." }
+#    対応する開始が無ければ { "closed": false, "reason": "no_open_interval" } (200、何も記録しない)
+```
+
+いずれも `start`/`stop` は冪等に近い扱い (二重開始は既存を返す、孤立停止は何もしない) なので、
+hook の再実行やクラッシュ後の再送で偽の実績が増えることはない。
 
 ## 実装タイミング
 

@@ -1,9 +1,8 @@
 import { useRef, useState } from "react";
 import type { WorkLogDTO } from "@kichijitsu/shared";
 import type { PlannedBlock, TimeEntry } from "../model/types";
-import { reportItemKey } from "../sync/estimateActual";
 import { buildReportRows, reportRowsToCsv } from "../sync/reportExport";
-import { aggregatePlannedVsActual, formatDurationHm } from "../sync/timeTracking";
+import { formatDurationHm } from "../sync/timeTracking";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import "./TimeReportOverlay.css";
 
@@ -13,10 +12,11 @@ export interface TimeReportOverlayProps {
   plannedBlocks: PlannedBlock[];
   timeEntries: TimeEntry[];
   /**
-   * work_logs 実績(CSV 出力用)。実績 UX 刷新(2026-07-23)で旧 GitHubPane 実績セクションの
-   * CSV エクスポートをこのレポートへ移した。buildReportRows で予定/実績(手動)/hook 実績/推定を
-   * 1行にマージして CSV 化する — 画面の hookActualByLinkedItem は集計済みの値でキー突合前の
-   * 生ログではないため、CSV は生の workLogs から buildReportRows で組み直す。
+   * work_logs 実績。実績 UX 刷新(2026-07-23)で旧 GitHubPane 実績セクションの CSV エクスポートを
+   * このレポートへ移した。buildReportRows で予定/実績(手動)/hook 実績/推定を1行にマージし、
+   * 表と CSV の両方をこの生ログから組み立てる(2026-07-25) — 予定タイムブロックの無い実績
+   * (手動記録や ▶→⏹ で確定した分)は work_logs にしか無いため、行の母集合をここから作らないと
+   * 表が空・CSV ボタン disabled になってしまう。
    */
   workLogs: WorkLogDTO[];
   /** 走行中エントリの経過を含めて集計するための現在時刻 */
@@ -31,20 +31,24 @@ export interface TimeReportOverlayProps {
   /** POST /api/github/pr-commits の取得中かどうか。true の間は推定列に「…」を出す */
   estimatesLoading: boolean;
   /**
-   * hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が「kichijitsu 実績」
-   * カレンダーに書くイベント)。キーは PlannedBlock.linkedItemId、値は sync/hookActual.ts の
-   * hookActualByLinkedItem が repo+number で突き合わせて合計した ms。手動タイマー実績・commit
-   * からの推定とは別ソースの3つ目の実績経路 — 混同しないよう別列で併記する。一致が無い item は
-   * キー自体が無い(「—」表示になる)。
+   * @deprecated このコンポーネントでは使っていない(2026-07-25)。hook 実績は workLogs から
+   * buildReportRows が行ごとに算出する(ActualsReportRow.hookActualMs)。呼び出し側 (App.tsx) が
+   * 渡すこの Record は「予定タイムブロックの linkedItemId 集合」でしか突合しておらず、予定の無い
+   * 実績(work_logs だけの item)の行では値が引けない — 行の母集合を「予定 ∪ work_logs」へ広げた
+   * 意味が失われるため使わない。任意 prop として受け口だけ残してあるので、App.tsx 側の
+   * reportHookActualByLinkedItem(現在ここ以外で使われていない)ごと消せる。
    */
-  hookActualByLinkedItem: Record<string, number>;
+  hookActualByLinkedItem?: Record<string, number>;
   onClose: () => void;
 }
 
 /**
  * 予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2・3、mcp.md「エージェントの
  * 作業時間記録」、2026-07-20〜21)。BlockRulesOverlay/SearchOverlay と同じ画面中央モーダル構成。
- * 表示専用(編集導線は無い)。列は3経路: 「計測中」は▶/⏹で現在走行中のタイマーの経過
+ * 表示専用(編集導線は無い)。行(item)の母集合と3経路の突合は sync/reportExport.ts の
+ * buildReportRows に一本化してあり、表と CSV は同じ行を使う — 予定タイムブロックの無い実績
+ * (work_logs だけの item)も行として並ぶ(2026-07-25 修正)。
+ * 列は3経路: 「計測中」は▶/⏹で現在走行中のタイマーの経過
  * (sync/timeTracking.ts の aggregatePlannedVsActual。実績 UX 刷新フェーズ4(2026-07-23)で
  * タイマー停止時の確定実績を work_logs へ統一したため、この列に残るのは走行中エントリの経過のみ)、
  * 「実績」は work_logs に保存された作業時間(sync/hookActual.ts。タイマーの停止・手動記録・
@@ -61,23 +65,22 @@ export function TimeReportOverlay({
   nowMs,
   estimatedByKey,
   estimatesLoading,
-  hookActualByLinkedItem,
   onClose,
 }: TimeReportOverlayProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   useCloseOnOutsideOrEscape(true, cardRef, onClose);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
-  const rows = aggregatePlannedVsActual(plannedBlocks, timeEntries, nowMs);
-
-  // CSV は画面表示(aggregatePlannedVsActual + 別々の hook/推定)とは別に、生の workLogs から
-  // buildReportRows で予定/実績(手動)/hook 実績/推定を1行へマージし直して組む(reportExport.ts の純関数)。
-  function csvRows() {
-    return buildReportRows({ plannedBlocks, timeEntries, workLogs, estimatesByKey: estimatedByKey }, nowMs);
-  }
+  // 表と CSV は同じ行(reportExport.ts の buildReportRows)を使う。行の母集合は
+  // 「予定タイムブロック ∪ 走行中タイマー ∪ work_logs」なので、予定を立てずに実績だけ記録した
+  // item もここに現れる(hook 実績・推定のマージも純関数側で済んでいる)。
+  const rows = buildReportRows(
+    { plannedBlocks, timeEntries, workLogs, estimatesByKey: estimatedByKey },
+    nowMs,
+  );
 
   function handleDownloadCsv() {
-    const csv = reportRowsToCsv(csvRows());
+    const csv = reportRowsToCsv(rows);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -88,7 +91,7 @@ export function TimeReportOverlay({
   }
 
   async function handleCopyCsv() {
-    const csv = reportRowsToCsv(csvRows());
+    const csv = reportRowsToCsv(rows);
     try {
       await navigator.clipboard.writeText(csv);
       setCopyState("copied");
@@ -157,7 +160,7 @@ export function TimeReportOverlay({
                 </th>
                 <th
                   className="time-report-col-num time-report-col-hook"
-                  title="work_logs に保存された作業時間です。タイマーの停止・手動記録・Claude Code 等の hook (log_work_interval) をまとめた値で、issueRef が数値のときのみ突き合わせられます。"
+                  title="work_logs に保存された作業時間です。タイマーの停止・手動記録・Claude Code 等の hook (log_work_interval) をまとめた値で、issue 番号が数値のときのみ item に突き合わせられます(番号の無い記録・ブランチ名だけの記録はこの表に並びません)。"
                 >
                   実績
                 </th>
@@ -172,12 +175,15 @@ export function TimeReportOverlay({
             </thead>
             <tbody>
               {rows.map((row) => {
-                const max = Math.max(row.plannedMs, row.actualMs, 1);
+                // 比率バーの「実績」は 計測中(走行中の経過)+ 実績(work_logs) の合計で描く —
+                // 確定した実績は work_logs 側にしか無いため、actualMs だけで描くと予定を立てずに
+                // 記録した行のバーが常に空になり比率が読めない。
+                const actualTotalMs = row.actualMs + (row.hookActualMs ?? 0);
+                const max = Math.max(row.plannedMs, actualTotalMs, 1);
                 const plannedPct = (row.plannedMs / max) * 100;
-                const actualPct = (row.actualMs / max) * 100;
-                const estimatedMs =
-                  row.itemType === "pr" ? estimatedByKey[reportItemKey(row)] : undefined;
-                const hookMs = hookActualByLinkedItem[row.linkedItemId];
+                const actualPct = (actualTotalMs / max) * 100;
+                const estimatedMs = row.estimateMs;
+                const hookMs = row.hookActualMs;
                 return (
                   <tr key={row.linkedItemId}>
                     <td className="time-report-item">
@@ -187,7 +193,9 @@ export function TimeReportOverlay({
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        #{row.number} {row.title}
+                        {/* work_logs 由来の行はタイトルを持たない(空文字)ので `#番号` だけ出す */}
+                        #{row.number}
+                        {row.title ? ` ${row.title}` : ""}
                       </a>
                       <span className="time-report-item-repo">{row.repo}</span>
                     </td>

@@ -1923,11 +1923,19 @@ function App() {
         const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null;
 
         if (overrideId && seriesId && originalStartMs !== undefined) {
+          // 既存 patch をスプレッドしてマージする(handleRsvp と同じ流儀)。丸ごと置き換えると、
+          // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference /
+          // responseStatus / isOrganizer / isWorkingLocation や、編集フォームが書いた
+          // title/location/description が消え、再展開でシリーズ側の値に化けてしまう。
           await putOverride(db, {
             id: overrideId,
             seriesId,
             originalStartMs,
-            patch: { startMs: updated.startMs, endMs: updated.endMs },
+            patch: {
+              ...(previousOverride?.patch ?? {}),
+              startMs: updated.startMs,
+              endMs: updated.endMs,
+            },
           });
         }
         await putOccurrence(db, updated);
@@ -2194,12 +2202,19 @@ function App() {
         original.originalStartMs !== undefined
       ) {
         // シリーズ由来の1回分: override にも編集内容を書く(handlePersist と同じ流儀。
-        // これが無いと再展開のたびにタイトル/場所/説明がシリーズ側の値に巻き戻ってしまう)
+        // これが無いと再展開のたびにタイトル/場所/説明がシリーズ側の値に巻き戻ってしまう)。
+        // 既存 patch はスプレッドしてマージする(handleRsvp と同じ流儀) ―― 丸ごと置き換えると
+        // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference / responseStatus /
+        // isOrganizer / isWorkingLocation が消え、Meet の参加リンクや参加ステータスが再展開後に
+        // シリーズ側の値へ化けてしまう。
+        const overrideId = instanceId(original.seriesId, original.originalStartMs);
+        const existingOverride = await getOverride(db, overrideId);
         await putOverride(db, {
-          id: instanceId(original.seriesId, original.originalStartMs),
+          id: overrideId,
           seriesId: original.seriesId,
           originalStartMs: original.originalStartMs,
           patch: {
+            ...(existingOverride?.patch ?? {}),
             title: draft.title,
             startMs: draft.startMs,
             endMs: draft.endMs,

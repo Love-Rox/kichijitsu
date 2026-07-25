@@ -5,6 +5,7 @@ import {
   resolveSwipeOutcome,
   SWIPE_DIRECTION_DOMINANCE,
   SWIPE_DIRECTION_MIN_PX,
+  SWIPE_VERTICAL_SLOP_PX,
   swipeStripTransform,
 } from "./swipeNav";
 
@@ -29,19 +30,47 @@ describe("classifySwipeAxis", () => {
   });
 
   it("dominance 境界: ちょうど比率と同じなら horizontal ではない(> であって >= ではない)", () => {
-    // adx === ady * dominance(1.25)のとき、adx > ady*dominance は false
-    const boundary = 10 * SWIPE_DIRECTION_DOMINANCE; // = 12.5
-    expect(classifySwipeAxis(boundary, 10, SWIPE_DIRECTION_MIN_PX, SWIPE_DIRECTION_DOMINANCE)).toBe(
-      "vertical",
-    );
+    // adx === ady * dominance のとき、adx > ady*dominance は false。
+    // 縦成分が slop(8px)以下の領域で緩い dominance(1.25)が効くことも同時に確認する
+    const boundary = SWIPE_VERTICAL_SLOP_PX * SWIPE_DIRECTION_DOMINANCE; // = 10
     expect(
-      classifySwipeAxis(boundary + 0.01, 10, SWIPE_DIRECTION_MIN_PX, SWIPE_DIRECTION_DOMINANCE),
+      classifySwipeAxis(boundary, SWIPE_VERTICAL_SLOP_PX, SWIPE_DIRECTION_MIN_PX, undefined),
+    ).toBe("vertical");
+    expect(
+      classifySwipeAxis(boundary + 0.01, SWIPE_VERTICAL_SLOP_PX, SWIPE_DIRECTION_MIN_PX, undefined),
     ).toBe("horizontal");
   });
 
   it("片方の軸だけ大きく動いた場合(閾値超え済み)も dx/dy 比較だけで判定する", () => {
-    // ady が既に閾値を超えていても、adx がさらに dominance 倍優勢なら horizontal
+    // ady が slop を超えていても、adx がさらに strict dominance(2.5)倍優勢なら horizontal
     expect(classifySwipeAxis(40, 12)).toBe("horizontal");
+  });
+
+  // M-7(2026-07-25): 斜めスワイプの二重挙動対策。縦成分が touch slop を超えてからの
+  // 横確定には strict dominance を要求する ―― 詳細は swipeNav.ts のコメント参照
+  it("縦成分が slop 以下なら緩い dominance で横に入れる(通常の横スワイプは従来どおり)", () => {
+    expect(classifySwipeAxis(15, SWIPE_VERTICAL_SLOP_PX)).toBe("horizontal"); // 15 > 8*1.25=10
+    expect(classifySwipeAxis(20, 0)).toBe("horizontal");
+  });
+
+  it("縦成分が slop を超えた斜めスワイプは横に入らない(既に縦スクロールが始まっている)", () => {
+    // レビュー指摘の再現ケース: dx=20 / dy=12 は 1.25 倍だと horizontal だが、
+    // 20 > 12*2.5 = 30 は満たさないので vertical(縦へ委ねる)
+    expect(classifySwipeAxis(20, 12)).toBe("vertical");
+    expect(classifySwipeAxis(-20, 12)).toBe("vertical");
+    expect(classifySwipeAxis(30, 12)).toBe("vertical"); // ちょうど 2.5 倍も vertical(> 判定)
+  });
+
+  it("縦成分があっても圧倒的に横なら horizontal(速い横フリックを取りこぼさない)", () => {
+    // 1イベントで dx=60/dy=15 のような粗いサンプルで届く速いフリックは救う
+    expect(classifySwipeAxis(60, 15)).toBe("horizontal");
+    expect(classifySwipeAxis(-60, -15)).toBe("horizontal");
+  });
+
+  it("strict dominance は引数で上書きできる(将来のチューニング用)", () => {
+    expect(
+      classifySwipeAxis(20, 12, SWIPE_DIRECTION_MIN_PX, undefined, SWIPE_VERTICAL_SLOP_PX, 1.25),
+    ).toBe("horizontal");
   });
 });
 
