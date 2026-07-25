@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+  Ref,
+} from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, OccurrenceLink } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
@@ -32,7 +37,21 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { RsvpNotAttendeeError } from "../sync/eventRsvp";
-import { PlaceIcon, VideoIcon } from "./icons";
+import {
+  detectMeetingProvider,
+  meetingLocationLabel,
+  meetingProviderLabel,
+  type MeetingProvider,
+} from "../layout/meetingLinks";
+import {
+  MeetIcon,
+  PlaceIcon,
+  SlackIcon,
+  TeamsIcon,
+  VideoIcon,
+  ZoomIcon,
+  type IconProps,
+} from "./icons";
 import { EventEditForm } from "./EventEditForm";
 
 /** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
@@ -146,6 +165,38 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
+ * 会議 URL の提供元 → アイコンの対応(2026-07-25)。プロバイダを足すときは
+ * layout/meetingLinks.ts の MeetingProvider とこの表の2箇所だけを触れば、
+ * カード・ヘッダー小アイコン・詳細ポップオーバーのリンクすべてに反映される
+ * (各表示箇所に条件分岐を散らさないための単一の対応表)。
+ */
+const MEETING_PROVIDER_ICONS: Record<MeetingProvider, (props: IconProps) => ReactElement> = {
+  slack: SlackIcon,
+  meet: MeetIcon,
+  zoom: ZoomIcon,
+  teams: TeamsIcon,
+};
+
+/**
+ * 会議 URL の提供元アイコン(2026-07-25、Slack ハドル表示)。location が会議 URL
+ * (layout/meetingLinks.ts の detectMeetingProvider が非 null)のときに、生 URL の代わりに
+ * 出すアイコン。provider が判定できない通常の会議リンク(hasConference のみ true 等)は
+ * 従来どおり汎用の VideoIcon にフォールバックする。
+ */
+function MeetingProviderIcon({
+  provider,
+  width,
+  height,
+}: {
+  provider: MeetingProvider | null;
+  width: number;
+  height: number;
+}) {
+  const Icon = provider === null ? VideoIcon : MEETING_PROVIDER_ICONS[provider];
+  return <Icon width={width} height={height} />;
+}
+
+/**
  * 週グリッド上の1イベントブロック。移動・リサイズのドラッグ操作を持つ。
  *
  * 規律: pointermove 中は React の state を一切更新しない。ドラッグ中は
@@ -209,7 +260,9 @@ export function EventBlock({
       el,
       occurrence.title,
       formatRange(occurrence.startMs, occurrence.endMs, timeZone),
-      occurrence.location,
+      // 会議 URL はラベルに置き換える(2026-07-25)。ツールチップは1行なので生 URL だと
+      // 溢れて読めない ―― カード上の場所行と同じ表示に揃える
+      meetingLocationLabel(occurrence.location),
     );
     el.style.display = "block";
     positionTooltip(el, clientX, clientY);
@@ -461,6 +514,11 @@ export function EventBlock({
   // 専用レールへ振り分け済み)ため、ここでの排他判定は不要 ―― 「通常の予定」だけがここに
   // 来る前提でよい。
   const showVideoIcon = !isBusy && occurrence.hasConference === true;
+  // 会議 URL 判定 (2026-07-25、Slack ハドル表示): Slack ハドルは conferenceData/hangoutLink を
+  // 持たず location に huddle URL がそのまま入るため hasConference が立たない
+  // (layout/meetingLinks.ts のコメント参照)。location が会議 URL なら「場所」ではなく
+  // 「会議」として扱い、生 URL の代わりにプロバイダのアイコン + 短いラベルを出す。
+  const meetingProvider = !isBusy ? detectMeetingProvider(occurrence.location) : null;
   // 場所テキスト行 (2026-07-22、ユーザー追加要望): 非コンパクト表示のときだけ、タイトルの
   // 下に PlaceIcon + location の1行を追加で出す(Google カレンダーの予定カードと同じ体裁)。
   // コンパクト表示 (isCompact、40分未満の短い予定) は時刻+タイトルの1行しか横幅・縦幅の
@@ -469,11 +527,21 @@ export function EventBlock({
   // クリップされる ―― 個別の高さ判定は行わず、CSS のあふれ処理に任せる(要件で許容された
   // 簡易実装)。
   const hasLocationText = !isBusy && !isCompact && !!occurrence.location;
+  // 場所テキスト行に出す文字列。会議 URL のときは長い生 URL ではなくラベル
+  // (例: 「Slack ハドル」)にする ―― カード上は表示だけに留め、実際に参加できるリンクは
+  // 詳細ポップオーバー (EventDetailCard) 側に置く(カード全体のクリック=詳細を開く、
+  // という既存仕様を壊さないため。.event-location は CSS で pointer-events:none)。
+  const locationLabel = meetingProvider
+    ? meetingProviderLabel(meetingProvider)
+    : occurrence.location;
   // ヘッダー行の小さな PlaceIcon は、場所テキスト行が出るなら冗長なので省く(場所は
   // テキスト行側で示すため)。コンパクト表示のときは場所テキスト行が無い代わりに、
   // 従来どおりこのヘッダー(1行)の小アイコンで場所の有無だけを示す。
-  const showHeaderPlaceIcon = !isBusy && !!occurrence.location && !hasLocationText;
-  const hasMeansIcons = showVideoIcon || showHeaderPlaceIcon;
+  // 会議 URL のときは PlaceIcon(場所)ではなくプロバイダアイコン(会議)を出す。
+  const showHeaderMeetingIcon = meetingProvider !== null && !hasLocationText;
+  const showHeaderPlaceIcon =
+    !isBusy && !!occurrence.location && meetingProvider === null && !hasLocationText;
+  const hasMeansIcons = showVideoIcon || showHeaderPlaceIcon || showHeaderMeetingIcon;
   // 左インセットだけ日ごとに可変(不在レール矩形化、2026-07-22)。右は常に DAY_COLUMN_INSET_PX。
   const leftInsetPx = leftInsetPxProp ?? DAY_COLUMN_INSET_PX;
   const usableWidthExpr = `(100% - ${leftInsetPx}px - ${DAY_COLUMN_INSET_PX}px)`;
@@ -586,6 +654,9 @@ export function EventBlock({
               // 奪わないよう pointer-events:none(CSS 側、.event-means-icons)
               <span className="event-means-icons" aria-hidden="true">
                 {showVideoIcon && <VideoIcon width={10} height={10} />}
+                {showHeaderMeetingIcon && (
+                  <MeetingProviderIcon provider={meetingProvider} width={10} height={10} />
+                )}
                 {showHeaderPlaceIcon && <PlaceIcon width={10} height={10} />}
               </span>
             )}
@@ -598,6 +669,9 @@ export function EventBlock({
               {hasMeansIcons && (
                 <span className="event-means-icons" aria-hidden="true">
                   {showVideoIcon && <VideoIcon width={10} height={10} />}
+                  {showHeaderMeetingIcon && (
+                    <MeetingProviderIcon provider={meetingProvider} width={10} height={10} />
+                  )}
                   {showHeaderPlaceIcon && <PlaceIcon width={10} height={10} />}
                 </span>
               )}
@@ -611,9 +685,16 @@ export function EventBlock({
               // pointer-events:none は CSS 側 (.event-location) で持たせる。1行省略は
               // テキスト部分(.event-location-text)側で行う(アイコンは縮めたくないため
               // flex: 0 0 auto)。
+              // 会議 URL のとき (2026-07-25) はピン+生 URL ではなく、プロバイダアイコン+
+              // ラベル(例: Slack マーク + 「Slack ハドル」)にする ―― 生 URL は長くて
+              // 1行に収まらず読めないため。参加リンクは詳細ポップオーバー側に置く。
               <span className="event-location">
-                <PlaceIcon width={10} height={10} />
-                <span className="event-location-text">{occurrence.location}</span>
+                {meetingProvider !== null ? (
+                  <MeetingProviderIcon provider={meetingProvider} width={10} height={10} />
+                ) : (
+                  <PlaceIcon width={10} height={10} />
+                )}
+                <span className="event-location-text">{locationLabel}</span>
               </span>
             )}
           </>
@@ -738,6 +819,9 @@ export function EventDetailCard({
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
   const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : "";
+  // location が会議 URL かどうか(2026-07-25、Slack ハドル表示)。EventBlock のカード表示と
+  // 同じ判定 (layout/meetingLinks.ts) を使い、こちらでは参加リンクとして出す
+  const meetingProvider = detectMeetingProvider(subject.location);
   const memberCalendars = groupMembers
     .map((m) => {
       const info =
@@ -828,11 +912,32 @@ export function EventDetailCard({
             オンライン会議あり
           </div>
         )}
-        {subject.location && (
-          <div className="event-detail-location">
-            <PlaceIcon width={12} height={12} />
-            場所: {subject.location}
-          </div>
+        {/*
+         * 会議 URL が location に入っている予定 (Slack ハドル / Meet / Zoom / Teams、2026-07-25)。
+         * カード上はアイコン+ラベルの表示のみなので、詳細ポップオーバーでは「実際に参加できる
+         * リンク」を出す(生 URL の行は置き換える ―― 全文は title 属性でホバー時に見える)。
+         * 既存の「Google で開く」リンクと同じ流儀で、クリックの stopPropagation は付けない
+         * (ポップオーバー内のクリックは useCloseOnOutsideOrEscape の contains 判定で
+         * 「外側クリック」にならないため、リンクはそのまま機能する)。
+         */}
+        {meetingProvider !== null && subject.location ? (
+          <a
+            className="event-detail-location event-detail-meeting-link"
+            href={subject.location}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={subject.location}
+          >
+            <MeetingProviderIcon provider={meetingProvider} width={12} height={12} />
+            {meetingProviderLabel(meetingProvider)}に参加
+          </a>
+        ) : (
+          subject.location && (
+            <div className="event-detail-location">
+              <PlaceIcon width={12} height={12} />
+              場所: {subject.location}
+            </div>
+          )
         )}
         {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
         {subject.link?.url && (

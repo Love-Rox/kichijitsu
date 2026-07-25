@@ -10,6 +10,7 @@ import type { AllDayOccurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { formatAllDayDateRange } from "../layout/gridMetrics";
 import { isWorkingLocation } from "../layout/workingLocationRail";
+import { meetingLocationLabel } from "../layout/meetingLinks";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { resolveDisplayColor } from "../layout/eventColors";
@@ -94,7 +95,10 @@ export function AllDayBar({
       el,
       occurrence.title,
       formatAllDayDateRange(occurrence.startDate, occurrence.endDate),
-      isWorkingLoc ? undefined : occurrence.location,
+      // 会議 URL (Slack ハドル等) はラベルに置き換える(2026-07-25、layout/meetingLinks.ts)。
+      // 終日バー自体は location を表に出さないが、ツールチップだけは出しているため
+      // ここも生 URL ではなく「Slack ハドル」のような短い表示にする
+      isWorkingLoc ? undefined : meetingLocationLabel(occurrence.location),
     );
     el.style.display = "block";
     positionTooltip(el, clientX, clientY);

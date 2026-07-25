@@ -12,6 +12,7 @@ import {
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { formatAllDayDateRange, formatDetailDateTime } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
+import { meetingLocationLabel } from "../layout/meetingLinks";
 import type { CalendarInfo } from "./EventBlock";
 import "./SearchOverlay.css";
 
@@ -197,7 +198,8 @@ function SearchResultRow({
         <span className="search-result-title">{o.title || "(無題)"}</span>
         <span className="search-result-meta">
           {dateTimeLabel}
-          {o.location ? ` ・ ${o.location}` : ""}
+          {/* 会議 URL は生 URL ではなくラベル(例: Slack ハドル)で出す(2026-07-25) */}
+          {o.location ? ` ・ ${meetingLocationLabel(o.location)}` : ""}
         </span>
       </span>
     </button>
