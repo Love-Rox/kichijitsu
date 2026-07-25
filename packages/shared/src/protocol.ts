@@ -311,6 +311,24 @@ export interface MeResponse {
   visibleCalendars: Record<string, string[]>;
   /** GitHub 連携が無ければ null。 */
   github: GitHubConnectionDTO | null;
+  /**
+   * この sync (サーバー) が**対応している同期バックフィル世代** (2026-07-25)。
+   *
+   * クライアントは「新しい DTO フィールドを増やすたびに世代を1つ上げ、保存済み世代に追いつくまで
+   * forceFull 同期する」仕組みを持つ (apps/web の CURRENT_SYNC_BACKFILL_VERSION / syncBackfill.ts)。
+   * ところが web と sync は別々にデプロイされるため、web だけ先に新しくなると「サーバーがまだ
+   * そのフィールドを返さないのに、クライアントはバックフィル完了として世代を記録してしまう」
+   * → 以後 forceFull が走らず、そのフィールドが永久に欠けたままになる、という事故が起きる
+   * (実際に世代3のバックフィルで発生し、世代4を空振り用に消費して手当てした)。
+   *
+   * その恒久対策として、sync 側が自分の対応世代をここで宣言する。クライアントは
+   * min(自分の世代, この値) までしかバックフィル完了として記録しない — サーバーが後から
+   * 追いついた時点で残りの世代分のバックフィルが自然に走る。
+   *
+   * 省略可能 (この仕組みより前の sync がデプロイされている間は載ってこない)。省略時は
+   * クライアントが自分の世代をそのまま使う (従来どおりの挙動)。
+   */
+  syncBackfillVersion?: number;
 }
 
 /**
@@ -687,6 +705,15 @@ export interface WorkLogCreateResponse {
  * サーバー側の検証・列組み立ては core/work-log.ts (validateWorkLogInput 相当の部分検証 +
  * updateWorkLog/buildWorkLogUpdate) が担う。所有チェックは DELETE と同じく他プロファイル/存在
  * しない id を区別せず 403 (work_log_not_found) にする。
+ *
+ * エラー応答 (2026-07-25 追記):
+ *  - 400 invalid_json / missing_fields / missing_repo / invalid_start / invalid_end /
+ *    start_not_before_end — 形と値の検証 (start<end は start と end の両方が来たときだけ判定する)。
+ *  - 403 work_log_not_found — 存在しない id / 他プロファイルの id (上記のとおり区別しない)。
+ *  - 409 **work_log_conflict** — 実行中 (end_ms IS NULL) の行の repo/issueRef を、既に別の開区間が
+ *    走っているキーへ変更しようとした (0011 の部分ユニークインデックス idx_work_logs_open と
+ *    両立しない)。入力自体は正しく現在の DB 状態とだけ両立しないため 400 ではなく 409。
+ *    クライアントは「別の開始中と衝突した」旨を出して、リトライではなく入力の訂正を促せばよい。
  */
 export interface WorkLogUpdateRequest {
   start?: string;

@@ -287,6 +287,49 @@ describe("aggregateWorkLogs", () => {
     const rows: WorkLogListRow[] = [row({ id: "1", issue_ref: "42", start_ms: 60_000, end_ms: 0 })];
     expect(aggregateWorkLogs(rows)).toEqual([]);
   });
+
+  // 集計の定義を web の実績履歴 (apps/web/src/sync/workLogGrouping.ts) と1つに寄せた
+  // (2026-07-25、@kichijitsu/shared の workLogIssueIdentity/aggregateWorkLogEntries)。
+  // hook は issueRef に完全参照 (`owner/repo#番号`) を、UI タイマー/手動入力は素の番号を入れるため、
+  // 以前はここが生文字列でまとめていて同じ issue が別グループに割れ、web と MCP で数字が違っていた。
+  it("normalizes a full issue reference (owner/repo#number) to the issue's repo + number", () => {
+    const rows: WorkLogListRow[] = [
+      row({
+        id: "1",
+        repo: "lapras-inc/lapras",
+        issue_ref: "lapras-inc/scouty#33488",
+        start_ms: 0,
+        end_ms: 60_000,
+      }),
+    ];
+    expect(aggregateWorkLogs(rows)).toEqual([
+      { repo: "lapras-inc/scouty", issueRef: "33488", totalMs: 60_000, count: 1 },
+    ]);
+  });
+
+  it("groups a full reference and a bare number pointing at the same issue together", () => {
+    const rows: WorkLogListRow[] = [
+      // hook 経由 (別 repo での作業を完全参照で記録)
+      row({
+        id: "1",
+        repo: "lapras-inc/lapras",
+        issue_ref: "lapras-inc/scouty#33488",
+        start_ms: 0,
+        end_ms: 60_000,
+      }),
+      // UI タイマー/手動入力 (作業 repo に対する素の番号)
+      row({
+        id: "2",
+        repo: "lapras-inc/scouty",
+        issue_ref: "33488",
+        start_ms: 100_000,
+        end_ms: 160_000,
+      }),
+    ];
+    expect(aggregateWorkLogs(rows)).toEqual([
+      { repo: "lapras-inc/scouty", issueRef: "33488", totalMs: 120_000, count: 2 },
+    ]);
+  });
 });
 
 describe("isUniqueConstraintError", () => {

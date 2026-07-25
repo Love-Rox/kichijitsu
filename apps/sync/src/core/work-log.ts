@@ -9,8 +9,24 @@
  * 本体を持たない」原則には反しない。
  */
 
-import type { OpenWorkIntervalDTO } from "@kichijitsu/shared";
+import type { OpenWorkIntervalDTO, WorkLogValidationError } from "@kichijitsu/shared";
+import { aggregateWorkLogEntries, validateWorkLogInterval } from "@kichijitsu/shared";
 import { isAccountInProfile } from "../accounts";
+
+/**
+ * "2h 15m" / "45m" 形式。以前は apps/web/src/sync/timeTracking.ts と**バイト単位で同一の複製**を
+ * ここに置いていた (「sync は web に依存していないため複製」) が、2026-07-25 に共通の置き場
+ * (@kichijitsu/shared の work-log.ts) を作って寄せた。既存の呼び出し側 (durable-object/
+ * mcp-agent.ts の work_summary) の import 元を変えずに済むよう、ここから再エクスポートする。
+ */
+export { formatDurationHm } from "@kichijitsu/shared";
+
+/**
+ * 入力検証のエラー。実体は shared (work-log.ts の WorkLogValidationError) — web の手動追加フォーム
+ * (sync/workLogEntry.ts) と同じ4値を二重定義していたのを 2026-07-25 に寄せた。既存の import 元を
+ * 変えないための別名再エクスポート。
+ */
+export type { WorkLogValidationError } from "@kichijitsu/shared";
 
 export interface WorkLogInput {
   startIso: string;
@@ -50,29 +66,26 @@ export interface WorkLogRow {
   createdAt: number;
 }
 
-export type WorkLogValidationError =
-  | "missing_repo"
-  | "invalid_start"
-  | "invalid_end"
-  | "start_not_before_end";
-
 /**
  * 純関数。start<end・ISO パース可・repo 必須を検証する。routes/work-intervals.ts (400への
  * マッピング) と durable-object/mcp-agent.ts の log_work_interval ツールの両方が、
  * buildWorkLogRow を呼ぶ前にこれを呼んで検証する。
+ *
+ * 判定本体は shared の validateWorkLogInterval (web の手動追加フォームと共通、2026-07-25)。
+ * ここに残るのは「ISO 文字列 → epoch ms」の変換だけ — web 側は同じ検証を datetime-local の
+ * 壁時計値 (Temporal で解釈) に対して行うため、文字列の解釈は各々に残す設計にした。
+ * 判定順 (repo → start → end → 前後関係) と返るエラーコードは移設前と同じ。
  */
 export function validateWorkLogInput(input: {
   startIso: string;
   endIso: string;
   repo: string;
 }): WorkLogValidationError | null {
-  if (!input.repo || input.repo.trim().length === 0) return "missing_repo";
-  const startMs = Date.parse(input.startIso);
-  if (Number.isNaN(startMs)) return "invalid_start";
-  const endMs = Date.parse(input.endIso);
-  if (Number.isNaN(endMs)) return "invalid_end";
-  if (startMs >= endMs) return "start_not_before_end";
-  return null;
+  return validateWorkLogInterval({
+    repo: input.repo,
+    startMs: Date.parse(input.startIso),
+    endMs: Date.parse(input.endIso),
+  });
 }
 
 /**
@@ -344,56 +357,50 @@ export interface WorkLogSummaryItem {
 }
 
 /**
- * 純関数。work_logs の行群を repo + issueRef でグルーピングし、区間長 (end_ms - start_ms) の
- * 合計と件数を集計する。MCP ツール work_summary から呼ばれる (docs/mcp.md「エージェントの
- * 作業時間記録」)。
+ * 純関数。work_logs の行群を issue 単位でグルーピングし、区間長 (end_ms - start_ms) の合計と
+ * 件数を集計する。MCP ツール work_summary から呼ばれる (docs/mcp.md「エージェントの作業時間記録」)。
+ *
+ * グルーピングと合計の定義は shared の aggregateWorkLogEntries に寄せた (2026-07-25)。ここに残るのは
+ * 「行 (snake_case) → 集計入力への詰め替え」と「MCP レスポンスの見せ方」だけ:
  * - issueRef が null/undefined の行は捨てずに NO_ISSUE_LABEL の1グループへまとめる
- *   (repo だけの粒度でも実績を追えるようにするため)。
- * - start_ms >= end_ms の異常行は集計から除外する (count にも totalMs にも含めない)。
- *   validateWorkLogInput が挿入時点でこの条件を弾いているため通常は発生しないが、念のための
- *   防御。0 として加算する選択肢もあったが、「実績が無い区間」を「実績あり・0分」として
- *   count に混ぜるとクライアント側の平均時間計算等をミスリードするため、行ごと除外する方を選んだ。
+ *   (repo だけの粒度でも実績を追えるようにするため)。ラベル文字列は MCP 応答の表示都合なので
+ *   shared には持たせずここで付ける (web 側は同じグループを issueRef undefined のまま扱う)。
+ * - start_ms >= end_ms の異常行は集計から除外する (count にも totalMs にも含めない — 理由は
+ *   shared 側のコメント参照)。全行が異常なグループは count === 0 になるので、ここで落として
+ *   「グループごと出さない」従来の挙動を保つ。
  * - 並びは totalMs 降順。同着は repo → issueRef の文字列昇順で安定させる (テスト容易性のため)。
+ *
+ * **web の実績履歴との整合 (2026-07-25、リファクタリング フェーズ4)**: 以前はここが issue_ref の
+ * 生文字列でグルーピングしていたため、hook が完全参照 (`owner/repo#12`) で記録した実績と UI
+ * タイマー/手動入力由来の素の番号 (`12`) が別グループに割れ、web の実績履歴
+ * (sync/workLogGrouping.ts の groupWorkLogsByIssue) と数字が食い違っていた。shared の
+ * workLogIssueIdentity で正規化するようにしたので、完全参照の行では repo が「issue の所属 repo」、
+ * issueRef が「番号のみ」になる (MCP 応答の見え方はその分変わる — 集計の定義を1つにするための
+ * 意図的な変更)。
  */
 export function aggregateWorkLogs(rows: WorkLogListRow[]): WorkLogSummaryItem[] {
-  const buckets = new Map<string, WorkLogSummaryItem>();
+  const buckets = aggregateWorkLogEntries(
+    rows.map((row) => ({
+      repo: row.repo,
+      issueRef: row.issue_ref ?? undefined,
+      startMs: row.start_ms,
+      endMs: row.end_ms,
+    })),
+  );
 
-  for (const row of rows) {
-    if (row.start_ms >= row.end_ms) continue;
-    const issueRef = row.issue_ref ?? NO_ISSUE_LABEL;
-    // グルーピングキーの区切りは U+0000 (NUL) — repo/issueRef のどちらにも現れない文字なので
-    // "a" + "b/c" と "a/b" + "c" のようなキー衝突が起きない。ソース上は生の 0x00 バイトではなく
-    // エスケープ表記で書く (生バイトを含むと git がファイルをバイナリ扱いして diff が読めなくなる。
-    // 文字コードは同じなので振る舞いは不変、2026-07-25)。
-    const key = `${row.repo}\u0000${issueRef}`;
-    const durationMs = row.end_ms - row.start_ms;
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.totalMs += durationMs;
-      existing.count += 1;
-    } else {
-      buckets.set(key, { repo: row.repo, issueRef, totalMs: durationMs, count: 1 });
-    }
-  }
-
-  return Array.from(buckets.values()).sort((a, b) => {
-    if (b.totalMs !== a.totalMs) return b.totalMs - a.totalMs;
-    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
-    return a.issueRef.localeCompare(b.issueRef);
-  });
-}
-
-/**
- * "2h 15m" / "45m" 形式。apps/web/src/sync/timeTracking.ts の同名関数と実装は同一だが、
- * sync は web に依存していない (別 app、別 package.json) ためこちらに複製してある —
- * MCP ツール work_summary のレスポンスに人間可読な totalHm を添えるためだけの小さな
- * 純関数なので、workspace 越しの依存を増やすより複製の方が割に合う判断。
- */
-export function formatDurationHm(ms: number): string {
-  const totalMinutes = Math.floor(Math.max(0, ms) / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return buckets
+    .filter((bucket) => bucket.count > 0)
+    .map((bucket) => ({
+      repo: bucket.repo,
+      issueRef: bucket.issueRef ?? NO_ISSUE_LABEL,
+      totalMs: bucket.totalMs,
+      count: bucket.count,
+    }))
+    .sort((a, b) => {
+      if (b.totalMs !== a.totalMs) return b.totalMs - a.totalMs;
+      if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
+      return a.issueRef.localeCompare(b.issueRef);
+    });
 }
 
 // ---------------------------------------------------------------------------

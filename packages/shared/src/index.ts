@@ -1,3 +1,23 @@
+/**
+ * この package は元々 protocol.ts の型だけ (runtime export ゼロ = import が完全に消える) だったが、
+ * 2026-07-25 (リファクタリング フェーズ4) に work-log.ts で runtime の純関数を持つようになった。
+ * ビルド構成の変更は不要 (package.json の main/exports が src/index.ts を直接指しており、
+ * vite / wrangler がそれぞれのアプリのバンドルに TS ソースとして取り込む) — その代わり、ここに
+ * 置くコードは web (DOM) と sync (Workers) の**両方の tsconfig**で通る環境非依存な純関数に限る。
+ */
+export {
+  aggregateWorkLogEntries,
+  formatDurationHm,
+  validateWorkLogInterval,
+  workLogIssueIdentity,
+} from "./work-log";
+export type {
+  WorkLogAggregateBucket,
+  WorkLogAggregateEntry,
+  WorkLogIssueIdentity,
+  WorkLogValidationError,
+} from "./work-log";
+
 export type {
   AccountDTO,
   DisconnectRequest,

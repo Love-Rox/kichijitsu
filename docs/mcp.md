@@ -41,6 +41,9 @@ Claude Code 等の **hooks から作業セッションを記録する**ことで
   - `stop_work_interval { repo, issueRef?, end?, timeZone? }`
     — 対応する開区間に end を書き込んで確定する（Stop hook 用）
   - `work_summary { since?, until? }` — 記録済みの実績を repo + issueRef 単位で集計して返す
+    (2026-07-25: issueRef が `owner/repo#番号` の完全参照なら「issue の所属 repo + 番号」へ
+    正規化してから集計する。UI 由来の素の番号と同じ issue が1グループにまとまる ―― 集計の
+    定義は `packages/shared` に一本化され、web の実績履歴と数字が食い違わなくなった)
     （読み取り専用。確定済みの区間のみが対象で、実行中の開区間は含まれない）
 - **保存先は kichijitsu の D1（`work_logs` テーブル）**。当初の設計は「専用の
   『kichijitsu 実績』カレンダーへイベントとして書き戻す」だったが、カレンダーの新規作成には

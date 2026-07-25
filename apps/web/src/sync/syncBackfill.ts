@@ -32,6 +32,31 @@ export interface SyncBackfillTarget {
  * ジェネリクスにしてある — 呼び出し側 (App.tsx) は同期に必要な defaultColor 等を
  * 保ったまま渡せる。
  */
+/**
+ * 実際にバックフィル完了として記録してよい世代 = min(このクライアントの世代, サーバー対応世代)。
+ *
+ * web と sync は別々にデプロイされるため、web だけ先に新しくなると「サーバーがまだそのフィールドを
+ * 返さないのに、クライアントは forceFull 同期をやり切って世代を記録してしまう」ことが起きる。
+ * すると以後バックフィルは走らず、新フィールドが永久に欠けたままになる (世代3で実際に起きた事故。
+ * 当時は世代4を空振り用に消費して手当てした)。その恒久対策として GET /api/me が
+ * MeResponse.syncBackfillVersion で「sync が対応している世代」を宣言するようになったので、
+ * クライアントはそこまでしか記録しない — サーバーが後から追いついた時点で、残りの世代ぶんの
+ * バックフィルが次の起動時に自然に走る。
+ *
+ * serverVersion が undefined (この仕組みより前の sync がデプロイされている / まだ /api/me を
+ * 取得していない) の場合は従来どおりクライアントの世代をそのまま使う。負や NaN のような
+ * 異常値は「宣言が無い」と同じ扱いにする (Math.min で 0 を掴んで毎起動 forceFull し続けるのを防ぐ)。
+ */
+export function resolveEffectiveSyncBackfillVersion(
+  clientVersion: number,
+  serverVersion: number | undefined,
+): number {
+  if (typeof serverVersion !== "number" || !Number.isFinite(serverVersion) || serverVersion < 1) {
+    return clientVersion;
+  }
+  return Math.min(clientVersion, serverVersion);
+}
+
 export function decideSyncBackfillTargets<T extends SyncBackfillTarget>(
   savedVersion: number,
   currentVersion: number,

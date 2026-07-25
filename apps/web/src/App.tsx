@@ -455,6 +455,10 @@ function App() {
     calendarsByAccount,
     visibleCalendars,
     taskListsByAccount,
+    // sync が対応しているバックフィル世代 (2026-07-25)。web だけ先にデプロイされた状態で
+    // 「サーバーがまだ返さないフィールド」をバックフィル済みと記録してしまう事故を防ぐため、
+    // useCalendarSync が min(自世代, これ) までしか記録しない
+    serverSyncBackfillVersion: me.syncBackfillVersion,
     checkedFetch,
     markOnline,
     markOffline,

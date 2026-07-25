@@ -164,6 +164,22 @@ interface RawEventsListResponse {
   nextSyncToken?: string;
 }
 
+/**
+ * このビルドの sync が **GoogleEventDTO に載せられるフィールドの世代** (同期バックフィル世代、
+ * 2026-07-25)。GET /api/me が MeResponse.syncBackfillVersion として返し、web は
+ * min(自分の CURRENT_SYNC_BACKFILL_VERSION, この値) までしかバックフィル完了として記録しない
+ * (理由は shared の protocol.ts の MeResponse.syncBackfillVersion のコメント参照 — web だけ先に
+ * デプロイされた状態で「サーバーがまだ返さないフィールド」をバックフィル済みと記録してしまう事故の
+ * 恒久対策)。
+ *
+ * ここに置いてあるのは、この数字の意味が「toGoogleEventDTO (下) が何を載せられるか」そのものだから。
+ * **サーバー側の DTO に新しいフィールドを足したときは、web の CURRENT_SYNC_BACKFILL_VERSION
+ * (apps/web/src/db/database.ts) と一緒にこの値も上げる**。世代の意味 (1=eventType, 2=RSVP,
+ * 3=isWorkingLocation, 4=空振り用, 5=conferenceUrl) は web 側のコメントに一覧がある。
+ * 現在値 5 = conferenceUrl まで対応 (deriveConferenceUrl、2026-07-25)。
+ */
+export const SUPPORTED_SYNC_BACKFILL_VERSION = 5;
+
 export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
   return {
     id: raw.id,
