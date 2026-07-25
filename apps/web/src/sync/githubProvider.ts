@@ -723,7 +723,7 @@ export async function fetchPullCommitsViaGh(
 
 // ---------------------------------------------------------------------------
 // 5. repos / repo-issues の取得 (実績 UX 刷新フェーズ3「手動追加フォームのプルダウン化」、
-// 2026-07-23)。WorkLogModal の org/repo/issue カスケードプルダウンの元データ。他の GitHub 取得と
+// 2026-07-23)。右ペイン(GitHubPane)の org/repo/issue カスケードプルダウンの元データ。他の GitHub 取得と
 // 同じ isTauri() 分岐で gh 経路 / サーバー経路を出し分ける統一 API (fetchRepos / fetchRepoIssues)
 // を提供する。サーバー経路は cookie 認証の checkedFetch を呼び出し側 (App/モーダル) から渡してもらう
 // (fetchGithubQueue と同じ考え方だが、gh 版の他関数と違いサーバー fetch もこの関数内で行う)。
@@ -804,7 +804,7 @@ async function fetchRepoIssuesViaServer(
 /**
  * 統一 API: repo 一覧を取得する。Tauri デスクトップでは手元の gh CLI 認証で直接取得し、
  * ブラウザ/PWA では checkedFetch 経由で GET /api/github/repos を叩く (fetchGithubQueue と同じ流儀)。
- * 失敗は呼び出し側 (WorkLogModal) が握って手入力フォールバックへ切り替える。
+ * 失敗は呼び出し側 (GitHubPane) が握って手入力フォールバックへ切り替える。
  */
 export function fetchRepos(checkedFetch: CheckedFetch): Promise<GitHubRepoRef[]> {
   return isTauri() ? fetchReposViaGh() : fetchReposViaServer(checkedFetch);

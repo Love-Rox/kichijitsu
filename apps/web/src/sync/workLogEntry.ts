@@ -95,7 +95,7 @@ export function buildWorkLogCreateRequest(
 
 /**
  * 純関数。既存の work-log (WorkLogDTO) を編集フォームの生入力 (WorkLogEntryFormInput) へ
- * 変換する — WorkLogModal のインライン編集フォームが「現値でプリフィル」するために使う。
+ * 変換する — 右ペイン(GitHubPane)のインライン編集フォームが「現値でプリフィル」するために使う。
  * startMs/endMs は msToDatetimeLocalValue で datetime-local の壁時計値 (timeZone のローカル、
  * 分精度) へ戻す。issueRef/agent は未設定 (undefined) なら空文字にする (フォームの <input> は
  * 常に string を要求するため)。repo は "org/repo" 形式のまま1つの repo 欄へ入れる —

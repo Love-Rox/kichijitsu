@@ -1,12 +1,14 @@
 /*
  * GitHub 情報ペイン(docs/github-integration.md フェーズ②Part B → 増分1でセクション式
- * コンテナへ発展、旧 WorkQueueDrawer.css を置き換え)。SearchOverlay/BlockRulesOverlay と
- * 同じ z-index 帯(2000台、WeekGrid のドラッグ関連 最大1000より上)を overlay モードでは使う。
- * docked モードは position: fixed を使わず通常の flex アイテムとして .app-main 内に並ぶ
- * (App.css .app-main-calendar と flex サイドバイサイド、グリッド側が flex-shrink する)。
- * 色は既存オーバーレイと同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
- * 生成り #faf7f2・朱 --logo-aka)。GitHub の type バッジ色は GitHubLane.tsx (WeekGrid.css)
- * と揃える(issue=紫 #6e5494・PR=緑 #0b8043、brand/README.md「機能色の例外」)。
+ * コンテナへ発展 → 2026-07-25 に実績モーダル(WorkLogModal)を全面吸収)。SearchOverlay/
+ * BlockRulesOverlay と同じ z-index 帯(2000台、WeekGrid のドラッグ関連 最大1000より上)を
+ * overlay モードでは使う。docked モードは position: fixed を使わず通常の flex アイテムとして
+ * .app-main 内に並ぶ(App.css .app-main-calendar と flex サイドバイサイド、グリッド側が
+ * flex-shrink する)。
+ * 色は既存オーバーレイと同じブランドトークン(墨 #24211e・杢 #55504a・薄墨 #8a8478・
+ * 罫線 #e5e7eb / #f0ece3・生成り #faf7f2・朱 --logo-aka)。GitHub の type バッジ色は
+ * GitHubLane.tsx (WeekGrid.css) と揃える(issue=紫 #6e5494・PR=緑 #0b8043、
+ * brand/README.md「機能色の例外」)。
  */
 .github-pane-backdrop {
   position: fixed;
@@ -53,10 +55,12 @@
  * 通常の flex アイテムとして .app-main 内に並ぶため、box-shadow(浮いている印象を作る演出)や
  * スライドインアニメーション(グリッドがリフローする中でのアニメーションは不要にジャンキーに
  * 見えるため付けない、docs 方針)は無し。境界線だけ overlay と揃える。
+ * 幅は 340px → 420px(2026-07-25、実績モーダルの吸収で手動記録フォーム・実績履歴が入り、
+ * 340px では入力欄と履歴行が窮屈になるため。overlay の min(420px, 100vw) と同値に揃えた)。
  */
 .github-pane--docked {
-  flex: 0 0 340px;
-  width: 340px;
+  flex: 0 0 420px;
+  width: 420px;
   height: 100%;
   border-left: 1px solid #e5e7eb;
 }
@@ -115,31 +119,75 @@
   outline-offset: 2px;
 }
 
+/* ペイン本体は縦スクロール(セクションが4つに増えたため、実質ここが唯一のスクロール領域) */
 .github-pane-body {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 /*
- * 作業キューセクション(増分1で唯一のセクション)。セクション自身の見出し行(タイトル+更新
- * ボタン)・認可切れバナー・一覧(またはスケルトン/空表示)を縦に並べる。将来セクションを
- * 追加するときも同じ形(このクラスを root に持つコンポーネント)で github-pane-body に並べる。
+ * セクション(実行中 / 作業キュー / 実績を手動で記録 / 実績履歴)。見出しはアコーディオンの
+ * トグルボタン(github-pane-section-toggle)で、セクション固有のアクション(作業キューの
+ * 更新ボタン)はその外側に並ぶ。2つ目以降は上罫線で区切る。
  */
 .github-pane-section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
+}
+
+.github-pane-section + .github-pane-section {
+  border-top: 1px solid #f0ece3;
+  padding-top: 12px;
 }
 
 .github-pane-section-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
+}
+
+/* 見出し要素はトグルボタンを包む(button の中に見出し要素は置けないため) */
+.github-pane-section-heading {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+}
+
+.github-pane-section-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  padding: 3px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #24211e;
+}
+
+.github-pane-section-toggle:hover {
+  background: #f0ece3;
+}
+
+.github-pane-section-toggle:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.github-pane-section-caret {
+  flex: none;
+  font-size: 10px;
+  color: #8a8478;
+  width: 10px;
 }
 
 .github-pane-section-title {
@@ -147,6 +195,40 @@
   font-size: 14px;
   font-weight: 600;
   color: #24211e;
+}
+
+/* 見出しに添える件数・合計(折りたたみ中でも中身の量が分かるようにする) */
+.github-pane-section-meta {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: #8a8478;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.github-pane-section-meta-strong {
+  font-weight: 600;
+  color: #55504a;
+}
+
+.github-pane-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.github-pane-section-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #8a8478;
+}
+
+.github-pane-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #8a8478;
 }
 
 .github-pane-auth-expired {
@@ -185,7 +267,7 @@
 }
 
 .github-pane-empty-all {
-  margin: 24px 0;
+  margin: 16px 0;
   text-align: center;
   font-size: 13px;
   color: #8a8478;
@@ -224,10 +306,13 @@
 /*
  * ドラッグ→タイムブロック化(docs/github-integration.md「時間計測」増分1)の draggable な
  * ラッパ。中の <a>(.github-pane-item)はクリックでの新規タブ遷移のみを担い、ドラッグ開始は
- * こちらが担当する(GitHubPane.tsx のコメント参照)。
+ * こちらが担当する(GitHubPane.tsx のコメント参照)。右端に ▶(計測開始)が並ぶ。
  */
 .github-pane-item-row {
   cursor: grab;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .github-pane-item-row:active {
@@ -235,6 +320,8 @@
 }
 
 .github-pane-item {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -329,12 +416,448 @@
   }
 }
 
-/*
- * 実績セクション(旧 ActualsSection)は WorkLogModal / ヘッダーの「実績」ボタンへ集約し、
- * 右ペインは作業キュー専用に絞った(実績 UX 刷新、2026-07-23)。CSV エクスポートは
- * TimeReportOverlay へ移設(.time-report-csv-btn)、詳細レポート導線は WorkLogModal へ。
- * これに伴い .github-pane-actuals-* のスタイルは撤去した。
- */
+/* ── 実行中タイマー(旧 WorkLogModal のタイマー節、2026-07-25 に移設)────────────────
+   種別バッジ色は作業キュー行と同じ(issue=紫 #6e5494 / PR=緑 #0b8043)。 */
+.github-pane-timer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.github-pane-timer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #24211e;
+}
+
+.github-pane-timer-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.github-pane-timer-link:hover .github-pane-timer-title {
+  text-decoration: underline;
+}
+
+.github-pane-timer-kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.4;
+}
+
+.github-pane-timer-link--issue .github-pane-timer-kind {
+  background: #6e5494;
+}
+
+.github-pane-timer-link--pr .github-pane-timer-kind {
+  background: #0b8043;
+}
+
+.github-pane-timer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.github-pane-timer-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.github-pane-timer-meta {
+  font-size: 11px;
+  color: #8a8478;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-pane-timer-elapsed {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0b8043;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ▶(作業キュー行)/ ⏹(実行中行)共通のボタン */
+.github-pane-timer-btn {
+  flex: none;
+  align-self: center;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: #55504a;
+}
+
+.github-pane-timer-btn:hover {
+  background: #f0ece3;
+  color: #24211e;
+}
+
+.github-pane-timer-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.github-pane-timer-btn--stop {
+  color: var(--logo-aka, #d7402e);
+  border-color: #f0d3ce;
+}
+
+/* ── フォーム(手動記録・インライン編集で共有、2026-07-25 に移設)─────────────────
+   420px 幅に収めるため全フィールドを1列縦積みにする(モーダル時代の org/repo・開始/終了の
+   横並びは廃止 ―― datetime-local は最小幅が大きく、半幅では入力欄が潰れるため)。 */
+.github-pane-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.github-pane-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.github-pane-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.github-pane-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #24211e;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.github-pane-input:disabled {
+  background: #f0ece3;
+  color: #8a8478;
+}
+
+.github-pane-input:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+/* フォームの補助文言(プルダウン取得中・取得失敗・0件時の手入力誘導など) */
+.github-pane-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a8478;
+}
+
+.github-pane-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.github-pane-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+
+.github-pane-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.github-pane-save-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.github-pane-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.github-pane-text-btn:hover:not(:disabled) {
+  color: #24211e;
+}
+
+.github-pane-text-btn:disabled {
+  color: #cfc8ba;
+  cursor: default;
+}
+
+.github-pane-text-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+.github-pane-error {
+  font-size: 11px;
+  color: #ef4444;
+}
+
+/* ── 実績履歴(2026-07-25 に移設)────────────────────────────────────────────
+   グループ(同じ repo+issue のまとまり)の見出し + 折りたたみ可能な個別記録リスト。 */
+.github-pane-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.github-pane-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.github-pane-group-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: #24211e;
+}
+
+.github-pane-group-summary:hover {
+  background: #fbfaf7;
+}
+
+.github-pane-group-summary:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+.github-pane-group-caret {
+  flex: none;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #8a8478;
+  width: 10px;
+}
+
+/* 420px 幅では見出しを2段に積む(1段目=参照+タイトル、2段目=合計/件数/最新日時) */
+.github-pane-group-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.github-pane-group-heading {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* `repo #番号` の参照部分(常に表示)。 */
+.github-pane-group-heading-ref {
+  font-weight: 600;
+}
+
+/* issue/PR タイトル(解決できたときだけ添える)。参照と区別できるよう控えめに、
+   前に区切りを挟む。長いタイトルは見出し全体の ellipsis に任せる。 */
+.github-pane-group-heading-title {
+  font-weight: 400;
+  color: #6b655c;
+}
+
+.github-pane-group-heading-title::before {
+  content: "—";
+  margin: 0 6px;
+  color: #b8b2a6;
+}
+
+.github-pane-group-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+}
+
+.github-pane-group-total {
+  font-weight: 600;
+  color: #55504a;
+}
+
+/* 展開時の個別記録リスト(.github-pane-history-list を継承しつつ、グループ枠内の
+   余白と上罫線を足す)。 */
+.github-pane-group-logs {
+  padding: 8px 10px 10px;
+  border-top: 1px solid #f0ece3;
+  background: #fbfaf7;
+}
+
+.github-pane-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 1行は 420px でも潰れないよう縦積み(repo/issue/agent → 期間 → 操作)。 */
+.github-pane-history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #24211e;
+}
+
+.github-pane-history-item--editing {
+  display: block;
+  background: #fbfaf7;
+}
+
+.github-pane-history-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.github-pane-history-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.github-pane-history-issue {
+  flex: none;
+  color: #8a8478;
+}
+
+.github-pane-history-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: #8a8478;
+  background: #f0ece3;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.github-pane-history-badge--manual {
+  color: #55504a;
+  background: #eef2e7;
+}
+
+.github-pane-history-time {
+  font-size: 11px;
+  color: #8a8478;
+  font-variant-numeric: tabular-nums;
+}
+
+.github-pane-history-actions,
+.github-pane-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #55504a;
+}
+
+/* 詳細レポート(予定 vs 実績、TimeReportOverlay)を開く導線。ペイン内で唯一モーダルを開く
+   ボタンなので、セクションの外に独立して置く(2026-07-25、旧 WorkLogModal ヘッダーから移設)。 */
+.github-pane-report-btn {
+  flex: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #55504a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 12px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.github-pane-report-btn:hover {
+  border-color: #cfc8ba;
+  color: #24211e;
+}
+
+.github-pane-report-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
 
 @media (max-width: 640px) {
   .github-pane--overlay {
@@ -347,6 +870,11 @@
 
   .github-pane--overlay .github-pane-body {
     padding: 12px;
-    gap: 14px;
+    gap: 12px;
+  }
+
+  /* 狭幅では最新日時まで出すと見出しが詰まるので落とす(合計と件数は残す) */
+  .github-pane-group-latest {
+    display: none;
   }
 }
