@@ -1663,6 +1663,21 @@
 }
 
 /*
+ * 会議 URL (Slack ハドル / Meet / Zoom / Teams) が location に入っている予定の参加リンク
+ * (2026-07-25)。行の体裁・余白は .event-detail-location と共通のまま(同時に付けて使う)、
+ * リンクだと分かるように色だけ朱へ寄せる(.event-detail-link と同じ扱い)。
+ */
+.event-detail-meeting-link {
+  color: #d7402e;
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+
+.event-detail-meeting-link:hover {
+  text-decoration: underline;
+}
+
+/*
  * 自動生成 mirror の詳細説明(第5段階、2026-07-20)。mirror は location/description を
  * 持たない(無内容原則)ため、この一文が実質の主内容になる。他のテキストと同じ薄墨トーン。
  */
