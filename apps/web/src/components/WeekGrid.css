@@ -1,6 +1,12 @@
 /*
  * レイアウト定数 (apps/web/src/layout/gridMetrics.ts と一致させること):
- *   HOUR_HEIGHT = 48px, DAY_HEIGHT = 24 * 48 = 1152px
+ *   1時間の高さは固定値ではなく CSS 変数 --hour-height (時間軸ズーム、2026-07-25)。
+ *   WeekGrid.tsx が .week-grid のインライン style に `${hourHeight}px` を書き込み、
+ *   1日ぶんの高さは calc(var(--hour-height) * 24)、時間罫線のサイクルも --hour-height
+ *   基準の calc() で組み立てる。この CSS 内に 48px / 1152px を再びハードコードしないこと
+ *   (JS 側は minutesToPx(minutes, hourHeight) が同じ値を出す唯一の出どころ)。
+ *   下の .week-grid に書いてある --hour-height: 48px はインライン style が無い場合の
+ *   フォールバック(=従来の既定値)。
  *
  * モバイル対応フェーズ2(docs/multiplatform.md): このグリッドは表示日数 N 可変の
  * 「N日タイムライン」に一般化されている(WeekGrid.tsx の dayCount prop)。
@@ -16,6 +22,41 @@
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  /*
+   * 時間軸ズーム (2026-07-25)。--hour-height は WeekGrid.tsx がインライン style で
+   * 上書きする(ここの値は上書きが無いときのフォールバック=従来の既定 48px)。
+   * --hour-quarter-alpha は 15分/45分の補助罫線の濃さで、縮小時(1時間 36px 未満)は
+   * JS 側が 0 を渡して消す ―― 15分間隔が 9px を切ると罫線がハッチのように見えるため。
+   */
+  --hour-height: 48px;
+  --hour-quarter-alpha: 0.22;
+  /*
+   * 時間罫線 1サイクル(=1時間)ぶんの背景。時間ガター(.week-grid-gutter)と日列
+   * (.week-grid-day-column)で完全に同じ罫線を使うため、ここで1回だけ定義して両方から
+   * var() で参照する(以前は同じ長いグラデーションが2箇所に複製されていた)。
+   * サイクル内の位置: 1/4 = 15分(ごく薄い), 1/2 = 30分(やや薄い),
+   * 3/4 = 45分(ごく薄い), 1サイクル終端 = 60分(通常の時間罫線)。
+   * 各罫線は「その位置の 1px 手前から位置まで」を塗る 1px の線。
+   */
+  --hour-grid-lines: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--hour-height) / 4 - 1px),
+    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) / 4 - 1px),
+    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) / 4),
+    transparent calc(var(--hour-height) / 4),
+    transparent calc(var(--hour-height) / 2 - 1px),
+    rgba(229, 231, 235, 0.45) calc(var(--hour-height) / 2 - 1px),
+    rgba(229, 231, 235, 0.45) calc(var(--hour-height) / 2),
+    transparent calc(var(--hour-height) / 2),
+    transparent calc(var(--hour-height) * 3 / 4 - 1px),
+    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4 - 1px),
+    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4),
+    transparent calc(var(--hour-height) * 3 / 4),
+    transparent calc(var(--hour-height) - 1px),
+    #e5e7eb calc(var(--hour-height) - 1px),
+    #e5e7eb var(--hour-height)
+  );
   /*
    * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。pan-y にすることで
    * ブラウザのネイティブジェスチャは縦方向のみに制限され(横方向のパン/戻る戻れないスワイプ
@@ -609,26 +650,8 @@
 .week-grid-gutter {
   position: relative;
   flex: 0 0 60px;
-  height: 1152px;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 11px,
-    rgba(229, 231, 235, 0.22) 11px,
-    rgba(229, 231, 235, 0.22) 12px,
-    transparent 12px,
-    transparent 23px,
-    rgba(229, 231, 235, 0.45) 23px,
-    rgba(229, 231, 235, 0.45) 24px,
-    transparent 24px,
-    transparent 35px,
-    rgba(229, 231, 235, 0.22) 35px,
-    rgba(229, 231, 235, 0.22) 36px,
-    transparent 36px,
-    transparent 47px,
-    #e5e7eb 47px,
-    #e5e7eb 48px
-  );
+  height: calc(var(--hour-height) * 24);
+  background-image: var(--hour-grid-lines);
 }
 
 .hour-label {
@@ -649,7 +672,7 @@
 .week-grid-days-strip {
   display: flex;
   width: 300%;
-  height: 1152px;
+  height: calc(var(--hour-height) * 24);
 }
 
 .week-grid-days-panel {
@@ -661,33 +684,14 @@
 }
 
 /*
- * 1時間 = 48px のサイクルで補助罫線を重ねる。DOM は増やさず単一の
- * repeating-linear-gradient で描画する:
- *   12px = 15分（ごく薄い）, 24px = 30分（やや薄い）,
- *   36px = 45分（ごく薄い）, 48px = 60分（通常の時間罫線）
+ * 1時間 = var(--hour-height) のサイクルで補助罫線を重ねる。DOM は増やさず単一の
+ * repeating-linear-gradient(.week-grid の --hour-grid-lines、時間ガターと共有)で描画する。
+ * サイクル内の内訳は --hour-grid-lines の定義に集約(15/30/45/60分)。
  */
 .week-grid-day-column {
   position: relative;
   border-left: 1px solid #e5e7eb;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 11px,
-    rgba(229, 231, 235, 0.22) 11px,
-    rgba(229, 231, 235, 0.22) 12px,
-    transparent 12px,
-    transparent 23px,
-    rgba(229, 231, 235, 0.45) 23px,
-    rgba(229, 231, 235, 0.45) 24px,
-    transparent 24px,
-    transparent 35px,
-    rgba(229, 231, 235, 0.22) 35px,
-    rgba(229, 231, 235, 0.22) 36px,
-    transparent 36px,
-    transparent 47px,
-    #e5e7eb 47px,
-    #e5e7eb 48px
-  );
+  background-image: var(--hour-grid-lines);
 }
 
 .week-grid-day-column.is-today {
@@ -800,21 +804,42 @@
  * (.day-workloc-band-icon、WorkingLocationRailBand.tsx)と同じトーンで統一する。
  * ドラッグ/クリックの判定を奪わない
  * よう pointer-events:none(mirror タグ・busy バッジと同じ流儀)。min-width:0 は flex 子要素の
- * text-overflow を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
+ * あふれ処理を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
+ *
+ * 折り返し表示 (2026-07-25、ユーザー要望): 以前は white-space: nowrap の1行省略で長い住所が
+ * 読めなかったため、「カードの高さに収まる行数だけ折り返し、あふれたら最終行を省略記号」に
+ * 変えた。行数は EventBlock.tsx が locationLineClamp(カード高さ)で求めて CSS 変数
+ * --location-lines として渡す(既定ズームの1時間の予定は従来どおり1行、ズームで縦に広がると
+ * 読める行数が増える)。align-items は center ではなく baseline ―― 複数行になったとき
+ * ピン/会議アイコンが行ブロックの中央に浮くのを避け、1行目の文字に揃える。
  */
 .event-location {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 3px;
   min-width: 0;
   color: #8a8478;
   pointer-events: none;
 }
 
+/* 先頭のピン/会議アイコンは折り返しに関わらず 10px のまま(flex の縮小に巻き込まれない) */
+.event-location > svg {
+  flex: 0 0 auto;
+}
+
 .event-location-text {
+  /*
+   * 行数指定つきの複数行省略。-webkit- 付きの3点セット(display/box-orient/line-clamp)は
+   * Chrome/Safari/Firefox いずれも対応している事実上の標準で、標準プロパティの line-clamp も
+   * 併記しておく(対応ブラウザではそちらが使われる)。
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--location-lines, 1);
+  line-clamp: var(--location-lines, 1);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 住所や素の長い URL など切れ目の無い文字列でもカード幅で折り返す(横あふれを作らない) */
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 
@@ -1648,12 +1673,18 @@
 /*
  * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。event-detail-location と
  * 同じトーン・余白で揃え、アイコン+ラベルを横並びにする。
+ *
+ * ポップオーバーは縦に伸びられる(max-height 420px + overflow-y:auto)ので、場所は省略せず
+ * 全文を折り返して見せる(2026-07-25、カード側の折り返し対応と同じ要望)。折り返しが起きても
+ * アイコンが中央に浮かないよう align-items は baseline、切れ目の無い長い文字列でも
+ * 280px 幅からはみ出さないよう overflow-wrap: anywhere を付ける。
  */
 .event-detail-conference,
 .event-detail-location {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 4px;
+  overflow-wrap: anywhere;
 }
 
 .event-detail-conference {

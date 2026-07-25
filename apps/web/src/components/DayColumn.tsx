@@ -23,7 +23,7 @@ import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
 import {
   busyOverlapColors,
   cascadeStepFrac,
-  COMPACT_THRESHOLD_MIN,
+  COMPACT_THRESHOLD_PX,
   dayColumnLeftInsetPx,
   formatTime,
   isBusyPlaceholder,
@@ -35,6 +35,7 @@ import {
 import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { useHourHeight } from "../hooks/useHourHeight";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
 import { OooRailLine } from "./OooRailLine";
 import { WorkingLocationRailBand } from "./WorkingLocationRailBand";
@@ -219,6 +220,9 @@ export function DayColumn({
   onStartTimer,
   onStopTimer,
 }: DayColumnProps) {
+  // 時間軸ズーム(2026-07-25): px⇔分 の変換係数は context 経由で受け取る
+  // (状態の持ち主は App.tsx、WeekGrid が Provider を張る。hooks/useHourHeight.tsx 参照)
+  const hourHeight = useHourHeight();
   const createDragRef = useRef<CreateDragState | null>(null);
   const longPressPendingRef = useRef<LongPressPendingState | null>(null);
   const longPressTimerRef = useRef<number | undefined>(undefined);
@@ -228,7 +232,7 @@ export function DayColumn({
   const draftInputRef = useRef<HTMLInputElement>(null);
 
   const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs;
-  const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000);
+  const nowTop = minutesToPx((nowMs - dayStartMs) / 60_000, hourHeight);
 
   // カスケードの前面/背面(WeekGrid.tsx から移設、ロジックは変更なし)
   const stackZ = new Map<string, number>();
@@ -289,6 +293,7 @@ export function DayColumn({
     timedRailBands,
     (b) => b.startMinutes,
     (b) => b.endMinutes,
+    hourHeight,
   );
   // その日のレールで実際に必要になった最大列数。終日 OOO しか無い日でも帯1本ぶん(1列)は
   // 確保する(以前の「hasOoo なら16px」という挙動と同じ広さを保つため)。
@@ -337,7 +342,7 @@ export function DayColumn({
     moved: boolean,
   ) {
     const rect = columnEl.getBoundingClientRect();
-    const rawMs = dayStartMs + pxToMinutes(clientY - rect.top) * 60_000;
+    const rawMs = dayStartMs + pxToMinutes(clientY - rect.top, hourHeight) * 60_000;
     const anchorMs = snapStartMs(rawMs, { originalStartMs: rawMs });
     const ghostEl = document.createElement("div");
     ghostEl.className = "day-column-create-ghost";
@@ -355,8 +360,8 @@ export function DayColumn({
     };
     if (moved) {
       columnEl.appendChild(ghostEl);
-      ghostEl.style.top = `${minutesToPx((pendingStartMs - dayStartMs) / 60_000)}px`;
-      ghostEl.style.height = `${Math.max(minutesToPx((pendingEndMs - pendingStartMs) / 60_000), 4)}px`;
+      ghostEl.style.top = `${minutesToPx((pendingStartMs - dayStartMs) / 60_000, hourHeight)}px`;
+      ghostEl.style.height = `${Math.max(minutesToPx((pendingEndMs - pendingStartMs) / 60_000, hourHeight), 4)}px`;
     }
   }
 
@@ -430,15 +435,15 @@ export function DayColumn({
     }
     if (!ds.moved) return;
 
-    const rawMs = dayStartMs + pxToMinutes(e.clientY - ds.columnTop) * 60_000;
+    const rawMs = dayStartMs + pxToMinutes(e.clientY - ds.columnTop, hourHeight) * 60_000;
     const snapped = snapStartMs(rawMs, { originalStartMs: rawMs });
     const startMs = Math.min(ds.anchorMs, snapped);
     const endMs = Math.max(Math.max(ds.anchorMs, snapped), startMs + SNAP_MS);
     ds.pendingStartMs = startMs;
     ds.pendingEndMs = endMs;
 
-    ds.ghostEl.style.top = `${minutesToPx((startMs - dayStartMs) / 60_000)}px`;
-    ds.ghostEl.style.height = `${Math.max(minutesToPx((endMs - startMs) / 60_000), 4)}px`;
+    ds.ghostEl.style.top = `${minutesToPx((startMs - dayStartMs) / 60_000, hourHeight)}px`;
+    ds.ghostEl.style.height = `${Math.max(minutesToPx((endMs - startMs) / 60_000, hourHeight), 4)}px`;
   }
 
   function handleColumnPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
@@ -505,7 +510,7 @@ export function DayColumn({
     if (!item) return;
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
-    const startMs = computeDropStartMs(dayStartMs, e.clientY, rect.top);
+    const startMs = computeDropStartMs(dayStartMs, e.clientY, rect.top, hourHeight);
     onDropWorkItem(item, startMs, startMs + DEFAULT_PLANNED_DURATION_MS);
   }
 
@@ -531,9 +536,11 @@ export function DayColumn({
       {positioned.map(({ item: group, column, columnCount }) => {
         const occurrence = group.primary;
         const durationMin = (occurrence.endMs - occurrence.startMs) / 60_000;
-        const isCompact = durationMin < COMPACT_THRESHOLD_MIN;
-        const topPx = minutesToPx((occurrence.startMs - dayStartMs) / 60_000);
-        const heightPx = Math.max(minutesToPx(durationMin), 4);
+        const topPx = minutesToPx((occurrence.startMs - dayStartMs) / 60_000, hourHeight);
+        const heightPx = Math.max(minutesToPx(durationMin, hourHeight), 4);
+        // コンパクト表示の判定は px 基準(時間軸ズーム対応、2026-07-25)。既定ズームでは
+        // 従来の「40分未満」と完全に一致する(gridMetrics.ts の COMPACT_THRESHOLD_PX 参照)
+        const isCompact = heightPx < COMPACT_THRESHOLD_PX;
         const step = cascadeStepFrac(columnCount);
         const leftPct = column * step * 100;
         const widthPct = 100 - leftPct;
@@ -578,8 +585,8 @@ export function DayColumn({
                 key={block.id}
                 block={block}
                 dayStartMs={dayStartMs}
-                top={plannedBlockTopPx(block.startMs, dayStartMs)}
-                height={plannedBlockHeightPx(block.startMs, block.endMs)}
+                top={plannedBlockTopPx(block.startMs, dayStartMs, hourHeight)}
+                height={plannedBlockHeightPx(block.startMs, block.endMs, hourHeight)}
                 leftPct={leftPct}
                 widthPct={widthPct}
                 timeZone={timeZone}
@@ -641,7 +648,7 @@ export function DayColumn({
               key={item.id}
               item={item}
               top={0}
-              height={minutesToPx(item.endMinutes - item.startMinutes)}
+              height={minutesToPx(item.endMinutes - item.startMinutes, hourHeight)}
               left={0}
               timeZone={timeZone}
               calendarLookup={calendarLookup}
@@ -651,9 +658,9 @@ export function DayColumn({
               left(column * RAIL_BAND_WIDTH_PX)で描画する。縦位置は押し下げない ――
               重なる帯だけが横の列で分かれる。 */}
           {packedRailBands.map(({ item: band, column }) => {
-            const top = minutesToPx(band.startMinutes);
+            const top = minutesToPx(band.startMinutes, hourHeight);
             const height = Math.max(
-              minutesToPx(band.endMinutes - band.startMinutes),
+              minutesToPx(band.endMinutes - band.startMinutes, hourHeight),
               RAIL_MIN_BAND_HEIGHT_PX,
             );
             const left = column * RAIL_BAND_WIDTH_PX;
@@ -713,8 +720,8 @@ export function DayColumn({
           ref={draftRef}
           className="day-column-create-draft"
           style={{
-            top: minutesToPx((draft.startMs - dayStartMs) / 60_000),
-            height: Math.max(minutesToPx((draft.endMs - draft.startMs) / 60_000), 4),
+            top: minutesToPx((draft.startMs - dayStartMs) / 60_000, hourHeight),
+            height: Math.max(minutesToPx((draft.endMs - draft.startMs) / 60_000, hourHeight), 4),
           }}
         >
           <input

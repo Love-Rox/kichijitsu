@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { GitHubCiRunDTO } from "@kichijitsu/shared";
-import { PX_PER_MINUTE } from "../layout/gridMetrics";
+import { DEFAULT_HOUR_HEIGHT, pxPerMinute } from "../layout/gridMetrics";
 import { ciMarkerStatusClass, ciStatusLabel, layoutDayCiRuns } from "./mapCiRuns";
 
 function run(overrides: Partial<GitHubCiRunDTO> = {}): GitHubCiRunDTO {
@@ -21,40 +21,40 @@ describe("layoutDayCiRuns", () => {
   const dayEnd = Date.UTC(2026, 6, 21);
 
   it("空配列を渡せば空配列を返す", () => {
-    expect(layoutDayCiRuns([], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayCiRuns([], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("範囲内の1件だけなら1クラスタ、count:1、topPx は正しい位置", () => {
     const item = run({ timestampMs: dayStart + 90 * 60_000 });
-    const clusters = layoutDayCiRuns([item], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].count).toBe(1);
     expect(clusters[0].items).toEqual([item]);
-    expect(clusters[0].topPx).toBe(90 * PX_PER_MINUTE);
+    expect(clusters[0].topPx).toBe(90 * pxPerMinute(DEFAULT_HOUR_HEIGHT));
   });
 
   it("dayStartMs ちょうどのアイテムは含む(半開区間の下端)", () => {
     const item = run({ timestampMs: dayStart });
-    const clusters = layoutDayCiRuns([item], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].topPx).toBe(0);
   });
 
   it("dayEndMs ちょうどのアイテムは除外する(半開区間の上端)", () => {
     const item = run({ timestampMs: dayEnd });
-    expect(layoutDayCiRuns([item], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayCiRuns([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("dayStartMs より前・dayEndMs より後のアイテムは除外する", () => {
     const before = run({ id: "gci:acme/repo:before", timestampMs: dayStart - 1 });
     const after = run({ id: "gci:acme/repo:after", timestampMs: dayEnd + 1 });
-    expect(layoutDayCiRuns([before, after], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayCiRuns([before, after], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("topPx の差が6pxを超える2件は別クラスタになる", () => {
     const a = run({ id: "gci:acme/repo:a", timestampMs: dayStart + 60 * 60_000 });
     const b = run({ id: "gci:acme/repo:b", timestampMs: dayStart + 75 * 60_000 });
-    const clusters = layoutDayCiRuns([a, b], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([a, b], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(2);
     expect(clusters[0].count).toBe(1);
     expect(clusters[1].count).toBe(1);
@@ -66,7 +66,7 @@ describe("layoutDayCiRuns", () => {
       timestampMs: dayStart + 60 * 60_000 + 5 * 60_000,
     });
     const earlier = run({ id: "gci:acme/repo:earlier", timestampMs: dayStart + 60 * 60_000 });
-    const clusters = layoutDayCiRuns([later, earlier], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([later, earlier], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].count).toBe(2);
     expect(clusters[0].items).toEqual([earlier, later]);
@@ -76,7 +76,7 @@ describe("layoutDayCiRuns", () => {
     const a = run({ id: "gci:acme/repo:a", timestampMs: dayStart });
     const b = run({ id: "gci:acme/repo:b", timestampMs: dayStart + 5 * 60_000 });
     const c = run({ id: "gci:acme/repo:c", timestampMs: dayStart + 10 * 60_000 });
-    const clusters = layoutDayCiRuns([a, b, c], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([a, b, c], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(2);
     expect(clusters[0].items.map((i) => i.id)).toEqual([a.id, b.id]);
     expect(clusters[1].items.map((i) => i.id)).toEqual([c.id]);
@@ -85,7 +85,7 @@ describe("layoutDayCiRuns", () => {
   it("入力が未ソートでも、出力のクラスタ順は timestampMs/topPx 昇順になる", () => {
     const early = run({ id: "gci:acme/repo:early", timestampMs: dayStart + 10 * 60_000 });
     const late = run({ id: "gci:acme/repo:late", timestampMs: dayStart + 20 * 60 * 60_000 });
-    const clusters = layoutDayCiRuns([late, early], dayStart, dayEnd);
+    const clusters = layoutDayCiRuns([late, early], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters.map((c) => c.items[0].id)).toEqual([early.id, late.id]);
     expect(clusters[0].topPx).toBeLessThan(clusters[1].topPx);
   });
@@ -96,7 +96,7 @@ describe("layoutDayCiRuns", () => {
       run({ id: "gci:acme/repo:y", timestampMs: dayStart + 5 * 60_000 }),
     ];
     const snapshot = [...items];
-    layoutDayCiRuns(items, dayStart, dayEnd);
+    layoutDayCiRuns(items, dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(items).toEqual(snapshot);
   });
 });

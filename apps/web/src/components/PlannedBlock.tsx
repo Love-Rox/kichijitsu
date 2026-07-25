@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { PlannedBlock } from "../model/types";
 import { formatRange, pxToMinutes } from "../layout/gridMetrics";
 import { computeMovedRange, computeResizedEndMs, plannedBlockTopPx } from "../sync/planned";
+import { useHourHeight } from "../hooks/useHourHeight";
 
 interface PlannedBlockCardProps {
   block: PlannedBlock;
@@ -72,6 +73,9 @@ export function PlannedBlockCard({
   onStartTimer,
   onStopTimer,
 }: PlannedBlockCardProps) {
+  // 時間軸ズーム(2026-07-25): ドラッグ中の px⇔分 変換に使う現在のズーム値
+  // (top/height 自体は親 DayColumn が同じ値で計算済み)
+  const hourHeight = useHourHeight();
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
 
@@ -137,7 +141,7 @@ export function PlannedBlockCard({
     if (!ds.moved) return;
 
     if (ds.kind === "move") {
-      const rawStartMs = ds.originalStartMs + pxToMinutes(dy) * 60_000;
+      const rawStartMs = ds.originalStartMs + pxToMinutes(dy, hourHeight) * 60_000;
       const durationMs = ds.originalEndMs - ds.originalStartMs;
       const { startMs, endMs } = computeMovedRange(
         rawStartMs,
@@ -145,15 +149,18 @@ export function PlannedBlockCard({
         durationMs,
         e.altKey,
       );
-      const newTopPx = plannedBlockTopPx(startMs, ds.dayStartMs);
+      const newTopPx = plannedBlockTopPx(startMs, ds.dayStartMs, hourHeight);
       el.style.transform = `translateY(${newTopPx - ds.originalTopPx}px)`;
       ds.pendingStartMs = startMs;
       ds.pendingEndMs = endMs;
       ds.badgeEl.textContent = formatRange(startMs, endMs, timeZone);
     } else {
-      const rawEndMs = ds.originalEndMs + pxToMinutes(dy) * 60_000;
+      const rawEndMs = ds.originalEndMs + pxToMinutes(dy, hourHeight) * 60_000;
       const endMs = computeResizedEndMs(rawEndMs, ds.originalStartMs, ds.originalStartMs, e.altKey);
-      const newHeightPx = Math.max(plannedBlockTopPx(endMs, ds.dayStartMs) - ds.originalTopPx, 4);
+      const newHeightPx = Math.max(
+        plannedBlockTopPx(endMs, ds.dayStartMs, hourHeight) - ds.originalTopPx,
+        4,
+      );
       el.style.height = `${newHeightPx}px`;
       ds.pendingEndMs = endMs;
       ds.badgeEl.textContent = formatRange(ds.originalStartMs, endMs, timeZone);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { GitHubActivityDTO } from "@kichijitsu/shared";
-import { PX_PER_MINUTE } from "../layout/gridMetrics";
+import { DEFAULT_HOUR_HEIGHT, pxPerMinute } from "../layout/gridMetrics";
 import { layoutDayActivity } from "./mapActivity";
 
 function activity(overrides: Partial<GitHubActivityDTO> = {}): GitHubActivityDTO {
@@ -20,44 +20,44 @@ describe("layoutDayActivity", () => {
   const dayEnd = Date.UTC(2026, 6, 21);
 
   it("空配列を渡せば空配列を返す", () => {
-    expect(layoutDayActivity([], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayActivity([], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("範囲内の1件だけなら1クラスタ、count:1、topPx は正しい位置", () => {
     const item = activity({ timestampMs: dayStart + 90 * 60_000 }); // dayStart + 90分
-    const clusters = layoutDayActivity([item], dayStart, dayEnd);
+    const clusters = layoutDayActivity([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].count).toBe(1);
     expect(clusters[0].items).toEqual([item]);
-    expect(clusters[0].topPx).toBe(90 * PX_PER_MINUTE);
+    expect(clusters[0].topPx).toBe(90 * pxPerMinute(DEFAULT_HOUR_HEIGHT));
   });
 
   it("dayStartMs ちょうどのアイテムは含む(半開区間の下端)", () => {
     const item = activity({ timestampMs: dayStart });
-    const clusters = layoutDayActivity([item], dayStart, dayEnd);
+    const clusters = layoutDayActivity([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].topPx).toBe(0);
   });
 
   it("dayEndMs ちょうどのアイテムは除外する(半開区間の上端)", () => {
     const item = activity({ timestampMs: dayEnd });
-    expect(layoutDayActivity([item], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayActivity([item], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("dayStartMs より前・dayEndMs より後のアイテムは除外する", () => {
     const before = activity({ id: "gha:acme/repo:commit:before", timestampMs: dayStart - 1 });
     const after = activity({ id: "gha:acme/repo:commit:after", timestampMs: dayEnd + 1 });
-    expect(layoutDayActivity([before, after], dayStart, dayEnd)).toEqual([]);
+    expect(layoutDayActivity([before, after], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT)).toEqual([]);
   });
 
   it("topPx の差が6pxを超える2件は別クラスタになる", () => {
-    // 6px ≈ 7.5分(PX_PER_MINUTE=0.8)。余裕を持って15分離す
+    // 6px ≈ 7.5分(既定ズーム 48px/h = 0.8px/分)。余裕を持って15分離す
     const a = activity({ id: "gha:acme/repo:commit:a", timestampMs: dayStart + 60 * 60_000 });
     const b = activity({
       id: "gha:acme/repo:commit:b",
       timestampMs: dayStart + 75 * 60_000,
     });
-    const clusters = layoutDayActivity([a, b], dayStart, dayEnd);
+    const clusters = layoutDayActivity([a, b], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(2);
     expect(clusters[0].count).toBe(1);
     expect(clusters[1].count).toBe(1);
@@ -74,7 +74,7 @@ describe("layoutDayActivity", () => {
       timestampMs: dayStart + 60 * 60_000,
     });
     // 入力は「後 → 先」の逆順で渡す
-    const clusters = layoutDayActivity([later, earlier], dayStart, dayEnd);
+    const clusters = layoutDayActivity([later, earlier], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].count).toBe(2);
     expect(clusters[0].items).toEqual([earlier, later]);
@@ -93,7 +93,7 @@ describe("layoutDayActivity", () => {
       id: "gha:acme/repo:commit:c",
       timestampMs: dayStart + 10 * 60_000,
     });
-    const clusters = layoutDayActivity([a, b, c], dayStart, dayEnd);
+    const clusters = layoutDayActivity([a, b, c], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters).toHaveLength(2);
     expect(clusters[0].items.map((i) => i.id)).toEqual([a.id, b.id]);
     expect(clusters[1].items.map((i) => i.id)).toEqual([c.id]);
@@ -108,7 +108,7 @@ describe("layoutDayActivity", () => {
       id: "gha:acme/repo:commit:late",
       timestampMs: dayStart + 20 * 60 * 60_000,
     });
-    const clusters = layoutDayActivity([late, early], dayStart, dayEnd);
+    const clusters = layoutDayActivity([late, early], dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(clusters.map((c) => c.items[0].id)).toEqual([early.id, late.id]);
     expect(clusters[0].topPx).toBeLessThan(clusters[1].topPx);
   });
@@ -119,7 +119,7 @@ describe("layoutDayActivity", () => {
       activity({ id: "gha:acme/repo:commit:y", timestampMs: dayStart + 5 * 60_000 }),
     ];
     const snapshot = [...items];
-    layoutDayActivity(items, dayStart, dayEnd);
+    layoutDayActivity(items, dayStart, dayEnd, DEFAULT_HOUR_HEIGHT);
     expect(items).toEqual(snapshot);
   });
 });

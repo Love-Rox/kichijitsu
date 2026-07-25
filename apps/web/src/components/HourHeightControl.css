@@ -1,0 +1,76 @@
+/*
+ * 時間軸ズーム(2026-07-25)のツールバーコントロール。見た目は既存の
+ * .toolbar-view-toggle(週/月 のセグメント、App.css)と同じトーンに揃える ――
+ * 枠線 #e5e7eb で1つのセグメントにまとめ、アクティブは朱(#d7402e)+生成り(#faf7f2)。
+ */
+.hour-zoom {
+  display: flex;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.hour-zoom button {
+  font: inherit;
+  font-size: 13px;
+  border: none;
+  background: #fff;
+  color: #374151;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.hour-zoom > * + * {
+  border-left: 1px solid #e5e7eb;
+}
+
+.hour-zoom button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.hour-zoom button:disabled {
+  color: #c9c2b4;
+  cursor: default;
+}
+
+.hour-zoom-preset.is-active {
+  background: #d7402e;
+  color: #faf7f2;
+}
+
+/* −/+ は記号1文字なので左右の余白を詰め、正方形に近い当たり判定にする */
+.hour-zoom-step {
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+/*
+ * プリセットと一致しない微調整中の現在値(例「56px」)。数値の桁で幅が動いてボタンが
+ * 揺れないよう min-width で 3〜5文字ぶんを確保しておく。
+ */
+.hour-zoom-value {
+  font-size: 12px;
+  color: #8a8478;
+  padding: 4px 8px;
+  min-width: 40px;
+  text-align: center;
+  white-space: nowrap;
+  background: #fff;
+}
+
+@media (max-width: 640px) {
+  /* 狭幅ではプリセットを畳んで −/+ と数値のみ(HourHeightControl.tsx の compact)。
+     タップ領域はツールバー他ボタンと同じ 32px を確保する */
+  .hour-zoom button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 4px 6px;
+  }
+
+  .hour-zoom-value {
+    font-size: 11px;
+    min-width: 22px;
+    padding: 4px 4px;
+  }
+}

@@ -1,4 +1,4 @@
-import { PX_PER_MINUTE, RAIL_MIN_BAND_HEIGHT_PX } from "./gridMetrics";
+import { pxPerMinute, RAIL_MIN_BAND_HEIGHT_PX } from "./gridMetrics";
 import { packColumns, type Positioned } from "./packColumns";
 
 /**
@@ -28,11 +28,22 @@ import { packColumns, type Positioned } from "./packColumns";
  * 「max(実終了, 開始 + MIN_BAND_MINUTES)」に底上げした「実効終了時刻」で行う。
  * 底上げは重なり判定にのみ使い、実際の描画位置(top/height)には一切影響しない
  * (呼び出し側 DayColumn.tsx は本来の startMinutes/endMinutes から top/height を計算する)。
+ *
+ * 時間軸ズーム(2026-07-25): 16px が何分ぶんに相当するかは現在のズーム(hourHeight)に依存する
+ * ため、この底上げ量は定数ではなく hourHeight から毎回求める(拡大時は16pxがより短い時間に
+ * 相当するので底上げが小さくなり、縮小時は逆に大きくなる ―― どちらも「表示上16px重なるなら
+ * 列を分ける」という意図どおりの挙動)。
  */
-const MIN_BAND_MINUTES = RAIL_MIN_BAND_HEIGHT_PX / PX_PER_MINUTE;
+function minBandMinutes(hourHeight: number): number {
+  return RAIL_MIN_BAND_HEIGHT_PX / pxPerMinute(hourHeight);
+}
 
-function effectiveEndMinutes(startMinutes: number, endMinutes: number): number {
-  return Math.max(endMinutes, startMinutes + MIN_BAND_MINUTES);
+function effectiveEndMinutes(
+  startMinutes: number,
+  endMinutes: number,
+  hourHeight: number,
+): number {
+  return Math.max(endMinutes, startMinutes + minBandMinutes(hourHeight));
 }
 
 /**
@@ -54,8 +65,9 @@ export function packRailBandColumns<T>(
   items: readonly T[],
   getStartMinutes: (item: T) => number,
   getEndMinutes: (item: T) => number,
+  hourHeight: number,
 ): Positioned<T>[] {
   return packColumns(items, getStartMinutes, (item) =>
-    effectiveEndMinutes(getStartMinutes(item), getEndMinutes(item)),
+    effectiveEndMinutes(getStartMinutes(item), getEndMinutes(item), hourHeight),
   );
 }

@@ -10,6 +10,7 @@ import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, OccurrenceLink } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { useHourHeight } from "../hooks/useHourHeight";
 import {
   clampPopoverPosition,
   fillTooltipContent,
@@ -23,6 +24,7 @@ import {
   formatRange,
   formatTime,
   isBusyPlaceholder,
+  locationLineClamp,
   minutesToPx,
   pxToMinutes,
 } from "../layout/gridMetrics";
@@ -224,6 +226,9 @@ export function EventBlock({
   onSaveEdit,
   onRsvp,
 }: EventBlockProps) {
+  // 時間軸ズーム(2026-07-25): ドラッグ中の px⇔分 変換に使う現在のズーム値
+  // (WeekGrid が張る context 経由。hooks/useHourHeight.tsx 参照)
+  const hourHeight = useHourHeight();
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const hoverTimeoutRef = useRef<number | undefined>(undefined);
@@ -332,7 +337,9 @@ export function EventBlock({
     // (週ビュー=7、day3/day1 ビューではそれぞれ3/1)
     const columnWidthPx = gridRect.width / weekDayStarts.length;
     const grabOffsetMinutes =
-      kind === "move" ? pxToMinutes(e.clientY - gridRect.top) - pxToMinutes(top) : 0;
+      kind === "move"
+        ? pxToMinutes(e.clientY - gridRect.top, hourHeight) - pxToMinutes(top, hourHeight)
+        : 0;
 
     dragRef.current = {
       kind,
@@ -392,7 +399,7 @@ export function EventBlock({
         0,
         ds.weekDayStarts.length - 1,
       );
-      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop);
+      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop, hourHeight);
       const rawStartMinutes = pointerMinutes - ds.grabOffsetMinutes;
       const targetDayStartMs = ds.weekDayStarts[targetIndex];
       const rawStartMs = targetDayStartMs + rawStartMinutes * 60_000;
@@ -403,7 +410,7 @@ export function EventBlock({
       const durationMs = ds.originalEndMs - ds.originalStartMs;
       const snappedEnd = snappedStart + durationMs;
 
-      const newTopPx = minutesToPx((snappedStart - targetDayStartMs) / 60_000);
+      const newTopPx = minutesToPx((snappedStart - targetDayStartMs) / 60_000, hourHeight);
       const dxPx = (targetIndex - dayIndex) * ds.columnWidthPx;
       const dyPx = newTopPx - ds.originalTopPx;
       el.style.transform = `translate(${dxPx}px, ${dyPx}px)`;
@@ -412,14 +419,14 @@ export function EventBlock({
       ds.pendingEndMs = snappedEnd;
       ds.badgeEl.textContent = formatRange(snappedStart, snappedEnd, timeZone);
     } else {
-      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop);
+      const pointerMinutes = pxToMinutes(e.clientY - ds.gridTop, hourHeight);
       const rawEndMs = ds.dayStartMs + pointerMinutes * 60_000;
       const snappedEnd = snapEndMs(rawEndMs, ds.originalStartMs, {
         originalStartMs: ds.originalStartMs,
         disableSnap: e.altKey,
       });
       const newHeightPx = Math.max(
-        minutesToPx((snappedEnd - ds.dayStartMs) / 60_000) - ds.originalTopPx,
+        minutesToPx((snappedEnd - ds.dayStartMs) / 60_000, hourHeight) - ds.originalTopPx,
         4,
       );
       el.style.height = `${newHeightPx}px`;
@@ -688,7 +695,17 @@ export function EventBlock({
               // 会議 URL のとき (2026-07-25) はピン+生 URL ではなく、プロバイダアイコン+
               // ラベル(例: Slack マーク + 「Slack ハドル」)にする ―― 生 URL は長くて
               // 1行に収まらず読めないため。参加リンクは詳細ポップオーバー側に置く。
-              <span className="event-location">
+              //
+              // 折り返し表示 (2026-07-25、ユーザー要望): 場所は1行省略ではなく「カードの
+              // 高さに収まる行数だけ折り返す」。行数はカード高さ(=予定の長さ × 現在のズーム)
+              // から算出し(locationLineClamp、gridMetrics.ts)、CSS 変数 --location-lines として
+              // line-clamp に渡す ―― 時間軸ズームで縦に広げたぶん読める行数が増える。
+              // リサイズドラッグ中は height を DOM へ直接書いているためこの行数は確定時まで
+              // 更新されないが、はみ出しはカードの overflow: hidden が吸収する。
+              <span
+                className="event-location"
+                style={{ "--location-lines": locationLineClamp(height) } as CSSProperties}
+              >
                 {meetingProvider !== null ? (
                   <MeetingProviderIcon provider={meetingProvider} width={10} height={10} />
                 ) : (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { GitHubActivityDTO, GitHubCiRunDTO, RsvpResponseStatus } from "@kichijitsu/shared";
@@ -42,10 +42,17 @@ import {
   timedWorkingLocationRailItems,
   type WorkingLocationRailItem,
 } from "../layout/workingLocationRail";
-import { minutesToPx, WEEKDAY_LABELS } from "../layout/gridMetrics";
+import {
+  clampHourHeight,
+  HOUR_HEIGHT_STEP,
+  minutesToPx,
+  WEEKDAY_LABELS,
+  zoomedScrollTop,
+} from "../layout/gridMetrics";
 import { panelAnchors } from "../layout/dayGrid";
 import { useSwipeNavigation } from "../hooks/useSwipeNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { HourHeightContext } from "../hooks/useHourHeight";
 import { type CalendarInfo } from "./EventBlock";
 import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
@@ -55,6 +62,14 @@ import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
 const SLIDE_MS = 200;
+
+/**
+ * ⌘/Ctrl + ホイール1ステップ(= HOUR_HEIGHT_STEP ぶんのズーム)に必要な wheel deltaY の量。
+ * マウスホイールの1ノッチは pixel モードで概ね 100 前後、トラックパッドのピンチは
+ * 数〜十数の細かい delta が連続して届く ―― 生の delta ごとに 8px 動かすとピンチが暴走するため、
+ * deltaY を溜めてこのしきい値ぶん貯まるごとに1ステップだけ進める。
+ */
+const WHEEL_ZOOM_DELTA_PER_STEP = 24;
 
 /**
  * 終日レーン(フェーズ5)のレイアウト定数。ROW_HEIGHT はバー1行ぶんの px 高さ、
@@ -198,6 +213,19 @@ interface WeekGridProps {
    * 対応する場合のみ有効になるオプトイン設計)。
    */
   onSwipeNavigate?: (direction: "prev" | "next") => void;
+  /**
+   * 時間軸ズーム(2026-07-25): 1時間あたりの px 高さ。状態の持ち主は App.tsx
+   * (view/timelineStart と同じ流儀で useState + localStorage 永続化)。
+   * ここでは (1) ルート要素の CSS 変数 `--hour-height` として CSS 側へ渡し、
+   * (2) HourHeightProvider で日列配下(DayColumn/EventBlock/PlannedBlockCard)へ配り、
+   * (3) 自身の JS 計算(時刻ラベル・初期スクロール位置・実績/CI クラスタ)に使う。
+   */
+  hourHeight: number;
+  /**
+   * ⌘/Ctrl + ホイールによるズーム変更の通知。ツールバーの −/+ とプリセットは App 側で
+   * 同じ setter を呼ぶので、ズームの単一の出どころは常に App の state になる。
+   */
+  onHourHeightChange: (next: number) => void;
 }
 
 /** 1パネル(=dayCount 日)ぶんの strip 幅(%)。strip は width:300% なので translateX(-33.3333%) で
@@ -276,6 +304,8 @@ export function WeekGrid({
   declinedVisibility,
   longPressCreate = false,
   onSwipeNavigate,
+  hourHeight,
+  onHourHeightChange,
 }: WeekGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // スワイプの1パネルぶんの幅(px)を測る参照先。常に描画される days-viewport を使う
@@ -322,10 +352,71 @@ export function WeekGrid({
     return () => clearInterval(id);
   }, []);
 
-  // 初期スクロール位置を朝8時あたりに合わせる
+  // 初期スクロール位置を朝8時あたりに合わせる(マウント時の1回だけ ―― 以後のズーム変更では
+  // 下の useLayoutEffect が「見ている時刻」を保つ方向に補正するので、ここへ戻してはいけない)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: minutesToPx(INITIAL_SCROLL_HOUR * 60) });
+    scrollRef.current?.scrollTo({ top: minutesToPx(INITIAL_SCROLL_HOUR * 60, hourHeight) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- マウント時のみ。hourHeight の変化は別 effect で扱う
   }, []);
+
+  // ---- 時間軸ズーム (2026-07-25) ----
+  // 次のズーム適用時に「時刻を固定したいビューポート内の y 位置」(⌘/Ctrl+ホイールならポインタの
+  // 位置)。null ならビューポート中央を使う(−/+ ボタン・プリセット経由の変更)。
+  const zoomAnchorPxRef = useRef<number | null>(null);
+  const wheelAccumRef = useRef(0);
+  // wheel リスナーを hourHeight ごとに張り替えないための最新値参照(passive:false の
+  // addEventListener/removeEventListener をズームのたびに繰り返さない)。
+  // ハンドラ側でも「次に要求した値」を書き戻す ―― 同じタスク内に複数の wheel イベントが
+  // 届いた場合(トラックパッドのピンチが1フレームに複数届くケース)、React の state 更新は
+  // バッチされて再レンダー前なので、prop 由来の値だけを見ていると同じ値から何度も計算して
+  // ステップを取りこぼす。
+  const hourHeightRef = useRef(hourHeight);
+  hourHeightRef.current = hourHeight;
+
+  // ⌘/Ctrl + ホイールでズーム。ブラウザのページズーム(Chrome では ctrl+wheel)と衝突するため
+  // preventDefault() が必須で、そのためには passive:false で登録する必要がある
+  // (React の onWheel は passive 扱いになり得るので、ここは素の addEventListener を使う)。
+  // スマホのピンチ(touch イベント)は今回は対象外(ユーザー決定)。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 関数宣言(hoisting)ではなく const のアロー関数にしてある ―― 直前の `if (!el) return`
+    // による絞り込み(HTMLDivElement | null → HTMLDivElement)をクロージャ内でも保つため
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      // deltaMode: 0=pixel, 1=line, 2=page。line/page は概算で px 相当に寄せる
+      const deltaPx = e.deltaMode === 0 ? e.deltaY : e.deltaY * 16;
+      wheelAccumRef.current += deltaPx;
+      const steps = Math.trunc(wheelAccumRef.current / WHEEL_ZOOM_DELTA_PER_STEP);
+      if (steps === 0) return;
+      wheelAccumRef.current -= steps * WHEEL_ZOOM_DELTA_PER_STEP;
+      const current = hourHeightRef.current;
+      // deltaY > 0 (下方向スクロール/ピンチイン) は縮小、< 0 は拡大
+      const next = clampHourHeight(current - steps * HOUR_HEIGHT_STEP);
+      if (next === current) return;
+      hourHeightRef.current = next;
+      const rect = el.getBoundingClientRect();
+      zoomAnchorPxRef.current = Math.min(Math.max(e.clientY - rect.top, 0), el.clientHeight);
+      onHourHeightChange(next);
+    };
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [onHourHeightChange]);
+
+  // ズーム変更後に「見ていた時刻」をそのまま保つスクロール補正。CSS 変数 --hour-height が
+  // 適用された同じコミットの後(=DOM の高さが新しいズームになった状態)で走らせる必要があるため
+  // useLayoutEffect を使う(useEffect だと1フレーム古い高さで補正して画面がガタつく)。
+  const prevHourHeightRef = useRef(hourHeight);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const prev = prevHourHeightRef.current;
+    if (!el || prev === hourHeight) return;
+    prevHourHeightRef.current = hourHeight;
+    const anchorPx = zoomAnchorPxRef.current ?? el.clientHeight / 2;
+    zoomAnchorPxRef.current = null;
+    el.scrollTop = zoomedScrollTop(el.scrollTop, anchorPx, prev, hourHeight);
+  }, [hourHeight]);
 
   // weekStart (App が持つ状態) が変わったら center に反映する。
   // 表示窓 [weekStart, weekStart+dayCount) がレンダー済みストリップ [center-dayCount, center+2*dayCount)
@@ -703,10 +794,11 @@ export function WeekGrid({
       weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
         panelStart,
         dayClusters: dayStarts.map((dayStart, i) =>
-          layoutDayActivity(githubActivity, dayStart, dayEnds[i]),
+          layoutDayActivity(githubActivity, dayStart, dayEnds[i], hourHeight),
         ),
       })),
-    [weekPanels, githubActivity],
+    // topPx はズームに依存するので hourHeight も依存に含める(以下 ciPanels も同じ)
+    [weekPanels, githubActivity, hourHeight],
   );
 
   // ---- GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b) ----
@@ -719,10 +811,10 @@ export function WeekGrid({
       weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
         panelStart,
         dayClusters: dayStarts.map((dayStart, i) =>
-          layoutDayCiRuns(githubCiRuns, dayStart, dayEnds[i]),
+          layoutDayCiRuns(githubCiRuns, dayStart, dayEnds[i], hourHeight),
         ),
       })),
-    [weekPanels, githubCiRuns],
+    [weekPanels, githubCiRuns, hourHeight],
   );
 
   // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1) ----
@@ -775,11 +867,32 @@ export function WeekGrid({
   // 7列固定だった grid-template-columns を dayCount 列へ一般化する(WeekGrid.css 側は
   // repeat(7, 1fr) をフォールバック値として残してあるが、常にこのインライン値で上書きする)
   const panelColumnsStyle = { gridTemplateColumns: `repeat(${dayCount}, 1fr)` };
+  /*
+   * 時間軸ズーム(2026-07-25)の CSS 側との唯一の接点。--hour-height を .week-grid に置き、
+   * WeekGrid.css は 1日ぶんの高さ(calc(var(--hour-height) * 24))と時間罫線の
+   * repeating-linear-gradient のサイクルをここから組み立てる。
+   * --hour-quarter-alpha は 15分/45分の補助罫線の濃さ ―― 縮小時(1時間が 36px 未満)は
+   * 15分間隔が 9px を切って罫線がハッチのように見えてしまうため 0 にして消す
+   * (30分と60分の罫線だけ残す)。
+   * 注: 横スワイプ追従の --swipe-dx はこの同じ要素に命令的にセットされるが、React は
+   * style オブジェクトに現れないカスタムプロパティを削除しないため競合しない。
+   */
+  const gridRootStyle = {
+    "--hour-height": `${hourHeight}px`,
+    "--hour-quarter-alpha": hourHeight < 36 ? "0" : "0.22",
+  } as CSSProperties;
 
-  return (
+  /*
+   * 週グリッド本体。ここでは JSX を一旦ローカル変数に受けてから HourHeightContext.Provider で
+   * 包んで返す ―― Provider を JSX の最外側に直接書くと本体全体が1段深くなるだけで、
+   * DOM は1つも増えない(context の Provider は要素を描画しない)ため、
+   * 構造をそのまま保てるこの形にしてある。
+   */
+  const gridTree = (
     <div
       className="week-grid"
       ref={gridRootRef}
+      style={gridRootStyle}
       onPointerDown={swipeHandlers.onPointerDown}
       onPointerMove={swipeHandlers.onPointerMove}
       onPointerUp={swipeHandlers.onPointerUp}
@@ -919,7 +1032,11 @@ export function WeekGrid({
         <div className="week-grid-body">
           <div className="week-grid-gutter">
             {Array.from({ length: 24 }, (_, hour) => (
-              <div key={hour} className="hour-label" style={{ top: minutesToPx(hour * 60) }}>
+              <div
+                key={hour}
+                className="hour-label"
+                style={{ top: minutesToPx(hour * 60, hourHeight) }}
+              >
                 {hour}:00
               </div>
             ))}
@@ -979,4 +1096,8 @@ export function WeekGrid({
       </div>
     </div>
   );
+
+  // 日列配下(DayColumn → EventBlock / PlannedBlockCard)へ現在のズーム値を配る。
+  // 純モジュール側(railStack/planned/mapActivity/mapCiRuns)は引数で受け取る(hooks/useHourHeight.ts 参照)。
+  return <HourHeightContext.Provider value={hourHeight}>{gridTree}</HourHeightContext.Provider>;
 }
