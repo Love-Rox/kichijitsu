@@ -32,6 +32,26 @@ export function mergeServerVisibleCalendars(
   return { ...local, ...server };
 }
 
+/**
+ * カレンダー表示チェック(左ペインのトグル)後の、そのアカウントの calendarIds 次状態を返す。
+ * ON なら末尾に足す / OFF なら取り除くだけの素朴な計算だが、トグルは
+ * 「state 更新 → POST /api/watch → PUT /api/visible-calendars → 選択時のみ即時同期」の
+ * 起点になるため、その入口の計算だけはテストで固めておく(リファクタリング フェーズ2 ⑥、
+ * 2026-07-25 に hooks/useGoogleAccounts.ts へ移設した際に切り出し)。
+ *
+ * ON で既に含まれている場合は **同じ配列参照をそのまま返す** ―― 移設前の挙動をそのまま
+ * 保っている(新しい配列を作らないことで、後続の setState が無駄な再レンダー/再永続化を
+ * 起こさない可能性を残す)。
+ */
+export function nextVisibleCalendarsForAccount(
+  current: string[],
+  calendarId: string,
+  nextChecked: boolean,
+): string[] {
+  if (!nextChecked) return current.filter((id) => id !== calendarId);
+  return current.includes(calendarId) ? current : [...current, calendarId];
+}
+
 /** PUT /api/visible-calendars のリクエストボディを組み立てる */
 export function buildVisibleCalendarsRequest(
   accountId: string,

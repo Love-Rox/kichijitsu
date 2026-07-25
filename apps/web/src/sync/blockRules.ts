@@ -10,7 +10,8 @@ import type {
  * カレンダーブロック (docs/blocking.md、2026-07-20) の設定 UI 用ヘルパー。
  * visibleCalendars.ts と同じ流儀 — fetch や副作用は持たない純関数のみで、
  * リクエスト構築と、一覧表示用の DTO → 表示用データへの整形を担う。
- * 実際の POST/DELETE /api/block-rules 呼び出しは App.tsx (checkedFetch 経由) が行う。
+ * 実際の POST/DELETE /api/block-rules 呼び出しは hooks/useBlockRules.ts (checkedFetch 経由) が行う
+ * (2026-07-25 のフック分割まで App.tsx が持っていた)。
  */
 
 /** POST /api/block-rules のリクエストボディを組み立てる。id 省略で新規作成、指定で更新 */

@@ -1,103 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
-import type {
-  AccountDTO,
-  BlockRuleDTO,
-  BlockRuleUpsertRequest,
-  BlockRulesResponse,
-  CalendarListEntryDTO,
-  DisconnectRequest,
-  EventCreateResponse,
-  GitHubActivityDTO,
-  GitHubActivityResponse,
-  GitHubCiRunDTO,
-  GitHubCiRunsResponse,
-  GitHubItemDTO,
-  GitHubItemsResponse,
-  GitHubQueueResponse,
-  GitHubWorkItemDTO,
-  McpTokenCreateRequest,
-  McpTokenCreateResponse,
-  McpTokenDeleteRequest,
-  McpTokenDTO,
-  McpTokensResponse,
-  MeResponse,
-  PullCommitsRequest,
-  PullCommitsResponse,
-  RsvpResponseStatus,
-  SyncRequest,
-  SyncResponse,
-  TaskListDTO,
-  TaskListsResponse,
-  TasksSyncRequest,
-  TasksSyncResponse,
-  WatchRequest,
-  OpenWorkIntervalDTO,
-  OpenWorkIntervalsResponse,
-  WorkIntervalStartRequest,
-  WorkIntervalStopRequest,
-  WorkIntervalStopResponse,
-  WorkLogCreateRequest,
-  WorkLogDTO,
-  WorkLogsResponse,
-  WorkLogUpdateRequest,
-} from "@kichijitsu/shared";
-import { buildBlockRuleDeleteRequest } from "./sync/blockRules";
-import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
 import { hookActualByLinkedItem } from "./sync/hookActual";
-import { buildEventDeleteRequest, buildEventPatchRequest } from "./sync/eventPatch";
-import {
-  buildEventCreateRequest,
-  buildPendingOccurrence,
-  finalizeCreatedOccurrence,
-  resolveDefaultWriteTarget,
-  type WriteTargetCandidate,
-} from "./sync/eventCreate";
-import {
-  applyDraftToAllDayOccurrence,
-  applyDraftToOccurrence,
-  buildEventEditPatchRequest,
-  type EventEditDraft,
-} from "./sync/eventEdit";
-import { buildEventRsvpRequest, RsvpNotAttendeeError } from "./sync/eventRsvp";
-import { buildTaskPatchRequest } from "./sync/mapTasks";
-import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
-import { mapGitHubItems } from "./sync/mapGitHub";
-import {
-  isTauri,
-  fetchWorkQueueViaGh,
-  fetchGitHubItemsViaGh,
-  fetchGitHubActivityViaGh,
-  fetchGitHubCiRunsViaGh,
-  fetchPullCommitsViaGh,
-  fetchRepos,
-  fetchRepoIssues,
-} from "./sync/githubProvider";
-import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
-import type { TimerLinkedItem } from "./sync/timeTracking";
-import { isIntervalRunning, openIntervalsToTimeEntries } from "./sync/openIntervals";
-import {
-  buildVisibleCalendarsRequest,
-  mergeServerVisibleCalendarsWithPending,
-  nextPendingVisiblePuts,
-} from "./sync/visibleCalendars";
-import { createSyncScheduler } from "./sync/syncScheduler";
-import { buildSyncRequest } from "./sync/syncRequest";
-import {
-  deleteJson,
-  getJson,
-  jsonInit,
-  patchJson,
-  postJson,
-  postJsonVoid,
-  sendJson,
-} from "./sync/httpJson";
-import { decideSyncBackfillTargets } from "./sync/syncBackfill";
-import {
-  DEFAULT_DECLINED_VISIBILITY,
-  type DeclinedVisibilitySettings,
-} from "./sync/declinedVisibility";
+import { deleteJson } from "./sync/httpJson";
 import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
 import { WeekGrid } from "./components/WeekGrid";
 import { HourHeightControl } from "./components/HourHeightControl";
@@ -115,122 +20,52 @@ import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
 import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
-import {
-  isEditableTarget,
-  isViewAllowedForWidth,
-  resolveShortcut,
-  type View,
-} from "./keyboard/shortcuts";
+import { useBlockRules } from "./hooks/useBlockRules";
+import { useCalendarSync } from "./hooks/useCalendarSync";
+import { useEventMutations } from "./hooks/useEventMutations";
+import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
 import { useMasuVisible } from "./hooks/useMasuVisible";
+import { useMcpTokens } from "./hooks/useMcpTokens";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useOffline } from "./hooks/useOffline";
-import { useServerEvents } from "./hooks/useServerEvents";
-import {
-  generateDummyOccurrences,
-  generateDummyOverrides,
-  generateDummySeries,
-} from "./model/dummy";
-import { instanceId } from "./model/series";
-import type { AllDayOccurrence, Occurrence, PlannedBlock, TaskItem } from "./model/types";
+import { usePlannedBlockHandlers } from "./hooks/usePlannedBlockHandlers";
+import { useTimelineNavigation } from "./hooks/useTimelineNavigation";
+import { useTimers } from "./hooks/useTimers";
+import { useWorkLogs } from "./hooks/useWorkLogs";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
 import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
-import { TimeEntryStore, useRunningTimeEntries, useTimeEntries } from "./store/timeEntryStore";
-import {
-  CURRENT_SYNC_BACKFILL_VERSION,
-  cleanupDemoData,
-  cleanupLegacyGoogleData,
-  clearGitHubItems,
-  countSeries,
-  deleteAllDayOccurrencesByIds,
-  deleteOccurrencesByIds,
-  deleteOverridesByIds,
-  deletePlannedBlock,
-  getAllAllDayOccurrences,
-  getAllGitHubItems,
-  getAllPlannedBlocks,
-  getAllTasks,
-  getDeclinedVisibilitySettings,
-  getExpansionState,
-  getHiddenTaskLists,
-  getOccurrencesBetween,
-  getOrCreateDeviceId,
-  getOverride,
-  getSyncBackfillVersion,
-  getVisibleCalendars,
-  openKichijitsuDB,
-  putAllDayOccurrences,
-  putGitHubItems,
-  putOccurrence,
-  putOccurrences,
-  putOverride,
-  putPlannedBlock,
-  putSeries,
-  putTask,
-  setDeclinedVisibilitySettings,
-  setHiddenTaskLists,
-  setSyncBackfillVersion,
-  setVisibleCalendars,
-  type KichijitsuDB,
-  type VisibleCalendarsMap,
-} from "./db/database";
+import { TimeEntryStore, useTimeEntries } from "./store/timeEntryStore";
+import { bootstrapDatabase } from "./db/bootstrap";
+import type { KichijitsuDB } from "./db/database";
 import { ensureExpanded } from "./expansion/ensureExpanded";
 import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrences";
-import { applySyncResponse, deleteGoogleData } from "./sync/applySync";
-import { mondayOf, monthGridRangeMs } from "./layout/monthGrid";
-import { stepAnchor } from "./layout/dayGrid";
+import { monthGridRangeMs } from "./layout/monthGrid";
 import {
   effectivePaneMode,
   isPaneMode,
   shouldCloseOtherPaneOnOpen,
   type PaneMode,
 } from "./layout/paneMode";
-import { resolveMiniMonthNavigation } from "./layout/miniMonth";
-import { addToSet, removeFromSet } from "./layout/setOps";
-import { calendarKey, taskListKey } from "./layout/keys";
+import { calendarKey } from "./layout/keys";
 import { readStored, writeStored } from "./layout/localStore";
-import {
-  dayCountForView,
-  initialTimelineStart,
-  isView,
-  timelineRangeMs,
-} from "./layout/viewRange";
+import { timelineRangeMs } from "./layout/viewRange";
 import "./App.css";
 
 /**
  * モバイル対応フェーズ2(docs/multiplatform.md): 週ビュー('week')に加えて、狭幅向けの
- * N日タイムライン(day3=3日、day1=1日)を追加する。'month' は従来通り別レイアウト。
- * WeekGrid はこのうち 'month' 以外を dayCount 可変の同一グリッドとして描画する。
- * View 型そのものは keyboard/shortcuts.ts を正としてそこから import する
- * (グローバルショートカットの view 切替キーが同じ許容規則を参照する必要があるため)。
+ * N日タイムライン(day3=3日、day1=1日)がある。'month' は従来通り別レイアウト。
  *
- * view から表示範囲を導く純関数(dayCountForView / isView / initialTimelineStart /
- * timelineRangeMs)は layout/viewRange.ts へ移した(2026-07-25)。ここに残っているのは
- * localStorage を読む初期化系(副作用あり)だけ。
+ * view / timelineStart / monthCursor とその移動操作(←/→/今日・ビュー切替・ミニ月カレンダー・
+ * スワイプ)、および view の localStorage 永続化は hooks/useTimelineNavigation.ts へ移した
+ * (リファクタリング フェーズ2 ①、2026-07-25)。View 型・view から表示範囲を導く純関数の
+ * 置き場所についてはそちらのコメントを参照。App.tsx はフックの返り値を各コンポーネントへ
+ * 配線し、表示範囲(timelineRangeMs)で fetch を回すだけになっている。
  */
-
-/** 同期対象の (accountId, taskListId) ペア(docs/google-tasks.md)。selectedTargets のタスク版 */
-interface TaskListTarget {
-  accountId: string;
-  taskListId: string;
-}
-
-const VIEW_STORAGE_KEY = "kichijitsu:view";
-
-/** localStorage に保存された前回選択 view を読む。プライベートモード等で無効なら null */
-function loadStoredView(): View | null {
-  return readStored<View | null>(VIEW_STORAGE_KEY, (v) => (isView(v) ? v : null), null);
-}
-
-/** 初回マウント時の view の決め方(localStorage 優先、無ければ画面幅から)。App() の useState 初期化子から呼ぶ */
-function initialView(isNarrow: boolean): View {
-  const stored = loadStoredView();
-  if (stored && isViewAllowedForWidth(stored, isNarrow)) return stored;
-  // 初回訪問(保存済み view 無し): 狭幅では Notion Calendar に倣い3日タイムラインを既定にする
-  return isNarrow ? "day3" : "week";
-}
 
 /**
  * 時間軸ズーム(2026-07-25、ユーザー要望)。1時間あたりの px 高さをこの端末のローカル設定として
@@ -293,38 +128,35 @@ function loadStoredLeftPaneOpen(): boolean | null {
 const DEMO_SEED_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "1";
 
-// 週切替アニメーション(WeekGrid 側 SLIDE_MS=200ms)より少し長めに連打をロックする
-const NAV_LOCK_MS = 220;
-
 function App() {
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), []);
-  // モバイル対応フェーズ2: 狭幅(~640px 未満)かどうか。既定 view の選択(下)と
+  // モバイル対応フェーズ2: 狭幅(~640px 未満)かどうか。既定 view の選択(useTimelineNavigation)と
   // ツールバーのビュー切替ボタン構成(1日/3日/月 ⇔ 週/月)の両方に使う
   const isNarrow = useMediaQuery("(max-width: 640px)");
-  // 月表示ビュー(フェーズ6)。timelineStart とは独立した状態にし、view 切替時に
-  // 双方をその場で同期させる(switchView 参照)。常に「月内の1日」を指す
-  const [view, setView] = useState<View>(() => initialView(isNarrow));
-  // タイムラインビュー(week/day3/day1)共通の表示開始日。dayCount(view に応じて7/3/1)ぶんの
-  // N日タイムラインとして WeekGrid に渡す(モバイル対応フェーズ2、docs/multiplatform.md)。
-  // 初期値は view に応じる(initialTimelineStart 参照: week=今週の月曜、day3/day1=今日)
-  const [timelineStart, setTimelineStart] = useState<Temporal.PlainDate>(() =>
-    initialTimelineStart(view),
-  );
-  const [monthCursor, setMonthCursor] = useState(() =>
-    Temporal.Now.plainDateISO().with({ day: 1 }),
-  );
-  const dayCount = dayCountForView(view);
+  /**
+   * 「今どの期間を見ているか」と移動操作(hooks/useTimelineNavigation.ts)。外部 I/O を持たない
+   * 閉じた塊なので、App.tsx はここでは値を受け取って配線するだけ。
+   * 返り値は JSX/effect 側の既存の名前(handleNavigateToDay 等)に別名で受けて、呼び出し箇所を
+   * 一切変えずに済ませている。
+   */
+  const {
+    view,
+    timelineStart,
+    monthCursor,
+    dayCount,
+    goToPrev,
+    goToNext,
+    goToToday,
+    switchView,
+    navigateToDay: handleNavigateToDay,
+    miniMonthNavigate: handleMiniMonthNavigate,
+    swipeNavigate: handleSwipeNavigate,
+    goToTodayForNewEvent,
+  } = useTimelineNavigation({ isNarrow });
   // 時間軸ズーム(2026-07-25): 1時間あたりの px。view/timelineStart と同じくここが唯一の
   // 出どころで、WeekGrid(CSS 変数 --hour-height + 日列配下への context)とツールバーの
   // HourHeightControl が同じ state を共有する。MonthView は時間軸を持たないので無関係。
   const [hourHeight, setHourHeight] = useState<number>(loadStoredHourHeight);
-  const navLockRef = useRef(false);
-
-  // ユーザーが明示的に選んだ view を覚えておき、次回訪問時のデフォルトにする(任意機能)。
-  // localStorage が使えない環境(プライベートモード等)では静かに無視する
-  useEffect(() => {
-    writeStored(VIEW_STORAGE_KEY, view);
-  }, [view]);
 
   // 時間軸ズームの永続化(view と同じ流儀。保存するのは実 px 値)
   useEffect(() => {
@@ -375,167 +207,46 @@ function App() {
   const timeEntryStore = useMemo(() => new TimeEntryStore(), []);
   const [db, setDb] = useState<IDBPDatabase<KichijitsuDB> | null>(null);
 
-  // マルチアカウント対応 (2026-07-19): me.accounts[] を回って各アカウントの
-  // カレンダー一覧を取得し、選択中カレンダー(IndexedDB meta に永続化)ごとに同期する。
-  const [me, setMe] = useState<MeResponse>({
-    connected: false,
-    accounts: [],
-    visibleCalendars: {},
-    github: null,
-  });
-  const [calendarsByAccount, setCalendarsByAccount] = useState<
-    Record<string, CalendarListEntryDTO[]>
-  >({});
-  const [visibleCalendars, setVisibleCalendarsState] = useState<VisibleCalendarsMap>({});
-  // アカウントごとのタスクリスト一覧(docs/google-tasks.md)。tasks スコープ未付与(403)の
-  // アカウントはエントリが付かないまま = タスク機能オフとして扱う。同期対象
-  // (selectedTaskListTargets)は常にここの全件 ―― 表示 ON/OFF (hiddenTaskLists、下)とは
-  // 独立していて、非表示にしても同期は止めない(左ペイン増分2、db/database.ts の
-  // getHiddenTaskLists コメント参照)
-  const [taskListsByAccount, setTaskListsByAccount] = useState<Record<string, TaskListDTO[]>>({});
-  // tasks スコープ未付与のアカウント id 集合(docs/google-tasks.md、2026-07-20 追加の
-  // .../auth/tasks スコープより前に連携した、または granular consent で外したアカウント)。
-  // GET /api/tasklists が 403 を返したアカウントをここに覚えておき、設定モーダルで
-  // 「再連携」導線を出す(そのまま静かにスキップするだけだとタスクが無言で消え、原因に
-  // 気づけないため)。200 で取れたアカウントは外す ―― 再連携でスコープを得たら消える。
-  const [tasksScopeMissingAccounts, setTasksScopeMissingAccounts] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  // タスクリスト表示 ON/OFF(左ペイン増分2、2026-07-22)。visibleCalendars とは逆に
-  // 「明示的に非表示にした `${accountId}:${taskListId}` の集合」を持つ(デフォルト全 ON、
-  // db/database.ts の getHiddenTaskLists 参照)。カレンダー選択と非対称にサーバー同期は
-  // 行わずこの端末のみのローカル設定(将来 PUT /api/visible-task-lists 相当を足す余地はある)
-  // ReadonlySet で持つのは layout/setOps.ts の addToSet/removeFromSet(変化が無ければ同じ参照を
-  // 返す)をそのまま setState に渡せるようにするため。読み手(CalendarPane/WeekGrid)は has だけ使う
-  const [hiddenTaskLists, setHiddenTaskListsState] = useState<ReadonlySet<string>>(new Set());
-  // 上の hiddenTaskLists 永続化 effect が、init effect の IndexedDB 読み込み完了前に
-  // 空集合で上書きしてしまわないためのガード(visibleCalendarsLoadedRef と同じ役割)
-  const hiddenTaskListsLoadedRef = useRef(false);
-  // 「不参加を表示」設定(参加ステータス表示、2026-07-22)。左ペイン(CalendarPane)の
-  // 「表示」セクションで ON/OFF する。hiddenTaskLists と同じ流儀 ―― この端末のみの
-  // ローカル設定で、サーバー同期はしない(db/database.ts の getDeclinedVisibilitySettings 参照)
-  const [declinedVisibility, setDeclinedVisibilityState] = useState<DeclinedVisibilitySettings>(
-    DEFAULT_DECLINED_VISIBILITY,
-  );
-  // 上の declinedVisibility 永続化 effect が、init effect の IndexedDB 読み込み完了前に
-  // 既定値で上書きしてしまわないためのガード(hiddenTaskListsLoadedRef と同じ役割)
-  const declinedVisibilityLoadedRef = useRef(false);
+  // マルチアカウント対応 (2026-07-19) の状態(me / カレンダー一覧 / 選択中カレンダー /
+  // タスクリスト一覧 / tasks スコープ未付与アカウント / タスクリスト非表示集合 /
+  // 不参加表示設定)とその取得・永続化・連携解除は hooks/useGoogleAccounts.ts へ移した
+  // (リファクタリング フェーズ2 ⑥、2026-07-25。下の useGoogleAccounts 呼び出し参照)。
+  // 同期(POST /api/sync)側は hooks/useCalendarSync.ts で、両者を繋ぐグルーだけがここに残る。
   const [panelOpen, setPanelOpen] = useState(false);
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false);
   // 予定検索オーバーレイ(フェーズ6)の開閉。ツールバーの検索ボタンからのみ開く
   // (キーボードショートカット化は別途 keyboard/shortcuts.ts 側の対応が必要なため今回は配線しない)
   const [searchOpen, setSearchOpen] = useState(false);
-  // カレンダーブロック設定 (docs/blocking.md、フェーズ7 第1段階の UI 部分)。
-  // ルール一覧はサーバーが正 — me.connected になったら一度だけ取得する(下の useEffect)
-  const [blockRules, setBlockRules] = useState<BlockRuleDTO[]>([]);
+  // カレンダーブロック設定 (docs/blocking.md、フェーズ7 第1段階の UI 部分) の開閉。
+  // ルール一覧そのものは hooks/useBlockRules.ts が持つ(下の useBlockRules 呼び出し)
   const [blockOverlayOpen, setBlockOverlayOpen] = useState(false);
-  // GitHub 連携 (docs/github-integration.md フェーズ①Part B): GET /api/github/items が
-  // 401 github_auth_expired を返したかどうか。設定パネルが「再連携」導線を出すのに使う。
-  // 409 github_not_connected / 502 github_fetch_failed はこのフラグを立てない
-  // (前者は me.github が null のはずで無関係、後者は一時的な取得失敗なので再連携は不要)
-  const [githubAuthExpired, setGithubAuthExpired] = useState(false);
-  // 作業キュー(docs/github-integration.md フェーズ②Part B)のデータ。日付を持たない
-  // ライブな一覧のため IndexedDB には入れず React state だけで保持する(占有元は
-  // GET /api/github/queue、ペインを開くたび・連携直後に取り直す。手動更新は onRefresh)。
-  const [githubQueue, setGithubQueue] = useState<GitHubWorkItemDTO[]>([]);
   // GitHub 情報ペイン(GitHubPane、増分1で WorkQueueDrawer から発展)の開閉。増分1では
   // セクションが作業キュー1つだけのため実質「作業キューが見えているか」と同義だが、
-  // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある
-  // (githubQueue・queueLoading・queueAuthExpired・fetchGithubQueue はデータ側の名前のまま維持)。
+  // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある。
+  // GitHub 由来のデータ側の state(githubAuthExpired・githubQueue・queueLoading・
+  // queueAuthExpired・実績/CI オーバーレイ・commit 推定)と取得 effect は
+  // hooks/useGitHubData.ts へ移した(リファクタリング フェーズ2 ③、2026-07-25)ので、
+  // ここに残るのは UI クロムの開閉だけ
   const [paneOpen, setPaneOpen] = useState(false);
-  const [queueLoading, setQueueLoading] = useState(false);
-  // 401 github_auth_expired 専用フラグ(githubAuthExpired とは独立: レーン用の
-  // /api/github/items とキュー用の /api/github/queue は別エンドポイントで、
-  // 片方だけ失効することは無い想定だが、UI 側の責務は分けておく)
-  const [queueAuthExpired, setQueueAuthExpired] = useState(false);
-  // GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B)。実績はライブなので
-  // IndexedDB に入れず React state のみで保持する(表示中の時間範囲ぶんを都度取得)。
-  const [githubActivity, setGithubActivity] = useState<GitHubActivityDTO[]>([]);
-  // ON/OFF トグル(視覚ノイズになり得るため)。既定 ON。OFF のときはレールを出さず取得もしない
-  const [activityVisible, setActivityVisible] = useState(true);
-  // GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b「CI/Actions
-  // 実行をタイムラインに薄く重ねる」)。githubActivity と同じくライブなので IndexedDB に
-  // 入れず React state のみで保持する。
-  const [githubCiRuns, setGithubCiRuns] = useState<GitHubCiRunDTO[]>([]);
-  // ON/OFF トグル。実績(commit)と違い CI 実行は自分のトリガー分に限定しないぶん件数が
-  // 膨らみやすい(誰の push でも表示対象)ため、既定は OFF にして明示的なオプトインにする
-  // (activityVisible の既定 ON とは意図的に非対称)。
-  const [ciVisible, setCiVisible] = useState(false);
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
   // 実績(記録/タイマー/履歴)は 2026-07-25 に専用モーダル(WorkLogModal)を廃して右ペイン
   // (GitHubPane)へ集約した。開閉は右ペインの paneOpen が兼ねるため専用 state は持たない
   // ―― データは reportWorkLogs/reportPlannedBlocks をそのままペインへ渡す。
-  // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B)。
-  // レポートを開いたときだけ POST /api/github/pr-commits を取りに行き、キー
-  // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
-  // effect 参照)。手動タイマー実績(TimeEntry)とは別立てのデータなので専用 state で持つ
-  const [prCommitEstimates, setPrCommitEstimates] = useState<Record<string, number>>({});
-  // hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
-  // 保存する値。2026-07-21 に Google カレンダー保存から D1 保存へ移行)。レポートを開いたときだけ
-  // GET /api/work-logs を取りに行く(下の effect 参照)。手動タイマー実績(TimeEntry)・commit 推定
-  // (prCommitEstimates) とは別立てのデータなので専用 state で持つ
-  const [reportWorkLogs, setReportWorkLogs] = useState<WorkLogDTO[]>([]);
-  // MCP トークン一覧 (docs/mcp.md Part A、2026-07-20)。サーバーが正 (IndexedDB には入れない、
-  // GitHub 連携メタと同じくエフェメラルな設定パネル用 state)。設定パネルを開いたときに取得する
-  // (下の panelOpen effect、カレンダー再フェッチと同じ流儀)
-  const [mcpTokens, setMcpTokens] = useState<McpTokenDTO[]>([]);
-  const [prCommitEstimatesLoading, setPrCommitEstimatesLoading] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
-  // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
-  // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
-  const [saveError, setSaveError] = useState(false);
-  const saveErrorTimeoutRef = useRef<number | undefined>(undefined);
-  /**
-   * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。WeekGrid.handleCommit が
-   * kind==='move' で実際に時刻が変わったときだけ null から埋める(sync/moveConfirm.ts の
-   * hasOccurrenceTimeChanged 参照)。previous はまだ IndexedDB/Google に書き込まれていない
-   * (store.update のみ済みの)ロールバック用スナップショット。
-   */
-  const [moveConfirm, setMoveConfirm] = useState<{
-    updated: Occurrence;
-    previous: Occurrence;
-  } | null>(null);
-  const autoSyncedRef = useRef(false);
-  // 「このアカウントのカレンダー一覧は初回フェッチ済み/フェッチ中」フラグ。
-  // me.accounts effect が同じアカウントに何度も初回フェッチを走らせないためのもの。
-  // 取得失敗したアカウントの再フェッチ(リトライ)はこれとは別に calendarsByAccount の
-  // 有無で判定する(下の panelOpen effect 参照)
-  const fetchedAccountsRef = useRef(new Set<string>());
-  // 同一アカウントへの並行フェッチ防止(初回フェッチとパネルオープン時のリトライが
-  // 同時に走るケースがあるため)
-  const fetchInFlightRef = useRef(new Set<string>());
-  // 「このアカウントのタスクリスト一覧は初回フェッチ済み/フェッチ中」フラグ(fetchedAccountsRef のタスク版)
-  const fetchedTaskAccountsRef = useRef(new Set<string>());
-  // 新規に見つかった (accountId, taskListId) を一度だけ自動同期するための既知集合
-  // (`${accountId}:${taskListId}` キー、runSync の手動同期とは別に初回表示を早める用途)
-  const autoSyncedTaskListsRef = useRef(new Set<string>());
-  // getVisibleCalendars(db) での初回ロードが終わるまでは、下の永続化 effect を
-  // 発火させない({} で上書きしてしまわないためのガード)
-  const visibleCalendarsLoadedRef = useRef(false);
-  // PUT /api/visible-calendars の lost update 防止 (2026-07-21)。オフライン中/失敗時に
-  // その accountId の最新 calendarIds を記録しておき、checkMe (起動時・online 復帰時) の
-  // 先頭で再送してから /api/me をマージする(sync/visibleCalendars.ts 参照)
-  const pendingVisiblePutsRef = useRef<Map<string, string[]>>(new Map());
-  // syncCalendar (増分同期・全同期) の同一 (accountId, calendarId) 多重実行ガード (2026-07-21)。
-  // SSE hello/changed・起動時 runSync・カレンダー選択トグルなど複数経路から await なしで
-  // 多重に発火しうるため、キー単位で直列化する (sync/syncScheduler.ts 参照)
-  const syncSchedulerRef = useRef(createSyncScheduler());
-  // 端末ごと syncToken (2026-07-21): この端末の deviceId (IndexedDB meta に永続化、
-  // db/database.ts の getOrCreateDeviceId 参照)。init effect で db を開いた直後に取得して
-  // ここへ入れる。POST /api/sync の body に含めることで、サーバー (UserSyncDO) が
-  // (calendar_id, device_id) 単位で syncToken を管理できるようにする — 端末Aの同期が
-  // 進めたトークンで端末Bが差分を取りこぼす設計欠陥の修正 (sync/syncRequest.ts 参照)。
-  // 理論上 db より先に syncCalendarOnce が走ることは無いが、念のため null 許容にしてあり、
-  // null のままなら (旧クライアントと同じ) レガシー共有トークン動作にフォールバックする
-  const deviceIdRef = useRef<string | null>(null);
-  // fetchCalendarsFor がデフォルト選択(primary)を初適用したかどうかを同期的に判定するための
-  // 直近の visibleCalendars スナップショット(POST /api/watch の登録要否判定に使う。
-  // レンダーごとに更新するだけで、これ自体は再レンダーを起こさない)
-  const visibleCalendarsRef = useRef<VisibleCalendarsMap>({});
-  visibleCalendarsRef.current = visibleCalendars;
+  // hook 実績 (work_logs) の一覧 state と取得/作成/更新/削除は hooks/useWorkLogs.ts へ移した
+  // (リファクタリング フェーズ2 ⑤、2026-07-25。下の useWorkLogs 呼び出し参照)。
+  //
+  // ここに無くなった残りの state / ref の行き先(いずれも 2026-07-25 のフェーズ2):
+  //  - 保存失敗のフラッシュ表示 (saveError)・移動確認ダイアログ (moveConfirm) →
+  //    それを立てる変更系ハンドラごと hooks/useEventMutations.ts(④)
+  //  - 同期状態 (syncStatus) と同期の直列化・自動同期の一回きり判定の ref
+  //    (syncSchedulerRef / autoSyncedRef / autoSyncedTaskListsRef / deviceIdRef) →
+  //    hooks/useCalendarSync.ts(⑥)
+  //  - 一覧のフェッチ済み判定と PUT の pending 追跡の ref (fetchedAccountsRef /
+  //    fetchInFlightRef / fetchedTaskAccountsRef / visibleCalendarsLoadedRef /
+  //    pendingVisiblePutsRef / visibleCalendarsRef) → hooks/useGoogleAccounts.ts(⑥)
 
   // オフライン表示(brand/README.md「枡オーナメント」節: 空枡+「オフライン」)。
   // fetch 経路は checkedFetch を薄く差し込んで判定する(useOffline.ts 参照)
@@ -561,223 +272,49 @@ function App() {
     [markOffline, markOnline],
   );
 
-  // POST /api/watch — 選択中カレンダーの push 通知登録/解除。fire-and-forget
-  // (登録は best-effort。失敗してもアラームポーリングが補うので UI はブロックしない)
-  const postWatch = useCallback(
-    (accountId: string, calendarId: string, enabled: boolean) => {
-      checkedFetch(
-        "/api/watch",
-        jsonInit("POST", { accountId, calendarId, enabled } satisfies WatchRequest),
-      )
-        .then((res) => {
-          if (!res.ok) {
-            console.warn(
-              `kichijitsu: POST /api/watch failed (${accountId}/${calendarId}): ${res.status}`,
-            );
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: POST /api/watch failed", err);
-        });
-    },
-    [checkedFetch],
-  );
-
-  // PUT /api/visible-calendars — カレンダー選択をサーバーに保存する (端末間同期、2026-07-20)。
-  // 失敗(fetch 例外・非2xx)したら pendingVisiblePutsRef に記録し、checkMe が online 復帰時に
-  // 再送する(lost update 防止、2026-07-21。sync/visibleCalendars.ts の nextPendingVisiblePuts
-  // 参照)。成否を呼び出し側が判定できるよう boolean を返す
-  const putVisibleCalendarsOnce = useCallback(
-    async (accountId: string, calendarIds: string[]): Promise<boolean> => {
-      let ok: boolean;
-      try {
-        const res = await checkedFetch(
-          "/api/visible-calendars",
-          jsonInit("PUT", buildVisibleCalendarsRequest(accountId, calendarIds)),
-        );
-        ok = res.ok;
-        if (!ok) {
-          console.warn(
-            `kichijitsu: PUT /api/visible-calendars failed (${accountId}): ${res.status}`,
-          );
-        }
-      } catch (err) {
-        ok = false;
-        console.warn("kichijitsu: PUT /api/visible-calendars failed", err);
-      }
-      pendingVisiblePutsRef.current = nextPendingVisiblePuts(
-        pendingVisiblePutsRef.current,
-        accountId,
-        calendarIds,
-        ok ? "success" : "failure",
-      );
-      return ok;
-    },
-    [checkedFetch],
-  );
-
-  // handleToggleCalendar のトグル時と、fetchCalendarsFor の初回 primary デフォルト選択時に
-  // 呼ぶ fire-and-forget 版: UI/IndexedDB は既に楽観的更新済みなので、失敗してもロールバックしない
-  // (選択はローカルに残るため動作は継続でき、オフライン表示は checkedFetch の markOffline に委ねる。
-  // 失敗の追跡は putVisibleCalendarsOnce 内の pendingVisiblePutsRef が担う)
-  const putVisibleCalendars = useCallback(
-    (accountId: string, calendarIds: string[]) => {
-      void putVisibleCalendarsOnce(accountId, calendarIds);
-    },
-    [putVisibleCalendarsOnce],
-  );
+  // POST /api/watch(push 通知登録)と PUT /api/visible-calendars(カレンダー選択の
+  // 端末間同期・lost update 防止つき)は、それを使うトグル/一覧取得ごと
+  // hooks/useGoogleAccounts.ts へ移した(フェーズ2 ⑥)。
 
   // 初回ロード中(db==null, store に最初のデータがまだ入っていない)かどうか。
   // グリッド中央に枡インジケーターをオーバーレイし、初期化完了で消す
   const initializing = db === null;
   const initIndicator = useMasuVisible(initializing);
-  const syncIndicator = useMasuVisible(syncStatus === "syncing");
 
-  // 起動時: DB を開く → 初回のみ dummy データをシード → 表示週ぶんを展開 →
-  // 展開済み範囲全体(単発イベント込み)を store に反映する → 選択中カレンダーを読み込む
+  /*
+   * 起動時の IndexedDB 読み込み(DB を開く → deviceId → レガシー/デモ掃除 → 表示範囲ぶんの
+   * 展開 → 各ストアへの初回反映 → 表示設定の読み込み → db state の確定)は db/bootstrap.ts へ
+   * 移した(リファクタリング フェーズ2 ⑦、2026-07-25)。順序そのものが仕様なので、
+   * batch のネスト(初期描画のチラつき防止)も含めてあちらで固めてテストを書いてある。
+   * ここに残るのは「マウント時に1回だけ呼ぶ」配線と cancelled フラグだけ。
+   *
+   * このコールバック群(setDeviceId / loadStored*)は宣言順ではこの effect より後ろにある
+   * フックの返り値だが、effect の本体はレンダー完了後に実行されるので参照して問題ない
+   * (依存配列に置くとレンダー中に評価されて TDZ になるため、それは避ける ―― 依存は
+   * 従来どおり空のまま、下の eslint-disable も維持する)。
+   */
   useEffect(() => {
     let cancelled = false;
 
-    async function init() {
-      const database = await openKichijitsuDB();
-      if (cancelled) return;
+    // 表示範囲はマウント時点の view/monthCursor/timelineStart/dayCount で固定してよい
+    // (この effect は初回マウント時にのみ実行される)
+    const initialRange =
+      view === "month"
+        ? monthGridRangeMs(monthCursor, timeZone)
+        : timelineRangeMs(timelineStart, dayCount, timeZone);
 
-      // 端末ごと syncToken (2026-07-21): db を開いた直後に deviceId を取得/生成しておく。
-      // 以後の syncCalendarOnce (POST /api/sync) がこれを body に含める
-      const deviceId = await getOrCreateDeviceId(database);
-      if (cancelled) return;
-      deviceIdRef.current = deviceId;
-
-      // レガシー掃除(一回きり・冪等): ID スコープ化 (2026-07-19) 以前の旧形式
-      // Google データ (`g:<eventId>`、accountId/calendarId フィールドなし) は
-      // 現行のフィルタにマッチしない不可視の残骸なので削除する。0件なら何も出さない
-      const legacyCleanup = await cleanupLegacyGoogleData(database);
-      if (cancelled) return;
-      const legacyTotal =
-        legacyCleanup.seriesRemoved +
-        legacyCleanup.occurrencesRemoved +
-        legacyCleanup.overridesRemoved;
-      if (legacyTotal > 0) {
-        console.info(
-          `kichijitsu: legacy Google data cleanup removed ${legacyTotal} record(s) ` +
-            `(series=${legacyCleanup.seriesRemoved}, occurrences=${legacyCleanup.occurrencesRemoved}, ` +
-            `overrides=${legacyCleanup.overridesRemoved})`,
-        );
-      }
-
-      // デモ/シードデータの一回きりクリーンアップ (実データ運用への移行、2026-07-20):
-      // DEMO_SEED_ENABLED が false の通常起動では二度とシードされないが、過去に
-      // シード済みだった環境の残骸を掃除する。cleanupLegacyGoogleData と同じ流儀で
-      // 起動のたびに呼んでよい(冪等・0件なら何も出さない)
-      const demoCleanup = await cleanupDemoData(database);
-      if (cancelled) return;
-      const demoTotal =
-        demoCleanup.seriesRemoved + demoCleanup.occurrencesRemoved + demoCleanup.overridesRemoved;
-      if (demoTotal > 0) {
-        console.info(
-          `kichijitsu: demo data cleanup removed ${demoTotal} record(s) ` +
-            `(series=${demoCleanup.seriesRemoved}, occurrences=${demoCleanup.occurrencesRemoved}, ` +
-            `overrides=${demoCleanup.overridesRemoved})`,
-        );
-      }
-
-      // ダミーシード投入は開発時の明示的なオプトイン (?demo=1) のときだけ (DEMO_SEED_ENABLED 参照)。
-      // 実データ運用では絶対に自動投入しない
-      if (DEMO_SEED_ENABLED) {
-        const existingSeriesCount = await countSeries(database);
-        if (existingSeriesCount === 0) {
-          const series = generateDummySeries(timeZone);
-          const overrides = generateDummyOverrides(series);
-          const singles = generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone);
-          await putSeries(database, series);
-          await Promise.all(overrides.map((o) => putOverride(database, o)));
-          await putOccurrences(database, singles);
-        }
-      }
-      if (cancelled) return;
-
-      const initialRange =
-        view === "month"
-          ? monthGridRangeMs(monthCursor, timeZone)
-          : timelineRangeMs(timelineStart, dayCount, timeZone);
-      await ensureExpanded(database, store, initialRange.fromMs, initialRange.toMs);
-      if (cancelled) return;
-
-      const state = await getExpansionState(database);
-      let all: Occurrence[] | undefined;
-      if (state) {
-        all = await getOccurrencesBetween(database, state.expandedFromMs, state.expandedToMs);
-      }
-
-      // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
-      const allDays = await getAllAllDayOccurrences(database);
-      // Google タスク (docs/google-tasks.md): 終日予定と同じく全件を丸ごとロードする
-      const allTasks = await getAllTasks(database);
-      // GitHub アイテム (docs/github-integration.md フェーズ①Part B): 同じく全件ロード。
-      // ここでは前回取得のキャッシュを表示するだけで、最新化は me.github 判明後の別 effect が行う
-      const allGitHubItems = await getAllGitHubItems(database);
-      // 予定タイムブロック (docs/github-integration.md「時間計測」増分1): 同じく全件ロード。
-      // Google 同期とは無関係なので、以後この値がサーバーから再取得されることは無い
-      // (ローカル操作のみで更新される)
-      const allPlannedBlocks = await getAllPlannedBlocks(database);
-      // 手動タイマーの走行中状態は実績 UX 刷新フェーズ5b(2026-07-23)でサーバー開区間
-      // (GET /api/work-logs/open)を単一の真実にしたため、ここで IndexedDB から TimeEntry を
-      // 読み込むことはしない(timeEntryStore は開区間の射影キャッシュとして下の effect が満たす)。
-
-      // occurrences・終日予定・タスク・GitHub アイテム・予定タイムブロックの
-      // 初回反映を1回の通知にまとめ、初期描画のチラつきを防ぐ
-      if (!cancelled) {
-        await store.batch(async () => {
-          await allDayStore.batch(async () => {
-            await taskStore.batch(async () => {
-              await githubStore.batch(async () => {
-                await plannedStore.batch(async () => {
-                  if (all) store.load(all);
-                  allDayStore.load(allDays);
-                  taskStore.load(allTasks);
-                  githubStore.load(allGitHubItems);
-                  plannedStore.load(allPlannedBlocks);
-                });
-              });
-            });
-          });
-        });
-      }
-
-      const storedVisible = await getVisibleCalendars(database);
-      if (!cancelled) {
-        // ここで単純に setVisibleCalendarsState(storedVisible) すると、下の
-        // 「me.accounts が増えるたびにカレンダー一覧を取得する」effect が
-        // (/api/me・/api/calendars は同一プロセス内の高速な往復のため) この
-        // DB 読み込みより先に primary デフォルト選択を書き込んでいた場合、
-        // それを空の storedVisible で握り潰してしまう(= 一生 primary が
-        // 選ばれないまま {} が永続化される既知のバグだった)。
-        // 既に state にある値(prev)を優先してマージすることで、どちらが
-        // 先に解決してもデフォルト選択が失われないようにする
-        setVisibleCalendarsState((prev) => ({ ...storedVisible, ...prev }));
-        visibleCalendarsLoadedRef.current = true;
-      }
-
-      // タスクリスト表示 ON/OFF(左ペイン増分2): サーバー同期が無くこの端末の IndexedDB が
-      // 唯一の正なので、visibleCalendars のような server/prev マージは不要 ―― 素直に読み込むだけ
-      const storedHiddenTaskLists = await getHiddenTaskLists(database);
-      if (!cancelled) {
-        setHiddenTaskListsState(storedHiddenTaskLists);
-        hiddenTaskListsLoadedRef.current = true;
-      }
-
-      // 「不参加を表示」設定(参加ステータス表示): hiddenTaskLists と同じくこの端末の
-      // IndexedDB が唯一の正なので、素直に読み込むだけでよい
-      const storedDeclinedVisibility = await getDeclinedVisibilitySettings(database);
-      if (!cancelled) {
-        setDeclinedVisibilityState(storedDeclinedVisibility);
-        declinedVisibilityLoadedRef.current = true;
-      }
-
-      if (!cancelled) setDb(database);
-    }
-
-    init().catch((err) => {
+    bootstrapDatabase({
+      stores: { store, allDayStore, taskStore, githubStore, plannedStore },
+      initialRange,
+      timeZone,
+      demoSeedEnabled: DEMO_SEED_ENABLED,
+      isCancelled: () => cancelled,
+      onDeviceId: setDeviceId,
+      onVisibleCalendars: loadStoredVisibleCalendars,
+      onHiddenTaskLists: loadStoredHiddenTaskLists,
+      onDeclinedVisibility: loadStoredDeclinedVisibility,
+      onReady: setDb,
+    }).catch((err) => {
       console.error("kichijitsu: initialization failed", err);
     });
 
@@ -801,809 +338,146 @@ function App() {
     });
   }, [db, view, timelineStart, dayCount, monthCursor, timeZone, store]);
 
-  // Google 連携状態を確認する。バックエンド (apps/sync) が起動していない場合の
-  // fetch 失敗 / 非 2xx は「未接続」として静かに扱う(コンソールを汚さない)。
-  // 起動時に1回、加えてブラウザの online イベントでも再確認する(オフライン復帰時)
-  const checkMe = useCallback(async () => {
-    // /api/me を取得する前に、オフライン中/失敗で溜まった pending な PUT
-    // /api/visible-calendars を先に再送する(lost update 防止、2026-07-21)。
-    // ここで直近のローカル選択をサーバーに反映してから「サーバー勝ち」マージに
-    // 入らないと、オフライン中に変えた選択が古いサーバー値に潰されてしまう
-    const pendingEntries = [...pendingVisiblePutsRef.current.entries()];
-    if (pendingEntries.length > 0) {
-      await Promise.all(
-        pendingEntries.map(([accountId, calendarIds]) =>
-          putVisibleCalendarsOnce(accountId, calendarIds),
-        ),
-      );
-    }
+  /**
+   * Google 連携アカウントと表示設定(hooks/useGoogleAccounts.ts)。GET /api/me の再取得
+   * (起動時・online 復帰時)、カレンダー/タスクリスト一覧の取得、選択状態のサーバー保存
+   * (PUT /api/visible-calendars、lost update 防止つき)と IndexedDB 永続化、アカウント
+   * 連携解除がすべて入っている(リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 呼び出し位置: `me` を下の useBlockRules / useGitHubData が引数に取るため、ここより
+   * 後ろには置けない(フックの引数はレンダー中に評価される)。移設前は永続化 effect と
+   * 一覧取得 effect が useGitHubData の後に登録されていたが、それらは初回マウント時には
+   * すべてガードで空振りし、GitHub 系 effect と読み書きする state も分かれているため
+   * 登録順の入れ替えで挙動は変わらない(フック側のコメントに詳細)。
+   * 返り値は JSX 側の既存の名前に別名で受けて、呼び出し箇所を一切変えずに済ませている。
+   */
+  const {
+    me,
+    calendarsByAccount,
+    visibleCalendars,
+    taskListsByAccount,
+    tasksScopeMissingAccounts,
+    hiddenTaskLists,
+    declinedVisibility,
+    loadStoredVisibleCalendars,
+    loadStoredHiddenTaskLists,
+    loadStoredDeclinedVisibility,
+    toggleCalendarVisibility,
+    toggleTaskList: handleToggleTaskList,
+    toggleShowDeclined: handleToggleShowDeclined,
+    toggleKeepOrganizerDeclined: handleToggleKeepOrganizerDeclined,
+    disconnectAccount,
+    clearGitHubConnection,
+  } = useGoogleAccounts({ db, store, allDayStore, taskStore, panelOpen, checkedFetch });
 
-    try {
-      const res = await checkedFetch("/api/me");
-      if (!res.ok) {
-        setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
-        return;
-      }
-      const data = (await res.json()) as MeResponse;
-      setMe(data);
-      // サーバーに configured なエントリを取り込む(サーバーが正)。無いアカウントは
-      // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す。
-      // 再送してもなお失敗が残っている accountId(pendingVisiblePutsRef に残存)は、
-      // サーバー勝ちマージのあとでローカル値に復元する(mergeServerVisibleCalendarsWithPending
-      // 参照。init effect の IndexedDB ロードとの解決順序に依存しない — どちらが先でも
-      // 既存のレース対策(prev 優先マージ)と両立する)
-      const stillPending = [...pendingVisiblePutsRef.current.keys()];
-      setVisibleCalendarsState((prev) =>
-        mergeServerVisibleCalendarsWithPending(prev, data.visibleCalendars, stillPending),
-      );
-    } catch {
-      setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
-    }
-  }, [checkedFetch, putVisibleCalendarsOnce]);
+  // カレンダーブロックのルール一覧 + 作成/削除(hooks/useBlockRules.ts)。取得タイミング
+  // (me.connected になったら一度だけ)も含めてフック側にあるので、ここは配線だけ。
+  // 返り値は JSX 側の既存の名前に別名で受けて、呼び出し箇所を変えずに済ませている
+  const {
+    blockRules,
+    createBlockRule: handleCreateBlockRule,
+    deleteBlockRule: handleDeleteBlockRule,
+  } = useBlockRules({ connected: me.connected, checkedFetch });
 
-  useEffect(() => {
-    checkMe();
-  }, [checkMe]);
-
-  useEffect(() => {
-    function onOnline() {
-      checkMe();
-    }
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, [checkMe]);
-
-  // カレンダーブロックのルール一覧を取得する(docs/blocking.md)。アカウント連携が無い間は
-  // 意味を持たないため me.connected になってから引く。checkMe と同じ流儀で
-  // 非 2xx・ネットワークエラーはコンソールを汚さない程度に warn するだけに留める
-  // (このオーバーレイは未接続では開けないので、失敗しても致命的ではない)
-  useEffect(() => {
-    if (!me.connected) return;
-    let cancelled = false;
-    checkedFetch("/api/block-rules")
-      .then(async (res) => {
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/block-rules failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as BlockRulesResponse;
-        if (!cancelled) setBlockRules(data.rules);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/block-rules failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [me.connected, checkedFetch]);
-
-  // GitHub アイテムの取得(docs/github-integration.md フェーズ①Part B)。db 準備完了 &
-  // me.github が連携済みになったら GET /api/github/items を取る。サーバーは GitHub アイテムを
-  // 永続化せず応答は常に完全なスナップショットのため、成功したら IndexedDB/store を
-  // 「全消し→全書き込み」で置き換える(clearGitHubItems/githubStore.clear、差分計算はしない)。
-  // 409 github_not_connected は me.github が null のはずで基本発生しない(念のため無視)。
-  // 401 github_auth_expired は再連携導線 (CalendarSettingsPanel) を出すためフラグを立てる。
-  // 502 github_fetch_failed・ネットワークエラーは一時的な失敗として warn のみ(レーンは前回の
-  // キャッシュ表示のまま据え置く)
-  useEffect(() => {
-    if (!db || !me.github) return;
-    let cancelled = false;
-
-    // 取得できた GitHubItemDTO[] を IndexedDB/store に反映する共通処理 (gh 経路・Worker 経路で
-    // 収束させる、docs/github-integration.md「認証プロバイダの抽象化」)。
-    const apply = async (items: GitHubItemDTO[]) => {
-      const mapped = mapGitHubItems(items);
-      if (cancelled || !db) return;
-      setGithubAuthExpired(false);
-      await clearGitHubItems(db);
-      await putGitHubItems(db, mapped);
-      await githubStore.batch(async () => {
-        githubStore.clear();
-        githubStore.load(mapped);
-      });
-    };
-
-    // プロバイダ分岐 (fetchGithubQueue と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-    // gh CLI 認証でアイテムを直接取得する。ブラウザ/PWA では isTauri() が常に false のため
-    // 以降の従来コードは不変。
-    if (isTauri()) {
-      fetchGitHubItemsViaGh()
-        .then((items) => apply(items))
-        .catch((err) => {
-          console.warn("kichijitsu: gh 経由の GitHub アイテム取得に失敗", err);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    checkedFetch("/api/github/items")
-      .then(async (res) => {
-        if (res.status === 401) {
-          if (!cancelled) setGithubAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) return; // 未連携(通常は me.github が null のはずなので無視)
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/github/items failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as GitHubItemsResponse;
-        await apply(data.items);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/github/items failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [db, me.github, checkedFetch, githubStore]);
-
-  // GitHub 実績オーバーレイの取得(フェーズ③Part B)。表示中の時間範囲([timelineStart, +dayCount日))が
-  // 変わるたびに取り直す(ライブ実績なので IndexedDB キャッシュは持たない)。ビュー切替・週送りの
-  // 連打で過剰リクエストにならないよう軽くデバウンスする。トグル OFF・未連携・月表示
-  // (WeekGrid 自体が描画されない)では取得しない。401 は githubAuthExpired 経路に合流させる
-  // (①の /api/github/items と同じ再連携導線を共有、専用のフラグは別途持たない)。409 は
-  // 未連携相当として空にし、502・ネットワークエラーは一時的な失敗として warn のみ(前回表示を維持)。
-  useEffect(() => {
-    if (!me.github || !activityVisible || view === "month") return;
-    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
-    const sinceIso = new Date(fromMs).toISOString();
-    const untilIso = new Date(toMs).toISOString();
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-      // gh CLI 認証で実績オーバーレイを直接取得する。ブラウザ/PWA では isTauri() が常に
-      // false のため以降の従来コードは不変。
-      if (isTauri()) {
-        fetchGitHubActivityViaGh(sinceIso, untilIso)
-          .then((items) => {
-            if (!cancelled) {
-              setGithubAuthExpired(false);
-              setGithubActivity(items);
-            }
-          })
-          .catch((err) => {
-            console.warn("kichijitsu: gh 経由の GitHub 実績取得に失敗", err);
-            if (!cancelled) setGithubActivity([]);
-          });
-        return;
-      }
-
-      checkedFetch(
-        `/api/github/activity?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
-      )
-        .then(async (res) => {
-          if (res.status === 401) {
-            if (!cancelled) setGithubAuthExpired(true);
-            return;
-          }
-          if (res.status === 409) {
-            if (!cancelled) setGithubActivity([]);
-            return;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/github/activity failed: ${res.status}`);
-            return;
-          }
-          const data = (await res.json()) as GitHubActivityResponse;
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setGithubActivity(data.items);
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: GET /api/github/activity failed", err);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [me.github, activityVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
-
-  // 実績トグル OFF: 次の取得を待たず即座にレールを消す(cancelled フラグだけだと
-  // 直前の取得がまだ in-flight の場合に一瞬残ってしまうため、明示的に空にする)
-  const handleToggleActivityVisible = useCallback(() => {
-    setActivityVisible((prev) => {
-      const next = !prev;
-      if (!next) setGithubActivity([]);
-      return next;
-    });
-  }, []);
-
-  // GitHub CI/Actions 実行の取得(フェーズ④b)。GitHub 実績オーバーレイ(直前の effect)と
-  // 完全に同じ流儀: 表示中の時間範囲が変わるたびに取り直し、300ms デバウンス、トグル OFF・
-  // 未連携・月表示では取得しない。401 は同じ githubAuthExpired 経路に合流させる(/api/github/ci
-  // も /api/github/activity と同じ resolveGitHubAccessToken を共有しているため、専用フラグは
-  // 持たない)。409 は空、502・ネットワークエラーは前回表示を維持したまま warn のみ。
-  useEffect(() => {
-    if (!me.github || !ciVisible || view === "month") return;
-    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
-    const sinceIso = new Date(fromMs).toISOString();
-    const untilIso = new Date(toMs).toISOString();
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-      // gh CLI 認証で CI/Actions 実行を直接取得する。ブラウザ/PWA では isTauri() が常に
-      // false のため以降の従来コードは不変。
-      if (isTauri()) {
-        fetchGitHubCiRunsViaGh(sinceIso, untilIso)
-          .then((items) => {
-            if (!cancelled) {
-              setGithubAuthExpired(false);
-              setGithubCiRuns(items);
-            }
-          })
-          .catch((err) => {
-            console.warn("kichijitsu: gh 経由の GitHub CI 実行取得に失敗", err);
-            if (!cancelled) setGithubCiRuns([]);
-          });
-        return;
-      }
-
-      checkedFetch(
-        `/api/github/ci?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
-      )
-        .then(async (res) => {
-          if (res.status === 401) {
-            if (!cancelled) setGithubAuthExpired(true);
-            return;
-          }
-          if (res.status === 409) {
-            if (!cancelled) setGithubCiRuns([]);
-            return;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/github/ci failed: ${res.status}`);
-            return;
-          }
-          const data = (await res.json()) as GitHubCiRunsResponse;
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setGithubCiRuns(data.items);
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: GET /api/github/ci failed", err);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [me.github, ciVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
-
-  // CI トグル OFF: 実績トグルと同じく、直前の取得が in-flight でも一瞬残らないよう即座に消す
-  const handleToggleCiVisible = useCallback(() => {
-    setCiVisible((prev) => {
-      const next = !prev;
-      if (!next) setGithubCiRuns([]);
-      return next;
-    });
-  }, []);
-
-  // 作業キューの取得(docs/github-integration.md フェーズ②Part B)。GET /api/github/queue は
-  // サーバー側で永続化しない都度取得の一覧なので、成功したら githubQueue を丸ごと置き換えるだけ
-  // (差分計算はしない、/api/github/items と同じ「全消し→全書き込み」の考え方だが
-  // こちらは IndexedDB を経由しないぶん単純)。401/409/502 のマッピングは /api/github/items と
-  // 同じ(408 は無し)。ドロワーを開いた時と onRefresh の両方からこの1つの関数を呼ぶ。
-  const fetchGithubQueue = useCallback(() => {
-    if (!me.github) return;
-    setQueueLoading(true);
-
-    // プロバイダ分岐 (docs/github-integration.md「認証プロバイダの抽象化」)。
-    // Tauri デスクトップ実行時のみ、手元の gh CLI 認証で作業キューを直接取得する。
-    // ブラウザ/PWA では isTauri() が常に false になるため、以降の従来コードは不変。
-    if (isTauri()) {
-      fetchWorkQueueViaGh()
-        .then((items) => {
-          setQueueAuthExpired(false);
-          setGithubQueue(items);
-        })
-        .catch((err) => {
-          // gh 未インストール/未ログイン等。空扱いにして warn (OAuth 連携案内は次増分 TODO)。
-          console.warn("kichijitsu: gh 経由の作業キュー取得に失敗", err);
-          setGithubQueue([]);
-        })
-        .finally(() => setQueueLoading(false));
-      return;
-    }
-
-    checkedFetch("/api/github/queue")
-      .then(async (res) => {
-        if (res.status === 401) {
-          setQueueAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) {
-          // 未連携(通常は me.github が null のはずなので基本発生しない)。空扱いにする
-          setGithubQueue([]);
-          return;
-        }
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/github/queue failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as GitHubQueueResponse;
-        setQueueAuthExpired(false);
-        setGithubQueue(data.items);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/github/queue failed", err);
-      })
-      .finally(() => setQueueLoading(false));
-  }, [me.github, checkedFetch]);
-
-  // 右ペイン(GitHubPane)の手動記録フォーム用の repo / repo-issues 取得(実績 UX 刷新
-  // フェーズ3、2026-07-23。2026-07-25 に WorkLogModal からペインへ移設)。githubProvider の
-  // 統一 API を checkedFetch でバインドして渡すだけ — isTauri() の gh/server 分岐は
-  // githubProvider 側が担う(fetchGithubQueue と同じ考え方)。失敗時の手入力フォールバックは
-  // ペイン側が握る。実績履歴の issue タイトル補完も fetchRepoIssuesForPane を使う。
-  const fetchReposForPane = useCallback(() => fetchRepos(checkedFetch), [checkedFetch]);
-  const fetchRepoIssuesForPane = useCallback(
-    (repo: string) => fetchRepoIssues(repo, checkedFetch),
-    [checkedFetch],
-  );
-
-  // 連携直後の初回取得(me.github が null→非null になったタイミング)。ドロワーを
-  // 開く前でもヘッダーの件数バッジを最新化できるようにする
-  useEffect(() => {
-    if (!me.github) return;
-    fetchGithubQueue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.github]);
-
-  // ペインを開くたびの取得(手動更新は onRefresh=fetchGithubQueue の直接呼び出し)
-  useEffect(() => {
-    if (!paneOpen) return;
-    fetchGithubQueue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneOpen]);
-
-  // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
-  // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
-  useEffect(() => {
-    if (!db || !visibleCalendarsLoadedRef.current) return;
-    setVisibleCalendars(db, visibleCalendars).catch((err) => {
-      console.error("kichijitsu: failed to persist visibleCalendars", err);
-    });
-  }, [db, visibleCalendars]);
-
-  // hiddenTaskLists(左ペイン増分2)が変わるたびに IndexedDB meta へ永続化する。
-  // visibleCalendars の永続化 effect と同じ流儀(初回ロード完了までは待つ)
-  useEffect(() => {
-    if (!db || !hiddenTaskListsLoadedRef.current) return;
-    setHiddenTaskLists(db, hiddenTaskLists).catch((err) => {
-      console.error("kichijitsu: failed to persist hiddenTaskLists", err);
-    });
-  }, [db, hiddenTaskLists]);
-
-  // declinedVisibility(参加ステータス表示)が変わるたびに IndexedDB meta へ永続化する。
-  // hiddenTaskLists の永続化 effect と同じ流儀(初回ロード完了までは待つ)
-  useEffect(() => {
-    if (!db || !declinedVisibilityLoadedRef.current) return;
-    setDeclinedVisibilitySettings(db, declinedVisibility).catch((err) => {
-      console.error("kichijitsu: failed to persist declinedVisibility", err);
-    });
-  }, [db, declinedVisibility]);
-
-  // アカウント一覧ぶんのカレンダー一覧を取得し、state に反映する共通処理。
-  // 「me.accounts が増えたときの初回フェッチ」と「設定パネルを開いたときの
-  // 未取得/取得失敗アカウントのリトライ」の両方から使う。
-  // 初回連携時(=このアカウントの visibleCalendars が未設定)はデフォルトで primary のみ選択する
-  const fetchCalendarsFor = useCallback(
-    async (accounts: AccountDTO[], isCancelled: () => boolean) => {
-      for (const account of accounts) {
-        if (fetchInFlightRef.current.has(account.id)) continue; // 並行フェッチ防止
-        fetchInFlightRef.current.add(account.id);
-        try {
-          const calendars = await getJson<CalendarListEntryDTO[]>(
-            checkedFetch,
-            `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
-          );
-          if (isCancelled()) return;
-          setCalendarsByAccount((prev) => ({ ...prev, [account.id]: calendars }));
-          // このアカウントにまだ選択状態が無ければ(=サーバーにも configured なエントリが
-          // 無く、ローカルにも無い)primary をデフォルト選択し、その場で watch も登録し、
-          // 次回別端末でも同じ選択になるようサーバーにも保存する(初回連携時)
-          const alreadySelected = visibleCalendarsRef.current[account.id] !== undefined;
-          const primary = calendars.find((c) => c.primary) ?? calendars[0];
-          setVisibleCalendarsState((prev) => {
-            if (prev[account.id] !== undefined) return prev; // 既に選択状態があるなら上書きしない
-            if (!primary) return prev;
-            return { ...prev, [account.id]: [primary.id] };
-          });
-          if (!alreadySelected && primary) {
-            postWatch(account.id, primary.id, true);
-            putVisibleCalendars(account.id, [primary.id]);
-          }
-        } catch (err) {
-          console.error("kichijitsu: failed to load calendars", err);
-        } finally {
-          fetchInFlightRef.current.delete(account.id);
-        }
-      }
-    },
-    [checkedFetch, postWatch, putVisibleCalendars],
-  );
-
-  // me.accounts が増えるたびに、まだ取得していないアカウントのカレンダー一覧を取りに行く(初回のみ)
-  useEffect(() => {
-    const toFetch = me.accounts.filter((a) => !fetchedAccountsRef.current.has(a.id));
-    if (toFetch.length === 0) return;
-    for (const account of toFetch) fetchedAccountsRef.current.add(account.id);
-
-    let cancelled = false;
-    fetchCalendarsFor(toFetch, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [me.accounts, fetchCalendarsFor]);
-
-  // アカウント一覧ぶんのタスクリスト一覧を取得する(docs/google-tasks.md)。fetchCalendarsFor と
-  // 対になる処理だが、タスクは v1 でトグル UI が無いためデフォルト選択・watch 登録の類は無く、
-  // 単純に一覧を state へ反映するだけでよい。tasks スコープ未付与のアカウントは
-  // GET /api/tasklists が 403 を返す想定 — その場合はタスク機能オフとして静かにスキップする
-  // (審査ポリシー上、未使用スコープは要求しないため実装済みでもユーザーが同意していなければ 403 になる)。
-  // バックエンド不在(502 相当)やその他のネットワークエラーもコンソールを汚さないよう warn 止まりにする。
-  const fetchTaskListsFor = useCallback(
-    async (accounts: AccountDTO[], isCancelled: () => boolean) => {
-      for (const account of accounts) {
-        try {
-          const res = await checkedFetch(
-            `/api/tasklists?accountId=${encodeURIComponent(account.id)}`,
-          );
-          if (res.status === 403) {
-            // tasks スコープ未付与: タスク一覧の取得自体は静かにスキップしつつ、
-            // 設定モーダルの再連携導線用にアカウント id を覚えておく(挙動は従来どおり)。
-            if (isCancelled()) return;
-            setTasksScopeMissingAccounts((prev) => addToSet(prev, account.id));
-            continue;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/tasklists failed (${account.id}): ${res.status}`);
-            continue;
-          }
-          const data = (await res.json()) as TaskListsResponse;
-          if (isCancelled()) return;
-          setTaskListsByAccount((prev) => ({ ...prev, [account.id]: data.taskLists }));
-          // スコープを得られた(200)ので未付与集合から外す ―― 再連携後の再取得で消える
-          setTasksScopeMissingAccounts((prev) => removeFromSet(prev, account.id));
-        } catch (err) {
-          console.warn("kichijitsu: failed to load task lists", err);
-        }
-      }
-    },
-    [checkedFetch],
-  );
-
-  // me.accounts が増えるたびに、まだ取得していないアカウントのタスクリスト一覧を取りに行く(初回のみ)
-  useEffect(() => {
-    const toFetch = me.accounts.filter((a) => !fetchedTaskAccountsRef.current.has(a.id));
-    if (toFetch.length === 0) return;
-    for (const account of toFetch) fetchedTaskAccountsRef.current.add(account.id);
-
-    let cancelled = false;
-    fetchTaskListsFor(toFetch, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [me.accounts, fetchTaskListsFor]);
-
-  // 設定パネルを開いたとき、カレンダー一覧がまだ無いアカウント(未取得中、または
-  // 初回フェッチが失敗して calendarsByAccount に一度もエントリが入らなかったもの)を
-  // 再フェッチする。panelOpen が true になった瞬間にのみ試みる(閉じている間や、
-  // 開いたままの再レンダーごとに何度も走らないよう依存を panelOpen だけに絞る)
-  useEffect(() => {
-    if (!panelOpen) return;
-    const toRetry = me.accounts.filter((a) => calendarsByAccount[a.id] === undefined);
-    if (toRetry.length === 0) return;
-    let cancelled = false;
-    fetchCalendarsFor(toRetry, () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelOpen]);
-
-  // MCP トークン一覧の取得 (docs/mcp.md Part A、2026-07-20)。サーバーが正なので、設定パネルを
-  // 開いたときに毎回取り直す(カレンダー再フェッチの effect と同じ「panelOpen が true になった
-  // 瞬間にのみ」流儀)。失敗しても致命的ではないので warn のみに留める(block-rules と同じ)
-  useEffect(() => {
-    if (!panelOpen) return;
-    let cancelled = false;
-    checkedFetch("/api/mcp-tokens")
-      .then(async (res) => {
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/mcp-tokens failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as McpTokensResponse;
-        if (!cancelled) setMcpTokens(data.tokens);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/mcp-tokens failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [panelOpen, checkedFetch]);
-
-  // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
-  // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)。
-  // forceFull (2026-07-22、同期バックフィル用) は通常同期では省略して
-  // false 扱いにする — runSyncBackfillIfNeeded だけが明示的に true を渡す
-  const syncCalendarOnce = useCallback(
-    async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
-      if (!db) return;
-      // postJson ではなく sendJson なのは、失敗メッセージに (accountId/calendarId) を残すため
-      // ―― どのカレンダーの同期が失敗したかが console から読めなくなるのを避ける
-      const syncRes = await sendJson(
-        checkedFetch,
-        "POST",
-        "/api/sync",
-        buildSyncRequest(
-          accountId,
-          calendarId,
-          deviceIdRef.current,
-          forceFull,
-        ) satisfies SyncRequest,
-      );
-      if (!syncRes.ok) {
-        throw new Error(`POST /api/sync failed (${accountId}/${calendarId}): ${syncRes.status}`);
-      }
-      const syncData = (await syncRes.json()) as SyncResponse;
-      await applySyncResponse(db, store, allDayStore, syncData, {
-        accountId,
-        calendarId,
-        defaultColor,
-      });
-    },
-    [db, store, allDayStore, checkedFetch],
-  );
-
-  // 1つの (accountId, calendarId) を同期する共通処理。runSync のループ、SSE hello/changed、
-  // カレンダーを新規選択した直後の即時同期など複数経路から await なしで多重に発火しうるため、
-  // syncSchedulerRef (キー = `${accountId}:${calendarId}`) で直列化する。同一カレンダーの
-  // 増分同期と全同期(410 フォールバック)が交錯して IndexedDB の削除→再投入が競合するのを防ぐ
-  // (2026-07-21、sync/syncScheduler.ts 参照)。
-  // forceFull はそのまま syncCalendarOnce に通す — ただし schedule() は同一キーの走行中は
-  // 新しい run を無視して既存の run を再実行するだけ(sync/syncScheduler.ts の runLoop 参照)
-  // なので、理論上「非 forceFull の同期が走行中に forceFull の要求が来る」と forceFull が
-  // 無視されて通常の再実行になり得る。runSyncBackfillIfNeeded は起動時の runSync 完了を
-  // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
-  const syncCalendar = useCallback(
-    (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
-      syncSchedulerRef.current.schedule(calendarKey(accountId, calendarId), () =>
-        syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
-      ),
-    [syncCalendarOnce],
-  );
-
-  // 1つの (accountId, taskListId) を同期する共通処理(docs/google-tasks.md、syncCalendar のタスク版)。
-  // Tasks API には syncToken が無く、応答は常にそのタスクリストの全件 (protocol.ts 参照)。
-  const syncTaskList = useCallback(
-    async (accountId: string, taskListId: string) => {
-      if (!db) return;
-      // syncCalendarOnce と同じ理由で sendJson 止まり(メッセージの (accountId/taskListId) を残す)
-      const res = await sendJson(checkedFetch, "POST", "/api/tasks/sync", {
-        accountId,
-        taskListId,
-      } satisfies TasksSyncRequest);
-      if (!res.ok) {
-        throw new Error(`POST /api/tasks/sync failed (${accountId}/${taskListId}): ${res.status}`);
-      }
-      const data = (await res.json()) as TasksSyncResponse;
-      await applyTasksSyncResponse(db, taskStore, data, { accountId, taskListId });
-    },
-    [db, taskStore, checkedFetch],
-  );
-
-  // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色・primary か)。
-  // 手動同期ボタン・自動同期・SSE hello 受信時の一巡 sync がいずれもこれを起点にする。
-  // primary フラグは新規予定の書き込み先決定 (defaultWriteTarget、フェーズ5) にも使う
-  const selectedTargets = useCallback((): WriteTargetCandidate[] => {
-    const targets: WriteTargetCandidate[] = [];
-    for (const account of me.accounts) {
-      const calendars = calendarsByAccount[account.id] ?? [];
-      for (const calendarId of visibleCalendars[account.id] ?? []) {
-        const cal = calendars.find((c) => c.id === calendarId);
-        targets.push({
-          accountId: account.id,
-          calendarId,
-          primary: cal?.primary,
-          defaultColor: cal?.backgroundColor,
-        });
-      }
-    }
-    return targets;
-  }, [me.accounts, calendarsByAccount, visibleCalendars]);
-
-  // 取得済みの全 (accountId, taskListId) ペア一覧。v1 はタスクリストの表示 ON/OFF が無いため
-  // (docs/google-tasks.md の TODO)、fetchTaskListsFor で取れたものは無条件に同期対象にする
-  const selectedTaskListTargets = useCallback((): TaskListTarget[] => {
-    const targets: TaskListTarget[] = [];
-    for (const account of me.accounts) {
-      for (const taskList of taskListsByAccount[account.id] ?? []) {
-        targets.push({ accountId: account.id, taskListId: taskList.id });
-      }
-    }
-    return targets;
-  }, [me.accounts, taskListsByAccount]);
-
-  // 新規予定 (フェーズ5) のデフォルトの書き込み先: 選択中カレンダーのうち primary が
-  // あればそれ、無ければ先頭 (resolveDefaultWriteTarget、規則は eventCreate.ts 参照)。
-  // null なら空き領域クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
-  const defaultWriteTarget = useMemo(
-    () => resolveDefaultWriteTarget(selectedTargets()),
-    [selectedTargets],
-  );
-
-  // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペア +
-  // 取得済みの全 (accountId, taskListId) ペアを並行に同期する(docs/google-tasks.md でタスクも合流)
-  const runSync = useCallback(async () => {
-    if (!db) return;
-    const targets = selectedTargets();
-    const taskTargets = selectedTaskListTargets();
-    if (targets.length === 0 && taskTargets.length === 0) return;
-
-    setSyncStatus("syncing");
-    const results = await Promise.allSettled([
-      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor)),
-      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
-    ]);
-    let hadError = false;
-    for (const result of results) {
-      if (result.status === "rejected") {
-        hadError = true;
-        console.error("kichijitsu: sync failed", result.reason);
-      }
-    }
-    setSyncStatus(hadError ? "error" : "idle");
-  }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
-
-  // 同期バックフィル (2026-07-22、旧 runOooBackfillIfNeeded の一般化。db/database.ts の
-  // CURRENT_SYNC_BACKFILL_VERSION コメント参照)。起動時の自動同期 (runSync、下の useEffect) が
-  // 終わった直後に1回だけ呼ぶ: runSync 自体を forceFull にはしない(手動「同期」ボタンや
-  // SSE hello/changed からも runSync/syncCalendar 経由の通常同期が随時走るため、runSync 自体を
-  // forceFull 化すると毎回全同期になってしまう。起動直後の1回だけ、という条件を素直に表せるのは
-  // こちらの「runSync の後に別途走らせる」方式のほうだった)。
-  //
-  // 選択中の全 (accountId, calendarId) を forceFull: true で同期し、1つも失敗しなければ
-  // 現行世代 (CURRENT_SYNC_BACKFILL_VERSION) を保存する。一部でも失敗したら保存せず、次回起動時に
-  // また全対象を再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
-  // setSyncBackfillVersion コメント参照)。
-  const runSyncBackfillIfNeeded = useCallback(async () => {
-    if (!db) return;
-    const savedVersion = await getSyncBackfillVersion(db);
-    const targets = decideSyncBackfillTargets(
-      savedVersion,
-      CURRENT_SYNC_BACKFILL_VERSION,
-      selectedTargets(),
-    );
-    if (targets.length === 0) return;
-
-    const results = await Promise.allSettled(
-      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
-    );
-    const allOk = results.every((r) => r.status === "fulfilled");
-    if (allOk) {
-      await setSyncBackfillVersion(db, CURRENT_SYNC_BACKFILL_VERSION);
-    } else {
-      for (const result of results) {
-        if (result.status === "rejected") {
-          console.error("kichijitsu: sync backfill failed, will retry next launch", result.reason);
-        }
-      }
-    }
-  }, [db, selectedTargets, syncCalendar]);
-
-  // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
-  // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
-  const handleServerHello = useCallback(async () => {
-    if (!db) return;
-    const targets = selectedTargets();
-    if (targets.length === 0) return;
-
-    setSyncStatus("syncing");
-    let hadError = false;
-    for (const t of targets) {
-      try {
-        await syncCalendar(t.accountId, t.calendarId, t.defaultColor);
-      } catch (err) {
-        hadError = true;
-        console.error("kichijitsu: SSE hello sync failed", err);
-      }
-    }
-    setSyncStatus(hadError ? "error" : "idle");
-  }, [db, selectedTargets, syncCalendar]);
-
-  // SSE changed 受信時: 該当 (accountId, calendarId) が選択中の場合のみ sync する
-  // (通知のペイロード自体は信用せず、選択状態は常にクライアント側の visibleCalendars で判定する)
-  const handleServerChanged = useCallback(
-    (accountId: string, calendarId: string) => {
-      if (!db) return;
-      if (!(visibleCalendars[accountId] ?? []).includes(calendarId)) return;
-      const defaultColor = calendarsByAccount[accountId]?.find(
-        (c) => c.id === calendarId,
-      )?.backgroundColor;
-
-      setSyncStatus("syncing");
-      syncCalendar(accountId, calendarId, defaultColor)
-        .then(() => setSyncStatus("idle"))
-        .catch((err) => {
-          console.error("kichijitsu: SSE changed sync failed", err);
-          setSyncStatus("error");
-        });
-    },
-    [db, visibleCalendars, calendarsByAccount, syncCalendar],
-  );
-
-  // アカウントが1つ以上連携済みの間だけ SSE (GET /api/events) に接続する。
-  // hello/changed のハンドラは上の handleServerHello/handleServerChanged に委譲し、
-  // 接続状態は useOffline (markOnline/markOffline) と連動させる
-  useServerEvents({
-    enabled: me.accounts.length > 0,
-    onHello: handleServerHello,
-    onChanged: handleServerChanged,
-    onOpen: markOnline,
-    onError: markOffline,
+  // GitHub 連携 (docs/github-integration.md) のデータ取得は hooks/useGitHubData.ts へ移した
+  // (リファクタリング フェーズ2 ③、2026-07-25)。アイテムレーン(①)・実績オーバーレイ(③)・
+  // CI/Actions 実行(④b)・作業キュー(②)・右ペインの repo/issue プルダウンが対象で、
+  // 取得タイミング・300ms デバウンス・isTauri() のプロバイダ分岐・401/409/502 の扱いは
+  // すべてフック側にある。ここは配線だけ。
+  // 呼び出し位置は移設前の各 effect の登録順(items → activity → ci → queue)をそのまま
+  // 保つためここに置いてある(依存配列はレンダー中に評価されるので、後段で計算する値には
+  // 触れられない ―― commit 推定だけ別フックに分けているのはそれが理由。下の
+  // useGitHubPrCommitEstimates 参照)。返り値は JSX/呼び出し側の既存の名前に別名で受けて、
+  // 呼び出し箇所を一切変えずに済ませている
+  const {
+    githubAuthExpired,
+    setGithubAuthExpired,
+    githubQueue,
+    queueLoading,
+    queueAuthExpired,
+    fetchGithubQueue,
+    githubActivity,
+    activityVisible,
+    toggleActivityVisible: handleToggleActivityVisible,
+    githubCiRuns,
+    ciVisible,
+    toggleCiVisible: handleToggleCiVisible,
+    fetchReposForPane,
+    fetchRepoIssuesForPane,
+    clearGitHubData,
+  } = useGitHubData({
+    db,
+    github: me.github,
+    githubStore,
+    paneOpen,
+    view,
+    timelineStart,
+    dayCount,
+    timeZone,
+    checkedFetch,
   });
 
-  // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
-  // 完了後に続けて runSyncBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
-  // (runSync 自体)とバックフィルの forceFull 同期が同時に飛んで syncScheduler 上で
-  // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある
-  useEffect(() => {
-    if (!db || me.accounts.length === 0 || Object.keys(visibleCalendars).length === 0) return;
-    if (autoSyncedRef.current) return;
-    autoSyncedRef.current = true;
-    runSync().then(() => runSyncBackfillIfNeeded());
-  }, [db, me.accounts, visibleCalendars, runSync, runSyncBackfillIfNeeded]);
+  // MCP トークン一覧 + 発行/失効(hooks/useMcpTokens.ts)。取得タイミング(設定パネルが
+  // 開いた瞬間だけ)も含めてフック側にあるので、ここは配線だけ
+  const {
+    mcpTokens,
+    createMcpToken: handleCreateMcpToken,
+    deleteMcpToken: handleDeleteMcpToken,
+  } = useMcpTokens({ panelOpen, checkedFetch });
 
-  // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
-  // (docs/google-tasks.md)。fetchTaskListsFor の完了タイミングは calendarsByAccount/visibleCalendars の
-  // 準備完了と揃わないことがあるため、上の「起動時1回だけ」の autoSyncedRef とは別に、
-  // タスクリスト単位で「初めて見つかった」ことを autoSyncedTaskListsRef で判定する。
-  // Tasks API には push 通知が無い (docs/google-tasks.md) ため、以降の更新反映は「同期」ボタン
-  // (runSync) 頼みになる — TODO: 定期ポーリングでの自動更新
-  useEffect(() => {
-    if (!db) return;
-    const targets = selectedTaskListTargets();
-    const toSync = targets.filter(
-      (t) => !autoSyncedTaskListsRef.current.has(taskListKey(t.accountId, t.taskListId)),
-    );
-    if (toSync.length === 0) return;
-    for (const t of toSync)
-      autoSyncedTaskListsRef.current.add(taskListKey(t.accountId, t.taskListId));
-    Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId))).then(
-      (results) => {
-        for (const result of results) {
-          if (result.status === "rejected") {
-            console.error("kichijitsu: initial task list sync failed", result.reason);
-          }
-        }
-      },
-    );
-  }, [db, taskListsByAccount, selectedTaskListTargets, syncTaskList]);
+  /**
+   * Google カレンダー/タスクの同期(hooks/useCalendarSync.ts)。1カレンダー単位の同期
+   * (POST /api/sync、syncScheduler による直列化つき)・タスクリストの同期・手動/起動時の
+   * 一巡同期 (runSync) と同期バックフィル・SSE (hello/changed) の配線・新規予定の既定の
+   * 書き込み先 (defaultWriteTarget) が入っている(リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 表示状態は useGoogleAccounts から**一方向に**渡すだけで、逆向き(「カレンダーを選んだら
+   * そのカレンダーを即同期する」)はこの下の handleToggleCalendar が繋ぐ ―― 相互参照する
+   * フックを作らず、循環は配線層に置くという判断。
+   *
+   * 呼び出し位置は移設前の syncCalendarOnce 宣言位置に揃えてある(このフックが登録する
+   * effect は SSE 接続 → 起動時の自動同期 → タスクリストの初回同期の3本で、useMcpTokens の
+   * 後・useEventMutations の前という登録順を保つため)。
+   */
+  const {
+    syncStatus,
+    defaultWriteTarget,
+    runSync,
+    syncCalendar,
+    setDeviceId,
+    forgetAutoSyncedTaskLists,
+  } = useCalendarSync({
+    db,
+    store,
+    allDayStore,
+    taskStore,
+    accounts: me.accounts,
+    calendarsByAccount,
+    visibleCalendars,
+    taskListsByAccount,
+    checkedFetch,
+    markOnline,
+    markOffline,
+  });
 
-  // 左ペイン(CalendarPane、カレンダーナビゲーション増分1)でのカレンダー表示チェック操作
-  // (旧: カレンダー設定パネル内のチェック、増分1で CalendarPane へ移設。ロジックは無変更)。
-  // 選択時は即座にそのカレンダーだけ同期し、選択解除時はその (accountId, calendarId) の
-  // ローカルデータを削除して store から取り除く
+  // 同期中の枡インジケーター。syncStatus が useCalendarSync の返り値になったため、
+  // initIndicator (初回ロード) と並べて上に置くことはできず(フックの引数はレンダー中に
+  // 評価されるため)ここへ下げてある。挙動は同じ(useMasuVisible は自身の active だけを見る)
+  const syncIndicator = useMasuVisible(syncStatus === "syncing");
+
+  /*
+   * 左ペイン(CalendarPane、カレンダーナビゲーション増分1)でのカレンダー表示チェック操作。
+   * useGoogleAccounts(表示状態)と useCalendarSync(同期)を繋ぐ**グルー**で、意図的に
+   * App.tsx に残してある ―― トグルは選択状態を変えるだけでなく「選択した瞬間にその
+   * カレンダーだけ同期する」ため、フックの中に置くと両者が相互参照してしまう
+   * (リファクタリング フェーズ2 ⑥、2026-07-25)。
+   *
+   * 順序も移設前のまま: state の楽観更新 → POST /api/watch → PUT /api/visible-calendars
+   * (ここまで toggleCalendarVisibility)→ db が無ければ打ち切り → 選択時のみ即時同期。
+   */
   const handleToggleCalendar = useCallback(
     (accountId: string, calendarId: string, nextChecked: boolean) => {
-      const current = visibleCalendars[accountId] ?? [];
-      const nextForAccount = nextChecked
-        ? current.includes(calendarId)
-          ? current
-          : [...current, calendarId]
-        : current.filter((id) => id !== calendarId);
-      setVisibleCalendarsState((prev) => ({ ...prev, [accountId]: nextForAccount }));
-      postWatch(accountId, calendarId, nextChecked);
-      // サーバーへ保存(端末間同期、2026-07-20)。UI/IndexedDB は上ですでに楽観的更新済み
-      putVisibleCalendars(accountId, nextForAccount);
+      toggleCalendarVisibility(accountId, calendarId, nextChecked);
 
       if (!db) return;
 
@@ -1620,93 +494,20 @@ function App() {
         });
       }
     },
-    [db, visibleCalendars, calendarsByAccount, syncCalendar, postWatch, putVisibleCalendars],
+    [db, calendarsByAccount, syncCalendar, toggleCalendarVisibility],
   );
 
-  // 左ペイン(CalendarPane、増分2)でのタスクリスト表示チェック操作。カレンダー選択
-  // (handleToggleCalendar)と違いサーバー同期は行わず、ローカルの hiddenTaskLists
-  // (「明示的に OFF にした集合」)を更新するだけ ―― タスクの同期(syncTaskList)自体は
-  // 表示 ON/OFF に関係なく続行する(selectedTaskListTargets 参照、再 ON 時の即時性を優先)
-  const handleToggleTaskList = useCallback(
-    (accountId: string, taskListId: string, nextChecked: boolean) => {
-      const key = taskListKey(accountId, taskListId);
-      // 表示 ON なら「非表示集合」から外す / OFF なら入れる。setOps は変化が無ければ同じ参照を
-      // 返すので、同じ状態のまま呼ばれても無駄な再レンダー/再永続化が起きない
-      setHiddenTaskListsState((prev) =>
-        nextChecked ? removeFromSet(prev, key) : addToSet(prev, key),
-      );
-    },
-    [],
-  );
-
-  // 左ペイン(CalendarPane)の「表示」セクションにある2チェックの操作(参加ステータス表示、
-  // 2026-07-22)。hiddenTaskLists と同じくローカル state を直接更新するだけ(サーバー同期無し)。
-  // 「不参加を表示」チェック本体。
-  const handleToggleShowDeclined = useCallback(() => {
-    setDeclinedVisibilityState((prev) => ({ ...prev, showDeclined: !prev.showDeclined }));
-  }, []);
-
-  // サブオプション「自分が主催の予定は残す」。showDeclined が true のときは意味を持たない
-  // (shouldHideDeclined 参照)が、状態自体は独立して保持する(再度 showDeclined を OFF にした
-  // ときに前回の選択を覚えていてほしいため)。
-  const handleToggleKeepOrganizerDeclined = useCallback(() => {
-    setDeclinedVisibilityState((prev) => ({
-      ...prev,
-      keepOrganizerDeclined: !prev.keepOrganizerDeclined,
-    }));
-  }, []);
-
-  // アカウント単位の連携解除。サーバー側 (Google revoke + データ削除 + cookie 更新) を
-  // DELETE /api/account に任せ、成功したらそのアカウントに関する状態(accounts・カレンダー一覧・
-  // 選択状態・ローカルの google データ)を全て畳む。失敗時は呼び出し元(パネルの行UI)が
-  // catch して表示するので、ここでは reject をそのまま伝播する
+  /*
+   * アカウント単位の連携解除。本体(DELETE /api/account → 状態の畳み込み → ローカルデータ
+   * 削除)は useGoogleAccounts にあり、ここは同期側の既知集合(自動同期済みタスクリスト、
+   * useCalendarSync)の掃除関数を渡すだけのグルー。移設前はその掃除が畳み込みとローカル
+   * データ削除の**間**にあったため、位置を変えずに済むよう引数で渡す形にしている
+   * (handleToggleCalendar と同じ「循環は配線層に置く」方針)。
+   * 失敗は呼び出し元(パネルの行UI)が catch して表示するので、reject はそのまま伝播する。
+   */
   const handleDisconnectAccount = useCallback(
-    async (accountId: string) => {
-      await deleteJson(checkedFetch, "/api/account", { accountId } satisfies DisconnectRequest);
-
-      setMe((prev) => {
-        const accounts = prev.accounts.filter((a) => a.id !== accountId);
-        const { [accountId]: _removedVisible, ...remainingVisibleCalendars } =
-          prev.visibleCalendars;
-        return {
-          ...prev,
-          connected: accounts.length > 0,
-          accounts,
-          visibleCalendars: remainingVisibleCalendars,
-        };
-      });
-      setCalendarsByAccount((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setVisibleCalendarsState((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      fetchedAccountsRef.current.delete(accountId);
-
-      // タスク側の状態も畳む(docs/google-tasks.md)。カレンダーと同じ流儀
-      setTaskListsByAccount((prev) => {
-        const { [accountId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      fetchedTaskAccountsRef.current.delete(accountId);
-      setTasksScopeMissingAccounts((prev) => removeFromSet(prev, accountId));
-      for (const key of [...autoSyncedTaskListsRef.current]) {
-        if (key.startsWith(`${accountId}:`)) autoSyncedTaskListsRef.current.delete(key);
-      }
-
-      if (db) {
-        const { deletedOccurrenceIds, deletedAllDayIds } = await deleteGoogleData(
-          db,
-          (k) => k.accountId === accountId,
-        );
-        store.remove(deletedOccurrenceIds);
-        allDayStore.remove(deletedAllDayIds);
-        await deleteTasksForAccount(db, taskStore, accountId);
-      }
-    },
-    [db, store, allDayStore, taskStore, checkedFetch],
+    (accountId: string) => disconnectAccount(accountId, forgetAutoSyncedTaskLists),
+    [disconnectAccount, forgetAutoSyncedTaskLists],
   );
 
   // GitHub 連携解除 (docs/github-integration.md フェーズ①Part B)。DELETE /api/github で
@@ -1715,609 +516,58 @@ function App() {
   // (設定パネルのインライン確認 UI、handleDisconnectAccount と同じ流儀)が catch して表示する
   const handleDisconnectGitHub = useCallback(async () => {
     await deleteJson(checkedFetch, "/api/github");
-    setMe((prev) => ({ ...prev, github: null }));
-    setGithubAuthExpired(false);
-    // 作業キュー(フェーズ②Part B)も畳む。IndexedDB には入れていないので state を空にするだけ
-    setGithubQueue([]);
-    setQueueAuthExpired(false);
-    // 実績オーバーレイ(フェーズ③Part B)も同じ流儀で畳む
-    setGithubActivity([]);
-    // CI/Actions 実行オーバーレイ(フェーズ④b)も同じ流儀で畳む
-    setGithubCiRuns([]);
-    if (db) {
-      await clearGitHubItems(db);
-      await githubStore.batch(async () => {
-        githubStore.clear();
-      });
-    }
-  }, [db, githubStore, checkedFetch]);
+    // me.github を null に戻すのは useGoogleAccounts 側(me の持ち主)、GitHub 由来の
+    // ローカルデータ(作業キュー・実績/CI オーバーレイ・再連携フラグの state と、
+    // IndexedDB/store のアイテムレーン)を畳むのは useGitHubData 側の責務。
+    // この2つのフックを繋ぐグルーなので handleToggleCalendar と同じくここに残してある
+    clearGitHubConnection();
+    await clearGitHubData();
+  }, [checkedFetch, clearGitHubConnection, clearGitHubData]);
 
-  // MCP トークン発行 (docs/mcp.md Part A、2026-07-20)。設定パネルの「トークンを発行」から呼ぶ。
-  // レスポンスに生トークンが乗るのはこの一度きり — ここでは McpTokenDTO 相当分だけを
-  // mcpTokens state に積み、生値はそのまま呼び出し元(設定パネル)へ返して表示を委ねる
-  // (パネル側がローカル state として持ち、「閉じる」でのみ消える)。失敗時は throw する。
-  const handleCreateMcpToken = useCallback(
-    async (label: string | undefined): Promise<McpTokenCreateResponse> => {
-      const created = await postJson<McpTokenCreateRequest, McpTokenCreateResponse>(
-        checkedFetch,
-        "/api/mcp-tokens",
-        { label },
-      );
-      setMcpTokens((prev) => [
-        ...prev,
-        { id: created.id, label: created.label, createdAt: created.createdAt, lastUsedAt: null },
-      ]);
-      return created;
-    },
-    [checkedFetch],
-  );
+  /**
+   * 予定・タスクの変更系(hooks/useEventMutations.ts)。ドラッグ/リサイズの確定・新規作成・
+   * 削除・編集フォーム保存・RSVP・移動確認ダイアログ・タスクの完了トグルと、それらの
+   * ロールバック通知 (saveError) が入っている。楽観更新→失敗時ロールバックの順序、
+   * override の既存 patch マージ、422→RsvpNotAttendeeError の振り替えはすべてフック側。
+   *
+   * 呼び出し位置は移設前に flashSaveError / handlePersist 等があったここに揃えてある ――
+   * このフックが登録する effect は saveError のタイマークリア(依存 [])1本だけなので
+   * 位置の自由度は高いが、effect の登録順を移設前と同じに保つため動かしていない。
+   * 返り値は JSX 側の既存の名前に別名で受けて、呼び出し箇所を一切変えずに済ませている。
+   */
+  const {
+    saveError,
+    persist: handlePersist,
+    createEvent: handleCreate,
+    deleteOccurrence: handleDeleteOccurrence,
+    moveConfirm,
+    requestMoveConfirm: handleRequestMoveConfirm,
+    confirmMove: handleConfirmMove,
+    cancelMove: handleCancelMove,
+    saveEdit: handleEditSave,
+    rsvp: handleRsvp,
+    toggleTask: handleToggleTask,
+  } = useEventMutations({ db, store, allDayStore, taskStore, checkedFetch, timeZone });
 
-  // MCP トークン失効 (docs/mcp.md Part A、2026-07-20)。設定パネルの行ごとの「失効」確定から呼ぶ。
-  // 204 で成功、失敗時は throw してパネル側の行ごとの確認 UI にエラー表示を委ねる
-  // (handleDeleteBlockRule と同じ流儀)
-  const handleDeleteMcpToken = useCallback(
-    async (id: string) => {
-      await deleteJson(checkedFetch, "/api/mcp-tokens", { id } satisfies McpTokenDeleteRequest);
-      setMcpTokens((prev) => prev.filter((t) => t.id !== id));
-    },
-    [checkedFetch],
-  );
-
-  // BlockRulesOverlay の作成フォームから呼ぶ。id 無し=新規作成、有り=更新(今回の UI からは
-  // 常に新規作成のみ使うが、将来の編集導線のためリクエストは仕様通り両対応で扱う)。
-  // 失敗時は throw してオーバーレイ側(呼び出し元)にエラー表示を委ねる
-  const handleCreateBlockRule = useCallback(
-    async (req: BlockRuleUpsertRequest) => {
-      const saved = await postJson<BlockRuleUpsertRequest, BlockRuleDTO>(
-        checkedFetch,
-        "/api/block-rules",
-        req,
-      );
-      setBlockRules((prev) => {
-        const idx = prev.findIndex((r) => r.id === saved.id);
-        if (idx === -1) return [...prev, saved];
-        const next = [...prev];
-        next[idx] = saved;
-        return next;
-      });
-    },
-    [checkedFetch],
-  );
-
-  // BlockRulesOverlay のルール一覧の削除ボタンから呼ぶ。204 で成功、失敗時は throw して
-  // オーバーレイ側にエラー表示を委ねる(行ごとの確認 UI は持たない、削除は即時実行)
-  const handleDeleteBlockRule = useCallback(
-    async (id: string) => {
-      await deleteJson(checkedFetch, "/api/block-rules", buildBlockRuleDeleteRequest(id));
-      setBlockRules((prev) => prev.filter((r) => r.id !== id));
-    },
-    [checkedFetch],
-  );
-
-  // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
-  const flashSaveError = useCallback(() => {
-    if (saveErrorTimeoutRef.current !== undefined) {
-      window.clearTimeout(saveErrorTimeoutRef.current);
-    }
-    setSaveError(true);
-    saveErrorTimeoutRef.current = window.setTimeout(() => {
-      setSaveError(false);
-      saveErrorTimeoutRef.current = undefined;
-    }, 4000);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (saveErrorTimeoutRef.current !== undefined)
-        window.clearTimeout(saveErrorTimeoutRef.current);
-    };
-  }, []);
-
-  // ドラッグ確定時の永続化(フェーズ5)。store.update は WeekGrid 側で既に同期的に
-  // 呼ばれている(楽観的更新)。ここでは IndexedDB への書き込みに加えて、
-  // source==='google' な occurrence は POST /api/event/patch で Google へも書き戻す。
-  // 書き戻しが失敗した場合(非2xx・ネットワークエラー)は store と IndexedDB を
-  // 変更前の状態にロールバックし、ユーザーに数秒間通知する。
-  //
-  // 書き戻し成功時、正本は次の同期 (SSE changed → /api/sync) で還流してくる想定
-  // (protocol.ts の EventPatchRequest コメント参照)。自分自身が書いた変更が
-  // 同じ id へそのまま上書きされるだけなので、冪等であり特別な処理は不要。
-  const handlePersist = useCallback(
-    (updated: Occurrence, previous: Occurrence | undefined) => {
-      if (!db) return;
-      async function run() {
-        if (!db) return;
-
-        // シリーズ由来なら override を書く前に、ロールバック用に「変更前の override」を
-        // 覚えておく(元々 override が無かった/別内容だったケースの両方に対応する)
-        const seriesId = updated.seriesId;
-        const originalStartMs = updated.originalStartMs;
-        const overrideId =
-          seriesId && originalStartMs !== undefined
-            ? instanceId(seriesId, originalStartMs)
-            : undefined;
-        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null;
-
-        if (overrideId && seriesId && originalStartMs !== undefined) {
-          // 既存 patch をスプレッドしてマージする(handleRsvp と同じ流儀)。丸ごと置き換えると、
-          // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference /
-          // responseStatus / isOrganizer / isWorkingLocation や、編集フォームが書いた
-          // title/location/description が消え、再展開でシリーズ側の値に化けてしまう。
-          await putOverride(db, {
-            id: overrideId,
-            seriesId,
-            originalStartMs,
-            patch: {
-              ...(previousOverride?.patch ?? {}),
-              startMs: updated.startMs,
-              endMs: updated.endMs,
-            },
-          });
-        }
-        await putOccurrence(db, updated);
-
-        // ローカルのみの occurrence はここまで(Google への書き戻し対象外)
-        if (updated.source !== "google") return;
-
-        const patchReq = buildEventPatchRequest(updated, timeZone);
-        let ok = false;
-        if (patchReq) {
-          try {
-            const res = await checkedFetch("/api/event/patch", jsonInit("POST", patchReq));
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/event/patch failed (${updated.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/event/patch failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build EventPatchRequest, skipping write-back",
-            updated.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: store・IndexedDB を変更前の状態に戻す
-        if (previous) {
-          store.update(previous);
-          await putOccurrence(db, previous);
-        }
-        if (overrideId) {
-          if (previousOverride) {
-            await putOverride(db, previousOverride);
-          } else {
-            await deleteOverridesByIds(db, [overrideId]);
-          }
-        }
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist occurrence update", err);
-      });
-    },
-    [db, store, checkedFetch, timeZone, flashSaveError],
-  );
-
-  // 新規予定の楽観的作成(フェーズ5)。DayColumn(空き領域クリック/ドラッグ)がタイトルを
-  // 確定した瞬間に呼ばれる。仮 id (local-pending-<uuid>) の occurrence を即座に
-  // store/IndexedDB へ入れて表示し、POST /api/event/create で Google へ書き込む。
-  // 成功したら仮 occurrence を確定 id (`g:<accountId>:<calendarId>:<eventId>`) の
-  // occurrence に差し替える — 以後 SSE/同期で同じ予定が届いても id が一致するため
-  // 冪等に上書きされるだけで済み、重複表示は起きない(eventCreate.ts のコメント参照)。
-  // 失敗時は仮 occurrence を削除してロールバックし、saveError を表示する。
-  const handleCreate = useCallback(
-    (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => {
-      if (!db) return;
-      const pending = buildPendingOccurrence({ title, startMs, endMs, target });
-      // 楽観的表示: 応答を待たずに即座に見た目へ反映する
-      store.update(pending);
-      async function run() {
-        if (!db) return;
-        await putOccurrence(db, pending);
-
-        let ok = false;
-        let eventId: string | undefined;
-        try {
-          const res = await checkedFetch(
-            "/api/event/create",
-            jsonInit("POST", buildEventCreateRequest({ title, startMs, endMs, target, timeZone })),
-          );
-          ok = res.ok;
-          if (ok) {
-            const data = (await res.json()) as EventCreateResponse;
-            eventId = data.eventId;
-          } else {
-            console.error(
-              `kichijitsu: POST /api/event/create failed (${pending.id}): ${res.status}`,
-            );
-          }
-        } catch (err) {
-          console.error("kichijitsu: POST /api/event/create failed", err);
-        }
-
-        if (ok && eventId) {
-          const finalized = finalizeCreatedOccurrence(pending, target, eventId);
-          await deleteOccurrencesByIds(db, [pending.id]);
-          await putOccurrence(db, finalized);
-          // remove→update の間の空フレームを1回の通知にまとめる(点滅防止、他の箇所と同じ流儀)
-          await store.batch(() => {
-            store.remove([pending.id]);
-            store.update(finalized);
-          });
-          return;
-        }
-
-        // ロールバック: 仮 occurrence を削除
-        await deleteOccurrencesByIds(db, [pending.id]);
-        store.remove([pending.id]);
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist new occurrence", err);
-      });
-    },
-    [db, store, checkedFetch, timeZone, flashSaveError],
-  );
-
-  // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
-  // から呼ばれる。occurrence を即座に store/IndexedDB から取り除き、シリーズ由来の
-  // 1回分なら override (patch: null = EXDATE 相当、model/series.ts 参照) を書いて
-  // 再展開後も現れないようにする(v1 の簡易実装: 本来は EXDATE をシリーズ側に足すのが
-  // 正だが、既存の override 機構を流用する)。POST /api/event/delete で Google へ
-  // 書き戻し、失敗時は occurrence(と override)を復元してロールバックし、saveError を表示する。
-  // 成功後に SSE/同期で cancelled が届いても既に消えているため冪等。
-  const handleDeleteOccurrence = useCallback(
-    (occurrence: Occurrence) => {
-      if (!db) return;
-      async function run() {
-        if (!db) return;
-
-        const seriesId = occurrence.seriesId;
-        const originalStartMs = occurrence.originalStartMs;
-        const overrideId =
-          seriesId && originalStartMs !== undefined
-            ? instanceId(seriesId, originalStartMs)
-            : undefined;
-        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null;
-
-        // 楽観的削除: 応答を待たずに即座に見た目から消す
-        store.remove([occurrence.id]);
-        await deleteOccurrencesByIds(db, [occurrence.id]);
-        if (overrideId && seriesId && originalStartMs !== undefined) {
-          await putOverride(db, { id: overrideId, seriesId, originalStartMs, patch: null });
-        }
-
-        const deleteReq = buildEventDeleteRequest(occurrence);
-        let ok = false;
-        if (deleteReq) {
-          try {
-            const res = await checkedFetch("/api/event/delete", jsonInit("POST", deleteReq));
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/event/delete failed (${occurrence.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/event/delete failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build EventDeleteRequest, skipping delete",
-            occurrence.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: occurrence と override を復元
-        store.update(occurrence);
-        await putOccurrence(db, occurrence);
-        if (overrideId) {
-          if (previousOverride) {
-            await putOverride(db, previousOverride);
-          } else {
-            await deleteOverridesByIds(db, [overrideId]);
-          }
-        }
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to delete occurrence", err);
-      });
-    },
-    [db, store, checkedFetch, flashSaveError],
-  );
-
-  // ---- ドラッグ移動の確認ダイアログ (フェーズ2、2026-07-22) ----
-  // WeekGrid.handleCommit は kind==='move' で実際に時刻が変わったときだけこれを呼ぶ。
-  // 呼ばれた時点では store.update(updated) は既に済んでいる(楽観的な見た目の反映)が、
-  // handlePersist (IndexedDB 書き込み・Google 書き戻し) はまだ呼ばれていない ―― 「確定保留」
-  // 状態を表す moveConfirm state に previous/updated を保持し、確認結果に応じて
-  // handlePersist を呼ぶ(移動する)か、store だけ previous に戻す(キャンセル)かを行う。
-
-  const handleRequestMoveConfirm = useCallback((updated: Occurrence, previous: Occurrence) => {
-    setMoveConfirm({ updated, previous });
-  }, []);
-
-  const handleConfirmMove = useCallback(() => {
-    if (!moveConfirm) return;
-    handlePersist(moveConfirm.updated, moveConfirm.previous);
-    setMoveConfirm(null);
-  }, [moveConfirm, handlePersist]);
-
-  const handleCancelMove = useCallback(() => {
-    if (moveConfirm) store.update(moveConfirm.previous);
-    setMoveConfirm(null);
-  }, [moveConfirm, store]);
-
-  // ---- 予定の編集フォーム (フェーズ2、2026-07-22) ----
-  // 「保存ボタン方式」(ユーザー決定): ドラッグ確定 (handlePersist) と違い楽観的更新は行わない
-  // ―― POST /api/event/patch が成功して初めて store/IndexedDB へ反映する。そのため失敗時の
-  // ロールバックは不要で、EventEditForm 側がエラー表示してフォームを開いたまま再試行できる
-  // ようにするだけで良い(このハンドラは reject をそのまま投げ返すだけ)。
-  //
-  // 終日⇔時刻の変換 (isAllDay トグル): 元が Occurrence で draft.isAllDay===true、または
-  // 元が AllDayOccurrence で draft.isAllDay===false のとき、occurrenceStore⇔allDayStore
-  // (および IndexedDB の occurrences⇔allDayOccurrences ストア)の間で置き換える
-  // (id は Google の実 event id に対応する不変のキーなので、ストアを跨いでも同じ id を使う)。
-  const handleEditSave = useCallback(
-    async (original: Occurrence | AllDayOccurrence, draft: EventEditDraft): Promise<void> => {
-      if (!db) throw new Error("database not ready");
-      const patchReq = buildEventEditPatchRequest(original, draft, timeZone);
-      if (!patchReq) {
-        throw new Error("kichijitsu: could not build edit EventPatchRequest");
-      }
-      // httpJson の postJson ではなく sendJson + 自前 throw にしてあるのは、
-      // このメッセージ(kichijitsu: 接頭辞 + "(edit)")を変えないため
-      const res = await sendJson(checkedFetch, "POST", "/api/event/patch", patchReq);
-      if (!res.ok) {
-        throw new Error(`kichijitsu: POST /api/event/patch (edit) failed: ${res.status}`);
-      }
-
-      const wasAllDay = !("startMs" in original);
-
-      if (draft.isAllDay) {
-        const nextAllDay = applyDraftToAllDayOccurrence(original, draft, timeZone);
-        if (!wasAllDay) {
-          // 時刻予定 → 終日予定: occurrenceStore/IndexedDB から取り除く
-          store.remove([original.id]);
-          await deleteOccurrencesByIds(db, [original.id]);
-        }
-        allDayStore.update(nextAllDay);
-        await putAllDayOccurrences(db, [nextAllDay]);
-        return;
-      }
-
-      const nextOcc = applyDraftToOccurrence(original, draft);
-      if (wasAllDay) {
-        // 終日予定 → 時刻予定: allDayStore/IndexedDB から取り除く
-        allDayStore.remove([original.id]);
-        await deleteAllDayOccurrencesByIds(db, [original.id]);
-      } else if (
-        original.seriesId &&
-        "originalStartMs" in original &&
-        original.originalStartMs !== undefined
-      ) {
-        // シリーズ由来の1回分: override にも編集内容を書く(handlePersist と同じ流儀。
-        // これが無いと再展開のたびにタイトル/場所/説明がシリーズ側の値に巻き戻ってしまう)。
-        // 既存 patch はスプレッドしてマージする(handleRsvp と同じ流儀) ―― 丸ごと置き換えると
-        // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference / responseStatus /
-        // isOrganizer / isWorkingLocation が消え、Meet の参加リンクや参加ステータスが再展開後に
-        // シリーズ側の値へ化けてしまう。
-        const overrideId = instanceId(original.seriesId, original.originalStartMs);
-        const existingOverride = await getOverride(db, overrideId);
-        await putOverride(db, {
-          id: overrideId,
-          seriesId: original.seriesId,
-          originalStartMs: original.originalStartMs,
-          patch: {
-            ...(existingOverride?.patch ?? {}),
-            title: draft.title,
-            startMs: draft.startMs,
-            endMs: draft.endMs,
-            location: draft.location || undefined,
-            description: draft.description || undefined,
-          },
-        });
-      }
-      store.update(nextOcc);
-      await putOccurrence(db, nextOcc);
-    },
-    [db, store, allDayStore, checkedFetch, timeZone],
-  );
-
-  // ---- RSVP (参加ステータス変更、フェーズ2、2026-07-22) ----
-  // 編集フォームと同じ「保存ボタン方式」(押した瞬間に楽観反映はしない、await 完了後に反映)。
-  // 422 (not_an_attendee) は RsvpNotAttendeeError を reject することで、呼び出し側
-  // (EventBlock.tsx の RsvpButtons)が専用メッセージを出し分けられるようにする。
-  const handleRsvp = useCallback(
-    async (subject: Occurrence | AllDayOccurrence, status: RsvpResponseStatus): Promise<void> => {
-      const req = buildEventRsvpRequest(subject, status);
-      if (!req) {
-        throw new Error("kichijitsu: could not build EventRsvpRequest");
-      }
-      // 422 を RsvpNotAttendeeError に振り替える必要があるため、throw する高レベル関数ではなく
-      // Response をそのまま受け取る sendJson を使う
-      const res = await sendJson(checkedFetch, "POST", "/api/event/rsvp", req);
-      if (res.status === 422) {
-        throw new RsvpNotAttendeeError();
-      }
-      if (!res.ok) {
-        throw new Error(`kichijitsu: POST /api/event/rsvp failed: ${res.status}`);
-      }
-      if (!db) return;
-
-      if ("startMs" in subject) {
-        const updated: Occurrence = { ...subject, responseStatus: status };
-        store.update(updated);
-        await putOccurrence(db, updated);
-        if (subject.seriesId && subject.originalStartMs !== undefined) {
-          const overrideId = instanceId(subject.seriesId, subject.originalStartMs);
-          const existing = await getOverride(db, overrideId);
-          await putOverride(db, {
-            id: overrideId,
-            seriesId: subject.seriesId,
-            originalStartMs: subject.originalStartMs,
-            patch: { ...(existing?.patch ?? {}), responseStatus: status },
-          });
-        }
-      } else {
-        const updated: AllDayOccurrence = { ...subject, responseStatus: status };
-        allDayStore.update(updated);
-        await putAllDayOccurrences(db, [updated]);
-      }
-    },
-    [db, store, allDayStore, checkedFetch],
-  );
-
-  // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
-  // 以下3つのハンドラは全てローカルのみ: plannedStore(メモリ)と IndexedDB の
-  // plannedBlocks ストアだけを更新し、ネットワーク呼び出し(/api/event/* 等)は一切行わない。
-  // Google 側の handlePersist/handleCreate/handleDeleteOccurrence とは意図的に別経路にしてある
-  // (このブロックは Google に存在しない、書き戻し先が無いローカル専用の予定のため)。
-
-  /** 作業キューの項目がグリッドへドロップされたときに呼ばれる(DayColumn.tsx の onDrop 経由) */
-  const onDropWorkItem = useCallback(
-    (item: DroppedWorkItem, startMs: number, endMs: number) => {
-      if (!db) return;
-      const block = buildPlannedBlock(item, startMs, endMs);
-      // 楽観的表示: ネットワークが絡まないため待つ理由が無く、常に即時反映で確定でよい
-      plannedStore.upsert(block);
-      putPlannedBlock(db, block).catch((err) => {
-        console.error("kichijitsu: failed to persist planned block", err);
-      });
-    },
-    [db, plannedStore],
-  );
-
-  /** 予定タイムブロックの本体ドラッグ(移動)/端ドラッグ(リサイズ)確定時に呼ばれる */
-  const onMovePlannedBlock = useCallback(
-    (id: string, startMs: number, endMs: number) => {
-      if (!db) return;
-      const existing = plannedStore.get(id);
-      if (!existing) return;
-      const updated: PlannedBlock = { ...existing, startMs, endMs };
-      plannedStore.upsert(updated);
-      putPlannedBlock(db, updated).catch((err) => {
-        console.error("kichijitsu: failed to persist planned block move", err);
-      });
-    },
-    [db, plannedStore],
-  );
-
-  /** 予定タイムブロックの削除ボタンから呼ばれる */
-  const onDeletePlannedBlock = useCallback(
-    (id: string) => {
-      if (!db) return;
-      plannedStore.remove([id]);
-      deletePlannedBlock(db, id).catch((err) => {
-        console.error("kichijitsu: failed to delete planned block", err);
-      });
-    },
-    [db, plannedStore],
-  );
+  /**
+   * 予定タイムブロック(hooks/usePlannedBlockHandlers.ts)。作成(ドラッグ&ドロップ)/移動・
+   * リサイズ/削除の3ハンドラで、いずれも plannedStore と IndexedDB だけを更新する
+   * ローカル専用の経路(ネットワーク呼び出しは無い)。effect を持たないので位置の制約は無いが、
+   * 移設前と同じここに置いてある。返り値は JSX 側の既存の名前に別名で受けている。
+   */
+  const {
+    dropWorkItem: onDropWorkItem,
+    movePlannedBlock: onMovePlannedBlock,
+    deletePlannedBlock: onDeletePlannedBlock,
+  } = usePlannedBlockHandlers({ db, plannedStore });
 
   // ---- 手動タイマー・実績記録 (実績 UX 刷新フェーズ5b、2026-07-23) ----
   // 走行中(実行中)状態は「サーバーの開区間(GET /api/work-logs/open)」を単一の真実とする。
-  // ▶/⏹ はローカルの TimeEntry を作らず、POST /api/work-logs/start・/stop を叩く。
-  // timeEntryStore は開区間を射影した「走行中キャッシュ」として残す — WeekGrid(触れない
-  // ファイル)と RunningTimersIndicator が既存の TimeEntry[] を消費するため、それらを
-  // 書き換えずに済むよう、開区間 → TimeEntry[] を openIntervalsToTimeEntries で作って
-  // timeEntryStore.replaceAll で流し込む(下の射影 effect)。これにより MCP など別経路で
-  // 開始された開区間もポーリングで反映される。
-  //
-  // **単一走行の制約は無い**: 別々の repo+issue は同時に何本でも走行できる。二重 start は
-  // サーバーが no-op(alreadyOpen)にするので UI 側は無条件に叩いてよい。stop も対象の
-  // repo+issue だけを止め、他の並走には触れない。
-
-  // 実行中の開区間一覧(サーバー共有)。起動時・実績系 UI を開いたとき・start/stop 後・
-  // 45秒ポーリング(github 連携時のみ)で取得する。
-  const [openIntervals, setOpenIntervals] = useState<OpenWorkIntervalDTO[]>([]);
-
-  // GET /api/work-logs/open。401/ネットワークエラーは握って現状維持(他の実績経路と同じ
-  // 「取りこぼしより安全側」)。ユーザー操作起点でも定期ポーリングからも呼ぶ。
-  const refetchOpenIntervals = useCallback(async () => {
-    try {
-      const res = await checkedFetch("/api/work-logs/open");
-      if (!res.ok) return;
-      const data = (await res.json()) as OpenWorkIntervalsResponse;
-      setOpenIntervals(data.open);
-    } catch (err) {
-      console.warn("kichijitsu: GET /api/work-logs/open failed", err);
-    }
-  }, [checkedFetch]);
-
-  // 走行表示が有効な間(= github 連携済み。タイマーは github の issue/PR 前提)だけ 45秒
-  // ポーリングする。マウント時に即時1回取得し、以後 45秒間隔。github 未連携なら開区間は
-  // 常に空(ポーリングもしない)。MCP など別経路の start/stop もこのポーリングで反映される。
-  useEffect(() => {
-    if (!me.github) return;
-    void refetchOpenIntervals();
-    const id = window.setInterval(() => void refetchOpenIntervals(), 45_000);
-    return () => window.clearInterval(id);
-  }, [me.github, refetchOpenIntervals]);
-
-  /** ▶ ボタン(PlannedBlockCard / 作業キュー / ヘッダー)から呼ばれる。サーバーで開区間を開始する */
-  const onStartTimer = useCallback(
-    (item: TimerLinkedItem) => {
-      // 二重 start はサーバーが no-op(alreadyOpen)にするので押しても害はないが、既に開区間が
-      // あると分かっているなら余計な往復を避けて即 return する(走行表示は既に出ている)。
-      if (isIntervalRunning(openIntervals, item.repo, item.number)) return;
-      postJsonVoid(checkedFetch, "/api/work-logs/start", {
-        repo: item.repo,
-        issueRef: String(item.number),
-        agent: "timer",
-      } satisfies WorkIntervalStartRequest)
-        .then(() => refetchOpenIntervals())
-        .catch((err) => {
-          console.warn("kichijitsu: failed to start work interval", err);
-        });
-    },
-    [checkedFetch, openIntervals, refetchOpenIntervals],
-  );
-
-  // ヘッダーの走行中インジケーター(RunningTimersIndicator)と、レポートを開いたときの
-  // 経過表示に使う「現在時刻」。1秒 tick は走行中エントリが1本以上あるときだけ動かし、
-  // 0本になったら setInterval を止める(無駄な再描画をしない、という増分2の完了条件)。
-  const runningTimeEntries = useRunningTimeEntries(timeEntryStore);
-  const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (runningTimeEntries.length === 0) return;
-    setTimerNowMs(Date.now());
-    const id = window.setInterval(() => setTimerNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-    // 依存は「1本以上走行中か」だけでよい: 本数の増減(2件→3件等)では張り直さず、
-    // 0↔非0 の遷移でだけ interval を開始/停止する
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runningTimeEntries.length > 0]);
-
-  // 予定 vs 実績レポート(TimeReportOverlay)用の全件購読。オーバーレイが閉じていても
-  // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
-  const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
-  const reportTimeEntries = useTimeEntries(timeEntryStore);
-
-  // 開区間 → 走行中 TimeEntry[] の射影(フェーズ5b)。開区間には title/url/type が無いので、
-  // 作業キュー(githubQueue)と予定タイムブロックから repo+number でメタを補完する。
-  // plannedStore.getAll() は毎回新配列を返すため、useMemo は version(安定した数値)で張って
-  // 無駄な再計算を避ける。射影を timeEntryStore.replaceAll へ流し込むと WeekGrid /
-  // RunningTimersIndicator / 右ペイン / レポートが既存のまま走行表示を得る。
-  const plannedVersion = useSyncExternalStore(plannedStore.subscribe, plannedStore.getVersion);
-  const projectedRunning = useMemo(
-    () => openIntervalsToTimeEntries(openIntervals, plannedStore.getAll(), githubQueue),
-    // plannedVersion で plannedStore.getAll() の内容変化を検知する(getAll 自体は依存に入れない)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [openIntervals, githubQueue, plannedVersion],
-  );
-  useEffect(() => {
-    // replaceAll は内容が完全一致なら通知しない(45秒ポーリングの空振りで再描画しない)
-    timeEntryStore.replaceAll(projectedRunning);
-  }, [projectedRunning, timeEntryStore]);
+  // 開区間の取得と45秒ポーリング・▶/⏹・1秒 tick・timeEntryStore への射影は
+  // hooks/useTimers.ts、hook 実績 (work_logs) の一覧と取得/作成/更新/削除は
+  // hooks/useWorkLogs.ts へ移した(リファクタリング フェーズ2 ⑤、2026-07-25)。
+  // 依存の張り方(tick は 0↔非0 の遷移、射影は plannedVersion、ポーリングは me.github)は
+  // フック側のコメント参照 ―― ここは配線だけ。
 
   // hook 実績・commit 推定の取得トリガー(docs/github-integration.md「時間計測」増分2 Part B、
   // GitHubPane 増分2で拡張)。当初は TimeReportOverlay を開いたとき(reportOpen)だけだったが、
@@ -2327,134 +577,48 @@ function App() {
   // と同値 — 二重取得(reportOpen と paneOpen が両方 true でも1回の effect 実行にしかならない)は
   // 依存配列がそのまま防ぐ。2026-07-25 に WorkLogModal を廃止し、その開閉フラグ(workLogModalOpen)
   // をこの条件から外した ―― 実績 UI はすべて paneOpen 経路に集約された。
+  // 宣言位置が移設前(タイマー系 effect の後)より前に上がっているのは、useWorkLogs/useTimers の
+  // 両方が引数に取るため(hooks はレンダー中に評価されるので参照より前に確定していなければならない)。
+  // 値の導き方そのものは無変更。
   const needsActualsData = reportOpen || (paneOpen && !!me.github);
 
-  // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
-  // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
-  // needsActualsData のときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
-  // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空配列を返す
-  // (レポート表示自体は継続できる、他の実績経路と同じ「取りこぼしより安全側」の方針)。
-  // TimeReportOverlay の手動追加/削除ハンドラ(下の handleCreateWorkLog/handleDeleteWorkLog)からも
-  // 再取得のために呼ぶ、2026-07-22。
-  const fetchWorkLogs = useCallback(async (): Promise<WorkLogDTO[]> => {
-    const res = await checkedFetch("/api/work-logs");
-    if (!res.ok) return [];
-    const data = (await res.json()) as WorkLogsResponse;
-    return data.workLogs;
-  }, [checkedFetch]);
+  /**
+   * hook 実績 (work_logs) の一覧と書き込み(hooks/useWorkLogs.ts)。useTimers より先に呼ぶ:
+   * ⏹ の成功後に走る work-logs 再取得 (refetchWorkLogs) を useTimers へ渡す必要があるため。
+   * この順序により「needsActualsData で work-logs を取り、その後で開区間を取り直す」という
+   * 移設前の commit 内の順序もそのまま保たれる(useTimers 側のコメント参照)。
+   */
+  const {
+    workLogs: reportWorkLogs,
+    refetch: refetchWorkLogs,
+    create: handleCreateWorkLog,
+    update: handleUpdateWorkLog,
+    remove: handleDeleteWorkLog,
+  } = useWorkLogs({ needsActualsData, checkedFetch });
 
-  useEffect(() => {
-    if (!needsActualsData) return;
-    let cancelled = false;
-    fetchWorkLogs()
-      .then((workLogs) => {
-        if (!cancelled) setReportWorkLogs(workLogs);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/work-logs failed", err);
-        if (!cancelled) setReportWorkLogs([]);
-      });
-    // 実績系 UI を開いた瞬間に開区間も最新化する(45秒ポーリング待ちで最大45秒古いのを防ぐ)。
-    void refetchOpenIntervals();
-    return () => {
-      cancelled = true;
-    };
-  }, [needsActualsData, fetchWorkLogs, refetchOpenIntervals]);
+  /**
+   * 手動タイマー(hooks/useTimers.ts)。開区間のポーリング・▶/⏹・経過表示用の1秒 tick・
+   * 開区間 → timeEntryStore の射影が入っている。
+   */
+  const {
+    runningTimeEntries,
+    timerNowMs,
+    startTimer: onStartTimer,
+    stopTimer: onStopTimer,
+  } = useTimers({
+    github: me.github,
+    needsActualsData,
+    plannedStore,
+    timeEntryStore,
+    githubQueue,
+    checkedFetch,
+    refetchWorkLogs,
+  });
 
-  // TimeReportOverlay の手動追加フォーム/削除ボタンから、書き込み成功後の再取得に使う
-  // (キャンセルガードは持たない — ユーザー操作起点の一回限りの呼び出しで、上の effect と違って
-  // 依存の変化で何度も走ることが無いため実害が薄い、handleCreateBlockRule 等と同じ判断)。
-  const refetchWorkLogs = useCallback(async () => {
-    try {
-      setReportWorkLogs(await fetchWorkLogs());
-    } catch (err) {
-      console.warn("kichijitsu: GET /api/work-logs (refetch) failed", err);
-    }
-  }, [fetchWorkLogs]);
-
-  // TimeReportOverlay「実績を手動で追加」フォームから呼ぶ(2026-07-22)。POST /api/work-logs は
-  // POST /api/block-rules 等と同じくセッション cookie 認証。成功後は一覧を再取得して即反映する
-  // (サーバーは {id} しか返さないため、楽観的にローカルへ1件追加するより取り直す方が単純)。
-  // 失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateBlockRule と同じ流儀)。
-  const handleCreateWorkLog = useCallback(
-    async (req: WorkLogCreateRequest) => {
-      await postJsonVoid<WorkLogCreateRequest>(checkedFetch, "/api/work-logs", req);
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // TimeReportOverlay の実績ログ一覧、手動エントリ(agent: manual)の削除ボタンから呼ぶ
-  // (2026-07-22)。204 で成功、失敗時は throw して一覧側の行ごとの確認 UI にエラー表示を委ねる
-  // (handleDeleteBlockRule と同じ流儀)。
-  const handleDeleteWorkLog = useCallback(
-    async (id: string) => {
-      await deleteJson(checkedFetch, `/api/work-logs/${encodeURIComponent(id)}`);
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // 右ペイン(GitHubPane)実績履歴のインライン編集から呼ぶ(2026-07-23)。PATCH /api/work-logs/:id は
-  // handleCreateWorkLog/handleDeleteWorkLog と同じセッション cookie 認証・非楽観更新(成功後に
-  // 再取得)。失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateWorkLog と同じ流儀)。
-  const handleUpdateWorkLog = useCallback(
-    async (id: string, req: WorkLogUpdateRequest) => {
-      await patchJson<WorkLogUpdateRequest>(
-        checkedFetch,
-        `/api/work-logs/${encodeURIComponent(id)}`,
-        req,
-      );
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / 右ペイン)から
-  // 呼ばれる。対象 linkedItemId の開区間だけをサーバーで停止する(フェーズ5b、2026-07-23)。
-  //   1. 走行中キャッシュ(timeEntryStore=開区間の射影)から linkedItemId で該当エントリを引き、
-  //      その id で元の開区間を特定して repo+issueRef を得る(開区間側が単一の真実)。
-  //   2. POST /api/work-logs/stop で確定。サーバーが work_logs に end を書き、開区間から外れる。
-  //   3. 成功後に開区間を再取得(走行解除)し、確定分を反映するため work-logs も再取得する。
-  // 対応する開始が無い({closed:false, reason:"no_open_interval"})= 既に停止/孤立。警告のみ
-  // 出し、UI は開区間の再取得で整合させる(走行解除)。失敗時も console.warn に留める(次の
-  // ポーリングか再操作で回復できる、他の実績経路と同じ「実害の少ない」握り方)。他の並走には触れない。
-  const onStopTimer = useCallback(
-    (linkedItemId: string) => {
-      const running = timeEntryStore
-        .getRunningEntries()
-        .find((e) => e.linkedItemId === linkedItemId);
-      if (!running) return;
-      // 射影 TimeEntry.id は開区間の id なので、元の開区間から repo/issueRef を正確に取る。
-      // 万一開区間が見つからなくても、射影が持つ repo/number からフォールバックで組み立てる。
-      const interval = openIntervals.find((iv) => iv.id === running.id);
-      const repo = interval?.repo ?? running.repo;
-      const issueRef = interval ? interval.issueRef : running.number > 0 ? String(running.number) : undefined;
-      postJson<WorkIntervalStopRequest, WorkIntervalStopResponse>(
-        checkedFetch,
-        "/api/work-logs/stop",
-        {
-          repo,
-          ...(issueRef ? { issueRef } : {}),
-        },
-      )
-        .then(async (data) => {
-          if (!data.closed) {
-            console.warn(
-              "kichijitsu: stop had no open interval (already stopped/orphan)",
-              data.reason,
-            );
-          }
-          // 走行解除(開区間再取得)+ 確定分を履歴/レポートへ反映(work-logs 再取得)。
-          await refetchOpenIntervals();
-          await refetchWorkLogs();
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: failed to stop work interval", err);
-        });
-    },
-    [checkedFetch, timeEntryStore, openIntervals, refetchOpenIntervals, refetchWorkLogs],
-  );
+  // 予定 vs 実績レポート(TimeReportOverlay)用の全件購読。オーバーレイが閉じていても
+  // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
+  const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
+  const reportTimeEntries = useTimeEntries(timeEntryStore);
 
   const reportHookActualByLinkedItem = useMemo(
     () =>
@@ -2465,312 +629,52 @@ function App() {
     [reportWorkLogs, reportPlannedBlocks],
   );
 
-  // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。
-  // needsActualsData(レポートを開いた、または実績セクションが可視)のときだけ
-  // POST /api/github/pr-commits を叩く(interval 等の常時ポーリングはしない)。対象は
-  // reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の {repo, number} のみ
-  // — issue は commit と紐づかないため送らない。未連携(me.github===null)なら取得せず推定列は
-  // 空のまま(needsActualsData の paneOpen 経路は既に me.github を含むが、reportOpen 経路は
-  // 含まないため引き続きここで明示的にガードする)。401→githubAuthExpired 経路に合流
-  // (①②と同じ再連携導線を共有)、409(未連携相当、通常は me.github が null のはずなので
-  // 基本発生しない)は空扱い、502・ネットワークエラーは一時的な失敗として warn のみ
-  // (前回の推定を維持する)。
-  useEffect(() => {
-    if (!needsActualsData || !me.github) return;
-    const prItems = collectPrTargets(reportPlannedBlocks, reportTimeEntries);
-    if (prItems.length === 0) {
-      setPrCommitEstimates({});
-      return;
-    }
-    let cancelled = false;
-    setPrCommitEstimatesLoading(true);
+  // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B) は
+  // hooks/useGitHubData.ts の useGitHubPrCommitEstimates へ移した(リファクタリング フェーズ2 ③、
+  // 2026-07-25)。needsActualsData(レポートを開いた、または実績セクションが可視)のときだけ
+  // POST /api/github/pr-commits を叩く条件、対象を PR だけに絞る collectPrTargets、401/409/502 の
+  // 扱いはフック側にある。useGitHubData 本体と別フックなのは、依存する needsActualsData と
+  // reportPlannedBlocks/reportTimeEntries がここまで来ないと確定しない(= 上の useGitHubData の
+  // 呼び出し位置からは参照できない)ため ―― 呼び出し位置も移設前の effect と同じここに置いて
+  // 登録順を保っている。401 は useGitHubData の githubAuthExpired へ合流させる
+  const { prCommitEstimates, prCommitEstimatesLoading } = useGitHubPrCommitEstimates({
+    enabled: needsActualsData,
+    github: me.github,
+    plannedBlocks: reportPlannedBlocks,
+    timeEntries: reportTimeEntries,
+    checkedFetch,
+    setAuthExpired: setGithubAuthExpired,
+  });
 
-    // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-    // gh CLI 認証で PR commit を直接取得する。ブラウザ/PWA では isTauri() が常に false
-    // のため以降の従来コードは不変。
-    if (isTauri()) {
-      fetchPullCommitsViaGh(prItems)
-        .then((commitsByItem) => {
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setPrCommitEstimates(estimateByItemKey(commitsByItem));
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: gh 経由の PR commit 取得に失敗", err);
-          if (!cancelled) setPrCommitEstimates({});
-        })
-        .finally(() => {
-          if (!cancelled) setPrCommitEstimatesLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    checkedFetch(
-      "/api/github/pr-commits",
-      jsonInit("POST", { items: prItems } satisfies PullCommitsRequest),
-    )
-      .then(async (res) => {
-        if (res.status === 401) {
-          if (!cancelled) setGithubAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) {
-          if (!cancelled) setPrCommitEstimates({});
-          return;
-        }
-        if (!res.ok) {
-          console.warn(`kichijitsu: POST /api/github/pr-commits failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as PullCommitsResponse;
-        if (!cancelled) {
-          setGithubAuthExpired(false);
-          setPrCommitEstimates(estimateByItemKey(data.commitsByItem));
-        }
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: POST /api/github/pr-commits failed", err);
-      })
-      .finally(() => {
-        if (!cancelled) setPrCommitEstimatesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [needsActualsData, me.github, reportPlannedBlocks, reportTimeEntries, checkedFetch]);
-
-  // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
-  // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
-  // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
-  // 既存の saveError 通知を再利用する。正本は次の「同期」で還流する想定
-  // (Tasks API には push 通知が無いため、SSE 経由の即時還流は無い)。
-  const handleToggleTask = useCallback(
-    (task: TaskItem) => {
-      if (!db) return;
-      const nextStatus: TaskItem["status"] =
-        task.status === "completed" ? "needsAction" : "completed";
-      const previous = task;
-      const updated: TaskItem = { ...task, status: nextStatus };
-      // 楽観的更新: 応答を待たずに即座に見た目(枡の押印)へ反映する
-      taskStore.update(updated);
-      async function run() {
-        if (!db) return;
-        await putTask(db, updated);
-
-        const patchReq = buildTaskPatchRequest(updated, nextStatus);
-        let ok = false;
-        if (patchReq) {
-          try {
-            const res = await checkedFetch("/api/task/patch", jsonInit("POST", patchReq));
-            // レスポンス (TaskPatchResponse) は ok フラグのみで、正本は次回「同期」で還流する想定
-            // (buildEventPatchRequest 経由の handlePersist と同じ流儀。ボディは読み捨てる)
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/task/patch failed (${updated.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/task/patch failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build TaskPatchRequest, skipping write-back",
-            updated.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: taskStore・IndexedDB を変更前の状態に戻す
-        taskStore.update(previous);
-        await putTask(db, previous);
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist task update", err);
-      });
-    },
-    [db, taskStore, checkedFetch, flashSaveError],
-  );
-
-  const withNavLock = useCallback((run: () => void) => {
-    if (navLockRef.current) return;
-    navLockRef.current = true;
-    run();
-    window.setTimeout(() => {
-      navLockRef.current = false;
-    }, NAV_LOCK_MS);
-  }, []);
-
-  // ナビゲーション(←/→/今日、フェーズ6で月表示・フェーズ2でday3/day1にも対応):
-  // view に応じて N日送り/月送りを切り替える(N日送りは dayGrid.ts の stepAnchor に集約)
-  const goToPrev = useCallback(() => {
-    withNavLock(() => {
-      if (view === "month") setMonthCursor((m) => m.subtract({ months: 1 }));
-      else setTimelineStart((t) => stepAnchor(t, dayCount, -1));
-    });
-  }, [view, dayCount, withNavLock]);
-
-  const goToNext = useCallback(() => {
-    withNavLock(() => {
-      if (view === "month") setMonthCursor((m) => m.add({ months: 1 }));
-      else setTimelineStart((t) => stepAnchor(t, dayCount, 1));
-    });
-  }, [view, dayCount, withNavLock]);
-
-  /**
-   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22。スワイプは1日ずつに変更、
-   * 2026-07-23)。WeekGrid.tsx が横スワイプの確定(prev/next)を検知したときに呼ぶ。ツールバーの
-   * ←/→ ボタン(goToPrev/goToNext)は dayCount ぶりの「ページ移動」のままだが、スワイプは表示窓を
-   * 1日ずつスライドさせる(3日ビューでも1日ずつ動く)―― WeekGrid のスライド量一般化(baseStripPercent /
-   * slideDays)と対で機能する。月表示(MonthView)はストリップ構造を持たないため対象外(WeekGrid のみに
-   * 渡す)。nav ロック(withNavLock)は使わない: スワイプは WeekGrid 側の slideDays===0 gate で自己
-   * 直列化されており、ロックで commit が握り潰されると指追従オフセットが戻らなくなるため、常に
-   * setTimelineStart を発火させて WeekGrid の効果を必ず走らせる。
-   */
-  const handleSwipeNavigate = useCallback(
-    (direction: "prev" | "next") => {
-      setTimelineStart((t) => (direction === "prev" ? t.subtract({ days: 1 }) : t.add({ days: 1 })));
-    },
-    [],
-  );
-
-  const goToToday = useCallback(() => {
-    withNavLock(() => {
-      if (view === "month") setMonthCursor(Temporal.Now.plainDateISO().with({ day: 1 }));
-      else if (view === "week") setTimelineStart(mondayOf(Temporal.Now.plainDateISO()));
-      // day3/day1: 今日を先頭日にする(週ビューのように月曜へ揃える概念が無いため)
-      else setTimelineStart(Temporal.Now.plainDateISO());
-    });
-  }, [view, withNavLock]);
-
-  // ビュー切替(週/月/3日/1日、フェーズ2でday3/day1を追加)。切替の瞬間、もう一方の状態を
-  // 今表示中の期間に同期させることで、トグルしても「だいたい同じ期間を見ている」体験を保つ:
-  // - タイムライン→month: 表示中の先頭日が属する月へ
-  // - month→タイムライン: 表示中の月の1日へ(week だけは月曜に揃え直す)
-  // - タイムライン同士(week⇔day3⇔day1): 先頭日はそのまま(dayCount の解釈だけ変わる)
-  const switchView = useCallback(
-    (next: View) => {
-      if (view === next) return;
-      withNavLock(() => {
-        if (next === "month") {
-          setMonthCursor(timelineStart.with({ day: 1 }));
-        } else if (view === "month") {
-          setTimelineStart(next === "week" ? mondayOf(monthCursor) : monthCursor);
-        }
-        setView(next);
-      });
-    },
-    [view, timelineStart, monthCursor, withNavLock],
-  );
-
-  // 月ビューのセル空き部分・「+N」クリック(フェーズ6、フェーズ2でday1へ変更):
-  // その日の day1(1日タイムライン)へ切り替える = アジェンダ的動線(docs/multiplatform.md)
-  const handleNavigateToDay = useCallback(
-    (day: Temporal.PlainDate) => {
-      withNavLock(() => {
-        setTimelineStart(day);
-        setView("day1");
-      });
-    },
-    [withNavLock],
-  );
-
-  // 左ペインのミニ月カレンダー(左ペイン増分2)での日付クリック。handleNavigateToDay と
-  // 違い view 自体は切り替えない ―― 「今の表示形式のまま、その日/月へ動く」というミニ
-  // カレンダー本来の役割(月表示中に day1 へ飛ばされると、ミニカレンダーで月をブラウズ
-  // しているだけのつもりが表示形式まで変わってしまい驚きが大きいため)。view に応じて
-  // timelineStart/monthCursor のどちらをどう動かすかは layout/miniMonth.ts の
-  // resolveMiniMonthNavigation(switchView/goToToday と同じ規則)に委譲する
-  const handleMiniMonthNavigate = useCallback(
-    (date: Temporal.PlainDate) => {
-      withNavLock(() => {
-        const target = resolveMiniMonthNavigation(view, date);
-        if (target.kind === "month") setMonthCursor(target.date);
-        else setTimelineStart(target.date);
-      });
-    },
-    [view, withNavLock],
-  );
-
-  // 'n' ショートカット(新規予定作成、フェーズ6)。理想は「今日の次の30分枠に作成入力を
-  // 自動で開く」ことだが、作成入力(タイトル入力欄・draft state)は DayColumn.tsx が
-  // ローカルに持っており、App からは直接開けない。ここでは簡易実装として「今日を含む
-  // タイムラインビューへ移動する」にとどめ、そこから空き領域クリック/ドラッグで
-  // 作成できる状態を用意する。
-  // TODO: DayColumn の draft state を App まで持ち上げる(または WeekGrid に
-  // 「起動時に指定 ms で作成入力を自動オープンする」imperative な API を持たせる)と、
-  // 実際に入力欄まで自動で開けるようになる。
+  // 'n' ショートカット(新規予定作成、フェーズ6)。書き込み先カレンダーが無ければ何もしない
+  // (ボタン起点の作成と同じ制約)。移動そのものは useTimelineNavigation の
+  // goToTodayForNewEvent に持たせてあり、ここはそのガードだけを担う薄い配線
+  // ―― フックが同期系の state(defaultWriteTarget)を知らずに済むようにするため。
   const handleNewEventShortcut = useCallback(() => {
-    if (!defaultWriteTarget) return; // 書き込み先カレンダーが無ければ何もしない(ボタン起点の作成と同じ制約)
-    withNavLock(() => {
-      const targetView: View = view === "month" ? (isNarrow ? "day1" : "week") : view;
-      setView(targetView);
-      setTimelineStart(
-        targetView === "week" ? mondayOf(Temporal.Now.plainDateISO()) : Temporal.Now.plainDateISO(),
-      );
-    });
-  }, [defaultWriteTarget, view, isNarrow, withNavLock]);
+    if (!defaultWriteTarget) return;
+    goToTodayForNewEvent();
+  }, [defaultWriteTarget, goToTodayForNewEvent]);
 
-  // グローバルキーボードショートカット(フェーズ6)。←/→/t は元々このハンドラが
-  // 持っていたもの(WeekGrid 側は ←/→/t を処理していない、二重登録なし)に、
-  // w/m/d/1/3(ビュー切替)・n(新規予定)・?(ヘルプ)・Escape(ヘルプを閉じる)を追加する。
-  // キー→アクションの対応表自体は keyboard/shortcuts.ts の純関数 (resolveShortcut) に
-  // 切り出してあり、テストはそちらで行う。ここでは:
-  //   1. 入力中(input/textarea/contenteditable)なら常に無視
-  //   2. Escape は最前面のオーバーレイ(ヘルプ)だけを閉じる。詳細ポップオーバー・設定モーダルは
-  //      各自の Escape リスナー (useCloseOnOutsideOrEscape、SettingsModal も含め全オーバーレイが
-  //      共通で使う) が既に閉じるので、ここでは二重に処理しない
-  //   3. それ以外のショートカットは、詳細ポップオーバー・設定モーダル・ヘルプが開いている間は
-  //      発火させない(作成入力は <input> なので 1. のガードで既にカバーされている)
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      if (isEditableTarget(target?.tagName ?? null, target?.isContentEditable ?? false)) return;
+  // ショートカットから呼ぶヘルプ開閉。インラインの矢印関数ではなく useCallback で安定させて
+  // あるのは、useGlobalShortcuts の keydown リスナーが毎レンダー張り替わらないようにするため
+  // (切り出し前は setHelpOpen を直接呼んでいたので依存に現れなかった)。
+  const toggleHelp = useCallback(() => setHelpOpen((v) => !v), []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
 
-      const action = resolveShortcut(e, isNarrow);
-      if (!action) return;
-
-      if (action.kind === "escape") {
-        if (helpOpen) setHelpOpen(false);
-        return;
-      }
-
-      // 他のオーバーレイ(詳細ポップオーバー・設定モーダル・予定検索・ヘルプ自身など)が
-      // 開いている間は無視する。個別に state/class を列挙せず role="dialog" を共通の
-      // 目印にする(EventDetailCard/SettingsModal/SearchOverlay/KeyboardHelpOverlay は
-      // いずれも role="dialog" を持つ、既存の流儀)。これにより新しいオーバーレイが増えても
-      // ここを更新し忘れる心配がない。
-      if (document.querySelector('[role="dialog"]')) return;
-
-      switch (action.kind) {
-        case "prev":
-          goToPrev();
-          break;
-        case "next":
-          goToNext();
-          break;
-        case "today":
-          goToToday();
-          break;
-        case "switchView":
-          switchView(action.view);
-          break;
-        case "newEvent":
-          handleNewEventShortcut();
-          break;
-        case "toggleHelp":
-          setHelpOpen((v) => !v);
-          break;
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goToPrev, goToNext, goToToday, switchView, handleNewEventShortcut, isNarrow, helpOpen]);
+  // グローバルキーボードショートカット(フェーズ6)。リスナー本体と
+  // 「入力中/他オーバーレイが開いている間は発火させない」ガードは
+  // hooks/useGlobalShortcuts.ts にある(依存の粒度も切り出し前と同じ)。
+  useGlobalShortcuts({
+    isNarrow,
+    helpOpen,
+    onPrev: goToPrev,
+    onNext: goToNext,
+    onToday: goToToday,
+    onSwitchView: switchView,
+    onNewEvent: handleNewEventShortcut,
+    onToggleHelp: toggleHelp,
+    onCloseHelp: closeHelp,
+  });
 
   // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
   // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した
