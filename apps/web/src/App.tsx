@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
 import type {
   AccountDTO,
   CalendarListEntryDTO,
   DisconnectRequest,
-  EventCreateResponse,
   MeResponse,
-  RsvpResponseStatus,
   SyncRequest,
   SyncResponse,
   TaskListDTO,
@@ -15,37 +13,10 @@ import type {
   TasksSyncRequest,
   TasksSyncResponse,
   WatchRequest,
-  OpenWorkIntervalDTO,
-  OpenWorkIntervalsResponse,
-  WorkIntervalStartRequest,
-  WorkIntervalStopRequest,
-  WorkIntervalStopResponse,
-  WorkLogCreateRequest,
-  WorkLogDTO,
-  WorkLogsResponse,
-  WorkLogUpdateRequest,
 } from "@kichijitsu/shared";
 import { hookActualByLinkedItem } from "./sync/hookActual";
-import { buildEventDeleteRequest, buildEventPatchRequest } from "./sync/eventPatch";
-import {
-  buildEventCreateRequest,
-  buildPendingOccurrence,
-  finalizeCreatedOccurrence,
-  resolveDefaultWriteTarget,
-  type WriteTargetCandidate,
-} from "./sync/eventCreate";
-import {
-  applyDraftToAllDayOccurrence,
-  applyDraftToOccurrence,
-  buildEventEditPatchRequest,
-  type EventEditDraft,
-} from "./sync/eventEdit";
-import { buildEventRsvpRequest, RsvpNotAttendeeError } from "./sync/eventRsvp";
-import { buildTaskPatchRequest } from "./sync/mapTasks";
+import { resolveDefaultWriteTarget, type WriteTargetCandidate } from "./sync/eventCreate";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
-import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
-import type { TimerLinkedItem } from "./sync/timeTracking";
-import { isIntervalRunning, openIntervalsToTimeEntries } from "./sync/openIntervals";
 import {
   buildVisibleCalendarsRequest,
   mergeServerVisibleCalendarsWithPending,
@@ -53,15 +24,7 @@ import {
 } from "./sync/visibleCalendars";
 import { createSyncScheduler } from "./sync/syncScheduler";
 import { buildSyncRequest } from "./sync/syncRequest";
-import {
-  deleteJson,
-  getJson,
-  jsonInit,
-  patchJson,
-  postJson,
-  postJsonVoid,
-  sendJson,
-} from "./sync/httpJson";
+import { deleteJson, getJson, jsonInit, sendJson } from "./sync/httpJson";
 import { decideSyncBackfillTargets } from "./sync/syncBackfill";
 import {
   DEFAULT_DECLINED_VISIBILITY,
@@ -85,36 +48,35 @@ import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import { useBlockRules } from "./hooks/useBlockRules";
+import { useEventMutations } from "./hooks/useEventMutations";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useMasuVisible } from "./hooks/useMasuVisible";
 import { useMcpTokens } from "./hooks/useMcpTokens";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useOffline } from "./hooks/useOffline";
+import { usePlannedBlockHandlers } from "./hooks/usePlannedBlockHandlers";
 import { useServerEvents } from "./hooks/useServerEvents";
 import { useTimelineNavigation } from "./hooks/useTimelineNavigation";
+import { useTimers } from "./hooks/useTimers";
+import { useWorkLogs } from "./hooks/useWorkLogs";
 import {
   generateDummyOccurrences,
   generateDummyOverrides,
   generateDummySeries,
 } from "./model/dummy";
-import { instanceId } from "./model/series";
-import type { AllDayOccurrence, Occurrence, PlannedBlock, TaskItem } from "./model/types";
+import type { Occurrence } from "./model/types";
 import { OccurrenceStore } from "./store/occurrenceStore";
 import { AllDayStore } from "./store/allDayStore";
 import { TaskStore } from "./store/taskStore";
 import { GitHubStore } from "./store/githubStore";
 import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
-import { TimeEntryStore, useRunningTimeEntries, useTimeEntries } from "./store/timeEntryStore";
+import { TimeEntryStore, useTimeEntries } from "./store/timeEntryStore";
 import {
   CURRENT_SYNC_BACKFILL_VERSION,
   cleanupDemoData,
   cleanupLegacyGoogleData,
   countSeries,
-  deleteAllDayOccurrencesByIds,
-  deleteOccurrencesByIds,
-  deleteOverridesByIds,
-  deletePlannedBlock,
   getAllAllDayOccurrences,
   getAllGitHubItems,
   getAllPlannedBlocks,
@@ -124,17 +86,12 @@ import {
   getHiddenTaskLists,
   getOccurrencesBetween,
   getOrCreateDeviceId,
-  getOverride,
   getSyncBackfillVersion,
   getVisibleCalendars,
   openKichijitsuDB,
-  putAllDayOccurrences,
-  putOccurrence,
   putOccurrences,
   putOverride,
-  putPlannedBlock,
   putSeries,
-  putTask,
   setDeclinedVisibilitySettings,
   setHiddenTaskLists,
   setSyncBackfillVersion,
@@ -383,26 +340,12 @@ function App() {
   // 実績(記録/タイマー/履歴)は 2026-07-25 に専用モーダル(WorkLogModal)を廃して右ペイン
   // (GitHubPane)へ集約した。開閉は右ペインの paneOpen が兼ねるため専用 state は持たない
   // ―― データは reportWorkLogs/reportPlannedBlocks をそのままペインへ渡す。
-  // hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
-  // 保存する値。2026-07-21 に Google カレンダー保存から D1 保存へ移行)。レポートを開いたときだけ
-  // GET /api/work-logs を取りに行く(下の effect 参照)。手動タイマー実績(TimeEntry)・commit 推定
-  // (prCommitEstimates、hooks/useGitHubData.ts)とは別立てのデータなので専用 state で持つ
-  const [reportWorkLogs, setReportWorkLogs] = useState<WorkLogDTO[]>([]);
+  // hook 実績 (work_logs) の一覧 state と取得/作成/更新/削除は hooks/useWorkLogs.ts へ移した
+  // (リファクタリング フェーズ2 ⑤、2026-07-25。下の useWorkLogs 呼び出し参照)
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
-  // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
-  // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
-  const [saveError, setSaveError] = useState(false);
-  const saveErrorTimeoutRef = useRef<number | undefined>(undefined);
-  /**
-   * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。WeekGrid.handleCommit が
-   * kind==='move' で実際に時刻が変わったときだけ null から埋める(sync/moveConfirm.ts の
-   * hasOccurrenceTimeChanged 参照)。previous はまだ IndexedDB/Google に書き込まれていない
-   * (store.update のみ済みの)ロールバック用スナップショット。
-   */
-  const [moveConfirm, setMoveConfirm] = useState<{
-    updated: Occurrence;
-    previous: Occurrence;
-  } | null>(null);
+  // 保存失敗のフラッシュ表示 (saveError) と移動確認ダイアログ (moveConfirm) の state は、
+  // それを立てる変更系ハンドラごと hooks/useEventMutations.ts へ移した
+  // (リファクタリング フェーズ2 ④、2026-07-25。下の useEventMutations 呼び出し参照)
   const autoSyncedRef = useRef(false);
   // 「このアカウントのカレンダー一覧は初回フェッチ済み/フェッチ中」フラグ。
   // me.accounts effect が同じアカウントに何度も初回フェッチを走らせないためのもの。
@@ -1350,530 +1293,50 @@ function App() {
     await clearGitHubData();
   }, [checkedFetch, clearGitHubData]);
 
-  // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
-  const flashSaveError = useCallback(() => {
-    if (saveErrorTimeoutRef.current !== undefined) {
-      window.clearTimeout(saveErrorTimeoutRef.current);
-    }
-    setSaveError(true);
-    saveErrorTimeoutRef.current = window.setTimeout(() => {
-      setSaveError(false);
-      saveErrorTimeoutRef.current = undefined;
-    }, 4000);
-  }, []);
+  /**
+   * 予定・タスクの変更系(hooks/useEventMutations.ts)。ドラッグ/リサイズの確定・新規作成・
+   * 削除・編集フォーム保存・RSVP・移動確認ダイアログ・タスクの完了トグルと、それらの
+   * ロールバック通知 (saveError) が入っている。楽観更新→失敗時ロールバックの順序、
+   * override の既存 patch マージ、422→RsvpNotAttendeeError の振り替えはすべてフック側。
+   *
+   * 呼び出し位置は移設前に flashSaveError / handlePersist 等があったここに揃えてある ――
+   * このフックが登録する effect は saveError のタイマークリア(依存 [])1本だけなので
+   * 位置の自由度は高いが、effect の登録順を移設前と同じに保つため動かしていない。
+   * 返り値は JSX 側の既存の名前に別名で受けて、呼び出し箇所を一切変えずに済ませている。
+   */
+  const {
+    saveError,
+    persist: handlePersist,
+    createEvent: handleCreate,
+    deleteOccurrence: handleDeleteOccurrence,
+    moveConfirm,
+    requestMoveConfirm: handleRequestMoveConfirm,
+    confirmMove: handleConfirmMove,
+    cancelMove: handleCancelMove,
+    saveEdit: handleEditSave,
+    rsvp: handleRsvp,
+    toggleTask: handleToggleTask,
+  } = useEventMutations({ db, store, allDayStore, taskStore, checkedFetch, timeZone });
 
-  useEffect(() => {
-    return () => {
-      if (saveErrorTimeoutRef.current !== undefined)
-        window.clearTimeout(saveErrorTimeoutRef.current);
-    };
-  }, []);
-
-  // ドラッグ確定時の永続化(フェーズ5)。store.update は WeekGrid 側で既に同期的に
-  // 呼ばれている(楽観的更新)。ここでは IndexedDB への書き込みに加えて、
-  // source==='google' な occurrence は POST /api/event/patch で Google へも書き戻す。
-  // 書き戻しが失敗した場合(非2xx・ネットワークエラー)は store と IndexedDB を
-  // 変更前の状態にロールバックし、ユーザーに数秒間通知する。
-  //
-  // 書き戻し成功時、正本は次の同期 (SSE changed → /api/sync) で還流してくる想定
-  // (protocol.ts の EventPatchRequest コメント参照)。自分自身が書いた変更が
-  // 同じ id へそのまま上書きされるだけなので、冪等であり特別な処理は不要。
-  const handlePersist = useCallback(
-    (updated: Occurrence, previous: Occurrence | undefined) => {
-      if (!db) return;
-      async function run() {
-        if (!db) return;
-
-        // シリーズ由来なら override を書く前に、ロールバック用に「変更前の override」を
-        // 覚えておく(元々 override が無かった/別内容だったケースの両方に対応する)
-        const seriesId = updated.seriesId;
-        const originalStartMs = updated.originalStartMs;
-        const overrideId =
-          seriesId && originalStartMs !== undefined
-            ? instanceId(seriesId, originalStartMs)
-            : undefined;
-        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null;
-
-        if (overrideId && seriesId && originalStartMs !== undefined) {
-          // 既存 patch をスプレッドしてマージする(handleRsvp と同じ流儀)。丸ごと置き換えると、
-          // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference /
-          // responseStatus / isOrganizer / isWorkingLocation や、編集フォームが書いた
-          // title/location/description が消え、再展開でシリーズ側の値に化けてしまう。
-          await putOverride(db, {
-            id: overrideId,
-            seriesId,
-            originalStartMs,
-            patch: {
-              ...(previousOverride?.patch ?? {}),
-              startMs: updated.startMs,
-              endMs: updated.endMs,
-            },
-          });
-        }
-        await putOccurrence(db, updated);
-
-        // ローカルのみの occurrence はここまで(Google への書き戻し対象外)
-        if (updated.source !== "google") return;
-
-        const patchReq = buildEventPatchRequest(updated, timeZone);
-        let ok = false;
-        if (patchReq) {
-          try {
-            const res = await checkedFetch("/api/event/patch", jsonInit("POST", patchReq));
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/event/patch failed (${updated.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/event/patch failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build EventPatchRequest, skipping write-back",
-            updated.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: store・IndexedDB を変更前の状態に戻す
-        if (previous) {
-          store.update(previous);
-          await putOccurrence(db, previous);
-        }
-        if (overrideId) {
-          if (previousOverride) {
-            await putOverride(db, previousOverride);
-          } else {
-            await deleteOverridesByIds(db, [overrideId]);
-          }
-        }
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist occurrence update", err);
-      });
-    },
-    [db, store, checkedFetch, timeZone, flashSaveError],
-  );
-
-  // 新規予定の楽観的作成(フェーズ5)。DayColumn(空き領域クリック/ドラッグ)がタイトルを
-  // 確定した瞬間に呼ばれる。仮 id (local-pending-<uuid>) の occurrence を即座に
-  // store/IndexedDB へ入れて表示し、POST /api/event/create で Google へ書き込む。
-  // 成功したら仮 occurrence を確定 id (`g:<accountId>:<calendarId>:<eventId>`) の
-  // occurrence に差し替える — 以後 SSE/同期で同じ予定が届いても id が一致するため
-  // 冪等に上書きされるだけで済み、重複表示は起きない(eventCreate.ts のコメント参照)。
-  // 失敗時は仮 occurrence を削除してロールバックし、saveError を表示する。
-  const handleCreate = useCallback(
-    (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => {
-      if (!db) return;
-      const pending = buildPendingOccurrence({ title, startMs, endMs, target });
-      // 楽観的表示: 応答を待たずに即座に見た目へ反映する
-      store.update(pending);
-      async function run() {
-        if (!db) return;
-        await putOccurrence(db, pending);
-
-        let ok = false;
-        let eventId: string | undefined;
-        try {
-          const res = await checkedFetch(
-            "/api/event/create",
-            jsonInit("POST", buildEventCreateRequest({ title, startMs, endMs, target, timeZone })),
-          );
-          ok = res.ok;
-          if (ok) {
-            const data = (await res.json()) as EventCreateResponse;
-            eventId = data.eventId;
-          } else {
-            console.error(
-              `kichijitsu: POST /api/event/create failed (${pending.id}): ${res.status}`,
-            );
-          }
-        } catch (err) {
-          console.error("kichijitsu: POST /api/event/create failed", err);
-        }
-
-        if (ok && eventId) {
-          const finalized = finalizeCreatedOccurrence(pending, target, eventId);
-          await deleteOccurrencesByIds(db, [pending.id]);
-          await putOccurrence(db, finalized);
-          // remove→update の間の空フレームを1回の通知にまとめる(点滅防止、他の箇所と同じ流儀)
-          await store.batch(() => {
-            store.remove([pending.id]);
-            store.update(finalized);
-          });
-          return;
-        }
-
-        // ロールバック: 仮 occurrence を削除
-        await deleteOccurrencesByIds(db, [pending.id]);
-        store.remove([pending.id]);
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist new occurrence", err);
-      });
-    },
-    [db, store, checkedFetch, timeZone, flashSaveError],
-  );
-
-  // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
-  // から呼ばれる。occurrence を即座に store/IndexedDB から取り除き、シリーズ由来の
-  // 1回分なら override (patch: null = EXDATE 相当、model/series.ts 参照) を書いて
-  // 再展開後も現れないようにする(v1 の簡易実装: 本来は EXDATE をシリーズ側に足すのが
-  // 正だが、既存の override 機構を流用する)。POST /api/event/delete で Google へ
-  // 書き戻し、失敗時は occurrence(と override)を復元してロールバックし、saveError を表示する。
-  // 成功後に SSE/同期で cancelled が届いても既に消えているため冪等。
-  const handleDeleteOccurrence = useCallback(
-    (occurrence: Occurrence) => {
-      if (!db) return;
-      async function run() {
-        if (!db) return;
-
-        const seriesId = occurrence.seriesId;
-        const originalStartMs = occurrence.originalStartMs;
-        const overrideId =
-          seriesId && originalStartMs !== undefined
-            ? instanceId(seriesId, originalStartMs)
-            : undefined;
-        const previousOverride = overrideId ? ((await getOverride(db, overrideId)) ?? null) : null;
-
-        // 楽観的削除: 応答を待たずに即座に見た目から消す
-        store.remove([occurrence.id]);
-        await deleteOccurrencesByIds(db, [occurrence.id]);
-        if (overrideId && seriesId && originalStartMs !== undefined) {
-          await putOverride(db, { id: overrideId, seriesId, originalStartMs, patch: null });
-        }
-
-        const deleteReq = buildEventDeleteRequest(occurrence);
-        let ok = false;
-        if (deleteReq) {
-          try {
-            const res = await checkedFetch("/api/event/delete", jsonInit("POST", deleteReq));
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/event/delete failed (${occurrence.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/event/delete failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build EventDeleteRequest, skipping delete",
-            occurrence.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: occurrence と override を復元
-        store.update(occurrence);
-        await putOccurrence(db, occurrence);
-        if (overrideId) {
-          if (previousOverride) {
-            await putOverride(db, previousOverride);
-          } else {
-            await deleteOverridesByIds(db, [overrideId]);
-          }
-        }
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to delete occurrence", err);
-      });
-    },
-    [db, store, checkedFetch, flashSaveError],
-  );
-
-  // ---- ドラッグ移動の確認ダイアログ (フェーズ2、2026-07-22) ----
-  // WeekGrid.handleCommit は kind==='move' で実際に時刻が変わったときだけこれを呼ぶ。
-  // 呼ばれた時点では store.update(updated) は既に済んでいる(楽観的な見た目の反映)が、
-  // handlePersist (IndexedDB 書き込み・Google 書き戻し) はまだ呼ばれていない ―― 「確定保留」
-  // 状態を表す moveConfirm state に previous/updated を保持し、確認結果に応じて
-  // handlePersist を呼ぶ(移動する)か、store だけ previous に戻す(キャンセル)かを行う。
-
-  const handleRequestMoveConfirm = useCallback((updated: Occurrence, previous: Occurrence) => {
-    setMoveConfirm({ updated, previous });
-  }, []);
-
-  const handleConfirmMove = useCallback(() => {
-    if (!moveConfirm) return;
-    handlePersist(moveConfirm.updated, moveConfirm.previous);
-    setMoveConfirm(null);
-  }, [moveConfirm, handlePersist]);
-
-  const handleCancelMove = useCallback(() => {
-    if (moveConfirm) store.update(moveConfirm.previous);
-    setMoveConfirm(null);
-  }, [moveConfirm, store]);
-
-  // ---- 予定の編集フォーム (フェーズ2、2026-07-22) ----
-  // 「保存ボタン方式」(ユーザー決定): ドラッグ確定 (handlePersist) と違い楽観的更新は行わない
-  // ―― POST /api/event/patch が成功して初めて store/IndexedDB へ反映する。そのため失敗時の
-  // ロールバックは不要で、EventEditForm 側がエラー表示してフォームを開いたまま再試行できる
-  // ようにするだけで良い(このハンドラは reject をそのまま投げ返すだけ)。
-  //
-  // 終日⇔時刻の変換 (isAllDay トグル): 元が Occurrence で draft.isAllDay===true、または
-  // 元が AllDayOccurrence で draft.isAllDay===false のとき、occurrenceStore⇔allDayStore
-  // (および IndexedDB の occurrences⇔allDayOccurrences ストア)の間で置き換える
-  // (id は Google の実 event id に対応する不変のキーなので、ストアを跨いでも同じ id を使う)。
-  const handleEditSave = useCallback(
-    async (original: Occurrence | AllDayOccurrence, draft: EventEditDraft): Promise<void> => {
-      if (!db) throw new Error("database not ready");
-      const patchReq = buildEventEditPatchRequest(original, draft, timeZone);
-      if (!patchReq) {
-        throw new Error("kichijitsu: could not build edit EventPatchRequest");
-      }
-      // httpJson の postJson ではなく sendJson + 自前 throw にしてあるのは、
-      // このメッセージ(kichijitsu: 接頭辞 + "(edit)")を変えないため
-      const res = await sendJson(checkedFetch, "POST", "/api/event/patch", patchReq);
-      if (!res.ok) {
-        throw new Error(`kichijitsu: POST /api/event/patch (edit) failed: ${res.status}`);
-      }
-
-      const wasAllDay = !("startMs" in original);
-
-      if (draft.isAllDay) {
-        const nextAllDay = applyDraftToAllDayOccurrence(original, draft, timeZone);
-        if (!wasAllDay) {
-          // 時刻予定 → 終日予定: occurrenceStore/IndexedDB から取り除く
-          store.remove([original.id]);
-          await deleteOccurrencesByIds(db, [original.id]);
-        }
-        allDayStore.update(nextAllDay);
-        await putAllDayOccurrences(db, [nextAllDay]);
-        return;
-      }
-
-      const nextOcc = applyDraftToOccurrence(original, draft);
-      if (wasAllDay) {
-        // 終日予定 → 時刻予定: allDayStore/IndexedDB から取り除く
-        allDayStore.remove([original.id]);
-        await deleteAllDayOccurrencesByIds(db, [original.id]);
-      } else if (
-        original.seriesId &&
-        "originalStartMs" in original &&
-        original.originalStartMs !== undefined
-      ) {
-        // シリーズ由来の1回分: override にも編集内容を書く(handlePersist と同じ流儀。
-        // これが無いと再展開のたびにタイトル/場所/説明がシリーズ側の値に巻き戻ってしまう)。
-        // 既存 patch はスプレッドしてマージする(handleRsvp と同じ流儀) ―― 丸ごと置き換えると
-        // mapGoogle が例外インスタンスから写した conferenceUrl / hasConference / responseStatus /
-        // isOrganizer / isWorkingLocation が消え、Meet の参加リンクや参加ステータスが再展開後に
-        // シリーズ側の値へ化けてしまう。
-        const overrideId = instanceId(original.seriesId, original.originalStartMs);
-        const existingOverride = await getOverride(db, overrideId);
-        await putOverride(db, {
-          id: overrideId,
-          seriesId: original.seriesId,
-          originalStartMs: original.originalStartMs,
-          patch: {
-            ...(existingOverride?.patch ?? {}),
-            title: draft.title,
-            startMs: draft.startMs,
-            endMs: draft.endMs,
-            location: draft.location || undefined,
-            description: draft.description || undefined,
-          },
-        });
-      }
-      store.update(nextOcc);
-      await putOccurrence(db, nextOcc);
-    },
-    [db, store, allDayStore, checkedFetch, timeZone],
-  );
-
-  // ---- RSVP (参加ステータス変更、フェーズ2、2026-07-22) ----
-  // 編集フォームと同じ「保存ボタン方式」(押した瞬間に楽観反映はしない、await 完了後に反映)。
-  // 422 (not_an_attendee) は RsvpNotAttendeeError を reject することで、呼び出し側
-  // (EventBlock.tsx の RsvpButtons)が専用メッセージを出し分けられるようにする。
-  const handleRsvp = useCallback(
-    async (subject: Occurrence | AllDayOccurrence, status: RsvpResponseStatus): Promise<void> => {
-      const req = buildEventRsvpRequest(subject, status);
-      if (!req) {
-        throw new Error("kichijitsu: could not build EventRsvpRequest");
-      }
-      // 422 を RsvpNotAttendeeError に振り替える必要があるため、throw する高レベル関数ではなく
-      // Response をそのまま受け取る sendJson を使う
-      const res = await sendJson(checkedFetch, "POST", "/api/event/rsvp", req);
-      if (res.status === 422) {
-        throw new RsvpNotAttendeeError();
-      }
-      if (!res.ok) {
-        throw new Error(`kichijitsu: POST /api/event/rsvp failed: ${res.status}`);
-      }
-      if (!db) return;
-
-      if ("startMs" in subject) {
-        const updated: Occurrence = { ...subject, responseStatus: status };
-        store.update(updated);
-        await putOccurrence(db, updated);
-        if (subject.seriesId && subject.originalStartMs !== undefined) {
-          const overrideId = instanceId(subject.seriesId, subject.originalStartMs);
-          const existing = await getOverride(db, overrideId);
-          await putOverride(db, {
-            id: overrideId,
-            seriesId: subject.seriesId,
-            originalStartMs: subject.originalStartMs,
-            patch: { ...(existing?.patch ?? {}), responseStatus: status },
-          });
-        }
-      } else {
-        const updated: AllDayOccurrence = { ...subject, responseStatus: status };
-        allDayStore.update(updated);
-        await putAllDayOccurrences(db, [updated]);
-      }
-    },
-    [db, store, allDayStore, checkedFetch],
-  );
-
-  // ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
-  // 以下3つのハンドラは全てローカルのみ: plannedStore(メモリ)と IndexedDB の
-  // plannedBlocks ストアだけを更新し、ネットワーク呼び出し(/api/event/* 等)は一切行わない。
-  // Google 側の handlePersist/handleCreate/handleDeleteOccurrence とは意図的に別経路にしてある
-  // (このブロックは Google に存在しない、書き戻し先が無いローカル専用の予定のため)。
-
-  /** 作業キューの項目がグリッドへドロップされたときに呼ばれる(DayColumn.tsx の onDrop 経由) */
-  const onDropWorkItem = useCallback(
-    (item: DroppedWorkItem, startMs: number, endMs: number) => {
-      if (!db) return;
-      const block = buildPlannedBlock(item, startMs, endMs);
-      // 楽観的表示: ネットワークが絡まないため待つ理由が無く、常に即時反映で確定でよい
-      plannedStore.upsert(block);
-      putPlannedBlock(db, block).catch((err) => {
-        console.error("kichijitsu: failed to persist planned block", err);
-      });
-    },
-    [db, plannedStore],
-  );
-
-  /** 予定タイムブロックの本体ドラッグ(移動)/端ドラッグ(リサイズ)確定時に呼ばれる */
-  const onMovePlannedBlock = useCallback(
-    (id: string, startMs: number, endMs: number) => {
-      if (!db) return;
-      const existing = plannedStore.get(id);
-      if (!existing) return;
-      const updated: PlannedBlock = { ...existing, startMs, endMs };
-      plannedStore.upsert(updated);
-      putPlannedBlock(db, updated).catch((err) => {
-        console.error("kichijitsu: failed to persist planned block move", err);
-      });
-    },
-    [db, plannedStore],
-  );
-
-  /** 予定タイムブロックの削除ボタンから呼ばれる */
-  const onDeletePlannedBlock = useCallback(
-    (id: string) => {
-      if (!db) return;
-      plannedStore.remove([id]);
-      deletePlannedBlock(db, id).catch((err) => {
-        console.error("kichijitsu: failed to delete planned block", err);
-      });
-    },
-    [db, plannedStore],
-  );
+  /**
+   * 予定タイムブロック(hooks/usePlannedBlockHandlers.ts)。作成(ドラッグ&ドロップ)/移動・
+   * リサイズ/削除の3ハンドラで、いずれも plannedStore と IndexedDB だけを更新する
+   * ローカル専用の経路(ネットワーク呼び出しは無い)。effect を持たないので位置の制約は無いが、
+   * 移設前と同じここに置いてある。返り値は JSX 側の既存の名前に別名で受けている。
+   */
+  const {
+    dropWorkItem: onDropWorkItem,
+    movePlannedBlock: onMovePlannedBlock,
+    deletePlannedBlock: onDeletePlannedBlock,
+  } = usePlannedBlockHandlers({ db, plannedStore });
 
   // ---- 手動タイマー・実績記録 (実績 UX 刷新フェーズ5b、2026-07-23) ----
   // 走行中(実行中)状態は「サーバーの開区間(GET /api/work-logs/open)」を単一の真実とする。
-  // ▶/⏹ はローカルの TimeEntry を作らず、POST /api/work-logs/start・/stop を叩く。
-  // timeEntryStore は開区間を射影した「走行中キャッシュ」として残す — WeekGrid(触れない
-  // ファイル)と RunningTimersIndicator が既存の TimeEntry[] を消費するため、それらを
-  // 書き換えずに済むよう、開区間 → TimeEntry[] を openIntervalsToTimeEntries で作って
-  // timeEntryStore.replaceAll で流し込む(下の射影 effect)。これにより MCP など別経路で
-  // 開始された開区間もポーリングで反映される。
-  //
-  // **単一走行の制約は無い**: 別々の repo+issue は同時に何本でも走行できる。二重 start は
-  // サーバーが no-op(alreadyOpen)にするので UI 側は無条件に叩いてよい。stop も対象の
-  // repo+issue だけを止め、他の並走には触れない。
-
-  // 実行中の開区間一覧(サーバー共有)。起動時・実績系 UI を開いたとき・start/stop 後・
-  // 45秒ポーリング(github 連携時のみ)で取得する。
-  const [openIntervals, setOpenIntervals] = useState<OpenWorkIntervalDTO[]>([]);
-
-  // GET /api/work-logs/open。401/ネットワークエラーは握って現状維持(他の実績経路と同じ
-  // 「取りこぼしより安全側」)。ユーザー操作起点でも定期ポーリングからも呼ぶ。
-  const refetchOpenIntervals = useCallback(async () => {
-    try {
-      const res = await checkedFetch("/api/work-logs/open");
-      if (!res.ok) return;
-      const data = (await res.json()) as OpenWorkIntervalsResponse;
-      setOpenIntervals(data.open);
-    } catch (err) {
-      console.warn("kichijitsu: GET /api/work-logs/open failed", err);
-    }
-  }, [checkedFetch]);
-
-  // 走行表示が有効な間(= github 連携済み。タイマーは github の issue/PR 前提)だけ 45秒
-  // ポーリングする。マウント時に即時1回取得し、以後 45秒間隔。github 未連携なら開区間は
-  // 常に空(ポーリングもしない)。MCP など別経路の start/stop もこのポーリングで反映される。
-  useEffect(() => {
-    if (!me.github) return;
-    void refetchOpenIntervals();
-    const id = window.setInterval(() => void refetchOpenIntervals(), 45_000);
-    return () => window.clearInterval(id);
-  }, [me.github, refetchOpenIntervals]);
-
-  /** ▶ ボタン(PlannedBlockCard / 作業キュー / ヘッダー)から呼ばれる。サーバーで開区間を開始する */
-  const onStartTimer = useCallback(
-    (item: TimerLinkedItem) => {
-      // 二重 start はサーバーが no-op(alreadyOpen)にするので押しても害はないが、既に開区間が
-      // あると分かっているなら余計な往復を避けて即 return する(走行表示は既に出ている)。
-      if (isIntervalRunning(openIntervals, item.repo, item.number)) return;
-      postJsonVoid(checkedFetch, "/api/work-logs/start", {
-        repo: item.repo,
-        issueRef: String(item.number),
-        agent: "timer",
-      } satisfies WorkIntervalStartRequest)
-        .then(() => refetchOpenIntervals())
-        .catch((err) => {
-          console.warn("kichijitsu: failed to start work interval", err);
-        });
-    },
-    [checkedFetch, openIntervals, refetchOpenIntervals],
-  );
-
-  // ヘッダーの走行中インジケーター(RunningTimersIndicator)と、レポートを開いたときの
-  // 経過表示に使う「現在時刻」。1秒 tick は走行中エントリが1本以上あるときだけ動かし、
-  // 0本になったら setInterval を止める(無駄な再描画をしない、という増分2の完了条件)。
-  const runningTimeEntries = useRunningTimeEntries(timeEntryStore);
-  const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (runningTimeEntries.length === 0) return;
-    setTimerNowMs(Date.now());
-    const id = window.setInterval(() => setTimerNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-    // 依存は「1本以上走行中か」だけでよい: 本数の増減(2件→3件等)では張り直さず、
-    // 0↔非0 の遷移でだけ interval を開始/停止する
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runningTimeEntries.length > 0]);
-
-  // 予定 vs 実績レポート(TimeReportOverlay)用の全件購読。オーバーレイが閉じていても
-  // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
-  const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
-  const reportTimeEntries = useTimeEntries(timeEntryStore);
-
-  // 開区間 → 走行中 TimeEntry[] の射影(フェーズ5b)。開区間には title/url/type が無いので、
-  // 作業キュー(githubQueue)と予定タイムブロックから repo+number でメタを補完する。
-  // plannedStore.getAll() は毎回新配列を返すため、useMemo は version(安定した数値)で張って
-  // 無駄な再計算を避ける。射影を timeEntryStore.replaceAll へ流し込むと WeekGrid /
-  // RunningTimersIndicator / 右ペイン / レポートが既存のまま走行表示を得る。
-  const plannedVersion = useSyncExternalStore(plannedStore.subscribe, plannedStore.getVersion);
-  const projectedRunning = useMemo(
-    () => openIntervalsToTimeEntries(openIntervals, plannedStore.getAll(), githubQueue),
-    // plannedVersion で plannedStore.getAll() の内容変化を検知する(getAll 自体は依存に入れない)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [openIntervals, githubQueue, plannedVersion],
-  );
-  useEffect(() => {
-    // replaceAll は内容が完全一致なら通知しない(45秒ポーリングの空振りで再描画しない)
-    timeEntryStore.replaceAll(projectedRunning);
-  }, [projectedRunning, timeEntryStore]);
+  // 開区間の取得と45秒ポーリング・▶/⏹・1秒 tick・timeEntryStore への射影は
+  // hooks/useTimers.ts、hook 実績 (work_logs) の一覧と取得/作成/更新/削除は
+  // hooks/useWorkLogs.ts へ移した(リファクタリング フェーズ2 ⑤、2026-07-25)。
+  // 依存の張り方(tick は 0↔非0 の遷移、射影は plannedVersion、ポーリングは me.github)は
+  // フック側のコメント参照 ―― ここは配線だけ。
 
   // hook 実績・commit 推定の取得トリガー(docs/github-integration.md「時間計測」増分2 Part B、
   // GitHubPane 増分2で拡張)。当初は TimeReportOverlay を開いたとき(reportOpen)だけだったが、
@@ -1883,134 +1346,48 @@ function App() {
   // と同値 — 二重取得(reportOpen と paneOpen が両方 true でも1回の effect 実行にしかならない)は
   // 依存配列がそのまま防ぐ。2026-07-25 に WorkLogModal を廃止し、その開閉フラグ(workLogModalOpen)
   // をこの条件から外した ―― 実績 UI はすべて paneOpen 経路に集約された。
+  // 宣言位置が移設前(タイマー系 effect の後)より前に上がっているのは、useWorkLogs/useTimers の
+  // 両方が引数に取るため(hooks はレンダー中に評価されるので参照より前に確定していなければならない)。
+  // 値の導き方そのものは無変更。
   const needsActualsData = reportOpen || (paneOpen && !!me.github);
 
-  // hook 実績(docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
-  // 保存する値)。2026-07-21 に Google カレンダー保存(occurrences ストア経由)から D1 保存へ移行 —
-  // needsActualsData のときだけ GET /api/work-logs を取りに行く(常時ポーリングはしない、
-  // POST /api/github/pr-commits の effect と同じ流儀)。401/ネットワークエラーは握って空配列を返す
-  // (レポート表示自体は継続できる、他の実績経路と同じ「取りこぼしより安全側」の方針)。
-  // TimeReportOverlay の手動追加/削除ハンドラ(下の handleCreateWorkLog/handleDeleteWorkLog)からも
-  // 再取得のために呼ぶ、2026-07-22。
-  const fetchWorkLogs = useCallback(async (): Promise<WorkLogDTO[]> => {
-    const res = await checkedFetch("/api/work-logs");
-    if (!res.ok) return [];
-    const data = (await res.json()) as WorkLogsResponse;
-    return data.workLogs;
-  }, [checkedFetch]);
+  /**
+   * hook 実績 (work_logs) の一覧と書き込み(hooks/useWorkLogs.ts)。useTimers より先に呼ぶ:
+   * ⏹ の成功後に走る work-logs 再取得 (refetchWorkLogs) を useTimers へ渡す必要があるため。
+   * この順序により「needsActualsData で work-logs を取り、その後で開区間を取り直す」という
+   * 移設前の commit 内の順序もそのまま保たれる(useTimers 側のコメント参照)。
+   */
+  const {
+    workLogs: reportWorkLogs,
+    refetch: refetchWorkLogs,
+    create: handleCreateWorkLog,
+    update: handleUpdateWorkLog,
+    remove: handleDeleteWorkLog,
+  } = useWorkLogs({ needsActualsData, checkedFetch });
 
-  useEffect(() => {
-    if (!needsActualsData) return;
-    let cancelled = false;
-    fetchWorkLogs()
-      .then((workLogs) => {
-        if (!cancelled) setReportWorkLogs(workLogs);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/work-logs failed", err);
-        if (!cancelled) setReportWorkLogs([]);
-      });
-    // 実績系 UI を開いた瞬間に開区間も最新化する(45秒ポーリング待ちで最大45秒古いのを防ぐ)。
-    void refetchOpenIntervals();
-    return () => {
-      cancelled = true;
-    };
-  }, [needsActualsData, fetchWorkLogs, refetchOpenIntervals]);
+  /**
+   * 手動タイマー(hooks/useTimers.ts)。開区間のポーリング・▶/⏹・経過表示用の1秒 tick・
+   * 開区間 → timeEntryStore の射影が入っている。
+   */
+  const {
+    runningTimeEntries,
+    timerNowMs,
+    startTimer: onStartTimer,
+    stopTimer: onStopTimer,
+  } = useTimers({
+    github: me.github,
+    needsActualsData,
+    plannedStore,
+    timeEntryStore,
+    githubQueue,
+    checkedFetch,
+    refetchWorkLogs,
+  });
 
-  // TimeReportOverlay の手動追加フォーム/削除ボタンから、書き込み成功後の再取得に使う
-  // (キャンセルガードは持たない — ユーザー操作起点の一回限りの呼び出しで、上の effect と違って
-  // 依存の変化で何度も走ることが無いため実害が薄い、handleCreateBlockRule 等と同じ判断)。
-  const refetchWorkLogs = useCallback(async () => {
-    try {
-      setReportWorkLogs(await fetchWorkLogs());
-    } catch (err) {
-      console.warn("kichijitsu: GET /api/work-logs (refetch) failed", err);
-    }
-  }, [fetchWorkLogs]);
-
-  // TimeReportOverlay「実績を手動で追加」フォームから呼ぶ(2026-07-22)。POST /api/work-logs は
-  // POST /api/block-rules 等と同じくセッション cookie 認証。成功後は一覧を再取得して即反映する
-  // (サーバーは {id} しか返さないため、楽観的にローカルへ1件追加するより取り直す方が単純)。
-  // 失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateBlockRule と同じ流儀)。
-  const handleCreateWorkLog = useCallback(
-    async (req: WorkLogCreateRequest) => {
-      await postJsonVoid<WorkLogCreateRequest>(checkedFetch, "/api/work-logs", req);
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // TimeReportOverlay の実績ログ一覧、手動エントリ(agent: manual)の削除ボタンから呼ぶ
-  // (2026-07-22)。204 で成功、失敗時は throw して一覧側の行ごとの確認 UI にエラー表示を委ねる
-  // (handleDeleteBlockRule と同じ流儀)。
-  const handleDeleteWorkLog = useCallback(
-    async (id: string) => {
-      await deleteJson(checkedFetch, `/api/work-logs/${encodeURIComponent(id)}`);
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // 右ペイン(GitHubPane)実績履歴のインライン編集から呼ぶ(2026-07-23)。PATCH /api/work-logs/:id は
-  // handleCreateWorkLog/handleDeleteWorkLog と同じセッション cookie 認証・非楽観更新(成功後に
-  // 再取得)。失敗時は throw してフォーム側にエラー表示を委ねる(handleCreateWorkLog と同じ流儀)。
-  const handleUpdateWorkLog = useCallback(
-    async (id: string, req: WorkLogUpdateRequest) => {
-      await patchJson<WorkLogUpdateRequest>(
-        checkedFetch,
-        `/api/work-logs/${encodeURIComponent(id)}`,
-        req,
-      );
-      await refetchWorkLogs();
-    },
-    [checkedFetch, refetchWorkLogs],
-  );
-
-  // ⏹ ボタン(WeekGrid の PlannedBlockCard / ヘッダーの RunningTimersIndicator / 右ペイン)から
-  // 呼ばれる。対象 linkedItemId の開区間だけをサーバーで停止する(フェーズ5b、2026-07-23)。
-  //   1. 走行中キャッシュ(timeEntryStore=開区間の射影)から linkedItemId で該当エントリを引き、
-  //      その id で元の開区間を特定して repo+issueRef を得る(開区間側が単一の真実)。
-  //   2. POST /api/work-logs/stop で確定。サーバーが work_logs に end を書き、開区間から外れる。
-  //   3. 成功後に開区間を再取得(走行解除)し、確定分を反映するため work-logs も再取得する。
-  // 対応する開始が無い({closed:false, reason:"no_open_interval"})= 既に停止/孤立。警告のみ
-  // 出し、UI は開区間の再取得で整合させる(走行解除)。失敗時も console.warn に留める(次の
-  // ポーリングか再操作で回復できる、他の実績経路と同じ「実害の少ない」握り方)。他の並走には触れない。
-  const onStopTimer = useCallback(
-    (linkedItemId: string) => {
-      const running = timeEntryStore
-        .getRunningEntries()
-        .find((e) => e.linkedItemId === linkedItemId);
-      if (!running) return;
-      // 射影 TimeEntry.id は開区間の id なので、元の開区間から repo/issueRef を正確に取る。
-      // 万一開区間が見つからなくても、射影が持つ repo/number からフォールバックで組み立てる。
-      const interval = openIntervals.find((iv) => iv.id === running.id);
-      const repo = interval?.repo ?? running.repo;
-      const issueRef = interval ? interval.issueRef : running.number > 0 ? String(running.number) : undefined;
-      postJson<WorkIntervalStopRequest, WorkIntervalStopResponse>(
-        checkedFetch,
-        "/api/work-logs/stop",
-        {
-          repo,
-          ...(issueRef ? { issueRef } : {}),
-        },
-      )
-        .then(async (data) => {
-          if (!data.closed) {
-            console.warn(
-              "kichijitsu: stop had no open interval (already stopped/orphan)",
-              data.reason,
-            );
-          }
-          // 走行解除(開区間再取得)+ 確定分を履歴/レポートへ反映(work-logs 再取得)。
-          await refetchOpenIntervals();
-          await refetchWorkLogs();
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: failed to stop work interval", err);
-        });
-    },
-    [checkedFetch, timeEntryStore, openIntervals, refetchOpenIntervals, refetchWorkLogs],
-  );
+  // 予定 vs 実績レポート(TimeReportOverlay)用の全件購読。オーバーレイが閉じていても
+  // フックはトップレベルで無条件に呼ぶ(Rules of Hooks) — 実際に使うのは reportOpen 時のみ
+  const reportPlannedBlocks = useAllPlannedBlocks(plannedStore);
+  const reportTimeEntries = useTimeEntries(timeEntryStore);
 
   const reportHookActualByLinkedItem = useMemo(
     () =>
@@ -2037,61 +1414,6 @@ function App() {
     checkedFetch,
     setAuthExpired: setGithubAuthExpired,
   });
-
-  // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
-  // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
-  // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
-  // 既存の saveError 通知を再利用する。正本は次の「同期」で還流する想定
-  // (Tasks API には push 通知が無いため、SSE 経由の即時還流は無い)。
-  const handleToggleTask = useCallback(
-    (task: TaskItem) => {
-      if (!db) return;
-      const nextStatus: TaskItem["status"] =
-        task.status === "completed" ? "needsAction" : "completed";
-      const previous = task;
-      const updated: TaskItem = { ...task, status: nextStatus };
-      // 楽観的更新: 応答を待たずに即座に見た目(枡の押印)へ反映する
-      taskStore.update(updated);
-      async function run() {
-        if (!db) return;
-        await putTask(db, updated);
-
-        const patchReq = buildTaskPatchRequest(updated, nextStatus);
-        let ok = false;
-        if (patchReq) {
-          try {
-            const res = await checkedFetch("/api/task/patch", jsonInit("POST", patchReq));
-            // レスポンス (TaskPatchResponse) は ok フラグのみで、正本は次回「同期」で還流する想定
-            // (buildEventPatchRequest 経由の handlePersist と同じ流儀。ボディは読み捨てる)
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/task/patch failed (${updated.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/task/patch failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build TaskPatchRequest, skipping write-back",
-            updated.id,
-          );
-        }
-
-        if (ok) return;
-
-        // ロールバック: taskStore・IndexedDB を変更前の状態に戻す
-        taskStore.update(previous);
-        await putTask(db, previous);
-        flashSaveError();
-      }
-      run().catch((err) => {
-        console.error("kichijitsu: failed to persist task update", err);
-      });
-    },
-    [db, taskStore, checkedFetch, flashSaveError],
-  );
 
   // 'n' ショートカット(新規予定作成、フェーズ6)。書き込み先カレンダーが無ければ何もしない
   // (ボタン起点の作成と同じ制約)。移動そのものは useTimelineNavigation の

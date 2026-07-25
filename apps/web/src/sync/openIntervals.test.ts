@@ -3,6 +3,7 @@ import type { GitHubWorkItemDTO, OpenWorkIntervalDTO } from "@kichijitsu/shared"
 import type { PlannedBlock } from "../model/types";
 import {
   buildTimerItemLookup,
+  buildWorkIntervalStopRequest,
   isIntervalRunning,
   openIntervalToTimeEntry,
   openIntervalsToTimeEntries,
@@ -211,5 +212,39 @@ describe("isIntervalRunning", () => {
   it("issueRef が無い(repo レベル)開区間はどの番号にも一致しない", () => {
     const repoLevel = [interval({ repo: "owner/repo", issueRef: undefined })];
     expect(isIntervalRunning(repoLevel, "owner/repo", 42)).toBe(false);
+  });
+});
+
+describe("buildWorkIntervalStopRequest", () => {
+  it("開区間が見つかれば、その生の repo/issueRef をそのまま送る", () => {
+    // 射影側 (running) は完全参照を「issue の所属 repo + 数値」に正規化済みなので、
+    // それを送るとサーバー側の突き合わせがずれる。開区間側の値が正
+    const intervals = [interval({ id: "wl:1", repo: "owner/work", issueRef: "Love-Rox/app#12" })];
+    expect(
+      buildWorkIntervalStopRequest(intervals, {
+        id: "wl:1",
+        repo: "Love-Rox/app",
+        number: 12,
+      }),
+    ).toEqual({ repo: "owner/work", issueRef: "Love-Rox/app#12" });
+  });
+
+  it("開区間が issueRef を持たなければ repo 単位の停止になる", () => {
+    const intervals = [interval({ id: "wl:1", repo: "owner/repo", issueRef: undefined })];
+    expect(
+      buildWorkIntervalStopRequest(intervals, { id: "wl:1", repo: "owner/repo", number: 0 }),
+    ).toEqual({ repo: "owner/repo" });
+  });
+
+  it("開区間が見つからなければ射影の repo/number からフォールバックする", () => {
+    expect(
+      buildWorkIntervalStopRequest([], { id: "wl:missing", repo: "owner/repo", number: 42 }),
+    ).toEqual({ repo: "owner/repo", issueRef: "42" });
+  });
+
+  it("フォールバックで number が 0 なら issueRef を省く(0 を送って別物に当てない)", () => {
+    expect(
+      buildWorkIntervalStopRequest([], { id: "wl:missing", repo: "owner/repo", number: 0 }),
+    ).toEqual({ repo: "owner/repo" });
   });
 });

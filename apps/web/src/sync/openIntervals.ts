@@ -1,4 +1,8 @@
-import type { GitHubWorkItemDTO, OpenWorkIntervalDTO } from "@kichijitsu/shared";
+import type {
+  GitHubWorkItemDTO,
+  OpenWorkIntervalDTO,
+  WorkIntervalStopRequest,
+} from "@kichijitsu/shared";
 import type { PlannedBlock, TimeEntry } from "../model/types";
 import { issueIdentityNumber, workLogIssueIdentity } from "./workLogGrouping";
 
@@ -139,4 +143,32 @@ export function isIntervalRunning(
 ): boolean {
   const target = workLogIssueIdentity(repo, String(number)).key;
   return intervals.some((iv) => workLogIssueIdentity(iv.repo, iv.issueRef).key === target);
+}
+
+/**
+ * ⏹ の停止リクエスト (POST /api/work-logs/stop) の body を組む
+ * (リファクタリング フェーズ2 ⑤、2026-07-25 に hooks/useTimers.ts から切り出した純関数)。
+ *
+ * 射影 TimeEntry.id は開区間の id なので、まず元の開区間を引いて **開区間側の生の
+ * repo/issueRef をそのまま送る** ―― 射影側の repo/number は workLogIssueIdentity で
+ * 正規化済み(完全参照 `owner/repo#12` を issue の所属 repo + 数値に畳んだもの)なので、
+ * それを送るとサーバー側の突き合わせ対象がずれる。
+ *
+ * 開区間が見つからない(ポーリングと表示のずれ等)場合だけ、射影が持つ repo/number から
+ * フォールバックで組み立てる。number が 0(= 番号が取れなかった開区間の射影)なら
+ * issueRef 自体を省く ―― `0` を送って別物に当てないため。開区間が見つかって issueRef を
+ * 持たない場合も同じく省く(repo 単位の停止)。
+ */
+export function buildWorkIntervalStopRequest(
+  intervals: readonly OpenWorkIntervalDTO[],
+  running: { id: string; repo: string; number: number },
+): WorkIntervalStopRequest {
+  const interval = intervals.find((iv) => iv.id === running.id);
+  const repo = interval?.repo ?? running.repo;
+  const issueRef = interval
+    ? interval.issueRef
+    : running.number > 0
+      ? String(running.number)
+      : undefined;
+  return { repo, ...(issueRef ? { issueRef } : {}) };
 }
