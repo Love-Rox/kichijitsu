@@ -13,13 +13,15 @@ import {
   type BlockRuleRow,
   type BlockRuleSourceRow,
 } from "../core/block-rules";
+import { PROFILE_ID_HEADER } from "./profile-hub-protocol";
 
 /**
- * GET /api/events (Worker 側ルート) が `stub.fetch(request)` で転送する際、DO 自身は
- * 自分の名前 (= profileId) を知らないので明示的にヘッダで渡す
- * ("DOs don't know their own ID" — explicit init と同じ考え方)。
+ * Worker ルートとのワイヤ契約 (ヘッダ名) は profile-hub-protocol.ts に置いてある — この
+ * ファイルは `cloudflare:workers` を import するため workerd の外では読み込めず、ルート側の
+ * 単体テストから参照できなくなるため (2026-07-25)。ここからの再エクスポートは、DO 実装と
+ * 同じ場所から読みたい呼び出し側のために残す。
  */
-export const PROFILE_ID_HEADER = "X-Kichijitsu-Profile-Id";
+export { PROFILE_ID_HEADER } from "./profile-hub-protocol";
 
 const KEEP_ALIVE_INTERVAL_MS = 20_000;
 

@@ -35,7 +35,7 @@ Google 同期（カレンダー）の実 E2E が通ってから着手する。
 ## バックエンド実装 (2026-07-20、apps/sync)
 
 Google Tasks API v1 との読み書きを既存の層構造 (google/\*.ts → core/\*.ts →
-UserSyncDO の RPC → routes/api.ts) にそのまま合わせて実装した。DTO
+UserSyncDO の RPC → routes/calendars-tasks.ts) にそのまま合わせて実装した。DTO
 (TaskListDTO/GoogleTaskDTO/TaskListsResponse/TasksSyncRequest/TasksSyncResponse/
 TaskPatchRequest/TaskPatchResponse) は packages/shared/src/protocol.ts に既存。
 
@@ -48,7 +48,7 @@ TaskPatchRequest/TaskPatchResponse) は packages/shared/src/protocol.ts に既�
   (`/auth/login` をもう一度通す) で tasks 権限を得る。
 - **GET /api/tasklists?accountId=**: `google/tasks.ts` の `fetchTaskLists` →
   `core/tasks.ts` の `listTaskLists` (401 リトライ1回) → `UserSyncDO.listTaskLists` RPC。
-  Google が 403 を返したら `routes/api.ts` がそれを
+  Google が 403 を返したら `routes/calendars-tasks.ts` がそれを
   `{ error: 'tasks_scope_missing' }` (403) に変換して返す。ページングは実装していない
   (tasklists は通常数十件程度、design にもページング要件の記載なし)。
 - **POST /api/tasks/sync**: `fetchTasksPage`

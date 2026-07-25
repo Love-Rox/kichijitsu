@@ -24,7 +24,10 @@ import { applySyncResponse } from "../sync/applySync";
 import { applyTasksSyncResponse } from "../sync/applyTasksSync";
 import { resolveDefaultWriteTarget, type WriteTargetCandidate } from "../sync/eventCreate";
 import { sendJson, type CheckedFetch } from "../sync/httpJson";
-import { decideSyncBackfillTargets } from "../sync/syncBackfill";
+import {
+  decideSyncBackfillTargets,
+  resolveEffectiveSyncBackfillVersion,
+} from "../sync/syncBackfill";
 import { buildSyncRequest } from "../sync/syncRequest";
 import { createSyncScheduler } from "../sync/syncScheduler";
 import { useServerEvents } from "./useServerEvents";
@@ -112,6 +115,7 @@ export function useCalendarSync({
   calendarsByAccount,
   visibleCalendars,
   taskListsByAccount,
+  serverSyncBackfillVersion,
   checkedFetch,
   markOnline,
   markOffline,
@@ -124,6 +128,12 @@ export function useCalendarSync({
   calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
   visibleCalendars: VisibleCalendarsMap;
   taskListsByAccount: Record<string, TaskListDTO[]>;
+  /**
+   * GET /api/me の MeResponse.syncBackfillVersion(= sync が対応しているバックフィル世代)。
+   * 未取得/旧サーバーでは undefined。バックフィル完了として記録する世代の上限に使う
+   * (runSyncBackfillIfNeeded、2026-07-25)
+   */
+  serverSyncBackfillVersion: number | undefined;
   checkedFetch: CheckedFetch;
   markOnline: () => void;
   markOffline: () => void;
@@ -303,11 +313,15 @@ export function useCalendarSync({
   const runSyncBackfillIfNeeded = useCallback(async () => {
     if (!db) return;
     const savedVersion = await getSyncBackfillVersion(db);
-    const targets = decideSyncBackfillTargets(
-      savedVersion,
+    // 記録してよいのは min(自世代, サーバー対応世代) まで (2026-07-25、sync/syncBackfill.ts の
+    // resolveEffectiveSyncBackfillVersion 参照): web だけ先にデプロイされた状態で「サーバーがまだ
+    // 返さないフィールド」をバックフィル済みと記録してしまうと、以後 forceFull が走らずその
+    // フィールドが永久に欠ける。サーバーが追いついたら次回起動で残りの世代ぶんが自然に走る
+    const targetVersion = resolveEffectiveSyncBackfillVersion(
       CURRENT_SYNC_BACKFILL_VERSION,
-      selectedTargets(),
+      serverSyncBackfillVersion,
     );
+    const targets = decideSyncBackfillTargets(savedVersion, targetVersion, selectedTargets());
     if (targets.length === 0) return;
 
     const results = await Promise.allSettled(
@@ -315,7 +329,7 @@ export function useCalendarSync({
     );
     const allOk = results.every((r) => r.status === "fulfilled");
     if (allOk) {
-      await setSyncBackfillVersion(db, CURRENT_SYNC_BACKFILL_VERSION);
+      await setSyncBackfillVersion(db, targetVersion);
     } else {
       for (const result of results) {
         if (result.status === "rejected") {
@@ -323,7 +337,7 @@ export function useCalendarSync({
         }
       }
     }
-  }, [db, selectedTargets, syncCalendar]);
+  }, [db, selectedTargets, syncCalendar, serverSyncBackfillVersion]);
 
   // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
   // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す

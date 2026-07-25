@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { decideSyncBackfillTargets } from "./syncBackfill";
+import {
+  decideSyncBackfillTargets,
+  resolveEffectiveSyncBackfillVersion,
+} from "./syncBackfill";
 
 describe("decideSyncBackfillTargets", () => {
   it("savedVersion が currentVersion 未満なら選択中の全ターゲットをそのまま返す", () => {
@@ -35,5 +38,28 @@ describe("decideSyncBackfillTargets", () => {
     ];
 
     expect(decideSyncBackfillTargets(0, 2, targets)).toEqual(targets);
+  });
+});
+
+// サーバー対応世代でクランプする(2026-07-25、web だけ先にデプロイされた状態で
+// 「サーバーがまだ返さないフィールド」をバックフィル済みと記録してしまう事故の恒久対策)。
+describe("resolveEffectiveSyncBackfillVersion", () => {
+  it("サーバーが自世代より古ければサーバー世代までに抑える", () => {
+    expect(resolveEffectiveSyncBackfillVersion(5, 3)).toBe(3);
+  });
+
+  it("サーバーが自世代以上なら自世代のまま", () => {
+    expect(resolveEffectiveSyncBackfillVersion(5, 5)).toBe(5);
+    expect(resolveEffectiveSyncBackfillVersion(5, 7)).toBe(5);
+  });
+
+  it("宣言が無い(旧サーバー/未取得)なら自世代のまま(従来の挙動)", () => {
+    expect(resolveEffectiveSyncBackfillVersion(5, undefined)).toBe(5);
+  });
+
+  it("異常値(0/負/NaN)は宣言が無いのと同じ扱い(毎起動 forceFull を防ぐ)", () => {
+    expect(resolveEffectiveSyncBackfillVersion(5, 0)).toBe(5);
+    expect(resolveEffectiveSyncBackfillVersion(5, -1)).toBe(5);
+    expect(resolveEffectiveSyncBackfillVersion(5, Number.NaN)).toBe(5);
   });
 });

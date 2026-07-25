@@ -1,10 +1,11 @@
-import type { WorkLogDTO } from "@kichijitsu/shared";
+import type { WorkLogDTO, WorkLogIssueIdentity } from "@kichijitsu/shared";
+import { aggregateWorkLogEntries, workLogIssueIdentity } from "@kichijitsu/shared";
 
 /**
  * 実績履歴(work_logs)を「同じ issue/PR の記録」でまとめるための純関数
- * (実績 UX 刷新、2026-07-23)。WorkLogModal の下段「実績履歴」を、全 work_logs のフラットな
- * 時系列一覧から issue/PR 単位のグループ表示に置き換えるために使う。DOM/store に触れない
- * 副作用フリー層(timeTracking.ts / workLogEntry.ts と同じ流儀)。
+ * (実績 UX 刷新、2026-07-23)。WorkLogModal を廃した後は右ペイン(GitHubPane)の「実績履歴」が、
+ * 全 work_logs のフラットな時系列一覧ではなく issue/PR 単位のグループ表示になるために使う。
+ * DOM/store に触れない副作用フリー層(timeTracking.ts / workLogEntry.ts と同じ流儀)。
  *
  * グループは「issue 自身の同一性(所属 repo + 番号)」でまとめる。work_logs の issueRef は2形態:
  *  - `owner/repo#番号`(hook/MCP の完全参照。作業した repo とは別 repo の issue も指せる)
@@ -12,6 +13,13 @@ import type { WorkLogDTO } from "@kichijitsu/shared";
  * どちらも「issue の所属 repo + 番号」へ正規化してキーにするので、同じ issue を別の作業 repo
  * (例: 実装は lapras、issue は scouty)で記録しても1グループにまとまる。issueRef が空のものは
  * 「issue 無し」グループとして作業 repo 単位でまとめる。
+ *
+ * **正規化と集計の実体は @kichijitsu/shared (work-log.ts) に移した**(2026-07-25、リファクタリング
+ * フェーズ4)。同じ「repo+issue でまとめて期間を合計する」処理が apps/sync 側にも
+ * (MCP work_summary 用の aggregateWorkLogs として) 別定義で存在し、あちらは issue_ref を正規化して
+ * いなかったため、web の実績履歴と MCP の数字が食い違っていた。バケットキーの正規化
+ * (workLogIssueIdentity) と期間合計 (aggregateWorkLogEntries) は shared の1つだけを両者が使う。
+ * このモジュールに残るのは web 固有の見せ方(グループの並び順・logs の並び・表示用の集計)。
  */
 export interface WorkLogGroup {
   /** グループの一意キー(issue の所属 repo + 番号、または issue 無しは作業 repo)。 */
@@ -22,67 +30,29 @@ export interface WorkLogGroup {
   issueRef?: string;
   /** グループ内の記録を startMs 降順に並べたもの。 */
   logs: WorkLogDTO[];
-  /** 各 log の (endMs - startMs) を Math.max(0, …) で加算した合計 ms(負や 0 は加算しない)。 */
+  /** 各 log の (endMs - startMs) を加算した合計 ms(負や 0 の区間は加算しない)。 */
   totalMs: number;
-  /** グループ内の記録数。 */
+  /** グループ内の記録数(一覧に出す件数なので、期間が負や 0 の記録も数える)。 */
   sessionCount: number;
   /** グループ内の最大 startMs(グループ並び順のキー)。 */
   latestStartMs: number;
 }
 
-/** issue の同一性(所属 repo + 番号)。issueRef が無い(issue 無し)なら hasIssue=false。 */
-export interface IssueIdentity {
-  key: string;
-  /** 表示・グループ化に使う repo(issue 付きは issue 所属 repo、無しは作業 repo)。 */
-  repo: string;
-  /** issue/PR 番号(issue 付きのみ)。数値とは限らない(ブランチ名由来の参照もある)。 */
-  issueRef?: string;
-  hasIssue: boolean;
-}
+/**
+ * issue の同一性(所属 repo + 番号)。実体は shared の WorkLogIssueIdentity —
+ * openIntervals.ts / hookActual.ts / コンポーネント側の import 元を変えないための別名。
+ */
+export type IssueIdentity = WorkLogIssueIdentity;
 
 /**
- * key の区切り文字。repo 名にも issue 番号にも現れ得ない文字でないと
- * (repo="a", 番号="b:c") と (repo="a:b", 番号="c") のようなキー衝突が起きるため、
- * 文字列としてまず現れない NUL (U+0000) を使う ―― ここは従来から NUL で、衝突可能性は変えない。
- * ただしソース上は `\u0000` エスケープで書く: 生の 0x00 バイトを埋め込むと git がファイルを
- * バイナリと判定して diff が出なくなり、レビュー不能・テキストマージ不可になる(2026-07-25)。
+ * 純関数。(作業 repo, issueRef) から issue の同一性を導く。実体は shared の workLogIssueIdentity
+ * (**issueRef 正規化の唯一の置き場**、2026-07-25 に apps/sync と共有するため移設)。
+ * 実績履歴のグループ化だけでなく、開区間の走行判定/メタ補完 (sync/openIntervals.ts) と hook 実績の
+ * 突合 (sync/hookActual.ts) もここを通す — 以前は3系統がそれぞれ別解釈(素の `String(number)` 一致 /
+ * 数値のみ)をしていたため、hook が完全参照 (`owner/repo#12`) で開始した開区間を UI 側が走行中と
+ * 認識できず、同じ issue で二重に開区間ができる・壊れた fallback URL が出る、という不整合が起きていた。
  */
-const KEY_SEP = "\u0000";
-
-/**
- * 純関数。(作業 repo, issueRef) から issue の同一性を導く。
- * - issueRef 空/空白 → issue 無し(作業 repo でまとめる)。
- * - issueRef が `owner/repo#番号`(# の前に "/" を含む)→ 所属 repo = # の前、番号 = # の後。
- * - issueRef が `#番号` / 素の `番号` → 所属 repo = 作業 repo、番号 = 数字部分。
- * これにより「同じ issue を別 repo の作業として記録」しても同一キーになる。
- *
- * **issueRef 正規化の唯一の置き場**(2026-07-25): 実績履歴のグループ化だけでなく、開区間の
- * 走行判定/メタ補完 (sync/openIntervals.ts) と hook 実績の突合 (sync/hookActual.ts) もここを
- * 通す。以前は3系統がそれぞれ別解釈(素の `String(number)` 一致 / 数値のみ)をしていたため、
- * hook が完全参照 (`owner/repo#12`) で開始した開区間を UI 側が走行中と認識できず、同じ issue で
- * 二重に開区間ができる・壊れた fallback URL が出る、という不整合が起きていた。
- */
-export function workLogIssueIdentity(repo: string, issueRef: string | undefined): IssueIdentity {
-  const ref = issueRef?.trim();
-  if (!ref) {
-    return { key: `repo${KEY_SEP}${repo}`, repo, hasIssue: false };
-  }
-  const hash = ref.lastIndexOf("#");
-  let issueRepo = repo;
-  let number = ref;
-  if (hash >= 0) {
-    const left = ref.slice(0, hash).trim();
-    number = ref.slice(hash + 1).trim();
-    if (left.includes("/")) issueRepo = left; // "owner/repo#番号" の完全参照
-    // "#番号" は所属 repo が無いので作業 repo のまま
-  }
-  return {
-    key: `issue${KEY_SEP}${issueRepo}${KEY_SEP}${number}`,
-    repo: issueRepo,
-    issueRef: number,
-    hasIssue: true,
-  };
-}
+export { workLogIssueIdentity };
 
 /**
  * 純関数。issue の同一性から「数値の issue/PR 番号」を取り出す。数値でない参照
@@ -99,39 +69,26 @@ export function issueIdentityNumber(identity: IssueIdentity): number | undefined
 /**
  * work_logs を issue の同一性(所属 repo + 番号)でグループ化する。
  * - 各グループの logs は startMs 降順。
- * - totalMs は各 log の Math.max(0, endMs - startMs) の合計。
+ * - totalMs は各 log の (endMs - startMs) の合計(負や 0 の区間は加算しない)。
  * - グループの並びは latestStartMs(グループ内最大 startMs)降順。
+ *
+ * グループ分けと totalMs の計算は shared の aggregateWorkLogEntries(apps/sync の MCP
+ * work_summary と共有)。sessionCount だけはこちら固有で、shared の count(= 期間が正の記録数)
+ * ではなく**一覧に出す記録数**(entries の数)を使う — 期間が反転した壊れた記録も一覧に出して
+ * 利用者が訂正/削除できるようにするため、見出しの件数と一覧の行数を一致させる。
  */
 export function groupWorkLogsByIssue(workLogs: WorkLogDTO[]): WorkLogGroup[] {
-  const groups = new Map<string, WorkLogGroup>();
-
-  for (const log of workLogs) {
-    const identity = workLogIssueIdentity(log.repo, log.issueRef);
-    let group = groups.get(identity.key);
-    if (!group) {
-      group = {
-        key: identity.key,
-        repo: identity.repo,
-        issueRef: identity.issueRef,
-        logs: [],
-        totalMs: 0,
-        sessionCount: 0,
-        latestStartMs: log.startMs,
-      };
-      groups.set(identity.key, group);
-    }
-    group.logs.push(log);
-    group.totalMs += Math.max(0, log.endMs - log.startMs);
-    group.sessionCount += 1;
-    if (log.startMs > group.latestStartMs) group.latestStartMs = log.startMs;
-  }
-
-  const result = [...groups.values()];
-  for (const group of result) {
-    group.logs.sort((a, b) => b.startMs - a.startMs);
-  }
-  result.sort((a, b) => b.latestStartMs - a.latestStartMs);
-  return result;
+  return aggregateWorkLogEntries(workLogs)
+    .map((bucket) => ({
+      key: bucket.key,
+      repo: bucket.repo,
+      issueRef: bucket.issueRef,
+      logs: [...bucket.entries].sort((a, b) => b.startMs - a.startMs),
+      totalMs: bucket.totalMs,
+      sessionCount: bucket.entries.length,
+      latestStartMs: bucket.latestStartMs,
+    }))
+    .sort((a, b) => b.latestStartMs - a.latestStartMs);
 }
 
 /**

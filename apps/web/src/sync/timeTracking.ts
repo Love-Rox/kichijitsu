@@ -33,13 +33,15 @@ export function entryDurationMs(entry: TimeEntry, nowMs: number = Date.now()): n
   return Math.max(0, endMs - entry.startMs);
 }
 
-/** "2h 15m" / "45m" 形式。0分未満に丸まる端数は切り捨て */
-export function formatDurationHm(ms: number): string {
-  const totalMinutes = Math.floor(Math.max(0, ms) / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
+/**
+ * "2h 15m" / "45m" 形式。0分未満に丸まる端数は切り捨て。
+ *
+ * 実体は @kichijitsu/shared (work-log.ts) — MCP の work_summary が同じ整形を必要とするため
+ * apps/sync/src/core/work-log.ts にバイト単位で同一の複製があったのを 2026-07-25 に寄せた
+ * (shared 初の runtime export)。呼び出し側 (RunningTimersIndicator/TimeReportOverlay/
+ * WorkLogHistory 等) の import 元を変えないよう、ここから再エクスポートする。
+ */
+export { formatDurationHm } from "@kichijitsu/shared";
 
 /** 予定 vs 実績レポートの1行(item 単位) */
 export interface ReportRow {

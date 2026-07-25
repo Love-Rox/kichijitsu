@@ -4,7 +4,9 @@ import type {
   WorkLogCreateRequest,
   WorkLogDTO,
   WorkLogUpdateRequest,
+  WorkLogValidationError,
 } from "@kichijitsu/shared";
+import { validateWorkLogInterval } from "@kichijitsu/shared";
 import { datetimeLocalValueToMs, msToDatetimeLocalValue } from "./eventEdit";
 
 /**
@@ -32,11 +34,12 @@ export interface WorkLogEntryFormInput {
   agent: string;
 }
 
-export type WorkLogEntryValidationError =
-  | "missing_repo"
-  | "invalid_start"
-  | "invalid_end"
-  | "start_not_before_end";
+/**
+ * バリデーションエラー。実体は @kichijitsu/shared の WorkLogValidationError —
+ * サーバー (apps/sync の core/work-log.ts) と同じ4値を二重定義していたのを 2026-07-25 に寄せた。
+ * 呼び出し側 (フォームのコンポーネント) の import 元を変えないための別名。
+ */
+export type WorkLogEntryValidationError = WorkLogValidationError;
 
 /** バリデーションエラーの日本語文言。フォームのエラー表示にそのまま使える。 */
 export const WORK_LOG_ENTRY_ERROR_MESSAGES: Record<WorkLogEntryValidationError, string> = {
@@ -58,20 +61,22 @@ function tryParseLocalMs(value: string, timeZone: string): number | null {
 }
 
 /**
- * 純関数。フォーム入力を検証する。core/work-log.ts の validateWorkLogInput (サーバー側) と
- * 判定基準を揃えてある(repo 必須・start/end パース可・start<end)。
+ * 純関数。フォーム入力を検証する。判定基準 (repo 必須・start/end パース可・start<end) と判定順は
+ * shared の validateWorkLogInterval が持ち、サーバー側 (apps/sync の core/work-log.ts の
+ * validateWorkLogInput) と同一 — 以前は同じ判定が web/server で二重定義されていた (2026-07-25 に
+ * 寄せた)。ここに残るのは web 固有の「datetime-local の値をアプリ設定のタイムゾーンの壁時計として
+ * epoch ms に読む」変換だけ (パースできなければ null を渡し、shared 側が invalid_start/invalid_end
+ * を返す)。
  */
 export function validateWorkLogEntryForm(
   input: WorkLogEntryFormInput,
   timeZone: string,
 ): WorkLogEntryValidationError | null {
-  if (!input.repo.trim()) return "missing_repo";
-  const startMs = tryParseLocalMs(input.startLocal, timeZone);
-  if (startMs === null) return "invalid_start";
-  const endMs = tryParseLocalMs(input.endLocal, timeZone);
-  if (endMs === null) return "invalid_end";
-  if (startMs >= endMs) return "start_not_before_end";
-  return null;
+  return validateWorkLogInterval({
+    repo: input.repo,
+    startMs: tryParseLocalMs(input.startLocal, timeZone),
+    endMs: tryParseLocalMs(input.endLocal, timeZone),
+  });
 }
 
 /**
