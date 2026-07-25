@@ -43,6 +43,7 @@ import {
   detectMeetingProvider,
   meetingLocationLabel,
   meetingProviderLabel,
+  resolveMeetingUrl,
   type MeetingProvider,
 } from "../layout/meetingLinks";
 import {
@@ -520,12 +521,22 @@ export function EventBlock({
   // isWorkingLocation な occurrence はそもそもこのコンポーネントに来ない(WeekGrid 側で
   // 専用レールへ振り分け済み)ため、ここでの排他判定は不要 ―― 「通常の予定」だけがここに
   // 来る前提でよい。
-  const showVideoIcon = !isBusy && occurrence.hasConference === true;
-  // 会議 URL 判定 (2026-07-25、Slack ハドル表示): Slack ハドルは conferenceData/hangoutLink を
-  // 持たず location に huddle URL がそのまま入るため hasConference が立たない
-  // (layout/meetingLinks.ts のコメント参照)。location が会議 URL なら「場所」ではなく
-  // 「会議」として扱い、生 URL の代わりにプロバイダのアイコン + 短いラベルを出す。
-  const meetingProvider = !isBusy ? detectMeetingProvider(occurrence.location) : null;
+  // 会議 URL 判定 (2026-07-25): 会議 URL の入り方は2通りある ――
+  //   - Slack ハドル: conferenceData/hangoutLink を持たず location に huddle URL が入る
+  //     (hasConference は立たない)
+  //   - Meet / カレンダーのアドオン経由の Zoom・Teams: hangoutLink / conferenceData 側に入り、
+  //     location は空か会議室名(サーバーが conferenceUrl として持ち出す、2026-07-25)
+  // どちらも resolveMeetingUrl で1本に解決してからプロバイダを判定する(layout/meetingLinks.ts)。
+  // 判定できたら「場所」ではなく「会議」として扱い、生 URL の代わりにプロバイダのアイコン +
+  // 短いラベルを出す。
+  const meetingUrl = !isBusy
+    ? resolveMeetingUrl(occurrence.conferenceUrl, occurrence.location)
+    : undefined;
+  const meetingProvider = detectMeetingProvider(meetingUrl);
+  // プロバイダが判明しているときは専用アイコン(Meet/Zoom/Teams/Slack)の方が具体的なので、
+  // 汎用のビデオアイコンは出さない(同じ意味のアイコンが2つ並ぶのを防ぐ、2026-07-25)。
+  const showVideoIcon =
+    !isBusy && occurrence.hasConference === true && meetingProvider === null;
   // 場所テキスト行 (2026-07-22、ユーザー追加要望): 非コンパクト表示のときだけ、タイトルの
   // 下に PlaceIcon + location の1行を追加で出す(Google カレンダーの予定カードと同じ体裁)。
   // コンパクト表示 (isCompact、40分未満の短い予定) は時刻+タイトルの1行しか横幅・縦幅の
@@ -533,7 +544,10 @@ export function EventBlock({
   // 高さが足りない予定(コンパクト閾値は超えるがそれでも短い等)ではこの行が自然に
   // クリップされる ―― 個別の高さ判定は行わず、CSS のあふれ処理に任せる(要件で許容された
   // 簡易実装)。
-  const hasLocationText = !isBusy && !isCompact && !!occurrence.location;
+  // Meet 等は location が空(会議 URL は conferenceUrl 側)でも「会議」の行を出したいので、
+  // location の有無だけでなく meetingProvider の有無も条件に含める(2026-07-25)。
+  const hasLocationText =
+    !isBusy && !isCompact && (!!occurrence.location || meetingProvider !== null);
   // 場所テキスト行に出す文字列。会議 URL のときは長い生 URL ではなくラベル
   // (例: 「Slack ハドル」)にする ―― カード上は表示だけに留め、実際に参加できるリンクは
   // 詳細ポップオーバー (EventDetailCard) 側に置く(カード全体のクリック=詳細を開く、
@@ -764,6 +778,12 @@ export interface EventDetailSubject {
    * 2026-07-22)。true なら「オンライン会議あり」を表示する(下の EventDetailCard 参照)。
    */
   hasConference?: boolean;
+  /**
+   * Occurrence.conferenceUrl / AllDayOccurrence.conferenceUrl と同じ意味(2026-07-25)。
+   * hangoutLink / conferenceData 由来の参加 URL。Meet 等は location に URL が入らないため、
+   * 参加リンクの解決は resolveMeetingUrl(conferenceUrl, location) を通す。
+   */
+  conferenceUrl?: string;
 }
 
 export interface EventDetailCardProps {
@@ -838,7 +858,10 @@ export function EventDetailCard({
   const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : "";
   // location が会議 URL かどうか(2026-07-25、Slack ハドル表示)。EventBlock のカード表示と
   // 同じ判定 (layout/meetingLinks.ts) を使い、こちらでは参加リンクとして出す
-  const meetingProvider = detectMeetingProvider(subject.location);
+  // 参加リンクの解決 (2026-07-25): location(Slack ハドル)と conferenceUrl(Meet / アドオン経由の
+  // Zoom・Teams)のどちらに入っていても1本に解決してからプロバイダを判定する(EventBlock 側と同じ)。
+  const meetingUrl = resolveMeetingUrl(subject.conferenceUrl, subject.location);
+  const meetingProvider = detectMeetingProvider(meetingUrl);
   const memberCalendars = groupMembers
     .map((m) => {
       const info =
@@ -930,31 +953,35 @@ export function EventDetailCard({
           </div>
         )}
         {/*
-         * 会議 URL が location に入っている予定 (Slack ハドル / Meet / Zoom / Teams、2026-07-25)。
-         * カード上はアイコン+ラベルの表示のみなので、詳細ポップオーバーでは「実際に参加できる
-         * リンク」を出す(生 URL の行は置き換える ―― 全文は title 属性でホバー時に見える)。
-         * 既存の「Google で開く」リンクと同じ流儀で、クリックの stopPropagation は付けない
-         * (ポップオーバー内のクリックは useCloseOnOutsideOrEscape の contains 判定で
-         * 「外側クリック」にならないため、リンクはそのまま機能する)。
+         * 会議 URL のある予定 (Slack ハドル / Meet / Zoom / Teams、2026-07-25)。URL は location
+         * (Slack ハドル)か conferenceUrl (Meet / アドオン経由の Zoom・Teams) のどちらかに入るので
+         * resolveMeetingUrl で解決済みの meetingUrl を使う。カード上はアイコン+ラベルの表示のみ
+         * なので、詳細ポップオーバーでは「実際に参加できるリンク」を出す(生 URL の行は置き換える
+         * ―― 全文は title 属性でホバー時に見える)。既存の「Google で開く」リンクと同じ流儀で、
+         * クリックの stopPropagation は付けない(ポップオーバー内のクリックは
+         * useCloseOnOutsideOrEscape の contains 判定で「外側クリック」にならないため)。
+         * location に会議室名などが別途入っている場合は、この下の「場所」行と両方出る。
          */}
-        {meetingProvider !== null && subject.location ? (
+        {meetingProvider !== null && meetingUrl && (
           <a
             className="event-detail-location event-detail-meeting-link"
-            href={subject.location}
+            href={meetingUrl}
             target="_blank"
             rel="noopener noreferrer"
-            title={subject.location}
+            title={meetingUrl}
           >
             <MeetingProviderIcon provider={meetingProvider} width={12} height={12} />
             {meetingProviderLabel(meetingProvider)}に参加
           </a>
-        ) : (
-          subject.location && (
-            <div className="event-detail-location">
-              <PlaceIcon width={12} height={12} />
-              場所: {subject.location}
-            </div>
-          )
+        )}
+        {/* 場所行は「location が参加リンクそのものではない」ときだけ出す ―― Slack ハドルのように
+            location = 会議 URL の場合は上の参加リンクと二重になるので省き、Meet のように
+            location に会議室名が別途入っている場合は参加リンクと両方出す(2026-07-25)。 */}
+        {subject.location && subject.location !== meetingUrl && (
+          <div className="event-detail-location">
+            <PlaceIcon width={12} height={12} />
+            場所: {subject.location}
+          </div>
         )}
         {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
         {subject.link?.url && (
