@@ -1,4 +1,5 @@
 import type { GitHubWorkItemDTO, GitHubWorkKind } from "@kichijitsu/shared";
+import type { TimeEntry } from "../model/types";
 
 /**
  * 作業キュー サイドレール(docs/github-integration.md フェーズ②Part B)の表示振り分けを担う
@@ -37,4 +38,33 @@ export function groupWorkItemsByKind(items: GitHubWorkItemDTO[]): WorkQueueSecti
       .slice()
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0)),
   }));
+}
+
+export interface RunningAndIdleQueue {
+  /** 実行中の開区間(endMs===null)。表示順は timeEntries の並びのまま */
+  runningEntries: TimeEntry[];
+  /** 未計測の作業キュー(実行中の linkedItemId を持つ item を除いたもの) */
+  idleQueue: GitHubWorkItemDTO[];
+}
+
+/**
+ * 作業キューを「実行中」と「未計測」に分ける(2026-07-25 のリファクタ フェーズ1b で GitHubPane.tsx
+ * の3つの useMemo から切り出し)。走行状態はサーバー開区間(GET /api/work-logs/open)の射影なので、
+ * MCP など別経路で開始され作業キューに無い計測も runningEntries に含まれる ―― 逆に言うと
+ * runningEntries.length と「除かれた item 数」は一致しない。
+ *
+ * 同じ item が「実行中」と「作業キュー」の両セクションに二重に並ばないよう、キュー側からは
+ * 走行中の linkedItemId を持つものを除く(旧 WorkLogModal のタイマー節と同じ考え方)。
+ * 並び替えはしない ―― キューの並びは groupWorkItemsByKind が kind ごとに決める。
+ */
+export function splitRunningAndIdleQueue(
+  items: readonly GitHubWorkItemDTO[],
+  timeEntries: readonly TimeEntry[],
+): RunningAndIdleQueue {
+  const runningEntries = timeEntries.filter((e) => e.endMs === null);
+  const runningLinkedIds = new Set(runningEntries.map((e) => e.linkedItemId));
+  return {
+    runningEntries,
+    idleQueue: items.filter((item) => !runningLinkedIds.has(item.id)),
+  };
 }

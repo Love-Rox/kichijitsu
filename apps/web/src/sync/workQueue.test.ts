@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { GitHubWorkItemDTO, GitHubWorkKind } from "@kichijitsu/shared";
-import { groupWorkItemsByKind, WORK_QUEUE_SECTION_LABELS } from "./workQueue";
+import type { TimeEntry } from "../model/types";
+import {
+  groupWorkItemsByKind,
+  splitRunningAndIdleQueue,
+  WORK_QUEUE_SECTION_LABELS,
+} from "./workQueue";
 
 function item(overrides: Partial<GitHubWorkItemDTO> = {}): GitHubWorkItemDTO {
   return {
@@ -93,5 +98,53 @@ describe("groupWorkItemsByKind", () => {
     for (const k of kinds) {
       expect(WORK_QUEUE_SECTION_LABELS[k]).toBeTruthy();
     }
+  });
+});
+
+function entry(overrides: Partial<TimeEntry> = {}): TimeEntry {
+  return {
+    id: "te-1",
+    linkedItemId: "ghq:acme/repo:issue:1",
+    itemType: "issue",
+    title: "Fix bug",
+    repo: "acme/repo",
+    number: 1,
+    url: "https://github.com/acme/repo/issues/1",
+    startMs: Date.UTC(2026, 6, 25, 0, 0),
+    endMs: null,
+    ...overrides,
+  };
+}
+
+describe("splitRunningAndIdleQueue", () => {
+  it("endMs===null のエントリだけを実行中として抜き出す", () => {
+    const running = entry({ id: "run" });
+    const finished = entry({ id: "done", endMs: Date.UTC(2026, 6, 25, 1, 0) });
+    const result = splitRunningAndIdleQueue([], [finished, running]);
+    expect(result.runningEntries.map((e) => e.id)).toEqual(["run"]);
+  });
+
+  it("実行中の item は作業キューから除く(二重表示を避ける)", () => {
+    const items = [item({ id: "a" }), item({ id: "b" }), item({ id: "c" })];
+    const result = splitRunningAndIdleQueue(items, [entry({ linkedItemId: "b" })]);
+    expect(result.idleQueue.map((i) => i.id)).toEqual(["a", "c"]);
+  });
+
+  it("確定済み(endMs 非 null)の item はキューに残る", () => {
+    const items = [item({ id: "a" })];
+    const finished = entry({ linkedItemId: "a", endMs: Date.UTC(2026, 6, 25, 1, 0) });
+    const result = splitRunningAndIdleQueue(items, [finished]);
+    expect(result.idleQueue.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("キューに無い開区間(MCP 由来など)も実行中に含まれる", () => {
+    const result = splitRunningAndIdleQueue([item({ id: "a" })], [entry({ linkedItemId: "zzz" })]);
+    expect(result.runningEntries).toHaveLength(1);
+    expect(result.idleQueue.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("キューの並びは変えない", () => {
+    const items = [item({ id: "c" }), item({ id: "a" }), item({ id: "b" })];
+    expect(splitRunningAndIdleQueue(items, []).idleQueue.map((i) => i.id)).toEqual(["c", "a", "b"]);
   });
 });

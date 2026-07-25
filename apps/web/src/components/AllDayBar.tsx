@@ -1,18 +1,14 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type {
-  CSSProperties,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { AllDayOccurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { useHoverTooltip } from "../hooks/useHoverTooltip";
 import { formatAllDayDateRange } from "../layout/gridMetrics";
 import { isWorkingLocation } from "../layout/workingLocationRail";
 import { meetingLocationLabel } from "../layout/meetingLinks";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
-import { fillTooltipContent, getSharedTooltipEl, positionTooltip } from "./eventPopoverShared";
 import { resolveDisplayColor } from "../layout/eventColors";
 import { PlaceIcon } from "./icons";
 import {
@@ -23,8 +19,6 @@ import {
 
 /** 終日レーンの勤務場所バー先頭に置く地図ピンの大きさ(px)。時刻予定側の帯上端ピンと揃える */
 const WORKING_LOCATION_ICON_SIZE_PX = 11;
-
-const HOVER_DELAY_MS = 400;
 
 interface AllDayBarProps {
   /** カード上で実際に表示される代表 occurrence(集約グループの主コピー、EventBlock と同じ考え方) */
@@ -64,68 +58,30 @@ export function AllDayBar({
   onSaveEdit,
   onRsvp,
 }: AllDayBarProps) {
-  const hoverTimeoutRef = useRef<number | undefined>(undefined);
-  const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
   // 勤務場所(workingLocation、2026-07-22 終日レーンへ統合): WeekGrid 側はもう終日の
   // 勤務場所を barGroups から分離しない(layout/workingLocationRail.ts 参照)ため、この
   // コンポーネントにも occurrence.isWorkingLocation===true な occurrence が普通に渡ってくる。
-  // showTooltip/style/JSX の各所で isWorkingLoc を見て見た目だけ分岐させる(判定関数
+  // ツールチップ/style/JSX の各所で isWorkingLoc を見て見た目だけ分岐させる(判定関数
   // isWorkingLocation は時刻予定側の layout/workingLocationRail.ts と共通)。
   const isWorkingLoc = isWorkingLocation(occurrence);
 
-  function hideTooltip() {
-    if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = undefined;
-    }
-    if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = "none";
-      tooltipShownRef.current = false;
-    }
-  }
-
-  function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl();
-    // 勤務場所は WorkingLocationRailBand.tsx と同じ決定で location 補足行を出さない
-    // (title 自体が場所を表す。例: 自宅/オフィス。location フィールドは通常使わない)。
-    fillTooltipContent(
-      el,
-      occurrence.title,
-      formatAllDayDateRange(occurrence.startDate, occurrence.endDate),
-      // 会議 URL (Slack ハドル等) はラベルに置き換える(2026-07-25、layout/meetingLinks.ts)。
-      // 終日バー自体は location を表に出さないが、ツールチップだけは出しているため
-      // ここも生 URL ではなく「Slack ハドル」のような短い表示にする
-      isWorkingLoc ? undefined : meetingLocationLabel(occurrence.location),
-    );
-    el.style.display = "block";
-    positionTooltip(el, clientX, clientY);
-    tooltipShownRef.current = true;
-  }
-
-  function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined;
-      showTooltip(clientX, clientY);
-    }, HOVER_DELAY_MS);
-  }
-
-  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (tooltipShownRef.current) {
-      positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
-    }
-  }
-
-  function handlePointerLeave() {
-    hideTooltip();
-  }
+  // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。
+  // 勤務場所は WorkingLocationRailBand.tsx と同じ決定で location 補足行を出さない
+  // (title 自体が場所を表す。例: 自宅/オフィス。location フィールドは通常使わない)。
+  const tooltip = useHoverTooltip(() => ({
+    title: occurrence.title,
+    rangeLabel: formatAllDayDateRange(occurrence.startDate, occurrence.endDate),
+    // 会議 URL (Slack ハドル等) はラベルに置き換える(2026-07-25、layout/meetingLinks.ts)。
+    // 終日バー自体は location を表に出さないが、ツールチップだけは出しているため
+    // ここも生 URL ではなく「Slack ハドル」のような短い表示にする
+    location: isWorkingLoc ? undefined : meetingLocationLabel(occurrence.location),
+  }));
 
   function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
-    hideTooltip();
+    tooltip.hide();
     setDetailPos({ x: e.clientX, y: e.clientY });
   }
 
@@ -177,9 +133,9 @@ export function AllDayBar({
           .filter(Boolean)
           .join(" ")}
         style={style}
-        onPointerEnter={handlePointerEnter}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
+        onPointerEnter={tooltip.onPointerEnter}
+        onPointerMove={tooltip.onPointerMove}
+        onPointerLeave={tooltip.onPointerLeave}
         onClick={handleClick}
       >
         {isWorkingLoc && (

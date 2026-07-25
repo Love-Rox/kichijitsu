@@ -1,24 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type {
-  CSSProperties,
-  PointerEvent as ReactPointerEvent,
-  ReactElement,
-  Ref,
-} from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import type { Occurrence, OccurrenceLink } from "../model/types";
+import type { Occurrence } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
-import { calendarKey } from "../layout/keys";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHourHeight } from "../hooks/useHourHeight";
-import {
-  clampPopoverPosition,
-  fillTooltipContent,
-  getSharedTooltipEl,
-  positionTooltip,
-  stripHtmlToPlainText,
-} from "./eventPopoverShared";
+import { useHoverTooltip } from "../hooks/useHoverTooltip";
 import {
   DAY_COLUMN_INSET_PX,
   formatDetailDateTime,
@@ -39,30 +27,25 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
-import { RsvpNotAttendeeError } from "../sync/eventRsvp";
 import {
   detectMeetingProvider,
   meetingLocationLabel,
   meetingProviderLabel,
   resolveMeetingUrl,
-  type MeetingProvider,
 } from "../layout/meetingLinks";
-import {
-  MeetIcon,
-  PlaceIcon,
-  SlackIcon,
-  TeamsIcon,
-  VideoIcon,
-  ZoomIcon,
-  type IconProps,
-} from "./icons";
-import { EventEditForm } from "./EventEditForm";
+import { PlaceIcon, VideoIcon } from "./icons";
+import type { CalendarInfo } from "./calendarInfo";
+import { MeetingProviderIcon } from "./meetingProviderIcon";
+import { EventDetailCard } from "./EventDetailCard";
 
-/** カレンダー名/色。App.tsx が calendarsByAccount から `${accountId}:${calendarId}` キーで作る */
-export interface CalendarInfo {
-  summary: string;
-  backgroundColor?: string;
-}
+/*
+ * 互換のための re-export(リファクタ フェーズ1a、2026-07-25)。
+ * CalendarInfo は10ファイル以上、EventDetailCard は4ファイルが `from "./EventBlock"` で
+ * 引いているため、定義を別ファイルへ移しても既存の import が動くようにここへ通す。
+ * 参照元の import 文の書き換えは別コミットで行う方針(この変更を「移設だけ」に留めるため)。
+ */
+export type { CalendarInfo } from "./calendarInfo";
+export { EventDetailCard } from "./EventDetailCard";
 
 interface EventBlockProps {
   /** カード上で実際に操作対象になる代表 occurrence(集約グループの主コピー) */
@@ -157,47 +140,14 @@ interface DragState {
 }
 
 const CLICK_THRESHOLD_PX = 4;
-const HOVER_DELAY_MS = 400;
 
 /**
  * 週7列グリッドの左端からのドラッグ着地列を [0,6] に収めるためだけの、
- * このファイル内限定のクランプ(共有版は eventPopoverShared.ts の
+ * このファイル内限定のクランプ(ポップオーバー位置の共有版は eventPopoverShared.ts の
  * clampPopoverPosition が内部で使っている別インスタンス)。
  */
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
-}
-
-/**
- * 会議 URL の提供元 → アイコンの対応(2026-07-25)。プロバイダを足すときは
- * layout/meetingLinks.ts の MeetingProvider とこの表の2箇所だけを触れば、
- * カード・ヘッダー小アイコン・詳細ポップオーバーのリンクすべてに反映される
- * (各表示箇所に条件分岐を散らさないための単一の対応表)。
- */
-const MEETING_PROVIDER_ICONS: Record<MeetingProvider, (props: IconProps) => ReactElement> = {
-  slack: SlackIcon,
-  meet: MeetIcon,
-  zoom: ZoomIcon,
-  teams: TeamsIcon,
-};
-
-/**
- * 会議 URL の提供元アイコン(2026-07-25、Slack ハドル表示)。location が会議 URL
- * (layout/meetingLinks.ts の detectMeetingProvider が非 null)のときに、生 URL の代わりに
- * 出すアイコン。provider が判定できない通常の会議リンク(hasConference のみ true 等)は
- * 従来どおり汎用の VideoIcon にフォールバックする。
- */
-function MeetingProviderIcon({
-  provider,
-  width,
-  height,
-}: {
-  provider: MeetingProvider | null;
-  width: number;
-  height: number;
-}) {
-  const Icon = provider === null ? VideoIcon : MEETING_PROVIDER_ICONS[provider];
-  return <Icon width={width} height={height} />;
 }
 
 /**
@@ -233,11 +183,23 @@ export function EventBlock({
   const hourHeight = useHourHeight();
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
-  const hoverTimeoutRef = useRef<number | undefined>(undefined);
-  const tooltipShownRef = useRef(false);
   const detailCardRef = useRef<HTMLDivElement>(null);
   // クリック(≒詳細ポップオーバーを開く座標)。null の間は非表示
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
+
+  // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。
+  // ドラッグ中は出さない(suppress) ―― pointerenter 時と待ち時間の発火時の両方で
+  // dragRef を見るため、待ち時間の途中でドラッグが始まった場合も出ない
+  const tooltip = useHoverTooltip(
+    () => ({
+      title: occurrence.title,
+      rangeLabel: formatRange(occurrence.startMs, occurrence.endMs, timeZone),
+      // 会議 URL はラベルに置き換える(2026-07-25)。ツールチップは1行なので生 URL だと
+      // 溢れて読めない ―― カード上の場所行と同じ表示に揃える
+      location: meetingLocationLabel(occurrence.location),
+    }),
+    { suppress: () => dragRef.current !== null },
+  );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleKeyDown = useRef((e: KeyboardEvent) => {
@@ -248,47 +210,6 @@ export function EventBlock({
     const badge = document.createElement("div");
     badge.className = "drag-badge";
     return badge;
-  }
-
-  function hideTooltip() {
-    if (hoverTimeoutRef.current !== undefined) {
-      window.clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = undefined;
-    }
-    if (tooltipShownRef.current) {
-      getSharedTooltipEl().style.display = "none";
-      tooltipShownRef.current = false;
-    }
-  }
-
-  function showTooltip(clientX: number, clientY: number) {
-    const el = getSharedTooltipEl();
-    fillTooltipContent(
-      el,
-      occurrence.title,
-      formatRange(occurrence.startMs, occurrence.endMs, timeZone),
-      // 会議 URL はラベルに置き換える(2026-07-25)。ツールチップは1行なので生 URL だと
-      // 溢れて読めない ―― カード上の場所行と同じ表示に揃える
-      meetingLocationLabel(occurrence.location),
-    );
-    el.style.display = "block";
-    positionTooltip(el, clientX, clientY);
-    tooltipShownRef.current = true;
-  }
-
-  function handlePointerEnter(e: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current) return;
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-    hoverTimeoutRef.current = window.setTimeout(() => {
-      hoverTimeoutRef.current = undefined;
-      if (dragRef.current) return; // タイマー発火までにドラッグが始まっていたら出さない
-      showTooltip(clientX, clientY);
-    }, HOVER_DELAY_MS);
-  }
-
-  function handlePointerLeave() {
-    hideTooltip();
   }
 
   function cancelDrag() {
@@ -311,10 +232,10 @@ export function EventBlock({
   }
 
   // アンマウント時にドラッグ中なら後始末（バッジ・リスナーの残留防止）。
-  // ホバー中のツールチップ(共有 DOM ノード)もこのブロック宛のままにしない
+  // ホバー中のツールチップ(共有 DOM ノード)の後始末は useHoverTooltip 側が持つ
+  // (この effect より先に登録されているので、従来と同じ「ツールチップ → ドラッグ」の順で消える)
   useEffect(() => {
     return () => {
-      hideTooltip();
       const ds = dragRef.current;
       if (!ds) return;
       window.removeEventListener("keydown", handleKeyDown);
@@ -332,7 +253,7 @@ export function EventBlock({
     const el = elRef.current;
     const gridEl = el?.parentElement?.parentElement;
     if (!el || !gridEl) return;
-    hideTooltip(); // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
+    tooltip.hide(); // 操作を始めたらツールチップは即座に消す(ドラッグ中は表示しない)
     el.setPointerCapture(e.pointerId);
     const gridRect = gridEl.getBoundingClientRect();
     // モバイル対応フェーズ2: 列数は固定7ではなく weekDayStarts.length (=dayCount) に従う
@@ -380,9 +301,7 @@ export function EventBlock({
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) {
       // ドラッグ中でなければ、表示中のツールチップをポインタに追従させる(DOM 直書き、state 更新なし)
-      if (!ds && tooltipShownRef.current) {
-        positionTooltip(getSharedTooltipEl(), e.clientX, e.clientY);
-      }
+      if (!ds) tooltip.onPointerMove(e);
       return;
     }
 
@@ -455,7 +374,7 @@ export function EventBlock({
     if (!ds.moved) {
       // 移動閾値未満はクリック扱い: 詳細ポップオーバーを開く
       dragRef.current = null;
-      hideTooltip();
+      tooltip.hide();
       setDetailPos({ x: e.clientX, y: e.clientY });
       return;
     }
@@ -536,8 +455,7 @@ export function EventBlock({
   const meetingProvider = detectMeetingProvider(meetingUrl);
   // プロバイダが判明しているときは専用アイコン(Meet/Zoom/Teams/Slack)の方が具体的なので、
   // 汎用のビデオアイコンは出さない(同じ意味のアイコンが2つ並ぶのを防ぐ、2026-07-25)。
-  const showVideoIcon =
-    !isBusy && occurrence.hasConference === true && meetingProvider === null;
+  const showVideoIcon = !isBusy && occurrence.hasConference === true && meetingProvider === null;
   // 場所テキスト行 (2026-07-22、ユーザー追加要望): 非コンパクト表示のときだけ、タイトルの
   // 下に PlaceIcon + location の1行を追加で出す(Google カレンダーの予定カードと同じ体裁)。
   // コンパクト表示 (isCompact、40分未満の短い予定) は時刻+タイトルの1行しか横幅・縦幅の
@@ -628,8 +546,8 @@ export function EventBlock({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
+        onPointerEnter={tooltip.onPointerEnter}
+        onPointerLeave={tooltip.onPointerLeave}
       >
         {hasStripes && (
           // 集約カードの「複数カレンダーにまたがっている」印。ドラッグ/クリックの
@@ -756,405 +674,5 @@ export function EventBlock({
           document.body,
         )}
     </>
-  );
-}
-
-/**
- * EventDetailCard が要求する最小限の形。Occurrence (時刻予定) と AllDayOccurrence
- * (終日予定、フェーズ5) はどちらもこの形を構造的に満たすため、変換なしでそのまま
- * subject/groupMembers に渡せる(AllDayBar.tsx から再利用する狙い)。
- */
-export interface EventDetailSubject {
-  id: string;
-  title: string;
-  location?: string;
-  description?: string;
-  link?: OccurrenceLink;
-  accountId?: string;
-  calendarId?: string;
-  /** Occurrence.isMirror / AllDayOccurrence.isMirror と同じ意味(自動生成 mirror かどうか) */
-  isMirror?: boolean;
-  /**
-   * Occurrence.hasConference / AllDayOccurrence.hasConference と同じ意味(参加ステータス表示、
-   * 2026-07-22)。true なら「オンライン会議あり」を表示する(下の EventDetailCard 参照)。
-   */
-  hasConference?: boolean;
-  /**
-   * Occurrence.conferenceUrl / AllDayOccurrence.conferenceUrl と同じ意味(2026-07-25)。
-   * hangoutLink / conferenceData 由来の参加 URL。Meet 等は location に URL が入らないため、
-   * 参加リンクの解決は resolveMeetingUrl(conferenceUrl, location) を通す。
-   */
-  conferenceUrl?: string;
-}
-
-export interface EventDetailCardProps {
-  subject: EventDetailSubject;
-  /** 表示済みの日時ラベル。時刻予定は「7月20日(月) 10:00 – 11:00」、終日予定は
-   * 「7月20日〜7月22日」のように呼び出し側でフォーマットしてから渡す */
-  dateTimeLabel: string;
-  position: { x: number; y: number };
-  /** 集約グループの全メンバー(フェーズ5)。1件なら subject 自身のみ */
-  groupMembers: EventDetailSubject[];
-  /** `${accountId}:${calendarId}` → カレンダー名/色。全所属の列挙に使う */
-  calendarLookup: Map<string, CalendarInfo>;
-  onClose: () => void;
-  /**
-   * 指定されていれば「削除」ボタン(インライン2段階確認)を表示する(フェーズ5)。
-   * EventBlock は source==='google' のときだけこれを渡す(AllDayBar は渡さない=削除 UI 無し)。
-   * 確定操作(「削除する」クリック)で onDelete() を呼んだ直後に onClose() でポップオーバーを
-   * 閉じる — 削除は楽観的なので occurrence はすぐ画面から消え、失敗時の通知は
-   * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
-   */
-  onDelete?: () => void;
-  /**
-   * 編集フォーム(フェーズ2、2026-07-22)。指定されていれば「編集」ボタンを表示する
-   * (呼び出し側が sync/eventEdit.ts の isEditableEventSubject で判定済みの draft を渡す —
-   * このコンポーネント自身は Occurrence/AllDayOccurrence どちらが元かを知らない)。
-   * 日時入力の変換に必要な timeZone とセットで渡す。
-   */
-  editDraft?: EventEditDraft;
-  timeZone?: string;
-  /** シリーズ由来 (seriesId !== null) の予定は終日トグルを出さない(v1 未対応、EventEditForm.tsx 参照) */
-  canToggleAllDay?: boolean;
-  onSaveEdit?: (draft: EventEditDraft) => Promise<void>;
-  /**
-   * RSVP (フェーズ2、2026-07-22)。attendees の無い予定 (responseStatus undefined) は
-   * ボタンを出さない ―― 呼び出し側が occurrence.responseStatus をそのまま渡す。
-   */
-  rsvpStatus?: RsvpResponseStatus;
-  onRsvp?: (status: RsvpResponseStatus) => Promise<void>;
-  /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
-  ref?: Ref<HTMLDivElement>;
-}
-
-/**
- * クリック詳細ポップオーバー。日時・場所・説明(プレーン化+最大10行程度でクランプ)・
- * Google で開くリンク・どのカレンダーか、を表示のみで持つ(編集機能は無し)。
- * 同一予定の集約(フェーズ5)で複数アカウント/カレンダーに重複がある場合は、
- * 全所属をカレンダー名の列で列挙する(groupMembers が2件以上のとき)。
- * .week-grid-days-viewport (overflow:hidden) の中に transform を持つ祖先
- * (.week-grid-days-strip) がいるため、position:fixed の containing block が
- * ビューポートではなくその祖先になってしまう問題を避けるべく document.body へ
- * createPortal している。
- * subject/dateTimeLabel を汎用化してあるため AllDayBar.tsx (終日レーン、フェーズ5)
- * からもそのまま再利用する。
- */
-export function EventDetailCard({
-  subject,
-  dateTimeLabel,
-  position,
-  groupMembers,
-  calendarLookup,
-  onClose,
-  onDelete,
-  editDraft,
-  timeZone,
-  canToggleAllDay = false,
-  onSaveEdit,
-  rsvpStatus,
-  onRsvp,
-  ref,
-}: EventDetailCardProps) {
-  const { left, top } = clampPopoverPosition(position.x, position.y);
-  const plainDescription = subject.description ? stripHtmlToPlainText(subject.description) : "";
-  // location が会議 URL かどうか(2026-07-25、Slack ハドル表示)。EventBlock のカード表示と
-  // 同じ判定 (layout/meetingLinks.ts) を使い、こちらでは参加リンクとして出す
-  // 参加リンクの解決 (2026-07-25): location(Slack ハドル)と conferenceUrl(Meet / アドオン経由の
-  // Zoom・Teams)のどちらに入っていても1本に解決してからプロバイダを判定する(EventBlock 側と同じ)。
-  const meetingUrl = resolveMeetingUrl(subject.conferenceUrl, subject.location);
-  const meetingProvider = detectMeetingProvider(meetingUrl);
-  // 参加リンクのラベル。プロバイダが判定できない会議 URL(社内ツール等の未知の entryPoint、
-  // サーバー deriveConferenceUrl の優先順位2)でも参加リンクは出す ―― resolveMeetingUrl の
-  // doc どおり「Google が会議の正本として持っている URL」なので開いてよい。アイコンは
-  // MeetingProviderIcon が provider===null で汎用の VideoIcon に落ちる(2026-07-25)。
-  const meetingLinkLabel = meetingProvider
-    ? `${meetingProviderLabel(meetingProvider)}に参加`
-    : "会議に参加";
-  // 「場所」行を出すかの比較は trim 済み同士で行う ―― resolveMeetingUrl は trim した URL を
-  // 返すため、location の末尾に空白があると生比較では別物になり、参加リンクと同じ URL が
-  // 「場所」行にも生で二重表示されてしまう(2026-07-25)。
-  const locationText = subject.location?.trim();
-  const memberCalendars = groupMembers
-    .map((m) => {
-      const info =
-        m.accountId && m.calendarId
-          ? calendarLookup.get(calendarKey(m.accountId, m.calendarId))
-          : undefined;
-      return info
-        ? { key: m.id, color: info.backgroundColor ?? "#9ca3af", summary: info.summary }
-        : null;
-    })
-    .filter((info) => info !== null);
-
-  // 編集モード(フェーズ2、2026-07-22): 既存の詳細カードの延長として、同じポップオーバーの
-  // 中身を丸ごとフォームに差し替える(別モーダルは開かない ―― ユーザー要望「既存の詳細カードの
-  // 延長で自然な方」)。editDraft/onSaveEdit/timeZone が揃っているときだけ「編集」ボタンを出す。
-  const [editing, setEditing] = useState(false);
-  const canEdit = editDraft !== undefined && onSaveEdit !== undefined && timeZone !== undefined;
-
-  if (editing && editDraft !== undefined && onSaveEdit !== undefined && timeZone !== undefined) {
-    const save = onSaveEdit;
-    return (
-      <div
-        ref={ref}
-        className="event-detail-popover event-detail-popover--editing"
-        style={{ left, top }}
-        role="dialog"
-        aria-label={`${subject.title}を編集`}
-      >
-        <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-        <div className="event-detail-title">予定を編集</div>
-        <EventEditForm
-          initialDraft={editDraft}
-          timeZone={timeZone}
-          canToggleAllDay={canToggleAllDay}
-          onSave={(draft) => save(draft).then(onClose)}
-          onCancel={() => setEditing(false)}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {/*
-       * 透明バックドロップ (2026-07-22): 詳細ポップオーバー/編集フォームが開いている間、
-       * 外側クリックを「閉じるだけ」にする。pointerdown を stopPropagation して下のグリッド
-       * (空き領域クリックでの新規作成・別予定のオープン) へ伝播させない ―― 以前は
-       * useCloseOnOutsideOrEscape の document リスナーだけで閉じており、同じクリックが
-       * グリッドにも当たって「閉じると同時に別操作が走る」不便があった (ユーザー指摘)。
-       * 画面は暗くしない (background: transparent) ので、ポップオーバーの軽さは保つ。
-       */}
-      <div
-        className="event-detail-backdrop"
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-      />
-      <div
-        ref={ref}
-        className="event-detail-popover"
-        style={{ left, top }}
-        role="dialog"
-        aria-label={subject.title}
-      >
-        <button type="button" className="event-detail-close" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-        <div className="event-detail-title">{subject.title}</div>
-        <div className="event-detail-datetime">{dateTimeLabel}</div>
-        {subject.isMirror === true && (
-          // mirror には location/description が無い(無内容原則、docs/blocking.md)ため、
-          // この説明文が詳細ポップオーバーの主内容になる
-          <div className="event-detail-mirror-note">
-            他のカレンダーの予定から自動でブロックされた時間です
-          </div>
-        )}
-        {/*
-         * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。EventBlock のタイトル行の
-         * 小アイコンと同じ判定基準(occurrence.hasConference/location)を、詳細ポップオーバーでは
-         * テキストラベル付きで表示する(要件:「オンライン会議あり / 場所: {location}」)。
-         */}
-        {/* 参加リンク(下)を出せるときは、この汎用行は省く ―― 「オンライン会議あり」と
-            「○○に参加」が同じ意味・同じアイコンで2行並ぶ冗長を避ける(2026-07-25)。
-            会議リンクはあるが URL が取れない場合(電話参加のみの entryPoints 等)だけ、
-            従来どおり「会議はある」ことをこの行で示す。 */}
-        {subject.hasConference === true && !meetingUrl && (
-          <div className="event-detail-conference">
-            <VideoIcon width={12} height={12} />
-            オンライン会議あり
-          </div>
-        )}
-        {/*
-         * 会議 URL のある予定 (Slack ハドル / Meet / Zoom / Teams、2026-07-25)。URL は location
-         * (Slack ハドル)か conferenceUrl (Meet / アドオン経由の Zoom・Teams) のどちらかに入るので
-         * resolveMeetingUrl で解決済みの meetingUrl を使う。カード上はアイコン+ラベルの表示のみ
-         * なので、詳細ポップオーバーでは「実際に参加できるリンク」を出す(生 URL の行は置き換える
-         * ―― 全文は title 属性でホバー時に見える)。既存の「Google で開く」リンクと同じ流儀で、
-         * クリックの stopPropagation は付けない(ポップオーバー内のクリックは
-         * useCloseOnOutsideOrEscape の contains 判定で「外側クリック」にならないため)。
-         * location に会議室名などが別途入っている場合は、この下の「場所」行と両方出る。
-         */}
-        {meetingUrl && (
-          <a
-            className="event-detail-location event-detail-meeting-link"
-            href={meetingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={meetingUrl}
-          >
-            <MeetingProviderIcon provider={meetingProvider} width={12} height={12} />
-            {meetingLinkLabel}
-          </a>
-        )}
-        {/* 場所行は「location が参加リンクそのものではない」ときだけ出す ―― Slack ハドルのように
-            location = 会議 URL の場合は上の参加リンクと二重になるので省き、Meet のように
-            location に会議室名が別途入っている場合は参加リンクと両方出す(2026-07-25)。 */}
-        {locationText && locationText !== meetingUrl && (
-          <div className="event-detail-location">
-            <PlaceIcon width={12} height={12} />
-            場所: {locationText}
-          </div>
-        )}
-        {plainDescription && <div className="event-detail-description">{plainDescription}</div>}
-        {subject.link?.url && (
-          <a
-            className="event-detail-link"
-            href={subject.link.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Google で開く
-          </a>
-        )}
-        {memberCalendars.length > 0 && (
-          <div className="event-detail-calendar-list">
-            {memberCalendars.map((info) => (
-              <div className="event-detail-calendar" key={info.key}>
-                <span
-                  className="event-detail-calendar-dot"
-                  style={{ background: info.color }}
-                  aria-hidden="true"
-                />
-                {info.summary}
-              </div>
-            ))}
-          </div>
-        )}
-        {/*
-         * RSVP ボタン (フェーズ2、2026-07-22)。attendees の無い予定 (rsvpStatus undefined) は
-         * 出さない(要件:「招待されていない=attendee でない」ことの指標として responseStatus の
-         * 有無を使う)。onRsvp が無い(呼び出し側が渡さなかった)場合も出さない。
-         */}
-        {rsvpStatus !== undefined && onRsvp && <RsvpButtons current={rsvpStatus} onRsvp={onRsvp} />}
-        {(onDelete || canEdit) && (
-          <div className="event-detail-actions">
-            {canEdit && (
-              <button
-                type="button"
-                className="event-detail-text-btn event-detail-edit-btn"
-                onClick={() => setEditing(true)}
-              >
-                編集
-              </button>
-            )}
-            {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/**
- * 出欠 (RSVP) ボタン (フェーズ2、2026-07-22)。参加/未定/不参加の3択で、現在の自分の
- * 返信をハイライトする(Notion カレンダー風、ユーザー要望)。選択中は朱、非選択は
- * 墨/薄墨(朱は唯一アクセント原則、brand/README.md)。押している間はボタンを disabled にして
- * 二重送信を防ぎ、失敗時はインラインでエラーを出す(422 は専用メッセージ)。
- */
-function RsvpButtons({
-  current,
-  onRsvp,
-}: {
-  current: RsvpResponseStatus;
-  onRsvp: (status: RsvpResponseStatus) => Promise<void>;
-}) {
-  const [pending, setPending] = useState<RsvpResponseStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const options: { status: RsvpResponseStatus; label: string }[] = [
-    { status: "accepted", label: "参加" },
-    { status: "tentative", label: "未定" },
-    { status: "declined", label: "不参加" },
-  ];
-
-  function handleClick(status: RsvpResponseStatus) {
-    if (status === current || pending) return;
-    setPending(status);
-    setError(null);
-    onRsvp(status)
-      .catch((err) => {
-        console.error("kichijitsu: rsvp failed", err);
-        setError(
-          err instanceof RsvpNotAttendeeError ? "この予定には返信できません" : "返信に失敗しました",
-        );
-      })
-      .finally(() => setPending(null));
-  }
-
-  return (
-    <div className="event-detail-rsvp">
-      <span className="event-detail-rsvp-label">出欠</span>
-      <div className="event-detail-rsvp-buttons" role="group" aria-label="出欠の返信">
-        {options.map((opt) => (
-          <button
-            key={opt.status}
-            type="button"
-            className={
-              current === opt.status ? "event-detail-rsvp-btn is-selected" : "event-detail-rsvp-btn"
-            }
-            aria-pressed={current === opt.status}
-            disabled={pending !== null}
-            onClick={() => handleClick(opt.status)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {error && <span className="event-detail-rsvp-error">{error}</span>}
-    </div>
-  );
-}
-
-type DeleteControlState = "idle" | "confirming";
-
-/**
- * 詳細ポップオーバーの「削除」導線。window.confirm を使わないインライン2段階確認
- * (CalendarSettingsPanel.tsx の AccountDisconnectControl と同じ流儀)。
- * 削除自体は楽観的 (App.tsx の handleDeleteOccurrence が即座に occurrence を消す) なので、
- * このコンポーネントは非同期の完了を待たない — 確定操作で onDelete() を呼んだら
- * そのままポップオーバーを閉じる (onDeleted、失敗時の通知は App.tsx の saveError トースト)。
- */
-function EventDeleteControl({
-  onDelete,
-  onDeleted,
-}: {
-  onDelete: () => void;
-  onDeleted: () => void;
-}) {
-  const [state, setState] = useState<DeleteControlState>("idle");
-
-  if (state === "confirming") {
-    return (
-      <span className="event-detail-delete-confirm">
-        削除しますか？
-        <button
-          type="button"
-          className="event-detail-text-btn"
-          onClick={() => {
-            onDelete();
-            onDeleted();
-          }}
-        >
-          削除する
-        </button>
-        <button type="button" className="event-detail-text-btn" onClick={() => setState("idle")}>
-          やめる
-        </button>
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className="event-detail-text-btn event-detail-delete-btn"
-      onClick={() => setState("confirming")}
-    >
-      削除
-    </button>
   );
 }

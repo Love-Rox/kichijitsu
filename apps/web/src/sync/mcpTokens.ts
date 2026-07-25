@@ -15,3 +15,18 @@ export function mcpTokenLabel(token: Pick<McpTokenDTO, "label">): string {
 export function mcpTokenLastUsedLabel(token: Pick<McpTokenDTO, "lastUsedAt">): string {
   return token.lastUsedAt === null ? "未使用" : new Date(token.lastUsedAt).toLocaleString();
 }
+
+/**
+ * 発行日時の表示。2026-07-25 のリファクタ フェーズ1b で SettingsModal.tsx の直書き
+ * (`new Date(token.createdAt).toLocaleString()`、すぐ隣の行が mcpTokenLastUsedLabel を
+ * 使っているのに片方だけ直書きだった)をここへ寄せた。
+ *
+ * トークンの日時だけは意図的にブラウザロケール(toLocaleString)のままにしている ――
+ * 予定・実績のようなアプリのタイムゾーン設定(timeZone)で見せるべき「壁時計の情報」ではなく、
+ * 「いつ発行/最後に使われたか」という監査メタ情報であり、また SettingsModal は timeZone を
+ * props で受け取っていない(渡すには App.tsx の変更が必要)。lastUsed 側と形を揃えることが
+ * ここでの目的。
+ */
+export function mcpTokenCreatedLabel(token: Pick<McpTokenDTO, "createdAt">): string {
+  return new Date(token.createdAt).toLocaleString();
+}

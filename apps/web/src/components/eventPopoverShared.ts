@@ -1,8 +1,13 @@
 /**
- * EventBlock (時刻予定) と AllDayBar (終日予定、フェーズ5) の両方から使う、
- * ホバーツールチップ・詳細ポップオーバー位置決めの純粋な DOM ヘルパー群。
+ * 予定系 UI (時刻予定・終日予定・OOO/勤務場所レール) 共通の、ホバーツールチップ・
+ * 詳細ポップオーバー位置決めの純粋な DOM ヘルパー群。
  * react-refresh の "ファイルはコンポーネントのみ export すべき" ルールに
- * 抵触しないよう、コンポーネントを持つ EventBlock.tsx とは別ファイルに分離してある。
+ * 抵触しないよう、コンポーネントを持つ .tsx とは別ファイルに分離してある。
+ *
+ * 呼び出し元(2026-07-25 リファクタ フェーズ1a 以降):
+ * - ツールチップ側 (getSharedTooltipEl / positionTooltip / fillTooltipContent):
+ *   hooks/useHoverTooltip.ts だけ ―― タイマーと表示状態の管理は全部そこに集約してある
+ * - ポップオーバー側 (clampPopoverPosition / stripHtmlToPlainText): components/EventDetailCard.tsx
  */
 
 const TOOLTIP_OFFSET_PX = 14;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
-import { mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
+import { mcpTokenCreatedLabel, mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import { getGhPathOverride, isTauri, setGhPathOverride } from "../sync/githubProvider";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
@@ -440,8 +440,7 @@ function McpTokensSection({
               <div className="settings-modal-mcp-item-main">
                 <span className="settings-modal-mcp-item-label">{mcpTokenLabel(token)}</span>
                 <span className="settings-modal-mcp-item-meta">
-                  発行: {new Date(token.createdAt).toLocaleString()} / 最終利用:{" "}
-                  {mcpTokenLastUsedLabel(token)}
+                  発行: {mcpTokenCreatedLabel(token)} / 最終利用: {mcpTokenLastUsedLabel(token)}
                 </span>
               </div>
               {onDelete && <McpTokenDeleteControl tokenId={token.id} onDelete={onDelete} />}
