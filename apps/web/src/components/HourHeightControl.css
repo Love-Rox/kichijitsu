@@ -34,15 +34,41 @@
   cursor: default;
 }
 
-.hour-zoom-preset.is-active {
-  background: #d7402e;
-  color: #faf7f2;
+/*
+ * プリセットのセレクト(2026-07-25、ユーザー要望「3つのボタンは幅を取りすぎるのでセレクトに」)。
+ * セグメントの中に溶け込ませるため枠線・角丸は持たせず(枠は親 .hour-zoom 側)、ネイティブの
+ * 下矢印は残す(セレクトだと分かる手掛かりになるため appearance は触らない)。
+ */
+.hour-zoom-select {
+  font: inherit;
+  font-size: 12px;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  color: #374151;
+  padding: 4px 4px 4px 8px;
+  cursor: pointer;
+  /* 「コンパクト」「ゆったり」「120px」で幅が動いてボタン位置が揺れないよう固定幅にする */
+  width: 8.5em;
 }
 
-/* −/+ は記号1文字なので左右の余白を詰め、正方形に近い当たり判定にする */
+.hour-zoom-select:hover {
+  background: #f3f4f6;
+}
+
+.hour-zoom-select:focus-visible,
+.hour-zoom button:focus-visible {
+  outline: 2px solid #b8321f;
+  outline-offset: -2px;
+}
+
+/* 虫眼鏡アイコンのみのボタン。左右の余白を詰め、正方形に近い当たり判定にする */
 .hour-zoom-step {
-  padding: 4px 8px;
+  padding: 4px 7px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /*
@@ -60,7 +86,7 @@
 }
 
 @media (max-width: 640px) {
-  /* 狭幅ではプリセットを畳んで −/+ と数値のみ(HourHeightControl.tsx の compact)。
+  /* 狭幅ではセレクトを畳んで虫眼鏡ボタンと数値のみ(HourHeightControl.tsx の compact)。
      タップ領域はツールバー他ボタンと同じ 32px を確保する */
   .hour-zoom button {
     font-size: 11px;

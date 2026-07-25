@@ -6,6 +6,7 @@ import {
   MAX_HOUR_HEIGHT,
   MIN_HOUR_HEIGHT,
 } from "../layout/gridMetrics";
+import { ZoomInIcon, ZoomOutIcon } from "./icons";
 import "./HourHeightControl.css";
 
 interface HourHeightControlProps {
@@ -13,21 +14,27 @@ interface HourHeightControlProps {
   hourHeight: number;
   onChange: (next: number) => void;
   /**
-   * 狭幅(モバイル)用の省スペース表示。プリセットのセグメントは畳み、−/+ と現在値(数値)だけを出す
-   * ―― ツールバーは狭幅で1段に収める制約があり(App.css の @media 参照)、プリセット3つを
-   * 並べる余地が無いため。プリセット相当の高さは −/+ の8px刻みでも到達できる(32/48/72 はいずれも8の倍数)。
+   * 狭幅(モバイル)用の省スペース表示。プリセットのセレクトを畳み、虫眼鏡ボタンと現在値(数値)
+   * だけを出す ―― ツールバーは狭幅で1段に収める制約があり(App.css の @media 参照)、
+   * セレクトを置く余地が無いため。プリセット相当の高さは 8px 刻みの微調整でも到達できる
+   * (32/48/72 はいずれも8の倍数)。
    */
   compact?: boolean;
 }
 
+/** 微調整でプリセットから外れているときにセレクトへ出す値(option の value に使う番兵) */
+const CUSTOM_VALUE = "custom";
+
 /**
  * 時間軸ズーム(2026-07-25、ユーザー要望)のツールバーコントロール。
- * プリセット(コンパクト32px/標準48px/ゆったり72px)のワンクリックと、−/+ の 8px 刻み微調整
- * (24〜120px)を1つのグループにまとめる。⌘/Ctrl+ホイールでのズームは WeekGrid 側が担当し、
- * どちらも同じ App の state を書き換えるので表示は常に一致する。
+ * 構成は「虫眼鏡−|プリセットのセレクト|虫眼鏡+」の3点 ―― プリセットは当初3つのボタンを並べて
+ * いたが幅を取りすぎるためセレクトボックス1つに畳んだ(ユーザー要望)。微調整(8px 刻み)は
+ * 虫眼鏡アイコンのボタンで、⌘/Ctrl+ホイールでのズームは WeekGrid 側が担当する。いずれも同じ
+ * App の state を書き換えるので表示は常に一致する。
  *
- * 現在値がプリセットと一致していればそのボタンをアクティブ表示にし、微調整で外れたら
- * 実 px 値を小さく表示する(ユーザー決定)。
+ * 微調整でプリセットから外れた値になったときは、セレクトに「64px」のような現在値の option を
+ * 一時的に足してそれを選択状態にする(プリセット名を偽って見せない/px 値を別の場所に併記して
+ * 幅を食わない、の両立)。
  */
 export function HourHeightControl({
   hourHeight,
@@ -53,24 +60,29 @@ export function HourHeightControl({
         aria-label="時間軸を縮める"
         title={`縮める (−${HOUR_HEIGHT_STEP}px)`}
       >
-        −
+        <ZoomOutIcon width={14} height={14} />
       </button>
-      {!compact &&
-        HOUR_HEIGHT_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className={activePreset === preset.id ? "hour-zoom-preset is-active" : "hour-zoom-preset"}
-            aria-pressed={activePreset === preset.id}
-            onClick={() => onChange(preset.px)}
-            title={`${preset.label} (1時間 ${preset.px}px)`}
-          >
-            {preset.label}
-          </button>
-        ))}
-      {/* プリセットと一致しない微調整中の値。狭幅ではプリセットを出さないので常に現在値を見せる */}
-      {(compact || activePreset === null) && (
-        <span className="hour-zoom-value">{compact ? hourHeight : `${hourHeight}px`}</span>
+      {compact ? (
+        // 狭幅ではセレクトを置く幅が無いので現在値のみ(単位は省略して桁を稼ぐ)
+        <span className="hour-zoom-value">{hourHeight}</span>
+      ) : (
+        <select
+          className="hour-zoom-select"
+          value={activePreset ?? CUSTOM_VALUE}
+          aria-label="時間軸の高さのプリセット"
+          onChange={(e) => {
+            const preset = HOUR_HEIGHT_PRESETS.find((p) => p.id === e.target.value);
+            // CUSTOM_VALUE(現在値の option)が選ばれた場合は何も変えない
+            if (preset) onChange(preset.px);
+          }}
+        >
+          {HOUR_HEIGHT_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+          {activePreset === null && <option value={CUSTOM_VALUE}>{hourHeight}px</option>}
+        </select>
       )}
       <button
         type="button"
@@ -80,7 +92,7 @@ export function HourHeightControl({
         aria-label="時間軸を広げる"
         title={`広げる (+${HOUR_HEIGHT_STEP}px)`}
       >
-        ＋
+        <ZoomInIcon width={14} height={14} />
       </button>
     </div>
   );

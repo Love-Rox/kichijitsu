@@ -184,6 +184,55 @@ export function SearchIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, classN
 }
 
 /**
+ * 虫眼鏡+(ズームイン)/ 虫眼鏡−(ズームアウト)。時間軸ズームの微調整ボタンに使う
+ * (2026-07-25、ユーザー要望「−/+ より虫眼鏡に +/− が入ったものがよい」)。
+ * SearchIcon と同じ円+柄の骨格に、レンズの中へ横棒(と縦棒)を足しただけ ―― 同じ虫眼鏡の
+ * 家族に見えるよう意図的に共通の寸法を使っている。
+ */
+export function ZoomOutIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="6.8" cy="6.8" r="4.5" />
+      <path d="M10.1 10.1L14 14" />
+      <path d="M4.8 6.8h4" />
+    </svg>
+  );
+}
+
+/** 虫眼鏡+(ズームイン)。ZoomOutIcon のレンズ内に縦棒を足して「+」にしたもの */
+export function ZoomInIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="6.8" cy="6.8" r="4.5" />
+      <path d="M10.1 10.1L14 14" />
+      <path d="M4.8 6.8h4M6.8 4.8v4" />
+    </svg>
+  );
+}
+
+/**
  * ビデオカメラ(参加ステータス表示、2026-07-22)。会議リンク (conferenceData/hangoutLink) が
  * ある予定を示す。EventBlock のタイトル行と EventDetailCard の両方で使う
  * (occurrence.hasConference が true のときのみ表示、apps/web/src/components/EventBlock.tsx 参照)。
