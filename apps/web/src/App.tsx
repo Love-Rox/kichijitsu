@@ -6,17 +6,7 @@ import type {
   CalendarListEntryDTO,
   DisconnectRequest,
   EventCreateResponse,
-  GitHubActivityDTO,
-  GitHubActivityResponse,
-  GitHubCiRunDTO,
-  GitHubCiRunsResponse,
-  GitHubItemDTO,
-  GitHubItemsResponse,
-  GitHubQueueResponse,
-  GitHubWorkItemDTO,
   MeResponse,
-  PullCommitsRequest,
-  PullCommitsResponse,
   RsvpResponseStatus,
   SyncRequest,
   SyncResponse,
@@ -35,7 +25,6 @@ import type {
   WorkLogsResponse,
   WorkLogUpdateRequest,
 } from "@kichijitsu/shared";
-import { collectPrTargets, estimateByItemKey } from "./sync/estimateActual";
 import { hookActualByLinkedItem } from "./sync/hookActual";
 import { buildEventDeleteRequest, buildEventPatchRequest } from "./sync/eventPatch";
 import {
@@ -54,17 +43,6 @@ import {
 import { buildEventRsvpRequest, RsvpNotAttendeeError } from "./sync/eventRsvp";
 import { buildTaskPatchRequest } from "./sync/mapTasks";
 import { applyTasksSyncResponse, deleteTasksForAccount } from "./sync/applyTasksSync";
-import { mapGitHubItems } from "./sync/mapGitHub";
-import {
-  isTauri,
-  fetchWorkQueueViaGh,
-  fetchGitHubItemsViaGh,
-  fetchGitHubActivityViaGh,
-  fetchGitHubCiRunsViaGh,
-  fetchPullCommitsViaGh,
-  fetchRepos,
-  fetchRepoIssues,
-} from "./sync/githubProvider";
 import { buildPlannedBlock, type DroppedWorkItem } from "./sync/planned";
 import type { TimerLinkedItem } from "./sync/timeTracking";
 import { isIntervalRunning, openIntervalsToTimeEntries } from "./sync/openIntervals";
@@ -107,6 +85,7 @@ import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import { useBlockRules } from "./hooks/useBlockRules";
+import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useMasuVisible } from "./hooks/useMasuVisible";
 import { useMcpTokens } from "./hooks/useMcpTokens";
@@ -131,7 +110,6 @@ import {
   CURRENT_SYNC_BACKFILL_VERSION,
   cleanupDemoData,
   cleanupLegacyGoogleData,
-  clearGitHubItems,
   countSeries,
   deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
@@ -151,7 +129,6 @@ import {
   getVisibleCalendars,
   openKichijitsuDB,
   putAllDayOccurrences,
-  putGitHubItems,
   putOccurrence,
   putOccurrences,
   putOverride,
@@ -392,55 +369,25 @@ function App() {
   // カレンダーブロック設定 (docs/blocking.md、フェーズ7 第1段階の UI 部分) の開閉。
   // ルール一覧そのものは hooks/useBlockRules.ts が持つ(下の useBlockRules 呼び出し)
   const [blockOverlayOpen, setBlockOverlayOpen] = useState(false);
-  // GitHub 連携 (docs/github-integration.md フェーズ①Part B): GET /api/github/items が
-  // 401 github_auth_expired を返したかどうか。設定パネルが「再連携」導線を出すのに使う。
-  // 409 github_not_connected / 502 github_fetch_failed はこのフラグを立てない
-  // (前者は me.github が null のはずで無関係、後者は一時的な取得失敗なので再連携は不要)
-  const [githubAuthExpired, setGithubAuthExpired] = useState(false);
-  // 作業キュー(docs/github-integration.md フェーズ②Part B)のデータ。日付を持たない
-  // ライブな一覧のため IndexedDB には入れず React state だけで保持する(占有元は
-  // GET /api/github/queue、ペインを開くたび・連携直後に取り直す。手動更新は onRefresh)。
-  const [githubQueue, setGithubQueue] = useState<GitHubWorkItemDTO[]>([]);
   // GitHub 情報ペイン(GitHubPane、増分1で WorkQueueDrawer から発展)の開閉。増分1では
   // セクションが作業キュー1つだけのため実質「作業キューが見えているか」と同義だが、
-  // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある
-  // (githubQueue・queueLoading・queueAuthExpired・fetchGithubQueue はデータ側の名前のまま維持)。
+  // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある。
+  // GitHub 由来のデータ側の state(githubAuthExpired・githubQueue・queueLoading・
+  // queueAuthExpired・実績/CI オーバーレイ・commit 推定)と取得 effect は
+  // hooks/useGitHubData.ts へ移した(リファクタリング フェーズ2 ③、2026-07-25)ので、
+  // ここに残るのは UI クロムの開閉だけ
   const [paneOpen, setPaneOpen] = useState(false);
-  const [queueLoading, setQueueLoading] = useState(false);
-  // 401 github_auth_expired 専用フラグ(githubAuthExpired とは独立: レーン用の
-  // /api/github/items とキュー用の /api/github/queue は別エンドポイントで、
-  // 片方だけ失効することは無い想定だが、UI 側の責務は分けておく)
-  const [queueAuthExpired, setQueueAuthExpired] = useState(false);
-  // GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B)。実績はライブなので
-  // IndexedDB に入れず React state のみで保持する(表示中の時間範囲ぶんを都度取得)。
-  const [githubActivity, setGithubActivity] = useState<GitHubActivityDTO[]>([]);
-  // ON/OFF トグル(視覚ノイズになり得るため)。既定 ON。OFF のときはレールを出さず取得もしない
-  const [activityVisible, setActivityVisible] = useState(true);
-  // GitHub CI/Actions 実行オーバーレイ (docs/github-integration.md フェーズ④b「CI/Actions
-  // 実行をタイムラインに薄く重ねる」)。githubActivity と同じくライブなので IndexedDB に
-  // 入れず React state のみで保持する。
-  const [githubCiRuns, setGithubCiRuns] = useState<GitHubCiRunDTO[]>([]);
-  // ON/OFF トグル。実績(commit)と違い CI 実行は自分のトリガー分に限定しないぶん件数が
-  // 膨らみやすい(誰の push でも表示対象)ため、既定は OFF にして明示的なオプトインにする
-  // (activityVisible の既定 ON とは意図的に非対称)。
-  const [ciVisible, setCiVisible] = useState(false);
   // 予定 vs 実績レポート (docs/github-integration.md「時間計測」増分2)。開閉のみの状態、
   // データは plannedStore/timeEntryStore から都度読む(専用 state は持たない)
   const [reportOpen, setReportOpen] = useState(false);
   // 実績(記録/タイマー/履歴)は 2026-07-25 に専用モーダル(WorkLogModal)を廃して右ペイン
   // (GitHubPane)へ集約した。開閉は右ペインの paneOpen が兼ねるため専用 state は持たない
   // ―― データは reportWorkLogs/reportPlannedBlocks をそのままペインへ渡す。
-  // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B)。
-  // レポートを開いたときだけ POST /api/github/pr-commits を取りに行き、キー
-  // ("{owner/repo}#{number}") ごとの推定 ms に変換して保持する(常時ポーリングはしない、下の
-  // effect 参照)。手動タイマー実績(TimeEntry)とは別立てのデータなので専用 state で持つ
-  const [prCommitEstimates, setPrCommitEstimates] = useState<Record<string, number>>({});
   // hook 実績 (docs/mcp.md「エージェントの作業時間記録」、log_work_interval が work_logs テーブルに
   // 保存する値。2026-07-21 に Google カレンダー保存から D1 保存へ移行)。レポートを開いたときだけ
   // GET /api/work-logs を取りに行く(下の effect 参照)。手動タイマー実績(TimeEntry)・commit 推定
-  // (prCommitEstimates) とは別立てのデータなので専用 state で持つ
+  // (prCommitEstimates、hooks/useGitHubData.ts)とは別立てのデータなので専用 state で持つ
   const [reportWorkLogs, setReportWorkLogs] = useState<WorkLogDTO[]>([]);
-  const [prCommitEstimatesLoading, setPrCommitEstimatesLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "error">("idle");
   // Google への書き戻し (POST /api/event/patch) 失敗時のロールバック通知
   // (フェーズ5)。syncStatus とは別軸: こちらはドラッグ確定1件ごとの結果
@@ -820,289 +767,43 @@ function App() {
     deleteBlockRule: handleDeleteBlockRule,
   } = useBlockRules({ connected: me.connected, checkedFetch });
 
-  // GitHub アイテムの取得(docs/github-integration.md フェーズ①Part B)。db 準備完了 &
-  // me.github が連携済みになったら GET /api/github/items を取る。サーバーは GitHub アイテムを
-  // 永続化せず応答は常に完全なスナップショットのため、成功したら IndexedDB/store を
-  // 「全消し→全書き込み」で置き換える(clearGitHubItems/githubStore.clear、差分計算はしない)。
-  // 409 github_not_connected は me.github が null のはずで基本発生しない(念のため無視)。
-  // 401 github_auth_expired は再連携導線 (CalendarSettingsPanel) を出すためフラグを立てる。
-  // 502 github_fetch_failed・ネットワークエラーは一時的な失敗として warn のみ(レーンは前回の
-  // キャッシュ表示のまま据え置く)
-  useEffect(() => {
-    if (!db || !me.github) return;
-    let cancelled = false;
-
-    // 取得できた GitHubItemDTO[] を IndexedDB/store に反映する共通処理 (gh 経路・Worker 経路で
-    // 収束させる、docs/github-integration.md「認証プロバイダの抽象化」)。
-    const apply = async (items: GitHubItemDTO[]) => {
-      const mapped = mapGitHubItems(items);
-      if (cancelled || !db) return;
-      setGithubAuthExpired(false);
-      await clearGitHubItems(db);
-      await putGitHubItems(db, mapped);
-      await githubStore.batch(async () => {
-        githubStore.clear();
-        githubStore.load(mapped);
-      });
-    };
-
-    // プロバイダ分岐 (fetchGithubQueue と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-    // gh CLI 認証でアイテムを直接取得する。ブラウザ/PWA では isTauri() が常に false のため
-    // 以降の従来コードは不変。
-    if (isTauri()) {
-      fetchGitHubItemsViaGh()
-        .then((items) => apply(items))
-        .catch((err) => {
-          console.warn("kichijitsu: gh 経由の GitHub アイテム取得に失敗", err);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    checkedFetch("/api/github/items")
-      .then(async (res) => {
-        if (res.status === 401) {
-          if (!cancelled) setGithubAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) return; // 未連携(通常は me.github が null のはずなので無視)
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/github/items failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as GitHubItemsResponse;
-        await apply(data.items);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/github/items failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [db, me.github, checkedFetch, githubStore]);
-
-  // GitHub 実績オーバーレイの取得(フェーズ③Part B)。表示中の時間範囲([timelineStart, +dayCount日))が
-  // 変わるたびに取り直す(ライブ実績なので IndexedDB キャッシュは持たない)。ビュー切替・週送りの
-  // 連打で過剰リクエストにならないよう軽くデバウンスする。トグル OFF・未連携・月表示
-  // (WeekGrid 自体が描画されない)では取得しない。401 は githubAuthExpired 経路に合流させる
-  // (①の /api/github/items と同じ再連携導線を共有、専用のフラグは別途持たない)。409 は
-  // 未連携相当として空にし、502・ネットワークエラーは一時的な失敗として warn のみ(前回表示を維持)。
-  useEffect(() => {
-    if (!me.github || !activityVisible || view === "month") return;
-    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
-    const sinceIso = new Date(fromMs).toISOString();
-    const untilIso = new Date(toMs).toISOString();
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-      // gh CLI 認証で実績オーバーレイを直接取得する。ブラウザ/PWA では isTauri() が常に
-      // false のため以降の従来コードは不変。
-      if (isTauri()) {
-        fetchGitHubActivityViaGh(sinceIso, untilIso)
-          .then((items) => {
-            if (!cancelled) {
-              setGithubAuthExpired(false);
-              setGithubActivity(items);
-            }
-          })
-          .catch((err) => {
-            console.warn("kichijitsu: gh 経由の GitHub 実績取得に失敗", err);
-            if (!cancelled) setGithubActivity([]);
-          });
-        return;
-      }
-
-      checkedFetch(
-        `/api/github/activity?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
-      )
-        .then(async (res) => {
-          if (res.status === 401) {
-            if (!cancelled) setGithubAuthExpired(true);
-            return;
-          }
-          if (res.status === 409) {
-            if (!cancelled) setGithubActivity([]);
-            return;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/github/activity failed: ${res.status}`);
-            return;
-          }
-          const data = (await res.json()) as GitHubActivityResponse;
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setGithubActivity(data.items);
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: GET /api/github/activity failed", err);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [me.github, activityVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
-
-  // 実績トグル OFF: 次の取得を待たず即座にレールを消す(cancelled フラグだけだと
-  // 直前の取得がまだ in-flight の場合に一瞬残ってしまうため、明示的に空にする)
-  const handleToggleActivityVisible = useCallback(() => {
-    setActivityVisible((prev) => {
-      const next = !prev;
-      if (!next) setGithubActivity([]);
-      return next;
-    });
-  }, []);
-
-  // GitHub CI/Actions 実行の取得(フェーズ④b)。GitHub 実績オーバーレイ(直前の effect)と
-  // 完全に同じ流儀: 表示中の時間範囲が変わるたびに取り直し、300ms デバウンス、トグル OFF・
-  // 未連携・月表示では取得しない。401 は同じ githubAuthExpired 経路に合流させる(/api/github/ci
-  // も /api/github/activity と同じ resolveGitHubAccessToken を共有しているため、専用フラグは
-  // 持たない)。409 は空、502・ネットワークエラーは前回表示を維持したまま warn のみ。
-  useEffect(() => {
-    if (!me.github || !ciVisible || view === "month") return;
-    const { fromMs, toMs } = timelineRangeMs(timelineStart, dayCount, timeZone);
-    const sinceIso = new Date(fromMs).toISOString();
-    const untilIso = new Date(toMs).toISOString();
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-      // gh CLI 認証で CI/Actions 実行を直接取得する。ブラウザ/PWA では isTauri() が常に
-      // false のため以降の従来コードは不変。
-      if (isTauri()) {
-        fetchGitHubCiRunsViaGh(sinceIso, untilIso)
-          .then((items) => {
-            if (!cancelled) {
-              setGithubAuthExpired(false);
-              setGithubCiRuns(items);
-            }
-          })
-          .catch((err) => {
-            console.warn("kichijitsu: gh 経由の GitHub CI 実行取得に失敗", err);
-            if (!cancelled) setGithubCiRuns([]);
-          });
-        return;
-      }
-
-      checkedFetch(
-        `/api/github/ci?since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}`,
-      )
-        .then(async (res) => {
-          if (res.status === 401) {
-            if (!cancelled) setGithubAuthExpired(true);
-            return;
-          }
-          if (res.status === 409) {
-            if (!cancelled) setGithubCiRuns([]);
-            return;
-          }
-          if (!res.ok) {
-            console.warn(`kichijitsu: GET /api/github/ci failed: ${res.status}`);
-            return;
-          }
-          const data = (await res.json()) as GitHubCiRunsResponse;
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setGithubCiRuns(data.items);
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: GET /api/github/ci failed", err);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [me.github, ciVisible, view, timelineStart, dayCount, timeZone, checkedFetch]);
-
-  // CI トグル OFF: 実績トグルと同じく、直前の取得が in-flight でも一瞬残らないよう即座に消す
-  const handleToggleCiVisible = useCallback(() => {
-    setCiVisible((prev) => {
-      const next = !prev;
-      if (!next) setGithubCiRuns([]);
-      return next;
-    });
-  }, []);
-
-  // 作業キューの取得(docs/github-integration.md フェーズ②Part B)。GET /api/github/queue は
-  // サーバー側で永続化しない都度取得の一覧なので、成功したら githubQueue を丸ごと置き換えるだけ
-  // (差分計算はしない、/api/github/items と同じ「全消し→全書き込み」の考え方だが
-  // こちらは IndexedDB を経由しないぶん単純)。401/409/502 のマッピングは /api/github/items と
-  // 同じ(408 は無し)。ドロワーを開いた時と onRefresh の両方からこの1つの関数を呼ぶ。
-  const fetchGithubQueue = useCallback(() => {
-    if (!me.github) return;
-    setQueueLoading(true);
-
-    // プロバイダ分岐 (docs/github-integration.md「認証プロバイダの抽象化」)。
-    // Tauri デスクトップ実行時のみ、手元の gh CLI 認証で作業キューを直接取得する。
-    // ブラウザ/PWA では isTauri() が常に false になるため、以降の従来コードは不変。
-    if (isTauri()) {
-      fetchWorkQueueViaGh()
-        .then((items) => {
-          setQueueAuthExpired(false);
-          setGithubQueue(items);
-        })
-        .catch((err) => {
-          // gh 未インストール/未ログイン等。空扱いにして warn (OAuth 連携案内は次増分 TODO)。
-          console.warn("kichijitsu: gh 経由の作業キュー取得に失敗", err);
-          setGithubQueue([]);
-        })
-        .finally(() => setQueueLoading(false));
-      return;
-    }
-
-    checkedFetch("/api/github/queue")
-      .then(async (res) => {
-        if (res.status === 401) {
-          setQueueAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) {
-          // 未連携(通常は me.github が null のはずなので基本発生しない)。空扱いにする
-          setGithubQueue([]);
-          return;
-        }
-        if (!res.ok) {
-          console.warn(`kichijitsu: GET /api/github/queue failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as GitHubQueueResponse;
-        setQueueAuthExpired(false);
-        setGithubQueue(data.items);
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: GET /api/github/queue failed", err);
-      })
-      .finally(() => setQueueLoading(false));
-  }, [me.github, checkedFetch]);
-
-  // 右ペイン(GitHubPane)の手動記録フォーム用の repo / repo-issues 取得(実績 UX 刷新
-  // フェーズ3、2026-07-23。2026-07-25 に WorkLogModal からペインへ移設)。githubProvider の
-  // 統一 API を checkedFetch でバインドして渡すだけ — isTauri() の gh/server 分岐は
-  // githubProvider 側が担う(fetchGithubQueue と同じ考え方)。失敗時の手入力フォールバックは
-  // ペイン側が握る。実績履歴の issue タイトル補完も fetchRepoIssuesForPane を使う。
-  const fetchReposForPane = useCallback(() => fetchRepos(checkedFetch), [checkedFetch]);
-  const fetchRepoIssuesForPane = useCallback(
-    (repo: string) => fetchRepoIssues(repo, checkedFetch),
-    [checkedFetch],
-  );
-
-  // 連携直後の初回取得(me.github が null→非null になったタイミング)。ドロワーを
-  // 開く前でもヘッダーの件数バッジを最新化できるようにする
-  useEffect(() => {
-    if (!me.github) return;
-    fetchGithubQueue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.github]);
-
-  // ペインを開くたびの取得(手動更新は onRefresh=fetchGithubQueue の直接呼び出し)
-  useEffect(() => {
-    if (!paneOpen) return;
-    fetchGithubQueue();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneOpen]);
+  // GitHub 連携 (docs/github-integration.md) のデータ取得は hooks/useGitHubData.ts へ移した
+  // (リファクタリング フェーズ2 ③、2026-07-25)。アイテムレーン(①)・実績オーバーレイ(③)・
+  // CI/Actions 実行(④b)・作業キュー(②)・右ペインの repo/issue プルダウンが対象で、
+  // 取得タイミング・300ms デバウンス・isTauri() のプロバイダ分岐・401/409/502 の扱いは
+  // すべてフック側にある。ここは配線だけ。
+  // 呼び出し位置は移設前の各 effect の登録順(items → activity → ci → queue)をそのまま
+  // 保つためここに置いてある(依存配列はレンダー中に評価されるので、後段で計算する値には
+  // 触れられない ―― commit 推定だけ別フックに分けているのはそれが理由。下の
+  // useGitHubPrCommitEstimates 参照)。返り値は JSX/呼び出し側の既存の名前に別名で受けて、
+  // 呼び出し箇所を一切変えずに済ませている
+  const {
+    githubAuthExpired,
+    setGithubAuthExpired,
+    githubQueue,
+    queueLoading,
+    queueAuthExpired,
+    fetchGithubQueue,
+    githubActivity,
+    activityVisible,
+    toggleActivityVisible: handleToggleActivityVisible,
+    githubCiRuns,
+    ciVisible,
+    toggleCiVisible: handleToggleCiVisible,
+    fetchReposForPane,
+    fetchRepoIssuesForPane,
+    clearGitHubData,
+  } = useGitHubData({
+    db,
+    github: me.github,
+    githubStore,
+    paneOpen,
+    view,
+    timelineStart,
+    dayCount,
+    timeZone,
+    checkedFetch,
+  });
 
   // visibleCalendars が変わるたびに IndexedDB meta へ永続化する。
   // 初回ロード(上の init effect)が完了するまでは待つ({} での上書きを防ぐ)
@@ -1644,21 +1345,10 @@ function App() {
   const handleDisconnectGitHub = useCallback(async () => {
     await deleteJson(checkedFetch, "/api/github");
     setMe((prev) => ({ ...prev, github: null }));
-    setGithubAuthExpired(false);
-    // 作業キュー(フェーズ②Part B)も畳む。IndexedDB には入れていないので state を空にするだけ
-    setGithubQueue([]);
-    setQueueAuthExpired(false);
-    // 実績オーバーレイ(フェーズ③Part B)も同じ流儀で畳む
-    setGithubActivity([]);
-    // CI/Actions 実行オーバーレイ(フェーズ④b)も同じ流儀で畳む
-    setGithubCiRuns([]);
-    if (db) {
-      await clearGitHubItems(db);
-      await githubStore.batch(async () => {
-        githubStore.clear();
-      });
-    }
-  }, [db, githubStore, checkedFetch]);
+    // GitHub 由来のローカルデータ(作業キュー・実績/CI オーバーレイ・再連携フラグの state と、
+    // IndexedDB/store のアイテムレーン)を畳むのは useGitHubData 側の責務
+    await clearGitHubData();
+  }, [checkedFetch, clearGitHubData]);
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
   const flashSaveError = useCallback(() => {
@@ -2331,82 +2021,22 @@ function App() {
     [reportWorkLogs, reportPlannedBlocks],
   );
 
-  // commit からの実績自動推定の取得(docs/github-integration.md「時間計測」増分3 Part B)。
-  // needsActualsData(レポートを開いた、または実績セクションが可視)のときだけ
-  // POST /api/github/pr-commits を叩く(interval 等の常時ポーリングはしない)。対象は
-  // reportPlannedBlocks/reportTimeEntries から集めた PR (itemType==='pr') の {repo, number} のみ
-  // — issue は commit と紐づかないため送らない。未連携(me.github===null)なら取得せず推定列は
-  // 空のまま(needsActualsData の paneOpen 経路は既に me.github を含むが、reportOpen 経路は
-  // 含まないため引き続きここで明示的にガードする)。401→githubAuthExpired 経路に合流
-  // (①②と同じ再連携導線を共有)、409(未連携相当、通常は me.github が null のはずなので
-  // 基本発生しない)は空扱い、502・ネットワークエラーは一時的な失敗として warn のみ
-  // (前回の推定を維持する)。
-  useEffect(() => {
-    if (!needsActualsData || !me.github) return;
-    const prItems = collectPrTargets(reportPlannedBlocks, reportTimeEntries);
-    if (prItems.length === 0) {
-      setPrCommitEstimates({});
-      return;
-    }
-    let cancelled = false;
-    setPrCommitEstimatesLoading(true);
-
-    // プロバイダ分岐 (①アイテム取得と同じ流儀)。Tauri デスクトップ実行時のみ、手元の
-    // gh CLI 認証で PR commit を直接取得する。ブラウザ/PWA では isTauri() が常に false
-    // のため以降の従来コードは不変。
-    if (isTauri()) {
-      fetchPullCommitsViaGh(prItems)
-        .then((commitsByItem) => {
-          if (!cancelled) {
-            setGithubAuthExpired(false);
-            setPrCommitEstimates(estimateByItemKey(commitsByItem));
-          }
-        })
-        .catch((err) => {
-          console.warn("kichijitsu: gh 経由の PR commit 取得に失敗", err);
-          if (!cancelled) setPrCommitEstimates({});
-        })
-        .finally(() => {
-          if (!cancelled) setPrCommitEstimatesLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    checkedFetch(
-      "/api/github/pr-commits",
-      jsonInit("POST", { items: prItems } satisfies PullCommitsRequest),
-    )
-      .then(async (res) => {
-        if (res.status === 401) {
-          if (!cancelled) setGithubAuthExpired(true);
-          return;
-        }
-        if (res.status === 409) {
-          if (!cancelled) setPrCommitEstimates({});
-          return;
-        }
-        if (!res.ok) {
-          console.warn(`kichijitsu: POST /api/github/pr-commits failed: ${res.status}`);
-          return;
-        }
-        const data = (await res.json()) as PullCommitsResponse;
-        if (!cancelled) {
-          setGithubAuthExpired(false);
-          setPrCommitEstimates(estimateByItemKey(data.commitsByItem));
-        }
-      })
-      .catch((err) => {
-        console.warn("kichijitsu: POST /api/github/pr-commits failed", err);
-      })
-      .finally(() => {
-        if (!cancelled) setPrCommitEstimatesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [needsActualsData, me.github, reportPlannedBlocks, reportTimeEntries, checkedFetch]);
+  // commit からの実績自動推定 (docs/github-integration.md「時間計測」増分3 Part B) は
+  // hooks/useGitHubData.ts の useGitHubPrCommitEstimates へ移した(リファクタリング フェーズ2 ③、
+  // 2026-07-25)。needsActualsData(レポートを開いた、または実績セクションが可視)のときだけ
+  // POST /api/github/pr-commits を叩く条件、対象を PR だけに絞る collectPrTargets、401/409/502 の
+  // 扱いはフック側にある。useGitHubData 本体と別フックなのは、依存する needsActualsData と
+  // reportPlannedBlocks/reportTimeEntries がここまで来ないと確定しない(= 上の useGitHubData の
+  // 呼び出し位置からは参照できない)ため ―― 呼び出し位置も移設前の effect と同じここに置いて
+  // 登録順を保っている。401 は useGitHubData の githubAuthExpired へ合流させる
+  const { prCommitEstimates, prCommitEstimatesLoading } = useGitHubPrCommitEstimates({
+    enabled: needsActualsData,
+    github: me.github,
+    plannedBlocks: reportPlannedBlocks,
+    timeEntries: reportTimeEntries,
+    checkedFetch,
+    setAuthExpired: setGithubAuthExpired,
+  });
 
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (handlePersist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、

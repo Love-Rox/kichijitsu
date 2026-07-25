@@ -51,6 +51,39 @@ export function isTauri(): boolean {
 }
 
 /**
+ * サーバー経路 (`/api/github/*`) のレスポンスに対して、クライアントが取るべき挙動の分類。
+ */
+export type GitHubResponseClass = "auth_expired" | "not_connected" | "transient" | "ok";
+
+/**
+ * HTTP ステータスを上の4分類へ落とす **純関数**。
+ *
+ * なぜ切り出したか(リファクタリング フェーズ2 ③、2026-07-25): items / activity / ci / queue /
+ * pr-commits の5経路がまったく同じ三分岐を書き写していたため、判定だけをここへ寄せて
+ * テストで固めた。分岐後の「何をするか」は経路ごとに違う(409 を空扱いにするか無視するか等)
+ * ので、そこは呼び出し側 (hooks/useGitHubData.ts) に残している。
+ *
+ * 各分類の意味 (docs/github-integration.md フェーズ①Part B のコメント参照):
+ *  - `auth_expired` (401 github_auth_expired): トークン失効。設定モーダルに再連携導線を出す
+ *    ため呼び出し側が githubAuthExpired を立てる。
+ *  - `not_connected` (409 github_not_connected): 未連携。通常は me.github が null のはずなので
+ *    基本発生しない(呼び出し側は空扱い、または無視)。
+ *  - `transient` (その他の非 2xx。502 github_fetch_failed 等): 一時的な取得失敗。再連携は不要
+ *    なので warn だけして前回表示を据え置く。
+ *  - `ok` (2xx): 本文を読んで反映してよい。
+ *
+ * 401/409 も `Response.ok === false` に含まれるため、判定順(401 → 409 → 非 2xx)そのものが
+ * 仕様になっている。
+ */
+export function classifyGitHubResponse(status: number): GitHubResponseClass {
+  if (status === 401) return "auth_expired";
+  if (status === 409) return "not_connected";
+  // `Response.ok` と同じ判定(2xx 以外を非 2xx とみなす)
+  if (status < 200 || status >= 300) return "transient";
+  return "ok";
+}
+
+/**
  * `window.__TAURI__.core.invoke` の最小型 (公式の型パッケージを入れず局所宣言に留める)。
  */
 interface TauriGlobal {

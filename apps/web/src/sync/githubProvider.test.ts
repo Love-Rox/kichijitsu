@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  classifyGitHubResponse,
   mapGhCommitsToActivity,
   mapGhPullCommitsToTimestamps,
   mapGhRepoIssuesToDTO,
@@ -395,5 +396,32 @@ describe("mapGhPullCommitsToTimestamps", () => {
       "octocat",
     );
     expect(timestamps).toEqual(["2026-07-10T00:00:00Z", "2026-07-20T00:00:00Z"]);
+  });
+});
+
+describe("classifyGitHubResponse", () => {
+  it("401 は auth_expired(再連携導線を出す)", () => {
+    expect(classifyGitHubResponse(401)).toBe("auth_expired");
+  });
+
+  it("409 は not_connected(未連携相当)", () => {
+    expect(classifyGitHubResponse(409)).toBe("not_connected");
+  });
+
+  it("2xx は ok", () => {
+    expect(classifyGitHubResponse(200)).toBe("ok");
+    expect(classifyGitHubResponse(204)).toBe("ok");
+    expect(classifyGitHubResponse(299)).toBe("ok");
+  });
+
+  it("401/409 以外の非 2xx は transient(warn だけして前回表示を据え置く)", () => {
+    expect(classifyGitHubResponse(400)).toBe("transient");
+    expect(classifyGitHubResponse(403)).toBe("transient");
+    expect(classifyGitHubResponse(500)).toBe("transient");
+    // vite の dev proxy がバックエンド不在時に返す 502、サーバーの github_fetch_failed も同じ扱い
+    expect(classifyGitHubResponse(502)).toBe("transient");
+    // 3xx(fetch が追従しないリダイレクト等)も「一時的な失敗」側に寄せる
+    expect(classifyGitHubResponse(302)).toBe("transient");
+    expect(classifyGitHubResponse(199)).toBe("transient");
   });
 });
