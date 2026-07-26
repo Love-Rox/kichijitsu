@@ -382,6 +382,33 @@
   border-color: var(--c-accent);
 }
 
+/*
+ * テーマ3択 (ダークモード切替、2026-07-26)。見出し・説明文は既存の
+ * .settings-modal-section-title / -section-desc をそのまま使うので、ここは
+ * ラジオを横並びにする器と、ネイティブのラジオにブランド色を差す指定だけ。
+ */
+.settings-modal-theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.settings-modal-theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.settings-modal-theme-option input {
+  /* ラジオの塗りとフォーカスリングを朱に。描画はブラウザ既定のまま (theme.css の
+     color-scheme が効いているので、未選択時の枠色はテーマに追従する) */
+  accent-color: var(--c-accent);
+  margin: 0;
+}
+
 .settings-modal-gh-path-hint {
   margin: 6px 0 0;
   font-size: 11px;

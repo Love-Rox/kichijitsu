@@ -3,6 +3,7 @@ import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijits
 import { mcpTokenCreatedLabel, mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import { getGhPathOverride, isTauri, setGhPathOverride } from "../sync/githubProvider";
 import { clearAppCaches } from "../sync/appCache";
+import { getThemePref, setThemePref, type ThemePref } from "../sync/themePref";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
 import "./SettingsModal.css";
@@ -226,6 +227,18 @@ export function SettingsModal({
             </button>
           </section>
         )}
+
+        {/*
+         * テーマ (ダークモード切替、ユーザー要望、2026-07-26)。連携系のセクションとは
+         * 性質が違う「見た目の設定」なので最後に置く。呼び出し元の props に依存しない
+         * (localStorage だけで完結する) ため、他セクションと違い常に描画される。
+         */}
+        <section className="settings-modal-section">
+          <h3 className="settings-modal-section-title" id="settings-theme-title">
+            テーマ
+          </h3>
+          <ThemeControl />
+        </section>
 
         {/*
          * Google 審査要件の導線(プライバシーポリシー・規約)。旧 CalendarSettingsPanel と
@@ -500,6 +513,61 @@ function GhPathOverrideControl() {
           : "GitHub が表示されないとき、gh の場所を手動指定できます。空欄で自動検出に戻ります。"}
       </p>
     </div>
+  );
+}
+
+/** テーマ3択の表示ラベル。値の正は sync/themePref.ts の ThemePref */
+const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
+  { value: "auto", label: "自動" },
+  { value: "light", label: "ライト" },
+  { value: "dark", label: "ダーク" },
+];
+
+/**
+ * テーマ3択 (自動 / ライト / ダーク、ユーザー要望、2026-07-26)。
+ *
+ * 保存ボタンは持たず、選んだ瞬間に setThemePref が localStorage への保存と
+ * <html data-theme> の書き換えを両方行う ―― 配色の反映は theme.css (color-scheme +
+ * light-dark()) が担うので、React 側に再描画すべきものは何も無い。
+ *
+ * したがって値の正は localStorage であり、ここの useState は「いま何にチェックが
+ * 入っているか」を描くためだけのローカルな写し (GhPathOverrideControl と同じ流儀)。
+ * App.tsx に state を持ち上げると二重管理になるだけで得が無いので持ち上げていない。
+ *
+ * ラジオグループにしたのは3択が排他だから ―― ネイティブの <input type="radio"> を
+ * 同じ name で並べれば、矢印キーでの移動と読み上げ時の「n個中m番目・選択済み」が
+ * ブラウザ標準で手に入る。
+ */
+function ThemeControl() {
+  const [pref, setPref] = useState<ThemePref>(() => getThemePref());
+
+  return (
+    <>
+      <p className="settings-modal-section-desc">
+        「自動」は、お使いの端末(OS)の外観設定に合わせて自動で切り替わります。
+      </p>
+      <div
+        className="settings-modal-theme-options"
+        role="radiogroup"
+        aria-labelledby="settings-theme-title"
+      >
+        {THEME_OPTIONS.map((option) => (
+          <label className="settings-modal-theme-option" key={option.value}>
+            <input
+              type="radio"
+              name="settings-theme"
+              value={option.value}
+              checked={pref === option.value}
+              onChange={() => {
+                setThemePref(option.value);
+                setPref(option.value);
+              }}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+    </>
   );
 }
 
