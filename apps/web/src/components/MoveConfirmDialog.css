@@ -70,7 +70,7 @@
   border: none;
   border-radius: 8px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;

@@ -92,7 +92,7 @@
   padding: 0 3px;
   border-radius: 30%;
   background: var(--c-accent);
-  color: var(--c-on-ink);
+  color: var(--c-on-accent);
   font-weight: 600;
 }
 

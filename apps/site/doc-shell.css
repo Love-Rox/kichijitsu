@@ -29,7 +29,7 @@
   --ink: #24211e;
   --sub: #8a8478;
   --masu: #dcd6c9;
-  --aka: #d7402e;
+  --aka: #c13625;
   --aka-ink: #b8321f;
   --on-aka: #ffffff;
 
@@ -180,7 +180,7 @@ ol {
 }
 
 /* ワードマーク (文字ロゴ) 画像。色は public/wordmark.svg 側に焼き込み済み
-   (墨 #24211e / j の点は朱 #D7402E 固定、<img> は currentColor を継承しないため)。 */
+   (墨 #24211e / j の点は朱 #C13625 固定、<img> は currentColor を継承しないため)。 */
 .nav__wordmark {
   height: 19px;
   width: auto;

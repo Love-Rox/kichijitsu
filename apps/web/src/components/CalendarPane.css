@@ -319,7 +319,7 @@ h4.calendar-pane-group-title {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;

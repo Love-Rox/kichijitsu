@@ -622,7 +622,7 @@
 
 .event-detail-rsvp-btn.is-selected {
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
 }
 
 .event-detail-rsvp-btn:disabled {
@@ -726,7 +726,7 @@
   border: none;
   border-radius: 8px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 12px;
   font-weight: 600;

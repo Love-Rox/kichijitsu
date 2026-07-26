@@ -135,7 +135,7 @@
 /*
  * release マーカー (docs/github-integration.md フェーズ④「first cut」、2026-07-20)。
  * milestone(紫 --c-github)・issue/PR チップの PR(緑 --c-success)とは別トーンにして、GitHub
- * データソース内の種別を一目で区別できるようにする。brand/README.md の朱(#D7402E系)は
+ * データソース内の種別を一目で区別できるようにする。brand/README.md の朱(#C13625系)は
  * ここでは使わない(アクセントは1画面につきひとつの原則)。GitHub 自身のリンク色に近い
  * 落ち着いた青 --c-release を採用。milestone のダイヤ(◆)とは異なる印(🏷)にして混同を避ける。
  */
