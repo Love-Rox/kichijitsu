@@ -26,6 +26,11 @@
         font-size: 16px;
         margin-top: 2.2em;
       }
+      h3 {
+        font-size: 14px;
+        margin-top: 1.8em;
+        margin-bottom: 0.2em;
+      }
       h1 small {
         display: block;
         font-size: 12px;
@@ -97,7 +102,7 @@
     </header>
     <main>
       <h1>プライバシーポリシー <small>kichijitsu Privacy Policy</small></h1>
-      <p class="updated">最終更新: 2026-07-19</p>
+      <p class="updated">最終更新: 2026-07-26</p>
 
       <!--
         運営者名・連絡先・ホスト名はビルド時に差し込む (apps/web/build/legalText.ts)。
@@ -111,23 +116,74 @@
       </p>
 
       <h2>取得・保存する情報</h2>
+      <p>
+        サーバー（Cloudflare D1 / Durable Objects）に保存されるのは、次の情報です。機能を使って
+        いない場合、その機能に対応する情報は作成されません。
+      </p>
       <ul>
-        <li><b>Google アカウント識別子とメールアドレス</b> — ログインとアカウント識別のため</li>
+        <li>
+          <b>Google アカウント識別子とメールアドレス</b> —
+          ログインと、連携した複数アカウントの識別のため
+        </li>
         <li>
           <b>Google OAuth トークン</b> — カレンダーとの同期のため。リフレッシュトークンは
-          AES-256-GCM で暗号化してサーバー（Cloudflare D1）に保存します
+          AES-256-GCM で暗号化して保存します（復号鍵はデータベースとは別に保持します）。
+          有効期限の短いアクセストークン（1時間程度）は、同期を担う Durable Object
+          に一時的にキャッシュされます
         </li>
-        <li><b>同期カーソル（syncToken）</b> — 差分同期の状態管理のため</li>
+        <li>
+          <b>同期の状態</b> — 差分同期のカーソル（syncToken、カレンダーと端末の組ごと）、
+          ポーリングの状態、および Google
+          からの更新通知を受け取るための購読登録（通知チャネルの ID・対象カレンダー・有効期限）
+        </li>
+        <li>
+          <b>表示するカレンダーの選択</b> — どのカレンダーを表示するかの選択を、
+          端末をまたいで揃えるため
+        </li>
+        <li>
+          <b>カレンダーブロックの設定</b> — 予定を別のカレンダーへ「予定あり／不在」として自動複製
+          する機能を使う場合、その転記元・転記先カレンダーの指定と、「元の予定の ID
+          → 生成したブロックの ID」の対応表。対応表が持つのは ID
+          と更新時刻だけで、予定の内容は含みません
+        </li>
+        <li>
+          <b>GitHub 連携の情報</b> — GitHub と連携した場合、GitHub
+          のユーザー識別子・ログイン名・許可された範囲（スコープ）と、AES-256-GCM
+          で暗号化したアクセストークン
+        </li>
+        <li>
+          <b>MCP トークンのハッシュ値</b> — エージェント連携（MCP）用のトークンを発行した場合、
+          その SHA-256 ハッシュ値・ラベル・最終使用日時。トークンの生の値は発行時に一度だけ表示し、
+          サーバーには残しません
+        </li>
       </ul>
+
+      <h3>作業実績（ワークログ）</h3>
       <p>
-        <b>カレンダーの予定の内容（タイトル・日時・参加者等）はサーバーに保存しません。</b>
+        作業時間を記録すると（アプリの右ペインでの手動記録と、MCP 経由のエージェントからの記録の
+        いずれも）、<b>作業実績がサーバーに保存されます</b> —
+        リポジトリ名、issue の参照、ブランチ名、エージェント名、開始と終了の時刻です。
+        これは Google に元のデータが存在せず、kichijitsu の上で作られる、あなた自身の活動記録です。
+        上に挙げた他の情報が Google 側のデータを指す手がかりか、あなたの設定であるのに対し、
+        これだけは性質が異なり、サーバーがそのようなデータを保管しているのは現在ここだけです。
+        この機能を使わなければ作成されません。
+      </p>
+
+      <h3>予定の内容について</h3>
+      <p>
+        <b>カレンダーの予定の内容（タイトル・説明・参加者など）はサーバーに保存しません。</b>
         予定データは Google
         から取得後、あなたのブラウザ内のローカルストレージ（IndexedDB）にのみ保存されます。
+        上に挙げたもののうち予定に関わる情報は、いずれも ID・時刻・設定であって、予定の中身では
+        ありません。ただし MCP
+        連携では、エージェントへの応答を確実に届けるため、返した予定の要約が送達完了までのあいだ
+        サーバー側の作業領域を経由します（送達後に破棄され、蓄積されません）。
       </p>
 
       <h2>情報の利用目的</h2>
       <p>
-        取得した情報は、カレンダーの表示・同期・編集というアプリ機能の提供のみに使用します。
+        取得した情報は、カレンダーの表示・同期・編集と、あなたが有効にした機能（カレンダーブロック、
+        GitHub 連携、エージェント連携と作業実績の記録）の提供のみに使用します。
         広告への利用、第三者への販売・提供は一切行いません。人による閲覧も、セキュリティ対応・法令対応・
         ユーザー同意がある場合を除いて行いません。
       </p>
@@ -141,10 +197,18 @@
         （Limited Use の要件を含む）に準拠します。
       </p>
 
-      <h2>データの削除</h2>
+      <h2>データの保持と削除</h2>
       <p>
-        アプリ内の「連携解除」を実行すると、Google
-        トークンは失効処理のうえサーバーから削除されます。
+        上記の情報は、連携が続いているあいだ保持されます（作業実績を含め、期間による自動削除は
+        行いません）。
+      </p>
+      <p>
+        アプリ内の「連携解除」を実行すると、そのアカウントについて Google
+        トークンを失効させたうえで、アカウント情報・カレンダーの選択・同期状態をサーバーから
+        削除します。<b
+          >最後の1アカウントを解除すると、そのプロファイルに紐づく GitHub 連携・MCP
+          トークン・作業実績もあわせて削除され</b
+        >、ログイン状態も破棄されます。
         <a href="https://myaccount.google.com/permissions">Google アカウントの設定</a
         >からもいつでもアクセス権を取り消せます。
         ブラウザ内のローカルデータはブラウザのサイトデータ削除で消去できます。
@@ -152,7 +216,9 @@
 
       <h2>セキュリティ</h2>
       <p>
-        通信はすべて TLS で暗号化されます。リフレッシュトークンは保存時に暗号化され、 インフラは
+        通信はすべて TLS で暗号化されます。Google のリフレッシュトークンと GitHub
+        のアクセストークンは保存時に AES-256-GCM で暗号化され、その復号鍵はデータベースの中ではなく
+        別の秘密情報として保持されます。MCP トークンはハッシュ値のみを保存します。 インフラは
         Cloudflare（Workers / D1 / Durable Objects）上で運用されます。
       </p>
 
@@ -164,11 +230,65 @@
         <h2>Privacy Policy (English)</h2>
         <p>
           kichijitsu is a calendar client for Google Calendar. When you use
-          <!--KJ:INSTANCE_EN-->, it stores: your Google account identifier and email address (for
-          sign-in), OAuth tokens (refresh tokens are encrypted at rest with AES-256-GCM on
-          Cloudflare D1), and sync cursors.
-          <b>Your calendar event contents are never stored on our servers</b> — events are synced
-          directly to your browser's local storage (IndexedDB).
+          <!--KJ:INSTANCE_EN-->, the following is stored on the server (Cloudflare D1 and Durable
+          Objects). Data for a feature is only created if you use that feature.
+        </p>
+        <ul>
+          <li>
+            <b>Your Google account identifier and email address</b> — for sign-in and to tell
+            connected accounts apart
+          </li>
+          <li>
+            <b>Google OAuth tokens</b> — for calendar sync. Refresh tokens are encrypted at rest
+            with AES-256-GCM (the decryption key is held separately from the database).
+            Short-lived access tokens (about one hour) are cached temporarily in the Durable
+            Object that performs the sync
+          </li>
+          <li>
+            <b>Sync state</b> — incremental sync cursors (syncTokens, per calendar and device),
+            polling state, and the push-notification subscriptions used to receive updates from
+            Google (channel ID, target calendar, expiry)
+          </li>
+          <li>
+            <b>Your choice of visible calendars</b> — so the same selection applies across your
+            devices
+          </li>
+          <li>
+            <b>Calendar blocking settings</b> — if you use the feature that mirrors events onto
+            another calendar as busy/out-of-office: the source and target calendars, and a mapping
+            from original event ID to generated block ID. That mapping holds IDs and update
+            timestamps only, never event contents
+          </li>
+          <li>
+            <b>GitHub connection details</b> — if you connect GitHub: your GitHub user ID, login
+            name and granted scopes, plus an access token encrypted with AES-256-GCM
+          </li>
+          <li>
+            <b>Hashes of MCP tokens</b> — if you issue tokens for agent access (MCP): their
+            SHA-256 hash, label and last-used time. The raw token is shown once at issuance and is
+            never stored
+          </li>
+        </ul>
+        <h3>Work logs</h3>
+        <p>
+          If you record work time — either manually in the app's right pane or through an agent
+          over MCP — <b>your work logs are stored on the server</b>: repository name, issue
+          reference, branch name, agent name, and start/end times. This is a record of your own activity created within kichijitsu, with no original
+          held by Google — and it is currently the only such data the server keeps. Everything
+          else listed above is either a pointer to data that lives in Google or a setting of
+          yours. Nothing is created unless you use the feature.
+        </p>
+        <h3>About event contents</h3>
+        <p>
+          <b
+            >Your calendar event contents (titles, descriptions, attendees) are never stored on
+            our servers</b
+          >
+          — events are synced directly to your browser's local storage (IndexedDB). Everything
+          listed above that relates to events consists of IDs, timestamps and settings, not the
+          events themselves. One nuance: for MCP, summaries of the events returned to an agent
+          pass through a server-side delivery buffer until the response is delivered, after which
+          they are discarded and not accumulated.
         </p>
         <p>
           We use this information solely to provide calendar display, sync, and editing. We do not
@@ -179,9 +299,18 @@
           >, including the Limited Use requirements.
         </p>
         <p>
-          You can disconnect at any time from within the app (which revokes and deletes your tokens)
-          or from your
-          <a href="https://myaccount.google.com/permissions">Google Account settings</a>.
+          The data above is retained for as long as the connection exists; nothing (work logs
+          included) is deleted automatically on a schedule. Disconnecting an account from within
+          the app revokes its Google token and deletes that account's credentials, calendar
+          selection and sync state from the server.
+          <b
+            >Disconnecting the last remaining account also deletes the GitHub connection, MCP
+            tokens and work logs</b
+          >
+          belonging to that profile, and signs you out. You can also revoke access at any time
+          from your
+          <a href="https://myaccount.google.com/permissions">Google Account settings</a>, and
+          clear local data by clearing the site's data in your browser.
         </p>
         <p><!--KJ:OPERATOR_LINE_EN--></p>
         <p><!--KJ:CONTACT_LINE_EN--></p>
