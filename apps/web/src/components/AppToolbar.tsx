@@ -3,6 +3,7 @@ import { HourHeightControl } from "./HourHeightControl";
 import { LogoMark, LogoWordmark } from "./Logo";
 import { MasuIndicator } from "./MasuIndicator";
 import { RunningTimersIndicator } from "./RunningTimersIndicator";
+import { ToolbarMenu } from "./ToolbarMenu";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./icons";
 import type { TimelineNavigation } from "../hooks/useTimelineNavigation";
 import type { MasuVisibleState } from "../hooks/useMasuVisible";
@@ -17,12 +18,28 @@ import type { TimersController } from "../hooks/useTimers";
  * なぜ切り出したか: App.tsx は state/effect の配線に加えて 300行超のツールバー JSX と
  * オーバーレイ群の JSX を抱えて 1285行あり、「どこに何があるか」を追うのが難しかった。
  * ここは**表示だけ**の塊(自前の state も effect も持たない)なので、まず見た目の単位で
- * 切り出す。ロジックの移動は一切しておらず、JSX は構造・クラス名・属性まで完全に同一で、
- * 必要な値・ハンドラを props でそのまま受け取るだけ(props が多いのは意図的 ―― この段階では
- * 「切り出すこと」自体が目的で、props の束ね直しは行わない)。
+ * 切り出す。必要な値・ハンドラを props でそのまま受け取るだけ(props が多いのは意図的)。
  *
  * setPanelOpen / setHelpOpen は onClick のインライン記述(`() => setPanelOpen((open) => !open)`)を
  * 一字も変えずに済ませるため、ラップしたコールバックではなく setter をそのまま受け取っている。
+ *
+ * ## スマホ幅(isNarrow)の構成 ―― 2026-07-26、ユーザー要望「ヘッダーが収まりきらない」
+ * 幅を詰める小細工(文言を隠す・パディングを絞る)を積み重ねてきたが、要素そのものが
+ * 増え続けたため 320〜414px では限界だった。そこで**要素の数を減らす**方針に切り替え、
+ * 狭幅では以下だけを常時表示し、残りは「その他」メニュー(ToolbarMenu)へ畳む:
+ *
+ *   常時表示: ロゴ枡 / ←・今日・→ / 検索 / ビュー切替 / 日付ラベル / オフライン表示 /
+ *             走行中タイマー / 同期中の枡 / ⋯ メニュー
+ *   メニュー: 時間軸ズーム / カレンダー(左ペイン) / 実績(右ペイン) / 設定 / 同期 /
+ *             ヘルプ / Google 連携 / プライバシー・規約
+ *
+ * 振り分けの基準は「カレンダーを見ながら繰り返し使うか」。走行中タイマーは “いま動いている”
+ * ことが一目で分かる必要があるのでメニューには入れない。オフライン表示も同じ理由で残す。
+ * 同期は畳んだが、同期中であることは枡インジケーターで、失敗は ⋯ の注意ドット + メニュー内の
+ * 文言で分かるようにしてある(状態のフィードバック自体は落とさない)。
+ *
+ * **広幅(!isNarrow)の DOM は一切変えていない** ―― 各要素を `{!isNarrow && ...}` で括った
+ * だけなので、広幅では従来と同じ要素が同じ順序・同じクラス名で並ぶ。
  */
 export interface AppToolbarProps {
   view: TimelineNavigation["view"];
@@ -83,6 +100,22 @@ export function AppToolbar({
   onStopTimer,
   setHelpOpen,
 }: AppToolbarProps) {
+  const hasAccounts = me.accounts.length > 0;
+  // 「○アカウント連携中」というラベルは何のボタンか分かりづらい (ユーザー指摘 2026-07-22) ため、
+  // 歯車アイコン + 「設定」ラベルにして設定画面を開くボタンであることを前面に出す。連携中の
+  // アカウント (email / 件数) は説明的な title/aria-label に退避させ、必要な人には読めるようにする。
+  // 狭幅ではこの同じ文言を「その他」メニューの設定行の aria-label/title に引き継ぐ。
+  const settingsLabel =
+    me.accounts.length === 1
+      ? `設定 (${me.accounts[0].email})`
+      : `設定 (${me.accounts.length}アカウント連携中)`;
+  // 広幅ではヘッダーに赤字で出していた失敗表示。狭幅ではメニューの中に文言を出し、
+  // ⋯ ボタンには注意ドットだけを付ける(ToolbarMenu.tsx 参照)。
+  const errorNotes = [
+    syncStatus === "error" ? "同期失敗" : null,
+    saveError ? "保存失敗（元に戻しました）" : null,
+  ].filter((note): note is string => note !== null);
+
   return (
     <header className="toolbar">
       <div className="logo-lockup">
@@ -171,14 +204,11 @@ export function AppToolbar({
        * 時間軸ズーム(2026-07-25、ユーザー要望)。「表示の粗さ」を決める操作なので
        * ビュー切替(週/月・1日/3日/月)のセグメントの直後に置く ―― 同じ「表示の見え方」を
        * 変える操作をツールバーの同じ塊にまとめる。時間軸を持たない月表示では出さない。
-       * 狭幅では compact 表示(プリセットを畳んで −/+ と現在値のみ、HourHeightControl.tsx 参照)。
+       * 狭幅ではヘッダーに置かず「その他」メニューへ畳む(そちらではプリセットのセレクトも
+       * 一緒に出せるので、compact 表示より操作しやすい)。
        */}
-      {view !== "month" && (
-        <HourHeightControl
-          hourHeight={hourHeight}
-          onChange={handleHourHeightChange}
-          compact={isNarrow}
-        />
+      {!isNarrow && view !== "month" && (
+        <HourHeightControl hourHeight={hourHeight} onChange={handleHourHeightChange} />
       )}
       <div className="toolbar-right">
         {/*
@@ -222,82 +252,72 @@ export function AppToolbar({
             <span className="offline-indicator-label">オフライン</span>
           </span>
         )}
-        <div className="toolbar-account">
-          {me.accounts.length > 0 ? (
-            <>
-              <button
-                type="button"
-                className="account-summary"
-                onClick={() => setPanelOpen((open) => !open)}
-                aria-expanded={panelOpen}
-                aria-haspopup="dialog"
-                // 「○アカウント連携中」というラベルは何のボタンか分かりづらい (ユーザー指摘
-                // 2026-07-22) ため、歯車アイコン + 「設定」ラベルにして設定画面を開くボタンで
-                // あることを前面に出す。連携中のアカウント (email / 件数) は説明的な title/
-                // aria-label に退避させ、必要な人には読めるようにしておく
-                title={
-                  me.accounts.length === 1
-                    ? `設定 (${me.accounts[0].email})`
-                    : `設定 (${me.accounts.length}アカウント連携中)`
-                }
-                aria-label={
-                  me.accounts.length === 1
-                    ? `設定 (${me.accounts[0].email})`
-                    : `設定 (${me.accounts.length}アカウント連携中)`
-                }
-              >
-                <span className="account-gear" aria-hidden="true">
-                  <GearIcon width={16} height={16} />
-                </span>
-                <span className="account-summary-label">設定</span>
-              </button>
-              <button
-                type="button"
-                className="toolbar-sync-btn"
-                onClick={runSync}
-                disabled={syncStatus === "syncing"}
-                aria-label="同期"
-                title="同期"
-              >
-                {syncIndicator.visible ? (
-                  <span
-                    className={
-                      syncIndicator.fading
-                        ? "sync-indicator masu-indicator--fading"
-                        : "sync-indicator"
-                    }
-                  >
-                    <MasuIndicator size="sm" />
-                    {/* 狭幅ではテキストを省き枡アイコンのみにして幅を詰める(1段化) */}
-                    {!isNarrow && "同期中"}
+        {!isNarrow && (
+          <div className="toolbar-account">
+            {hasAccounts ? (
+              <>
+                <button
+                  type="button"
+                  className="account-summary"
+                  onClick={() => setPanelOpen((open) => !open)}
+                  aria-expanded={panelOpen}
+                  aria-haspopup="dialog"
+                  title={settingsLabel}
+                  aria-label={settingsLabel}
+                >
+                  <span className="account-gear" aria-hidden="true">
+                    <GearIcon width={16} height={16} />
                   </span>
-                ) : isNarrow ? (
-                  "⟳"
-                ) : (
-                  "同期"
-                )}
+                  <span className="account-summary-label">設定</span>
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-sync-btn"
+                  onClick={runSync}
+                  disabled={syncStatus === "syncing"}
+                  aria-label="同期"
+                  title="同期"
+                >
+                  {syncIndicator.visible ? (
+                    <span
+                      className={
+                        syncIndicator.fading
+                          ? "sync-indicator masu-indicator--fading"
+                          : "sync-indicator"
+                      }
+                    >
+                      <MasuIndicator size="sm" />
+                      同期中
+                    </span>
+                  ) : (
+                    "同期"
+                  )}
+                </button>
+                {errorNotes.map((note) => (
+                  <span className="sync-error" key={note}>
+                    {note}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/auth/login";
+                }}
+              >
+                Google 連携
               </button>
-              {syncStatus === "error" && <span className="sync-error">同期失敗</span>}
-              {saveError && <span className="sync-error">保存失敗（元に戻しました）</span>}
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = "/auth/login";
-              }}
-            >
-              Google 連携
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
         {/*
          * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉導線。
          * 連携アカウントが1件も無ければ出す意味が無い(CalendarPane 自体は「連携中の
          * アカウントがありません」を表示できるが、導線自体を隠した方が分かりやすい ――
-         * GitHubPane の me.github ゲートと同じ考え方)。
+         * GitHubPane の me.github ゲートと同じ考え方)。狭幅ではメニューへ移設。
          */}
-        {me.accounts.length > 0 && (
+        {!isNarrow && hasAccounts && (
           <button
             type="button"
             className="toolbar-calendar-btn"
@@ -311,18 +331,18 @@ export function AppToolbar({
             <span aria-hidden="true">
               <CalendarIcon />
             </span>
-            {!isNarrow && <span className="toolbar-calendar-label">カレンダー</span>}
+            <span className="toolbar-calendar-label">カレンダー</span>
           </button>
         )}
         {/*
          * 「実績」ボタン(実績 UX 刷新、2026-07-23 → 2026-07-25 に右ペイントグルへ変更)。
          * 実績の記録/タイマー/履歴は右ペイン(GitHubPane)に集約されたため、このボタンは
          * モーダルではなく右ペインの開閉トグルになった(paneOpen を共有 ―― CalendarPane の
-         * 「作業キュー」ボタンと同じ state)。ラベルは「実績」のまま、title でペインが開く
-         * ことを補足する。表示条件はペインの描画条件(me.github)と揃える ―― GitHub 未連携で
-         * 押しても何も開かない、という状態を作らないため。
+         * 「作業キュー」ボタンと同じ state)。表示条件はペインの描画条件(me.github)と
+         * 揃える ―― GitHub 未連携で押しても何も開かない、という状態を作らないため。
+         * 狭幅ではメニューへ移設。
          */}
-        {me.github && (
+        {!isNarrow && me.github && (
           <button
             type="button"
             className="toolbar-actuals-btn"
@@ -334,37 +354,32 @@ export function AppToolbar({
             <span aria-hidden="true">
               <TimerIcon />
             </span>
-            {!isNarrow && <span className="toolbar-actuals-label">実績</span>}
+            <span className="toolbar-actuals-label">実績</span>
           </button>
         )}
         {/*
-         * ヘッダー整理(増分3、2026-07-22、ユーザー要望「ヘッダーのメニューを減らしたい」)で
-         * 「作業キュー」開閉ボタン(GitHubPane トグル + 件数バッジ)・「レポート」ボタン
-         * (TimeReportOverlay トグル)・実績オーバーレイ/CI トグル(増分2で既に移設済み)を
-         * すべて CalendarPane の GitHub セクションへ集約した。ここに残すのは「カレンダーを
-         * 開けば辿り着ける操作」ではなく「常に見えている必要がある/カレンダーを開かなくても
-         * 使う操作」だけ ―― 走行中タイマー・? ヘルプ・(未ログイン時のみ)規約リンクの
-         * フォールバック(下記コメント参照)。
-         */}
-        {/*
          * 走行中タイマーのインジケーター(増分2)。me 連携有無に関係なく、走行中エントリが
-         * 1件でもあれば表示する(コンポーネント自身が0件時に null を返す)。
+         * 1件でもあれば表示する(コンポーネント自身が0件時に null を返す)。狭幅でも
+         * メニューには畳まない ―― 「いま計測が動いている」ことは一目で分かる必要がある。
          */}
         <RunningTimersIndicator
           runningEntries={runningTimeEntries}
           nowMs={timerNowMs}
           onStop={onStopTimer}
         />
-        {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル */}
-        <button
-          type="button"
-          className="toolbar-help-btn"
-          onClick={() => setHelpOpen((v) => !v)}
-          aria-label="キーボードショートカット一覧"
-          title="キーボードショートカット (?)"
-        >
-          ?
-        </button>
+        {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル。
+            狭幅ではメニューへ移設(物理キーボードのある広幅が主な出番のため) */}
+        {!isNarrow && (
+          <button
+            type="button"
+            className="toolbar-help-btn"
+            onClick={() => setHelpOpen((v) => !v)}
+            aria-label="キーボードショートカット一覧"
+            title="キーボードショートカット (?)"
+          >
+            ?
+          </button>
+        )}
         {/*
          * プライバシー/規約リンクは増分3で CalendarPane のフッターへ移設したが、
          * CalendarPane 自体は `me.accounts.length > 0` ゲートの内側(未ログイン時は
@@ -372,15 +387,42 @@ export function AppToolbar({
          * 無くなってしまう ―― Google 審査要件上、法的リンクは常時到達可能でなければ
          * ならないため、未ログイン時(accounts.length === 0)だけツールバーの従来位置に
          * フォールバック表示する。ログイン後は CalendarPane 側にしか出さない(重複を避ける)。
-         * 狭幅で隠す旧 CSS ルール(.toolbar-legal { display: none })もこのフォールバックには
-         * 適用しない(App.css 参照) ―― 未ログイン時は他に規約リンクへ辿り着く手段が
-         * 無いため、狭幅でも常に見せる。
+         * 狭幅ではこのフォールバックも出さず、代わりに「その他」メニューが**連携状態に
+         * 関わらず常に**両リンクを持つ(toolbarMenuItems.ts 参照)ので到達性は保たれる。
          */}
-        {me.accounts.length === 0 && (
+        {!isNarrow && !hasAccounts && (
           <div className="toolbar-legal toolbar-legal--fallback">
             <a href="/privacy.html">プライバシー</a>
             <a href="/terms.html">規約</a>
           </div>
+        )}
+        {/*
+         * 狭幅の「その他」メニュー(2026-07-26)。上で `!isNarrow &&` により隠した操作は
+         * すべてここに入る ―― onClick / aria-label / title / aria-expanded は元のボタンの
+         * ものをそのまま引き継いでいる(ToolbarMenu.tsx / toolbarMenuItems.ts 参照)。
+         */}
+        {isNarrow && (
+          <ToolbarMenu
+            hasAccounts={hasAccounts}
+            hasGitHub={Boolean(me.github)}
+            hasTimeAxis={view !== "month"}
+            syncing={syncStatus === "syncing"}
+            settingsLabel={settingsLabel}
+            leftPaneOpen={leftPaneOpen}
+            paneOpen={paneOpen}
+            onToggleLeftPane={toggleLeftPane}
+            onToggleGitHubPane={toggleGitHubPane}
+            onOpenSettings={() => setPanelOpen((open) => !open)}
+            onSync={runSync}
+            onToggleHelp={() => setHelpOpen((v) => !v)}
+            onConnectGoogle={() => {
+              window.location.href = "/auth/login";
+            }}
+            hourHeight={hourHeight}
+            onHourHeightChange={handleHourHeightChange}
+            notes={errorNotes}
+            syncIndicator={syncIndicator}
+          />
         )}
       </div>
     </header>

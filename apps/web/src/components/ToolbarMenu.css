@@ -1,0 +1,215 @@
+/*
+ * スマホ幅ツールバーの「その他」メニュー(ToolbarMenu.tsx、2026-07-26)。
+ * 見た目のトーンは RunningTimersIndicator のポップオーバー(.running-timers-panel)に揃える
+ * ―― 同じヘッダー右端から降りてくる兄弟なので、角丸・影・枠線・パディングを共通にしておく。
+ * 色はすべてブランドトークン(--c-*)で、リテラルは書かない(ダークモード対応のため)。
+ */
+.toolbar-menu {
+  position: relative;
+  /* 広幅では AppToolbar 側が描画しないので、この要素自体がスマホ専用 */
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * ⋯ ボタン。.toolbar-calendar-btn / .toolbar-actuals-btn と同じトーン(枠線・角丸・hover)。
+ * z-index はバックドロップ(下記)より上 ―― 開いている間ももう一度押して閉じられるようにする。
+ * position: relative は注意ドット(.toolbar-menu-alert)の位置基準も兼ねる。
+ */
+.toolbar-menu-toggle {
+  position: relative;
+  z-index: 1102;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 11px;
+  min-height: 32px;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.toolbar-menu-toggle:hover {
+  background: var(--c-surface-hover);
+}
+
+.toolbar-menu-toggle[aria-expanded="true"] {
+  border-color: var(--c-accent);
+  color: var(--c-ink);
+}
+
+/*
+ * ⋯ ボタン右上の小さなドット。メニューに畳んだせいでヘッダーから消えた「同期失敗/保存失敗」の
+ * 赤字と「同期中」の枡の代わりに、状態が変わったことだけを知らせる(詳細はメニューの中)。
+ */
+.toolbar-menu-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* 失敗: 静止した赤。開けば .toolbar-menu-note に理由が書いてある */
+.toolbar-menu-dot--alert {
+  background: var(--c-danger);
+}
+
+/* 同期中: 朱の脈動(RunningTimersIndicator の計測中ドットと同じ「動いている」表現) */
+.toolbar-menu-dot--busy {
+  background: var(--c-accent);
+  animation: toolbar-menu-busy-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes toolbar-menu-busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.3);
+  }
+}
+
+/*
+ * 透明バックドロップ。EventDetailCard の .event-detail-backdrop と同じ役割 ――
+ * 開いている間の外側タップを「閉じるだけ」にし、下のカレンダー(空き領域タップでの新規作成、
+ * .week-grid の横スワイプ日移動)へ伝播させない。画面は暗くしない(メニューは軽い操作なので)。
+ */
+.toolbar-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: transparent;
+}
+
+.toolbar-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1101;
+  /* 320px 端末でも「時間軸の高さ」+ ズームコントロール(≒280px)が1行に収まる幅にする */
+  width: min(300px, calc(100vw - 16px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(var(--c-shadow-rgb), 0.22);
+  padding: 6px;
+}
+
+/* 行(ボタン)。タップ領域は 44px 目安の指針に合わせて min-height 40px + 余白 */
+.toolbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-ink);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.toolbar-menu-item:hover:not(:disabled) {
+  background: var(--c-surface-hover);
+}
+
+.toolbar-menu-item:disabled {
+  color: var(--c-ink-disabled);
+  cursor: default;
+}
+
+/* ペインが開いているあいだは押下状態を示す(.toolbar-calendar-btn と同じ流儀) */
+.toolbar-menu-item[aria-expanded="true"] {
+  color: var(--c-accent);
+}
+
+/* アイコン列の幅を揃えてラベルの左端を一直線にする(アイコンが無い行もあるため固定幅) */
+.toolbar-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  color: var(--c-ink-sub);
+}
+
+.toolbar-menu-item[aria-expanded="true"] .toolbar-menu-item-icon {
+  color: var(--c-accent);
+}
+
+.toolbar-menu-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 同期中の枡インジケーター。行の右端へ寄せる(幅 50px あるのでヘッダーには置けない) */
+.toolbar-menu-item-busy {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* ズーム行だけはボタンではなくコントロールの入れ物(押しても閉じない) */
+.toolbar-menu-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.toolbar-menu-zoom-label {
+  font-size: 13px;
+  color: var(--c-ink);
+  /* 折り返すと行が2段になってコントロールが潰れるので、ラベル側は常に1行に保つ */
+  white-space: nowrap;
+}
+
+/* 同期失敗・保存失敗の文言(元はヘッダーに赤字で出ていた .sync-error 相当) */
+.toolbar-menu-note {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--c-danger);
+}
+
+/*
+ * プライバシー/規約。ヘッダーの .toolbar-legal と同じ控えめなトーンだが、メニューの中では
+ * 1行1リンクの縦並びにする(タップ領域を確保するため)。
+ */
+.toolbar-menu-link {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--c-ink-sub);
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.toolbar-menu-link:hover {
+  color: var(--c-ink);
+  background: var(--c-surface-hover);
+}

@@ -118,6 +118,32 @@ export function GearIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, classNam
   );
 }
 
+/**
+ * 横三点(その他)。スマホ幅のツールバーで、常時表示しない操作をまとめた「その他」メニュー
+ * (ToolbarMenu、2026-07-26)を開くボタンに使う。線ではなく塗りの小さな円3つなので
+ * stroke="none" + fill="currentColor"(PinIcon の点と同じ作法)。
+ */
+export function MoreIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="3.4" cy="8" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12.6" cy="8" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** ストップウォッチ(旧 ⏱)。走行中タイマーインジケーターのトグルボタンに使う */
 export function TimerIcon({ width = DEFAULT_SIZE, height = DEFAULT_SIZE, className }: IconProps) {
   return (
