@@ -117,7 +117,8 @@ export function AllDayBar({
       : isNeedsAction
         ? ({ "--rsvp-color": displayColor } as CSSProperties)
         : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 18%, var(--c-surface))`,
+            // 混合比はトークン (theme.css の --c-event-tint-allday、ダークで上がる)
+            backgroundColor: `color-mix(in srgb, ${displayColor} var(--c-event-tint-allday), var(--c-surface))`,
             borderLeftColor: displayColor,
           }),
   };

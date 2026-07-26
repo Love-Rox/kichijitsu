@@ -393,7 +393,7 @@
   max-height: 420px;
   overflow-y: auto;
   background: var(--c-surface);
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-elevated);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(var(--c-shadow-rgb), 0.2);
   padding: 14px 16px;

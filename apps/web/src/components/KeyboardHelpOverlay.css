@@ -19,7 +19,7 @@
   max-height: min(480px, calc(100vh - 64px));
   overflow-y: auto;
   background: var(--c-bg);
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-elevated);
   border-radius: 10px;
   box-shadow: 0 10px 28px rgba(var(--c-shadow-rgb), 0.16);
   padding: 16px;

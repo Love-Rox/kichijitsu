@@ -21,7 +21,7 @@
   max-height: min(88vh, 720px);
   overflow-y: auto;
   background: var(--c-bg);
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-elevated);
   border-radius: 12px;
   box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
