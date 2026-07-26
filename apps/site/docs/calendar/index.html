@@ -33,7 +33,11 @@
       <div class="container doc-header__inner">
         <span class="doc-header__kicker">Docs</span>
         <h1 class="doc-header__title">予定の扱い</h1>
-        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+        <p class="doc-header__lede">
+          表示を切り替え、予定を作り、動かし、招待に返事をするまで。
+          kichijitsu は不在・勤務場所・出欠の返信を、色と形で見分けられるように描き分ける。
+          どこを押すと何が起きるか、画面が何を伝えようとしているかをまとめた。
+        </p>
       </div>
     </header>
 
@@ -42,73 +46,502 @@
         <nav class="doc-toc" aria-label="目次">
           <p class="doc-toc__title">目次</p>
           <ol class="doc-toc__list">
-            <!-- 本文の <section class="doc-section" id="..."> に合わせて
-                 <li><a href="#id">見出し</a></li> をここに並べる -->
+            <li><a href="#views">表示を切り替える</a></li>
+            <li><a href="#mobile">スマホでの操作</a></li>
+            <li><a href="#create">予定を作る</a></li>
+            <li><a href="#edit">予定を動かす・編集する</a></li>
+            <li><a href="#rsvp">招待に返事をする (RSVP)</a></li>
+            <li><a href="#ooo">不在 (OOO)</a></li>
+            <li><a href="#working-location">勤務場所</a></li>
+            <li><a href="#legend">見た目の読みかた</a></li>
+            <li><a href="#shortcuts">キーボードショートカット</a></li>
           </ol>
         </nav>
 
-        <!--
-        ======================================================================
-        このページはまだ「器」で、本文は未執筆。
+        <section class="doc-section" id="views" aria-labelledby="views-title">
+          <h2 id="views-title">表示を切り替える</h2>
+          <p>
+            表示は<strong>週 / 月 / 3日 / 1日</strong>の4種類。ただし4つが常に選べるわけではなく、
+            画面の広さで顔ぶれが変わる。ツールバーのビュー切替ボタンに出ているものが、そのときに選べるすべてだ。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>画面幅</th>
+                  <th>選べる表示</th>
+                  <th>最初に開く表示</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>広い (およそ 640px 超)</td>
+                  <td>週 / 月</td>
+                  <td>週</td>
+                </tr>
+                <tr>
+                  <td>狭い (およそ 640px 以下)</td>
+                  <td>1日 / 3日 / 月</td>
+                  <td>3日</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            週は7日ぶんを月曜始まりで並べる。3日・1日はその日数ぶんのタイムラインで、
+            月曜に揃えず<strong>今日を先頭</strong>にして開く。月表示だけは時間軸を持たないため、
+            時間軸の高さ (ズーム) の操作もツールバーに出ない。
+          </p>
+          <p>
+            ツールバーの <strong>←</strong> / <strong>→</strong> は、いま見ている日数ぶんを送る
+            (週なら1週間、3日なら3日、月表示なら1か月)。<strong>今日</strong>を押すと、
+            週は今週の月曜へ、3日・1日は今日を先頭に戻る。
+          </p>
+          <p>
+            月表示では、日セルの空いている場所か「+N」を押すと、<strong>その日の1日表示</strong>へ切り替わる。
+            チップそのものを押した場合は表示を変えず、その予定の詳細カードが開く。
+            左ペインのミニ月カレンダーで日付を選んだときは表示形式を変えず、いまの形式のままその日 (月表示なら その月) へ移動する。
+          </p>
+          <p>
+            最後に選んだ表示はこの端末に覚えていて、次に開いたときも同じ表示から始まる。
+            覚えていた表示がそのときの画面幅で選べないもの (狭い画面での週など) だった場合は無視され、上の表の既定に戻る。
+          </p>
+        </section>
 
-        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
-        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
-        ======================================================================
+        <section class="doc-section" id="mobile" aria-labelledby="mobile-title">
+          <h2 id="mobile-title">スマホでの操作</h2>
+          <p>
+            タッチ操作では、日付の移動と予定の移動が同じ「指でなぞる」動作になってしまう。
+            kichijitsu はこれを<strong>段階</strong>で分けている ——
+            スワイプはいつでも日付移動、予定を動かすときは先にタップして選ぶ。
+          </p>
 
-        ## このページで説明すること
+          <h3>横スワイプで日付を移動する</h3>
+          <p>
+            画面のどこからでも横に振れば日付が動く。予定がぎっしり詰まった日でも、
+            カードの上から始めたスワイプがそのまま日付移動になる。指を離すと
+            <strong>離した位置にいちばん近い日</strong>へ吸い付く。勢いよく振り抜けば、
+            距離が足りなくてもその向きへ送られる。
+          </p>
+          <p>次の場所から始めたときだけは、日付移動にならない。</p>
+          <ul>
+            <li>選択中の予定カードの上 — そのカードのドラッグ移動・リサイズが優先される</li>
+            <li>入力欄・ボタン・リンク・詳細カードの上</li>
+          </ul>
 
-        1. 表示を切り替える — 日 / 週 / 月など、どの表示があり何が違うか。画面が狭いときの制限も。
-        2. 予定を作る・編集する — 新規作成、ドラッグでの移動・リサイズ、詳細カードからの編集。
-           繰り返し予定を動かしたときの「この予定のみ / これ以降」の分岐は必ず説明すること。
-        3. 招待に返事をする (RSVP) — 参加 / 未定 / 不参加。未返信・仮・不参加が見た目でどう違うか。
-           不参加にした予定を隠す設定があるならそれも。
-        4. 不在 (OOO) — Google の outOfOffice をどう表示するか (端のレール)。
-        5. 勤務場所 (working location) — 帯とピンでの表示。
-        6. キーボードショートカット — 一覧表。`?` でヘルプが出ることも書く。表は
-           <div class="table-scroll"><table> で。
+          <h3>予定はタップして選んでから動かす</h3>
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>タップして選ぶ</h3>
+                <p>
+                  予定をタップすると<strong>選択された印</strong>が付く。この時点では詳細カードは開かない
+                  —— 開いてしまうと画面全面の背景に指が遮られ、続けてドラッグできなくなるためだ。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>そのままドラッグする</h3>
+                <p>
+                  選択中のカードは、指で掴んで移動・リサイズできる。この間は横スワイプの日付移動は起きない。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>詳細を見るならもう一度タップ</h3>
+                <p>
+                  選択中のカードをもう一度タップすると、詳細カードが開く。編集・削除・出欠の返信はここから行う。
+                </p>
+              </div>
+            </li>
+          </ol>
+          <p>選択は、カードの外側を触ったときに外れる。</p>
+          <div class="callout">
+            <p>
+              この「選んでから動かす」段取りは狭い画面のタッチ操作だけのもの。
+              広い画面ではマウスでもタッチでも、押した瞬間からドラッグが始まる。
+            </p>
+          </div>
 
-        「こんな画面です」のランディング (apps/site/index.html) の凡例と用語をそろえること
-        (今日は枡の朱印 / 勤務場所は帯とピン / 不在はレール / 仮の予定は淡く / 不参加は打ち消し線)。
+          <h3>ツールバーの「⋯」メニュー</h3>
+          <p>
+            画面が狭いとツールバーに全部が収まらないので、常用しないものは右端の <strong>⋯</strong> に畳まれる。
+            ヘッダーに残るのは ← / 今日 / → ・日付・ビュー切替・検索・走行中タイマー・オフライン表示だけで、
+            それ以外 —— 時間軸の高さ、カレンダー、実績、設定、同期、Google 連携、キーボードショートカット、
+            プライバシー、規約 —— は ⋯ の中にある。
+          </p>
+          <p>
+            ⋯ ボタンの右上に付く点は状態の合図で、<strong>赤い点</strong>は同期か保存に失敗したこと
+            (理由はメニューを開くと文章で出る)、<strong>朱の脈打つ点</strong>は同期中であることを示す。
+          </p>
+        </section>
 
-        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+        <section class="doc-section" id="create" aria-labelledby="create-title">
+          <h2 id="create-title">予定を作る</h2>
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>時間帯を決める</h3>
+                <p>
+                  日列の空いているところをクリックすると、そこから<strong>1時間</strong>の枠になる。
+                  クリックせずに縦へドラッグすれば、掴んだ点を起点に上へも下へも伸ばせる。
+                  長さは15分刻みで、最短15分。
+                </p>
+                <p>
+                  狭い画面 (タッチ) では、いきなりドラッグせず<strong>約0.5秒の長押し</strong>から始める。
+                  押した直後に指が動くと「スクロールしようとした」とみなして作成は始まらない。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>タイトルを入れて確定する</h3>
+                <p>
+                  指やボタンを離すと、その場に「予定のタイトル」の入力欄が出る。入力して
+                  <code>Enter</code> で確定。<code>Esc</code> か外側をクリックすると取り消す。
+                  タイトルが空のままでは作られない。
+                </p>
+              </div>
+            </li>
+          </ol>
+          <p>
+            書き込み先のカレンダーは選べず、<strong>いま表示 ON にしているカレンダーのうち primary のもの</strong>
+            (無ければその並びの先頭) に自動で決まる。Google と連携していない、あるいはカレンダーを1つも表示していないときは、
+            空き領域を押しても何も起きない。
+          </p>
+          <p>
+            作った予定は Google の応答を待たずに画面へ出る。書き込みに失敗した場合はその予定が消え、
+            画面に保存失敗の知らせが出る。
+          </p>
+        </section>
 
-        - apps/web/src/layout/viewRange.ts — 日 / 週 / 月など表示モードと期間計算。View 種別の定義元
-        - apps/web/src/keyboard/shortcuts.ts (+ shortcuts.test.ts) — ショートカットの全マッピング
-        - apps/web/src/components/KeyboardHelpOverlay.tsx — 「?」で出る一覧の表示テキスト。表記をそろえる
-        - apps/web/src/components/EventEditForm.tsx, EventDetailCard.tsx — 作成 / 編集フォームと詳細カード (RSVP)
-        - apps/web/src/sync/eventCreate.ts, eventEdit.ts, eventPatch.ts, eventRsvp.ts — 作成 / 編集 / 移動 / RSVP
-        - apps/web/src/sync/moveConfirm.ts, overridePatch.ts — 繰り返し予定の「この予定のみ / 以降」分岐
-        - apps/web/src/layout/oooRail.ts, workingLocationRail.ts, railItems.ts — 不在と勤務場所のレール
-        - apps/web/src/components/RailBand.tsx, AllDayBar.tsx — 上記の描画
-        - apps/web/src/sync/mapGoogle.ts — Google の eventType (outOfOffice / workingLocation / focusTime) の変換。種別の正
-        - apps/web/src/components/WeekGrid.tsx, MonthView.tsx, DayColumn.tsx — 各表示の描画とドラッグ操作
-        - apps/web/src/sync/declinedVisibility.ts — 辞退した予定の表示切り替え
-        - apps/sync/src/routes/events.ts — サーバー側 API
+        <section class="doc-section" id="edit" aria-labelledby="edit-title">
+          <h2 id="edit-title">予定を動かす・編集する</h2>
 
-        ## 書きかたの決まり
+          <h3>ドラッグで動かす</h3>
+          <p>
+            カードを掴んで動かすと、上下だけでなく<strong>隣の日の列へもまたげる</strong>。
+            時刻は15分刻みに吸い付く。<code>Alt</code> (macOS では <code>option</code>) を押しながらなら1分刻みになる。
+            ドラッグ中はポインタの脇に確定後の時間帯が出て、<code>Esc</code> でその場で取り消せる。
+          </p>
+          <p>
+            指やボタンを離すと<strong>確認</strong>が入る。「〜を移動しますか?」と、移動前と移動後の時間帯が並ぶので、
+            「移動する」(<code>Enter</code>) か「キャンセル」(<code>Esc</code>、または外側をクリック) を選ぶ。
+            キャンセルすれば元の位置に戻る —— この時点ではまだ Google にも端末にも何も書いていない。
+            スナップの結果として時刻が1ミリ秒も変わらなかったときは、確認は出ずに何も起きない。
+          </p>
+          <p>
+            カードの下端を掴めば<strong>終了時刻だけを伸縮</strong>できる。こちらは確認を挟まずそのまま確定する。
+          </p>
 
-        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
-        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
-        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
-        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
-        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
-            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
-            h2 / h3 / p / ul / ol / strong / code
-            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
-              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
-            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
-            <div class="table-scroll"><table> … </table></div>
-            <div class="callout"><p> … </p></div>            ← 注意書き
-        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
-          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
-        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
-          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
-        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
-          全10ページが共有しているので、触ると他ページの見た目が変わる。
-        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
-        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
-        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
-        -->
+          <h3>詳細カードから編集する</h3>
+          <p>
+            カードをクリックすると詳細カードが開く (狭い画面では選択済みカードの再タップ)。
+            日時・オンライン会議の参加リンク・場所・説明・「Google で開く」・どのカレンダーの予定かが並ぶ。
+            同じ予定が複数のカレンダーに入っている場合は、その全部がここに列挙される。
+          </p>
+          <p>
+            <strong>編集</strong>を押すと、同じカードの中身がそのままフォームに変わる。
+            変えられるのはタイトル・場所・説明・終日かどうか・開始と終了。ドラッグと違って、
+            ここでは日時を数値で正確に指定できる。保存はボタンを押してから Google への書き込みを待つ方式なので、
+            「保存中…」の間に失敗すればフォームは開いたままエラーが出る。
+          </p>
+          <p><strong>削除</strong>は同じカードの右下にあり、押すと「削除しますか? 削除する / やめる」の2段階になる。</p>
+          <p>編集と削除の導線が出ない予定もある。</p>
+          <ul>
+            <li>カレンダーブロックが自動で作ったミラー (隅に「自動」のタグが付くもの) — 中身を持たないため</li>
+            <li>Google 側の「予定あり」プレースホルダ — 斜線ハッチで描かれるもの</li>
+            <li>終日予定 — 編集はできるが、削除の導線は用意していない</li>
+            <li>不在・勤務場所 — レールや帯として描かれ、詳細カードは表示のみになる</li>
+          </ul>
+
+          <h3>繰り返し予定を動かしたとき</h3>
+          <p>
+            繰り返し予定に対する操作は、移動・リサイズ・編集・削除・出欠の返信のいずれも、
+            <strong>掴んだその1回分だけ</strong>に効く。Google 側でもその回の例外として書き込まれ、
+            同じシリーズの他の回は動かない。
+          </p>
+          <div class="callout">
+            <p>
+              「この予定のみ / これ以降 / すべての予定」を選ぶ問いかけは出ない。kichijitsu の操作は常に
+              <strong>この予定のみ</strong>として扱われる。シリーズ全体や以降の回をまとめて変えたいときは、
+              詳細カードの「Google で開く」から Google カレンダー側で操作する。
+            </p>
+          </div>
+          <p>
+            なお繰り返し予定の1回分では、編集フォームに<strong>終日の切り替えは出ない</strong>
+            (繰り返しの終日予定に未対応のため)。
+          </p>
+        </section>
+
+        <section class="doc-section" id="rsvp" aria-labelledby="rsvp-title">
+          <h2 id="rsvp-title">招待に返事をする (RSVP)</h2>
+          <p>
+            他の人から招待された予定には、詳細カードに「出欠」の行が出る。
+            <strong>参加 / 未定 / 不参加</strong>の3択で、いま自分が返している状態が朱で示される。
+            押せばその場で Google へ書き戻る。
+          </p>
+          <p>
+            出席者のいない予定 (自分だけの予定) にはこの行自体が出ない。
+            招待されていない予定に返そうとした場合は「この予定には返信できません」と出る。
+          </p>
+
+          <h3>返信の状態は見た目で分かる</h3>
+          <p>
+            出欠は詳細カードを開かなくても、カードの<strong>塗りと文字</strong>で読み取れる。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>返信の状態</th>
+                  <th>見た目</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>未返信</td>
+                  <td>塗りなし。カレンダー色の細い枠線だけで輪郭を描く</td>
+                </tr>
+                <tr>
+                  <td>未定 (仮)</td>
+                  <td>通常の塗りのまま、全体が淡くなる</td>
+                </tr>
+                <tr>
+                  <td>不参加</td>
+                  <td>タイトルに打ち消し線が入り、全体がさらに淡くなる</td>
+                </tr>
+                <tr>
+                  <td>参加 / 出欠の概念が無い予定</td>
+                  <td>通常の塗り。何も変わらない</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            この描き分けは週・3日・1日のカードだけでなく、終日レーンのバーと月表示のチップにも同じ意味で適用される
+            (月表示は面積が小さいため、未返信の輪郭表現と不参加の打ち消し線だけに絞ってある)。
+            「予定あり」プレースホルダには適用しない。
+          </p>
+
+          <h3>不参加にした予定を隠す</h3>
+          <p>
+            左のカレンダーペインの「表示」に<strong>不参加の予定を表示</strong>のトグルがある。既定は ON (表示する)。
+            OFF にすると、不参加と返した予定が週・3日・1日・月・終日レーン・不在レールのすべてから消える。
+          </p>
+          <p>
+            OFF にすると、その下に<strong>自分が主催の予定は残す</strong>というサブオプションが現れる (既定 ON)。
+            自分が主催で、かつ自分は不参加と返した予定を、隠さずに残しておくための逃げ道だ。
+          </p>
+          <p>この2つはこの端末だけの設定で、サーバーにも他の端末にも同期されない。</p>
+        </section>
+
+        <section class="doc-section" id="ooo" aria-labelledby="ooo-title">
+          <h2 id="ooo-title">不在 (OOO)</h2>
+          <p>
+            Google カレンダーの「不在」(Out of Office) として作られた予定は、
+            kichijitsu では<strong>通常の予定カードとして描かない</strong>。
+            日列の端の細いレールに、その時間ぶんの<strong>縦のライン</strong>として立つ。
+            ラインの上端には白い <code>×</code> が乗る。
+          </p>
+          <p>
+            ラインの色はそのカレンダーの色をそのまま使う。不在は「誰の・どのカレンダーの不在か」が要点なので、
+            色を殺さずに主張させている。
+          </p>
+          <ul>
+            <li><strong>時間帯つきの不在</strong>: その時間ぶんの高さのライン</li>
+            <li>
+              <strong>終日の不在</strong>: その日の<strong>上から下まで</strong>の全高ライン。
+              終日レーンには出ない
+            </li>
+          </ul>
+          <p>
+            レールは予定カードの領域とは別に取ってあるので、不在があってもその日の予定が細く押し潰されることはない。
+            月表示にはレールを差し込む余地が無いため、代わりに薄墨のチップにしてタイトルの先頭へ <code>×</code> を付ける。
+          </p>
+          <p>
+            ラインにポインタを合わせると概要が出て、押すと詳細カードが開く。
+            こちらは表示だけで、編集・削除・出欠のボタンは出ない。
+          </p>
+        </section>
+
+        <section class="doc-section" id="working-location" aria-labelledby="working-location-title">
+          <h2 id="working-location-title">勤務場所</h2>
+          <p>
+            Google カレンダーの「勤務場所」(自宅・オフィスなど) として作られた予定も、通常のカードにはならない。
+            表現は不在と同じ<strong>帯</strong>だが、主張の強さがはっきり違う。
+          </p>
+          <ul>
+            <li>
+              <strong>時間帯つきの勤務場所</strong>: 日列の端のレールに、その時間ぶんの薄墨の帯。
+              帯の内側の上端に<strong>地図ピン</strong>が乗る
+            </li>
+            <li>
+              <strong>終日の勤務場所</strong>: レールではなく<strong>終日レーン</strong>に、
+              祝日などの他の終日予定と並べて置く。こちらも薄墨の帯に地図ピンが付く
+            </li>
+            <li><strong>月表示</strong>: 色を持たない小さなチップに地図ピンを添えるだけ</li>
+          </ul>
+          <p>
+            勤務場所にはカレンダー色も朱も使わない。ほぼ毎日出る情報なので、色で主張させると
+            本来見るべき予定が埋もれるためだ。<strong>色が付いていれば不在、薄墨なら勤務場所</strong>、
+            <strong>上端が × なら不在、地図ピンなら勤務場所</strong>と読み分ければよい。
+          </p>
+          <p>
+            不在と勤務場所が同じ時間に重なる場合は、レールの中で横に並ぶ。
+          </p>
+          <div class="callout">
+            <p>
+              ここに出るのは Google が「勤務場所」として持っている予定だけで、
+              場所欄に文字が入っているだけの普通の予定は対象にならない。
+              普通の予定の場所は、カードの中に地図ピンつきの1行として出る。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="legend" aria-labelledby="legend-title">
+          <h2 id="legend-title">見た目の読みかた</h2>
+          <p>ここまでに出てきた描き分けを一覧にまとめる。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>見た目</th>
+                  <th>意味</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>日付が朱の枡に入っている</td>
+                  <td>今日</td>
+                </tr>
+                <tr>
+                  <td>塗り + 左端に色の縦線</td>
+                  <td>ふつうの予定。色は所属カレンダーの色</td>
+                </tr>
+                <tr>
+                  <td>左端に色の縞が複数本</td>
+                  <td>同じ予定が複数のカレンダーに入っている (まとめて1枚に集約)</td>
+                </tr>
+                <tr>
+                  <td>塗りなし・色の枠線だけ</td>
+                  <td>招待に未返信</td>
+                </tr>
+                <tr>
+                  <td>全体が淡い</td>
+                  <td>未定 (仮) で返信済み</td>
+                </tr>
+                <tr>
+                  <td>タイトルに打ち消し線</td>
+                  <td>不参加で返信済み</td>
+                </tr>
+                <tr>
+                  <td>斜線のハッチ</td>
+                  <td>中身のない「予定あり」のブロック</td>
+                </tr>
+                <tr>
+                  <td>隅に「自動」のタグ</td>
+                  <td>カレンダーブロックが他のカレンダーの予定から自動で作った時間</td>
+                </tr>
+                <tr>
+                  <td>端のレールの縦ライン (カレンダー色・上端に ×)</td>
+                  <td>不在</td>
+                </tr>
+                <tr>
+                  <td>端のレールの薄墨の帯 (上端に地図ピン)</td>
+                  <td>時間帯つきの勤務場所</td>
+                </tr>
+                <tr>
+                  <td>終日レーンの薄墨の帯 (先頭に地図ピン)</td>
+                  <td>終日の勤務場所</td>
+                </tr>
+                <tr>
+                  <td>カード内の地図ピンつきの1行</td>
+                  <td>その予定の場所。オンライン会議なら会議アイコンとサービス名になる</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="shortcuts" aria-labelledby="shortcuts-title">
+          <h2 id="shortcuts-title">キーボードショートカット</h2>
+          <p><code>?</code> を押すと、この一覧がそのまま画面に出る (⋯ メニューの「キーボードショートカット」からも開ける)。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>キー</th>
+                  <th>動き</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>←</code> / <code>→</code></td>
+                  <td>前へ / 次へ</td>
+                </tr>
+                <tr>
+                  <td><code>t</code></td>
+                  <td>今日</td>
+                </tr>
+                <tr>
+                  <td><code>w</code></td>
+                  <td>週表示 (広い画面のみ)</td>
+                </tr>
+                <tr>
+                  <td><code>m</code></td>
+                  <td>月表示</td>
+                </tr>
+                <tr>
+                  <td><code>d</code> / <code>3</code></td>
+                  <td>3日表示 (狭い画面のみ)</td>
+                </tr>
+                <tr>
+                  <td><code>1</code></td>
+                  <td>1日表示 (狭い画面のみ)</td>
+                </tr>
+                <tr>
+                  <td><code>n</code></td>
+                  <td>新規予定</td>
+                </tr>
+                <tr>
+                  <td><code>?</code></td>
+                  <td>このヘルプ</td>
+                </tr>
+                <tr>
+                  <td><code>Esc</code></td>
+                  <td>閉じる</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>効かない場面がいくつかある。</p>
+          <ul>
+            <li>テキスト入力中は一切効かない</li>
+            <li>
+              詳細カード・編集フォーム・設定・検索・このヘルプが開いている間は効かない
+              (<code>Esc</code> で閉じるのは別扱いで、いつでも効く)
+            </li>
+            <li><code>Ctrl</code> / <code>Cmd</code> / <code>Alt</code> と一緒に押した場合は無視する</li>
+            <li>
+              表示の切替キーは、その画面幅で選べる表示にしか効かない。狭い画面で <code>w</code> を押しても、
+              広い画面で <code>1</code> を押しても何も起きない
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              <code>n</code> (新規予定) は<strong>今日を含む表示へ移動するだけ</strong>で、
+              タイトルの入力欄までは自動で開かない。移動した先で空き領域をクリックして作ること。
+            </p>
+          </div>
+        </section>
 
         <div class="doc-pagelinks">
           <a href="/docs/">ドキュメント一覧へ</a>

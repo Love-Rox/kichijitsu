@@ -33,7 +33,10 @@
       <div class="container doc-header__inner">
         <span class="doc-header__kicker">Docs</span>
         <h1 class="doc-header__title">はじめかた</h1>
-        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+        <p class="doc-header__lede">
+          kichijitsu を初めて開いてから、自分の予定が画面に並ぶまで。Google
+          アカウントの連携、複数アカウントの束ねかた、画面のどこに何があるかをまとめた。
+        </p>
       </div>
     </header>
 
@@ -42,67 +45,431 @@
         <nav class="doc-toc" aria-label="目次">
           <p class="doc-toc__title">目次</p>
           <ol class="doc-toc__list">
-            <!-- 本文の <section class="doc-section" id="..."> に合わせて
-                 <li><a href="#id">見出し</a></li> をここに並べる -->
+            <li><a href="#login">ログインする</a></li>
+            <li><a href="#accounts">複数の Google アカウントを足す</a></li>
+            <li><a href="#screen">画面の見かた</a></li>
+            <li><a href="#calendars">表示するカレンダーを選ぶ</a></li>
+            <li><a href="#next">次に読むもの</a></li>
           </ol>
         </nav>
 
-        <!--
-        ======================================================================
-        このページはまだ「器」で、本文は未執筆。
+        <section class="doc-section" id="login" aria-labelledby="login-title">
+          <h2 id="login-title">ログインする</h2>
+          <p>
+            kichijitsu は Google カレンダーのクライアントで、予定そのものは Google
+            に置いたまま、表示と編集だけを引き受ける。したがって最初にすることは Google
+            アカウントの連携だ。ユーザー名やパスワードを kichijitsu
+            に登録する手順は無い ―― 認証はすべて Google 側で行う。
+          </p>
 
-        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
-        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
-        ======================================================================
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>「Google 連携」を押す</h3>
+                <p>
+                  アプリを開くと、上部ツールバーの右側に「Google
+                  連携」ボタンが出ている(連携済みのアカウントが1件も無い間だけ表示される)。スマホのような狭い画面では、右端の「⋯」メニューの中にある。押すと
+                  Google の同意画面へ移動する。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>同意画面で権限を許可する</h3>
+                <p>
+                  kichijitsu が求めるのは次の権限だけ。カレンダーの<strong>フル権限
+                  (<code>calendar</code>) は要求しない</strong>。
+                </p>
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>スコープ</th>
+                        <th>必須</th>
+                        <th>何に使うか</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><code>openid</code> / <code>email</code></td>
+                        <td>必須</td>
+                        <td>
+                          どのアカウントとしてログインしているかを識別する。設定画面に出る
+                          メールアドレスもこれ。
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><code>calendar.events</code></td>
+                        <td>必須</td>
+                        <td>
+                          予定の読み取りと書き込み。表示だけでなく、ドラッグでの移動・作成・削除・RSVP
+                          返信をそのまま Google カレンダーへ反映するために要る。
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><code>calendar.calendarlist.readonly</code></td>
+                        <td>必須</td>
+                        <td>
+                          カレンダーの一覧を読む。どのカレンダーを表示するか選ぶ画面がこれで作られる。
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><code>tasks</code></td>
+                        <td>任意</td>
+                        <td>
+                          Google ToDo リストの読み書き。カレンダー上にタスクを並べ、チェックで完了に
+                          するために使う。外してもカレンダーは通常どおり動く。
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>カレンダーが表示される</h3>
+                <p>
+                  許可するとアプリへ戻り、そのアカウントのメインカレンダー (primary)
+                  だけが選ばれた状態で予定が並ぶ。他のカレンダーは自分で選んで足す (<a
+                    href="#calendars"
+                    >表示するカレンダーを選ぶ</a
+                  >)。
+                </p>
+              </div>
+            </li>
+          </ol>
 
-        ## このページで説明すること
+          <div class="callout">
+            <p>
+              Google の同意画面は権限を1つずつ外せる (granular consent)。必須の2つ ――
+              <code>calendar.events</code> と <code>calendar.calendarlist.readonly</code> ――
+              のどちらかを外すと連携は成立せず、アカウントは一切登録されないまま
+              (refresh token もサーバーに保存されないまま) アプリのトップへ戻される。URL の末尾に
+              <code>?auth_error=insufficient_scope</code> が付いていたらこれ。もう一度やり直して、
+              カレンダー関連の権限は許可したままにすること。
+            </p>
+          </div>
 
-        1. ログインする — Google アカウントでのログイン。どのスコープを求めるか、
-           なぜカレンダーの読み書き権限が要るか。公式インスタンスは招待制である点にも触れる。
-        2. 複数の Google アカウントを足す — プライマリと追加アカウントの関係、追加のしかた、
-           解除したときに何が消えるか。
-        3. 画面の見かた — 上部ツールバー / 左のカレンダー一覧ペイン / 中央のカレンダー /
-           右ペイン (GitHub) が何をするところか。設定 (歯車) から何ができるか。
-        4. 表示するカレンダーを選ぶ — カレンダー一覧での表示 ON/OFF。
-        5. 次にどこを読むか — /docs/calendar/ への送り出し。
+          <p>
+            <code>tasks</code> だけを外した場合と、タスク対応より前に連携したアカウントは、予定は
+            普通に見えるがタスクだけが出ない。設定 (歯車) の「アカウント」に「タスクを表示するには
+            再連携が必要です」というヒントと「再連携」ボタンが出るので、そこから同じアカウントを
+            選び直せばよい。
+          </p>
 
-        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+          <h3>公式インスタンスは招待制</h3>
+          <p>
+            <code>kichijitsu.love-rox.cc</code> は招待制で、許可リストに載っているメールアドレス
+            だけが連携できる。載っていないアドレスは、Google の同意画面まで進んで許可しても
+            登録されずにトップへ戻される (<code>?auth_error=not_invited</code>)。このとき Google
+            のトークンはサーバーに一切保存されない。自分のために立てたい場合は
+            <a href="/self-hosting/">セルフホスト手順</a> を参照。
+          </p>
 
-        - apps/sync/src/routes/auth.ts — ログイン / コールバック / ログアウト、アカウント追加のエンドポイント
-        - apps/sync/src/accounts.ts — プライマリ / 追加アカウントの登録・一覧・削除
-        - apps/web/src/hooks/useGoogleAccounts.ts — フロント側のアカウント追加・解除
-        - apps/web/src/components/SettingsModal.tsx — 設定画面。初回に触る項目がここに集まっている
-        - apps/web/src/App.tsx — 画面全体の構成。「画面の見かた」の骨格
-        - apps/web/src/components/AppToolbar.tsx, toolbarMenuItems.ts — 上部ツールバーの項目一覧
-        - apps/web/src/components/CalendarPane.tsx — カレンダー一覧ペイン (表示 ON/OFF)
-        - apps/sync/src/session.ts — セッション Cookie (ログイン状態の持続)
-        - docs/google-verification.md — OAuth 同意画面と要求スコープ
-        - README.md — 全体像
+          <h3>ログイン状態はどれだけ続くか</h3>
+          <p>
+            ログインすると <code>sid</code> という cookie が発行され、30
+            日間ログイン状態が保たれる。期限が切れたり cookie
+            を消したりした場合は、もう一度「Google 連携」から入り直せばよい ――
+            同じアカウントで戻れば、元のカレンダー選択もそのまま復元される。
+          </p>
+        </section>
 
-        ## 書きかたの決まり
+        <section class="doc-section" id="accounts" aria-labelledby="accounts-title">
+          <h2 id="accounts-title">複数の Google アカウントを足す</h2>
+          <p>
+            仕事用と個人用のように複数の Google
+            アカウントを持っている場合、それらを1つの画面にまとめられる。最初にログインした
+            アカウントが<strong>オーナー</strong>になり、あとから足したものは<strong>接続アカウント</strong>として同じ束
+            (プロファイル) にぶら下がる。予定は束の中で横並びに表示され、左ペインではアカウントごとに
+            セクションが分かれる。
+          </p>
 
-        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
-        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
-        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
-        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
-        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
-            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
-            h2 / h3 / p / ul / ol / strong / code
-            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
-              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
-            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
-            <div class="table-scroll"><table> … </table></div>
-            <div class="callout"><p> … </p></div>            ← 注意書き
-        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
-          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
-        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
-          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
-        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
-          全10ページが共有しているので、触ると他ページの見た目が変わる。
-        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
-        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
-        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
-        -->
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>設定を開く</h3>
+                <p>
+                  ツールバー右側の歯車「設定」を押す。狭い画面では「⋯」メニューの「設定」。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>「+ アカウントを追加」を押す</h3>
+                <p>
+                  「アカウント」セクションの一番下にある。押すと Google
+                  の同意画面へ移動するので、足したいアカウントを選んで許可する。求める権限は最初の
+                  ログインと同じ。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>左ペインにセクションが増える</h3>
+                <p>
+                  戻ってくると、左ペイン「カレンダー」にそのアカウントのセクションが増え、メイン
+                  カレンダーが選ばれた状態で予定が流れ込む。追加のときは今のログインがそのまま
+                  引き継がれる (ログインし直しにはならない)。
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="callout">
+            <p>
+              接続アカウントで<strong>直接ログインすることはできない</strong>。ログアウト状態から
+              「Google 連携」でそのアカウントを選ぶと、「ログインできません」という案内ページが
+              出る。そのアカウントを独立させたいときは、まずオーナーのアカウントでログインし、
+              設定の「アカウント」からそのアカウントの連携を解除してから、あらためてログインする。
+            </p>
+          </div>
+
+          <h3>連携を解除すると何が消えるか</h3>
+          <p>
+            設定の「アカウント」で、各アカウントの下にある「連携解除」を押す
+            (確認が1段入る)。何が起きるかは、対象がどちらかで変わる。
+          </p>
+          <ul>
+            <li>
+              <strong>接続アカウントを解除したとき</strong> ―― そのアカウントだけが外れる。Google
+              側のトークンを失効させ、サーバーの同期状態と登録を消し、このブラウザに溜まっていた
+              そのアカウントの予定・終日予定・タスクも消える。他のアカウントには影響しない。
+            </li>
+            <li>
+              <strong>オーナーアカウントを解除したとき</strong> ――
+              束ごと全部の解除に格上げされる。ぶら下がっている接続アカウントも同時に外れる。
+              「誰の束か分からない状態」を作らないための安全側の扱いで、接続アカウントの1つが
+              勝手にオーナーに昇格することはない。
+            </li>
+            <li>
+              <strong>アカウントが1つも残らなくなったとき</strong> ――
+              セッションが破棄されてログアウト状態に戻る。あわせて GitHub 連携・MCP トークン・
+              作業実績の記録もサーバーから削除される。
+            </li>
+          </ul>
+          <p>
+            トークンを失効させるので、Google アカウント側の「サードパーティ製アプリとサービス」
+            からも kichijitsu は消える。ただし予定データの削除は<strong>解除の操作をした
+            ブラウザの中だけ</strong>で起きる ―― 同じアカウントを別の端末やブラウザでも開いていた
+            場合、そちらに残っているコピーはこの操作では消えない。どこに何が保存されているかは
+            <a href="/docs/data/">データの扱い</a> にまとめてある。
+          </p>
+        </section>
+
+        <section class="doc-section" id="screen" aria-labelledby="screen-title">
+          <h2 id="screen-title">画面の見かた</h2>
+          <p>
+            画面は「上部ツールバー」「左ペイン (カレンダー)」「中央のカレンダー」「右ペイン
+            (実績)」の4つでできている。左右のペインはツールバーのボタンで開け閉めする。
+          </p>
+
+          <h3>上部ツールバー</h3>
+          <ul>
+            <li><strong>← / 今日 / →</strong> ―― 表示している期間を前後に動かす。「今日」で戻る。</li>
+            <li><strong>検索</strong> (虫眼鏡) ―― 予定をキーワードで探す。</li>
+            <li>
+              <strong>表示切替</strong> ―― 広い画面では「週 / 月」、スマホのような狭い画面では
+              「1日 / 3日 / 月」。
+            </li>
+            <li>
+              <strong>時間軸の高さ</strong> ―― 1時間ぶんの高さを変えて、1画面に入る時間帯を増減する。
+              時間軸を持たない月表示では出ない。
+            </li>
+            <li><strong>日付ラベル</strong> ―― いま見ている年月 (日)。狭い画面では短く縮む。</li>
+            <li>
+              <strong>設定</strong> (歯車) ―― 下記の設定モーダルを開く。連携アカウントが1件以上ある
+              ときだけ出る。
+            </li>
+            <li><strong>同期</strong> ―― Google から取り直す。ふだんは自動で走るので押さなくてよい。</li>
+            <li><strong>カレンダー</strong> ―― 左ペインの開閉。</li>
+            <li><strong>実績</strong> ―― 右ペインの開閉。GitHub と連携しているときだけ出る。</li>
+            <li>
+              <strong>走行中タイマー</strong> ―― 作業時間の計測が動いている間だけ出て、そこから
+              止められる。
+            </li>
+            <li><strong>?</strong> ―― キーボードショートカット一覧。<code>?</code> キーでも開く。</li>
+            <li>
+              <strong>オフライン</strong> ―― サーバーに繋がらない間に出る。表示しているのはこの端末に
+              保存済みのデータで、閲覧は続けられる。
+            </li>
+          </ul>
+          <p>
+            スマホ幅では、右端の「⋯」に 時間軸の高さ / カレンダー / 実績 / 設定 / 同期 /
+            キーボードショートカット / プライバシー・規約 が畳まれる。常に出ているのは
+            ロゴ・前後ナビ・検索・表示切替・日付・オフライン表示・走行中タイマーと「⋯」だけ。
+          </p>
+
+          <h3>左ペイン「カレンダー」</h3>
+          <p>上から順に、こう並ぶ。</p>
+          <ul>
+            <li><strong>ミニ月カレンダー</strong> ―― 日付をクリックするとその日へ飛ぶ。</li>
+            <li>
+              <strong>表示</strong> ―― 「不参加の予定を表示」の ON/OFF。OFF
+              にするとサブ項目「自分が主催の予定は残す」が現れる。
+            </li>
+            <li>
+              <strong>アカウントごとのセクション</strong> ―― メールアドレスの見出しの下に
+              「マイカレンダー」「他のカレンダー」「タスクリスト」。見出しはクリックで折りたためる。
+            </li>
+            <li>
+              <strong>GitHub</strong> ―― 連携状態の表示と、実績オーバーレイ / CI・Actions
+              実行の表示 ON/OFF、作業キュー (右ペイン) と時間記録レポートへの入口。
+            </li>
+            <li><strong>フッター</strong> ―― プライバシーと規約へのリンク。常に最下部に見えている。</li>
+          </ul>
+
+          <h3>中央のカレンダー</h3>
+          <p>
+            週 (または1日・3日) のタイムラインか、月表示のグリッド。ここで予定をドラッグして
+            動かしたり、空き時間をドラッグして新しい予定を作ったりする。操作の詳細は
+            <a href="/docs/calendar/">予定の扱い</a> にまとめてある。
+          </p>
+
+          <h3>右ペイン「実績」</h3>
+          <p>
+            GitHub と連携しているときだけ開ける。実行中のタイマー・作業キュー (issue や PR)・
+            作業実績の記録と履歴が入っている。詳しくは
+            <a href="/docs/work/">GitHub 連携と実績記録</a> を参照。
+          </p>
+
+          <h3>設定 (歯車) からできること</h3>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>セクション</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>アカウント</td>
+                  <td>
+                    連携中の Google アカウント一覧、「+ アカウントを追加」、アカウントごとの
+                    連携解除。
+                  </td>
+                </tr>
+                <tr>
+                  <td>GitHub</td>
+                  <td>GitHub との連携・解除。連携すると作業キューと実績記録が使えるようになる。</td>
+                </tr>
+                <tr>
+                  <td>MCP トークン</td>
+                  <td>
+                    Claude などのエージェントに予定を読み書きさせるためのトークンの発行と失効。
+                    手順は <a href="/mcp/">MCP 接続ガイド</a> に。
+                  </td>
+                </tr>
+                <tr>
+                  <td>カレンダーブロック</td>
+                  <td>
+                    選んだカレンダーの予定を別のカレンダーへ自動でコピーする設定の入口
+                    (<a href="/docs/blocking/">カレンダーブロック</a>)。
+                  </td>
+                </tr>
+                <tr>
+                  <td>テーマ</td>
+                  <td>
+                    <strong>自動 / ライト / ダーク</strong> の3択。選んだ瞬間に反映される
+                    (保存ボタンは無い)。「自動」は端末 (OS) の外観設定に従う。この設定はこの端末の
+                    ブラウザだけに保存されるので、端末ごとに選び直せる。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            モーダルの一番下には、プライバシー・規約へのリンクと、いま見ているビルド番号、
+            「キャッシュを削除して再読み込み」がある。最後のものは、更新したはずなのに表示が古い
+            ままのときに使う ―― 消えるのは画面を組み立てるファイルのキャッシュだけで、予定
+            データ・連携アカウント・設定は消えない。
+          </p>
+        </section>
+
+        <section class="doc-section" id="calendars" aria-labelledby="calendars-title">
+          <h2 id="calendars-title">表示するカレンダーを選ぶ</h2>
+          <p>
+            左ペイン「カレンダー」の各行にある枡 (チェック) を押すと、そのカレンダーの表示が
+            切り替わる。カレンダーは自動で2つに分けられる。
+          </p>
+          <ul>
+            <li><strong>マイカレンダー</strong> ―― 自分が所有しているカレンダー。</li>
+            <li>
+              <strong>他のカレンダー</strong> ―― 祝日、購読しているもの、同僚から共有されたものなど。
+            </li>
+          </ul>
+          <p>
+            アカウントを連携した直後はメインカレンダー (primary)
+            だけが選ばれている。他は必要なぶんだけ自分で ON にする。空のグループは見出しごと
+            出ないので、「他のカレンダー」が見当たらない場合はそのアカウントに該当するものが無い。
+          </p>
+          <ul>
+            <li>
+              <strong>ON にした瞬間</strong>、そのカレンダーだけを取りに行くので、待たずに予定が
+              並ぶ。
+            </li>
+            <li>
+              <strong>OFF にしても取り込んだデータは消さない</strong>。表示から隠すだけなので、
+              もう一度 ON にすれば即座に元通りになる。データが実際に消えるのは、アカウントの
+              連携を解除したときだけ。
+            </li>
+            <li>
+              <strong>カレンダーの選択はサーバーにも保存される</strong>。別の端末で開いても同じ
+              カレンダーが選ばれた状態になる。
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              一方、<strong>タスクリストの表示 ON/OFF</strong> と <strong>「不参加の予定を表示」</strong>
+              はこの端末だけの設定で、他の端末には伝わらない。タスクリストは既定で全部 ON、
+              「不参加の予定を表示」も既定で ON になっている。
+            </p>
+          </div>
+          <p>
+            なお、タスクリストを非表示にしても取得自体は続く (再度 ON
+            にしたときすぐ出るようにするため)。表示から外したいだけなら枡を OFF にすれば足りる。
+          </p>
+        </section>
+
+        <section class="doc-section" id="next" aria-labelledby="next-title">
+          <h2 id="next-title">次に読むもの</h2>
+          <p>
+            ここまでで、自分の予定が画面に並ぶところまで来た。次は
+            <a href="/docs/calendar/">予定の扱い</a>
+            ―― 予定の作成・編集、参加可否 (RSVP) の返信、不在や勤務場所、キーボード
+            ショートカットまで、日々の操作をまとめてある。
+          </p>
+          <p>そのあとは、必要になったものから読めばよい。</p>
+          <ul>
+            <li>
+              <a href="/docs/work/">GitHub 連携と実績記録</a> ―― issue や PR
+              を作業キューに載せ、かけた時間を記録する。
+            </li>
+            <li>
+              <a href="/docs/blocking/">カレンダーブロック</a> ――
+              別のカレンダーへ予定を自動でミラーして多重予約を防ぐ。
+            </li>
+            <li>
+              <a href="/docs/apps/">デスクトップ版と PWA</a> ―― ブラウザ以外での使いかた。
+            </li>
+            <li>
+              <a href="/docs/data/">データの扱い</a> ―― 予定・認可情報・UI
+              設定がそれぞれどこに保存されるか。
+            </li>
+            <li>
+              <a href="/mcp/">MCP 接続ガイド</a> ―― Claude
+              などのエージェントに予定を読み書きさせる。
+            </li>
+          </ul>
+        </section>
 
         <div class="doc-pagelinks">
           <a href="/docs/">ドキュメント一覧へ</a>

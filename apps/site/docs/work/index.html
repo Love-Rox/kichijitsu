@@ -33,7 +33,11 @@
       <div class="container doc-header__inner">
         <span class="doc-header__kicker">Docs</span>
         <h1 class="doc-header__title">GitHub 連携と実績記録</h1>
-        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+        <p class="doc-header__lede">
+          GitHub をつなぐと、いま手をつけるべき issue・PR が右ペインの「作業キュー」に並ぶ。
+          そこからカレンダーへ置けば予定になり、▶ を押せば実績になる。
+          記録は同じ issue/PR ごとにまとまり、合計時間として見られる。
+        </p>
       </div>
     </header>
 
@@ -42,68 +46,403 @@
         <nav class="doc-toc" aria-label="目次">
           <p class="doc-toc__title">目次</p>
           <ol class="doc-toc__list">
-            <!-- 本文の <section class="doc-section" id="..."> に合わせて
-                 <li><a href="#id">見出し</a></li> をここに並べる -->
+            <li><a href="#connect">GitHub をつなぐ</a></li>
+            <li><a href="#queue">作業キュー</a></li>
+            <li><a href="#plan">カレンダーに置く(予定ブロック)</a></li>
+            <li><a href="#timer">計測を始める・止める</a></li>
+            <li><a href="#manual">手動で記録する</a></li>
+            <li><a href="#group">同じ issue/PR でまとまる</a></li>
+            <li><a href="#report">集計を見る・出す</a></li>
+            <li><a href="#agent">エージェントから記録する</a></li>
           </ol>
         </nav>
 
-        <!--
-        ======================================================================
-        このページはまだ「器」で、本文は未執筆。
+        <section class="doc-section" id="connect" aria-labelledby="connect-title">
+          <h2 id="connect-title">GitHub をつなぐ</h2>
+          <p>
+            GitHub 連携は Google アカウントのログインとは別物で、ログイン済みのプロファイルに
+            後からぶら下げる。まだログインしていないなら先に Google
+            でログインしておくこと(<a href="/docs/start/">はじめかた</a>)。
+          </p>
 
-        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
-        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
-        ======================================================================
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>設定から連携する</h3>
+                <p>
+                  画面右上の設定(歯車アイコン)を開き、「GitHub」セクションの「+ GitHub
+                  と連携」を押す。GitHub の認可画面へ移動する。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>読ませるリポジトリを選ぶ</h3>
+                <p>
+                  GitHub 側で、kichijitsu をどこに入れるか(すべてのリポジトリか、選んだリポジトリだけか)を決める。
+                  ここで選んだ範囲が、milestone の期日・リリース・自分の commit・CI/Actions
+                  実行を読む対象になる。権限は読み取りのみで、issue や PR
+                  の内容を書き換えることはない。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>左ペインで確認する</h3>
+                <p>
+                  戻ってくると、左のカレンダー一覧に「GitHub」の見出しと
+                  <code>@あなたのログイン名 と連携中</code>
+                  が出る。ここで「実績オーバーレイ」(自分の commit
+                  をグリッドに薄く重ねる)と「CI/Actions 実行」の表示を切り替えられ、
+                  「作業キュー(右ペインを開く)」で右ペインが開く。
+                </p>
+              </div>
+            </li>
+          </ol>
 
-        ## このページで説明すること
+          <p>
+            連携すると、次のものがカレンダーに現れる。予定そのもの(Google
+            の予定)とは別のデータで、GitHub 側へ書き戻すことはない。
+          </p>
+          <ul>
+            <li><strong>終日レーン</strong> — open な milestone の期日と、その milestone に属する issue/PR、公開済みリリース。</li>
+            <li><strong>実績オーバーレイ</strong> — 表示中の期間にある自分の commit。</li>
+            <li><strong>CI/Actions 実行</strong> — ワークフローの実行。</li>
+            <li><strong>作業キュー</strong> — 右ペインに並ぶ、いま自分に関係している issue/PR。</li>
+          </ul>
 
-        1. GitHub をつなぐ — 接続手順。何が読めるようになるか。
-        2. 作業キュー — どの issue / PR が、どの区分に入るか (WORK_QUEUE_SECTION_LABELS が正)。
-           実行中と待機の分かれかた。
-        3. 稼働を記録する — 開始 / 停止、記録中の見えかた、閉じ忘れ (オープン区間) の扱い、手動記録。
-        4. グループ化 — issue / PR 単位でのまとまりかたと合計。
-        5. 集計を見る・出す — レポート画面とエクスポート形式。
-        6. エージェントから記録する — /mcp/ の `log_work_interval` と
-           POST /api/work-intervals への導線 (手順の重複は書かず、/mcp/ へリンクする)。
+          <div class="callout">
+            <p>
+              認可が切れると、作業キューに「GitHub の認可が切れました。」と再連携ボタンが出る。設定の
+              GitHub セクションからも再連携できる。連携解除も同じ場所にある。
+            </p>
+            <p>
+              デスクトップ版(Tauri)には、Worker 経由の連携の代わりに手元の <code>gh</code>
+              コマンドの認証をそのまま使う経路がある。OAuth
+              アプリのインストールが許可されていない org でも GitHub
+              を表示できる(<a href="/docs/apps/">デスクトップ版と PWA</a>)。
+            </p>
+          </div>
+        </section>
 
-        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+        <section class="doc-section" id="queue" aria-labelledby="queue-title">
+          <h2 id="queue-title">作業キュー</h2>
+          <p>
+            作業キューは右ペイン(GitHub ペイン)の中のセクションの一つ。左ペインの「作業キュー(右ペインを開く)」で開く。ボタンの右の数字がキューの件数。
+          </p>
+          <p>右ペインは上から次の並びになっている。</p>
+          <ul>
+            <li><strong>実行中</strong> — いま計測している作業。既定で開いている。</li>
+            <li><strong>作業キュー</strong> — まだ計測していない issue/PR。既定で開いている。</li>
+            <li><strong>実績を手動で記録</strong> — 後から実績を足すフォーム。既定で閉じている。</li>
+            <li><strong>実績履歴</strong> — 記録済みの実績。既定で閉じている。</li>
+            <li>いちばん下に「詳細レポート(予定 vs 実績)を開く」ボタン。</li>
+          </ul>
+          <p>
+            ペインの見出しにあるピンのアイコンで、右から被せる<strong>オーバーレイ</strong>と、グリッドの右に居座る<strong>常設(ドッキング)</strong>を切り替えられる。オーバーレイは外側クリックや
+            Escape で閉じるが、常設は閉じるボタンだけで閉じる。画面が狭いときは常に
+            オーバーレイになり、切り替えボタン自体が出ない。
+          </p>
 
-        - docs/github-integration.md — 連携全体の設計メモ。このページの下敷きとして最重要
-        - docs/github-oauth.md — GitHub App 登録と接続手順 (利用者が最初にやること)
-        - apps/web/src/sync/workQueue.ts — 作業キューの区分 (WORK_QUEUE_SECTION_LABELS) と実行中 / 待機の分割
-        - apps/web/src/components/WorkQueueSection.tsx, GitHubPane.tsx — 作業キュー UI と GitHub ペイン
-        - apps/web/src/sync/workLogEntry.ts, openIntervals.ts — 稼働記録の開始 / 停止とオープン区間
-        - apps/web/src/sync/workLogGrouping.ts (+ .test.ts) — issue / PR 単位のグループ化と合計
-        - apps/web/src/components/TimeReportOverlay.tsx, apps/web/src/sync/reportExport.ts — 集計画面とエクスポート
-        - apps/web/src/components/ManualWorkLogForm.tsx, WorkLogHistory.tsx, RunningTimersIndicator.tsx — 手動記録・履歴・記録中表示
-        - apps/sync/src/core/work-log.ts, routes/work-logs.ts, routes/work-intervals.ts — サーバー側 API
-        - apps/sync/src/core/github-queue.ts — キューの生成元
-        - packages/shared/src/work-log.ts — DTO 定義
+          <h3>何が並ぶか</h3>
+          <p>
+            キューは GitHub の検索を3本投げて作る。中身は open な issue/PR
+            だけで、区分ごとに見出しが分かれる。並びはこの順で固定。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>見出し</th>
+                  <th>対象</th>
+                  <th>検索条件</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>レビュー依頼</td>
+                  <td>自分にレビューが依頼されている PR</td>
+                  <td><code>is:open is:pr review-requested:@me</code></td>
+                </tr>
+                <tr>
+                  <td>自分の担当</td>
+                  <td>自分が assignee の issue</td>
+                  <td><code>is:open is:issue assignee:@me</code></td>
+                </tr>
+                <tr>
+                  <td>自分の issue/PR</td>
+                  <td>自分が作成した issue と PR</td>
+                  <td><code>is:open author:@me</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <strong>自分の issue がキューに出ないとき</strong>は、まずこの3条件のどれかに当てはまっているかを見る。closed
+            のものは出ない。担当の割り当てが外れている issue は「自分の担当」には出ないが、自分が立てたものなら「自分の
+            issue/PR」に出る。1件が複数の条件に当てはまるとき(自分で立てて自分で担当している
+            issue など)は、まとめずに<strong>それぞれの見出しの下に重ねて出す</strong>。
+          </p>
+          <p>
+            各区分の取得は更新の新しい順に50件まで。それを超える分は切り捨てるので、放置している古い
+            issue はキューから落ちることがある。各区分の中の並びも更新が新しい順。
+          </p>
+          <p>
+            見出しの右の <code>⟳</code> で取り直せる。行をクリックすると GitHub
+            の該当ページが新しいタブで開く。計測を始めた item はキューから消えて「実行中」へ移る
+            —— 同じものが二か所に並ばないようにするため。
+          </p>
+        </section>
 
-        ## 書きかたの決まり
+        <section class="doc-section" id="plan" aria-labelledby="plan-title">
+          <h2 id="plan-title">カレンダーに置く(予定ブロック)</h2>
+          <p>
+            キューの行をつかんでカレンダーのグリッドへドラッグすると、<strong>予定ブロック</strong>になる。「この
+            issue を何時から何時までやるつもり」という置き場所で、後で実績と突き合わせるときの「予定」側になる。
+          </p>
+          <ul>
+            <li>落としただけなら長さは1時間。開始位置は15分単位に吸着する。</li>
+            <li>置いた後はドラッグで移動、下端をつかんでリサイズできる。</li>
+            <li>ブロックにも <code>▶</code> / <code>⏹</code> が付いていて、そこから計測を始められる。</li>
+            <li>オーバーレイ表示の右ペインはグリッドに被さっているので、ドラッグを始めると自動で閉じる。</li>
+          </ul>
+          <div class="callout">
+            <p>
+              予定ブロックは kichijitsu
+              の中だけのデータで、Google カレンダーには書き戻さない。端末のブラウザに保存され、他の端末には出ない(<a
+                href="/docs/data/"
+                >データの扱い</a
+              >)。実績のほうはサーバーに保存されるので、端末をまたいで見られる。
+            </p>
+          </div>
+        </section>
 
-        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
-        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
-        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
-        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
-        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
-            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
-            h2 / h3 / p / ul / ol / strong / code
-            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
-              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
-            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
-            <div class="table-scroll"><table> … </table></div>
-            <div class="callout"><p> … </p></div>            ← 注意書き
-        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
-          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
-        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
-          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
-        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
-          全10ページが共有しているので、触ると他ページの見た目が変わる。
-        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
-        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
-        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
-        -->
+        <section class="doc-section" id="timer" aria-labelledby="timer-title">
+          <h2 id="timer-title">計測を始める・止める</h2>
+          <p>
+            作業キューの行、または予定ブロックの <code>▶</code>
+            を押すと計測が始まる。このとき記録されるのは「開始した」ということだけで、終わりの時刻はまだ入らない
+            —— この開きっぱなしの区間を<strong>オープン区間</strong>と呼ぶ。
+          </p>
+          <p>実行中は3か所から見える・止められる。</p>
+          <ul>
+            <li>右ペインの「実行中」セクション(経過時間 + <code>⏹</code>)。</li>
+            <li>ヘッダーのタイマーのバッジ。数字は走っている本数で、押すと一覧が開き、個別に止められる。</li>
+            <li>カレンダー上の予定ブロックの <code>⏹</code>。</li>
+          </ul>
+          <p>
+            <code>⏹</code>
+            を押すと終了時刻が入って<strong>実績</strong>として確定し、実績履歴とレポートに現れる。
+            押し間違いで0分の記録ができないよう、1分に満たない区間は1分として保存する。
+          </p>
+
+          <h3>同時に走らせる</h3>
+          <p>
+            本数の制限は無く、別々の issue/PR
+            を何本でも並行して計測できる。ただし<strong>同じリポジトリの同じ番号は1本まで</strong>。すでに走っているものの
+            <code>▶</code> をもう一度押しても2本目にはならない。<code>⏹</code>
+            は押した対象だけを止め、他の並行分には触れない。
+          </p>
+          <p>
+            実行中の一覧はサーバーに保存されていて、45秒ごとに取り直している。別の端末やエージェント経由で始めた計測も、少し待てばここに出る。
+          </p>
+
+          <h3>止め忘れたとき</h3>
+          <p>
+            開いたままのオープン区間は、サーバー側の定期処理(6時間おき)が拾って、開始から<strong>12時間</strong>を超えていれば「開始 +
+            12時間」で閉じる。止め忘れても無限に伸び続けることはないが、代わりに<strong>実際とは違う長さの実績が残る</strong>。そのときは実績履歴から時刻を直せばよい。
+          </p>
+          <div class="callout">
+            <p>
+              停止したのに対応する開始が見つからない場合(すでに止まっている、別経路で閉じられた
+              など)は、何も記録しない。0分の実績が勝手に増えることはない。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="manual" aria-labelledby="manual-title">
+          <h2 id="manual-title">手動で記録する</h2>
+          <p>
+            タイマーを使わなかった作業は、右ペインの「実績を手動で記録」から後追いで足せる。入力は上から
+            org、repo、issue/PR、開始、終了、agent。
+          </p>
+          <ul>
+            <li>
+              <strong>org / repo</strong> — 連携先のリポジトリ一覧を取得できていれば、org を選ぶとその
+              org の repo だけが絞り込まれるプルダウンになる。一覧を取得できないとき(未連携・オフライン・デスクトップ版で
+              <code>gh</code> にログインしていない など)は<strong>テキスト入力に切り替わり、過去の実績や予定ブロックに出てきた
+              org / repo をサジェスト</strong>する。候補に無いものも自由に打てる。
+            </li>
+            <li>
+              <strong>issue/PR</strong> — 任意。repo を選ぶと、その repo の open な issue/PR
+              がプルダウンに並ぶ。一覧が取れないときや open
+              なものが1件も無いときは、番号を直接入力できる欄になる。
+            </li>
+            <li>
+              <strong>開始 / 終了</strong> — 日時を選ぶ。入力した時刻は、いま表示しているタイムゾーンのローカル時刻として解釈する。
+            </li>
+            <li>
+              <strong>agent</strong> — 任意。空のままなら <code>manual</code>
+              が入る。この値は実績履歴でバッジとして出て、手で入れた記録とエージェントが入れた記録の区別に使われる。
+            </li>
+          </ul>
+          <p>
+            repo は必須で、開始が終了より前でなければ保存できない。条件を満たしていないときはフォームにエラーが出る。「実績を追加」を押すと保存され、フォームは空に戻る。
+          </p>
+        </section>
+
+        <section class="doc-section" id="group" aria-labelledby="group-title">
+          <h2 id="group-title">同じ issue/PR でまとまる</h2>
+          <p>
+            右ペインの「実績履歴」は、記録を時系列でだらだら並べるのではなく、<strong>同じ
+            issue/PR の記録をひとまとまり</strong>にして出す。見出しには参照(<code>repo #番号</code>)、分かればその
+            issue のタイトル、<strong>合計時間</strong>、記録の件数、いちばん新しい記録の日時が並ぶ。見出しを押すと中の記録が開く。
+          </p>
+          <p>
+            まとまりは日付や連続性を見ない。<strong>朝に30分・午後に別の作業を挟んで・夕方にまた1時間</strong>という付き合いかたをしても、同じ
+            issue の記録なら1グループに入り、合計は 1h 30m になる。グループの並びは「最後に手をつけた順」、グループの中は新しい順。
+          </p>
+          <p>
+            issue の書きかたが揃っていなくてもまとまる。UI のタイマーや手動入力は
+            <code>12</code> のような素の番号を記録し、エージェント経由では
+            <code>owner/repo#12</code> という完全な参照で記録されることがあるが、どちらも「その
+            issue の所属リポジトリ + 番号」に正規化してから突き合わせる。実装したリポジトリと
+            issue のあるリポジトリが違っても、同じ issue なら1つのグループになる。
+          </p>
+          <p>
+            issue/PR を指定していない記録は、リポジトリごとの「issue 無し」グループにまとまる。
+          </p>
+          <p>
+            セクションの見出しには、全グループを通した合計時間と記録数が出る。個々の記録は「編集」で時刻・repo・issue・agent
+            を直せ、「削除」で消せる(確認が1回入る)。手で入れた記録もエージェントが入れた記録も同じように扱える。
+          </p>
+          <div class="callout">
+            <p>
+              終了が開始より前になってしまった記録は、合計時間には足さない。ただし一覧からは消さない
+              —— 直すか消すかを自分で決められるようにするため。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="report" aria-labelledby="report-title">
+          <h2 id="report-title">集計を見る・出す</h2>
+          <p>
+            右ペイン下部の「詳細レポート(予定 vs 実績)を開く」、または左ペインの「時間記録 →
+            レポート」で、issue/PR ごとに予定と実績を突き合わせた表が開く。GitHub
+            未連携でもレポート自体は開ける。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>列</th>
+                  <th>中身</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>予定</td>
+                  <td>カレンダーに置いた予定ブロックの合計。</td>
+                </tr>
+                <tr>
+                  <td>計測中</td>
+                  <td>いま走っているタイマーの経過。止めると「実績」へ移る。</td>
+                </tr>
+                <tr>
+                  <td>実績</td>
+                  <td>保存済みの作業時間。タイマーの停止・手動記録・エージェントからの記録をまとめた値。</td>
+                </tr>
+                <tr>
+                  <td>推定</td>
+                  <td>
+                    PR
+                    の自分の commit 時刻から推し量った参考値。commit の間隔が90分を超えたら別のセッションとみなし、各セッションに commit
+                    前の作業として30分を足す。issue には commit が無いので常に「—」。
+                  </td>
+                </tr>
+                <tr>
+                  <td>比率</td>
+                  <td>予定と実績(計測中 + 実績)の長さを2本のバーで比べる。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            「実績」と「推定」は別物として扱い、混ぜて表示しない。推定には
+            <code>≈</code> が付く。値が無い欄の「—」は<strong>0分ではなく「該当なし・未取得」</strong>を意味する。
+          </p>
+          <p>
+            行は「予定ブロックのあるもの ∪ 計測中のもの ∪ 実績のあるもの」で、予定を立てずに記録だけした
+            issue も並ぶ。並び順は実績の合計が多い順。
+          </p>
+
+          <h3>CSV で出す</h3>
+          <p>
+            右上の「CSV」でファイル(<code>kichijitsu-report.csv</code>)としてダウンロード、「コピー」で同じ内容をクリップボードへ。列は次のとおりで、時間の単位は<strong>分</strong>。
+          </p>
+          <pre><code>repo,number,type,title,planned_min,actual_manual_min,actual_hook_min,estimate_min</code></pre>
+          <p>
+            表と CSV は同じ行から作るので、内容がずれることはない。「該当なし」の欄は空セルのままにしてあり、表計算ソフトで0分と取り違えずに済む。
+          </p>
+          <div class="callout">
+            <p>
+              このレポートに並ぶのは、issue/PR
+              の番号が数値として取れる記録だけ。番号を付けずに記録したものやブランチ名だけの記録は表に出ないが、実績履歴のほうには「issue
+              無し」グループとして残っている。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="agent" aria-labelledby="agent-title">
+          <h2 id="agent-title">エージェントから記録する</h2>
+          <p>
+            実績は画面からだけでなく、Claude のようなエージェントや、Claude Code の hook
+            のような非対話のスクリプトからも記録できる。接続手順とトークンの発行は
+            <a href="/mcp/">MCP 接続ガイド</a>にまとめてある。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ツール</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>log_work_interval</code></td>
+                  <td>開始と終了が分かっている区間を、まとめて1件記録する。</td>
+                </tr>
+                <tr>
+                  <td><code>start_work_interval</code></td>
+                  <td>計測を開始する(オープン区間を立てる)。画面の <code>▶</code> と同じ。</td>
+                </tr>
+                <tr>
+                  <td><code>stop_work_interval</code></td>
+                  <td>対応するオープン区間を閉じて実績を確定する。画面の <code>⏹</code> と同じ。</td>
+                </tr>
+                <tr>
+                  <td><code>work_summary</code></td>
+                  <td>記録済みの実績を repo + issue 単位で集計して返す。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            シェルから直接叩くなら、同じ処理を <code>POST /api/work-intervals</code>(まとめて記録)と
+            <code>/start</code> ・ <code>/stop</code> でも呼べる。認証は MCP トークンの Bearer
+            で、書き込み先は画面から記録したときとまったく同じ場所。
+          </p>
+          <p>
+            エージェントが始めた計測も、画面の「実行中」セクションとヘッダーのバッジに出る(作業キューにも予定ブロックにも無い
+            issue のときは <code>repo #番号</code> の見出しになる)。<code>⏹</code>
+            で画面から止めてよい。<code>work_summary</code>
+            が返す数字と実績履歴のグループは同じ集計を使っているので、両者が食い違うことはない。
+          </p>
+        </section>
 
         <div class="doc-pagelinks">
           <a href="/docs/">ドキュメント一覧へ</a>
