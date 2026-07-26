@@ -325,6 +325,12 @@
   color: var(--c-ink-sub);
 }
 
+/* キャッシュ削除導線 (ユーザー要望、2026-07-26)。ビルド情報のすぐ下に置くための
+   余白だけを持ち、中身は既存の .settings-modal-section-desc / -disconnect-* を再利用する */
+.settings-modal-cache {
+  margin-top: 10px;
+}
+
 @media (max-width: 640px) {
   .settings-modal-backdrop {
     padding: 16px;
