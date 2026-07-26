@@ -40,6 +40,7 @@ import { useHourHeight } from "../hooks/useHourHeight";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
 import { RailBand } from "./RailBand";
 import { PlannedBlockCard } from "./PlannedBlock";
+import "./DayColumn.css";
 
 /** 空き領域クリックで作る新規予定のデフォルトの長さ(縦ドラッグせずクリックだけで確定した場合) */
 const DEFAULT_CREATE_DURATION_MS = 60 * 60_000;

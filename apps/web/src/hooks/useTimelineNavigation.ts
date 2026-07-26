@@ -61,8 +61,9 @@ export interface TimelineNavigation {
   navigateToDay: (day: Temporal.PlainDate) => void;
   /** 左ペインのミニ月カレンダーでの日付クリック: view は変えずにその日/月へ */
   miniMonthNavigate: (date: Temporal.PlainDate) => void;
-  /** スマホの横スワイプ確定: 表示窓を1日ずつスライド */
-  swipeNavigate: (direction: "prev" | "next") => void;
+  /** スマホの横スワイプ確定: 指を離した位置に最も近い日へ、表示窓を days 日ぶんスライド
+   * (正=先へ/負=前へ。0 は呼ばれない) */
+  swipeNavigate: (days: number) => void;
   /** 'n' ショートカット(新規予定作成)の移動部分だけ。書き込み先の有無の判定は呼び出し側 */
   goToTodayForNewEvent: () => void;
 }
@@ -120,16 +121,20 @@ export function useTimelineNavigation({ isNarrow }: { isNarrow: boolean }): Time
 
   /**
    * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22。スワイプは1日ずつに変更、
-   * 2026-07-23)。WeekGrid.tsx が横スワイプの確定(prev/next)を検知したときに呼ぶ。ツールバーの
-   * ←/→ ボタン(goToPrev/goToNext)は dayCount ぶりの「ページ移動」のままだが、スワイプは表示窓を
-   * 1日ずつスライドさせる(3日ビューでも1日ずつ動く)―― WeekGrid のスライド量一般化(baseStripPercent /
-   * slideDays)と対で機能する。月表示(MonthView)はストリップ構造を持たないため対象外(WeekGrid のみに
+   * 2026-07-23。日単位スナップ = 動かした量に応じた日数へ変更、2026-07-26)。
+   * WeekGrid.tsx が横スワイプの確定を検知したときに、動かす日数(正=先へ/負=前へ)を渡して呼ぶ。
+   * ツールバーの ←/→ ボタン(goToPrev/goToNext)は dayCount ぶんの「ページ移動」のままだが、
+   * スワイプは「指を離した位置に最も近い日」へスライドさせる(layout/swipeNav.ts resolveSwipeDays)
+   * ―― 1日固定だと 1.5 日ぶん動かしても1日しか進まず、strip が指より手前へ戻る「スナップしそうな
+   * 所で戻される」体感になっていた。WeekGrid のスライド量一般化(baseStripPercent / slideDays)と
+   * 対で機能する。月表示(MonthView)はストリップ構造を持たないため対象外(WeekGrid のみに
    * 渡す)。nav ロック(withNavLock)は使わない: スワイプは WeekGrid 側の slideDays===0 gate で自己
    * 直列化されており、ロックで commit が握り潰されると指追従オフセットが戻らなくなるため、常に
    * setTimelineStart を発火させて WeekGrid の効果を必ず走らせる。
    */
-  const swipeNavigate = useCallback((direction: "prev" | "next") => {
-    setTimelineStart((t) => (direction === "prev" ? t.subtract({ days: 1 }) : t.add({ days: 1 })));
+  const swipeNavigate = useCallback((days: number) => {
+    if (days === 0) return;
+    setTimelineStart((t) => t.add({ days }));
   }, []);
 
   const goToToday = useCallback(() => {

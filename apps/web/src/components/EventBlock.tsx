@@ -37,6 +37,7 @@ import { PlaceIcon, VideoIcon } from "./icons";
 import type { CalendarInfo } from "./calendarInfo";
 import { MeetingProviderIcon } from "./meetingProviderIcon";
 import { EventDetailCard } from "./EventDetailCard";
+import "./EventBlock.css";
 
 /*
  * 互換のための re-export(リファクタ フェーズ1a、2026-07-25)。

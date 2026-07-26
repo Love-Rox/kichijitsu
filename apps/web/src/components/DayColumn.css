@@ -1,0 +1,394 @@
+/*
+ * 日列 (DayColumn.tsx) の中身 ―― 空き領域ドラッグの新規作成 ghost/draft、現在時刻ライン、
+ * 実績レール (commit)、不在/勤務場所の統合レール (RailBand.tsx)、CI レール。
+ * 2026-07-26 フェーズ3b で WeekGrid.css から分割。日列そのものの枠 (.week-grid-day-column)
+ * は器なので WeekGrid.css に残している。中身は移動のみ。
+ */
+
+/*
+ * ---- 空き領域ドラッグでの新規予定作成 (フェーズ5) ----
+ * .week-grid-day-column (position: relative) の子として絶対配置する点は .event と同じ。
+ * ghost はドラッグ中(pointermove)に DayColumn.tsx が直接 style を書き込む
+ * (EventBlock の drag-badge と同じ「pointermove 中は React state を更新しない」規律)。
+ */
+.day-column-create-ghost {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 4px;
+  border: 1.5px dashed #9ca3af;
+  background: rgba(156, 163, 175, 0.16);
+  pointer-events: none;
+  z-index: 400;
+}
+
+/* pointerup で確定した後のタイトル入力。ghost と同じ座標系(top/height は React state から) */
+.day-column-create-draft {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 4px;
+  border: 1.5px solid #d7402e;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(36, 33, 30, 0.25);
+  z-index: 600;
+  padding: 2px 4px;
+  box-sizing: border-box;
+}
+
+.day-column-create-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: #1f2937;
+}
+
+/* 予定タイムブロック (PlannedBlock.tsx) を載せる独立レイヤ。カード側のスタイルと設計意図は
+   PlannedBlock.css を参照 ―― レイヤ自体は pointer-events:none にして、カード外の背景クリック
+   (新規予定作成トリガー)を妨げない。 */
+.day-column-planned-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 550;
+}
+
+.now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #ef4444;
+  z-index: 2;
+}
+
+/*
+ * GitHub 実績オーバーレイ (フェーズ③Part B, docs/github-integration.md)。
+ * DAY_COLUMN_INSET_PX (gridMetrics.ts) ぶんの右端ガター — EventBlock のカスケード表示は
+ * どの段でもこのガターの内側までしか広がらない(usableWidth = 100% - inset*2)ため、
+ * ここに置く限り予定カードと絶対に重ならない。座標系は now-line と同じ
+ * (top = minutesToPx((ms - dayStartMs)/60000))。
+ */
+.day-activity-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(TS 側の定数値に追従、ここはハードコードのみ許容箇所) */
+  height: 100%;
+  pointer-events: none;
+}
+
+.day-activity-mark {
+  position: absolute;
+  right: -0.5px;
+  width: 4px;
+  height: 4px;
+  transform: translateY(-2px);
+  border-radius: 50%;
+  background: rgba(110, 84, 148, 0.55); /* GitHub purple、控えめ。朱は使わない */
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3; /* .now-line (2) より少し上、予定カードとは元々重ならないので競合しない */
+}
+
+.day-activity-mark:hover,
+.day-activity-mark:focus-visible {
+  background: rgba(110, 84, 148, 0.9);
+  outline: 2px solid rgba(110, 84, 148, 0.35);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-activity-mark {
+    transition: background-color 120ms ease;
+  }
+}
+
+.day-activity-count {
+  font-size: 7px;
+  line-height: 1;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/*
+ * 不在(OOO)・勤務場所の統合レール (2026-07-22 横ずれ解消リファクタ)。以前は
+ * .day-ooo-rail/.day-workloc-rail の2つのコンテナに分かれ、勤務場所帯を OOO バーぶん
+ * 内側(left: 14px)へ固定オフセットしていたが、同時刻(特に終了==開始の長さ0)の帯が
+ * 横にずれて side-by-side に見える不具合があったため、両方をこの1つのコンテナ
+ * (x=0 起点)に統合した。個々の帯(.day-ooo-line/.day-workloc-band)は DayColumn.tsx が
+ * layout/railStack.ts の列パッキング結果から求めた left(`column * RAIL_BAND_WIDTH_PX`)を
+ * インライン style で指定する ―― 時間が重ならない帯はすべて left: 0(縦に並ぶ)、重なる
+ * 帯だけ列が分かれて横に並ぶ。width はその日実際に必要になった最大列数ぶん
+ * (DayColumn.tsx がインライン style で指定、下記の 12px は列数1のときの既定値)。
+ * day-ci-rail (左端、下記) と同じ DAY_COLUMN_INSET_PX ぶんのガターを共有する(CI は既定
+ * OFF なので通常はこのレールが唯一の左端占有者)。
+ */
+.day-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 12px; /* RAIL_BAND_WIDTH_PX (gridMetrics.ts) と揃える既定値。実際の幅は
+                  DayColumn.tsx がその日の最大列数に応じてインライン style で上書きする */
+  height: 100%;
+  pointer-events: none;
+}
+
+/*
+ * OOO の矩形バー本体。色はカレンダー色を使わず薄墨 (#8a8478 系) にフォールバックしつつ、
+ * 基本は resolveDisplayColor の結果(下記)で塗る — 不在は「場が空いていないこと」の
+ * 記号であって個別の予定ではないため、色で目立たせない(ユーザー決定)。
+ *
+ * 矩形化 (2026-07-22 ユーザー要望「もう少し思い切り幅をとり、× の印を白文字として矩形に
+ * 収まる形に」): 5px レール内の細い4px線から、レール幅いっぱいの12px角丸矩形に変更。
+ * 塗り(カレンダー色)は従来どおり RailBand.tsx が resolveDisplayColor の結果を
+ * inline style (backgroundColor) で与える方式を維持。矩形の塗りそのものが色になるため、
+ * × (::after) はどの色の上でも読めるよう白固定にする(下記、以前の color: inherit から変更)。
+ * top/left/height は DayColumn.tsx が layout/railStack.ts の列パッキング結果から算出して
+ * インライン style で渡す(2026-07-22 横ずれ解消リファクタ ―― 以前は left: 0 固定 + top のみ
+ * minutesToPx() 自前計算だったが、列パッキング後の left が帯ごとに変わるため CSS 側の
+ * 固定値では表現できなくなった)。
+ */
+.day-ooo-line {
+  position: absolute;
+  width: 12px; /* RAIL_BAND_WIDTH_PX と揃える。gridMetrics.ts の dayColumnLeftInsetPx が
+                  この幅(× 列数)+隙間ぶん予定カードの左インセットを広げる */
+  opacity: 0.88; /* 矩形化で面積が増えたぶん、細線だった頃 (0.7) より少し濃くして視認性を保つ */
+  border-radius: 3px;
+  pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
+  cursor: pointer;
+  z-index: 1; /* .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 =
+                 CI レールと同時表示でも不在バーが必ず背面に回る(ユーザー決定、CI マーカーは
+                 このバーの上に重なってよい) */
+}
+
+/*
+ * タッチ/マウス双方の当たり判定を可視幅より少し広げるための透明な拡張領域。
+ * バー自体が12px幅あるので、細線だった頃(左右 +4px = 合計 ~12pxのタップ幅を確保する
+ * 必要があった)ほどの拡張は不要 — 取りこぼし防止のごく小さな余白(±2px)だけ残す。
+ */
+.day-ooo-line::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: -2px;
+  right: -2px;
+  pointer-events: auto;
+}
+
+/*
+ * バー内側上部の × アイコン(矩形化、2026-07-22)。以前はバーの外(top: -9px)に飛び出して
+ * いたが、矩形の中に収まるようバー内側の上部(top: 3px)へ中央寄せし、色は常に白 (#fff) 固定
+ * にする(バーの塗り = カレンダー色でも常に読めるようにするため、以前の color: inherit を廃止)。
+ * SVG は使わずテキストグリフのみ(day-ci-mark.status-failure::before と同じ手法)。
+ * 終日 OOO の全高バー (RailBand.tsx が startMinutes=0/endMinutes=MINUTES_PER_DAY で渡す) も
+ * 同じクラスを使うため、同じ矩形スタイルがそのまま適用される。
+ */
+.day-ooo-line::after {
+  content: "×";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  line-height: 1;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.day-ooo-line:hover,
+.day-ooo-line:focus-visible {
+  opacity: 1;
+}
+
+/*
+ * 勤務場所帯 (時刻予定専用)。Google の勤務場所予定 (eventType==='workingLocation') の
+ * うち時刻予定側について、不在(OOO)バーと全く同じ「時間範囲ぶんの角丸矩形バーを敷く」形で
+ * 表示する(ユーザー要望「OOO のように帯で表示したい」、旧・点ピン版 .day-workloc-pin から
+ * 作り替え)。予定カードは持たず(専用レールへ完全に振り分け済み、
+ * layout/workingLocationRail.ts 参照)、この帯だけがレールの内容そのものになる。終日の
+ * 勤務場所はこのレールに出ない(2026-07-22 終日レーンへ統合 ―― .allday-bar--working-location
+ * 側の通常フローで表示、詳細は同クラスのコメント)。
+ *
+ * コンテナは OOO と共用の .day-rail(上記)―― 2026-07-22 横ずれ解消リファクタ以前は
+ * .day-workloc-rail という別コンテナで、OOO バーが同じ日にあるかどうかで left を
+ * 0px/14px に固定で切り替えていたが、その固定オフセットが同時刻の帯の横ずれの原因
+ * だったため撤去した。top/left/height は OOO と同じく DayColumn.tsx が
+ * layout/railStack.ts の列パッキング結果からインライン style で渡す。
+ *
+ * 配色は OOO と意図的に差別化する ―― OOO はカレンダー色(occurrence ごとの inline style)で
+ * 「どのカレンダーの不在か」を主張するが、勤務場所はほぼ毎日出うる情報なので、朱・
+ * カレンダー色は使わず brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を
+ * 低 opacity で敷くだけの「地の薄い帯」にする(ユーザー方針。終日レーン側の
+ * .allday-bar--working-location も同じ色を使う)。値がイベントごとに変わらないため、
+ * ここでは固定値のまま CSS に置く(OOO のように JS 側から backgroundColor を渡す必要が無い)。
+ */
+.day-workloc-band {
+  position: absolute;
+  width: 12px; /* RAIL_BAND_WIDTH_PX と揃える */
+  background-color: #dcd6c9; /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
+  opacity: 0.68; /* 毎日出ても重すぎないよう抑える ―― OOO 帯の 0.88 よりはっきり薄くしてある */
+  border-radius: 3px;
+  pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う。day-ooo-line と同じ手法 */
+  cursor: pointer;
+  z-index: 1; /* .day-ooo-line と同じ層 = .now-line(2)・.day-ci-mark/.day-activity-mark(3) より下 */
+}
+
+/*
+ * タッチ/マウス双方の当たり判定を可視幅より少し広げる透明な拡張領域(day-ooo-line::before
+ * と同じ狙い・同じ値)。帯本体が pointer-events: none なので、実際のクリック/ホバー判定は
+ * すべてこの疑似要素が担う。
+ */
+.day-workloc-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: -2px;
+  right: -2px;
+  pointer-events: auto;
+}
+
+.day-workloc-band:hover,
+.day-workloc-band:focus-visible {
+  opacity: 0.92; /* ホバーで少し濃く(ユーザー要望) */
+}
+
+/*
+ * 帯上端の地図ピン(PlaceIcon、RailBand.tsx が実 DOM の子要素として配置)。
+ * OOO 帯の × (::after、白文字固定)と同じ「上端に視認性のある印を置く」役割を果たすが、
+ * SVG は CSS 疑似要素のコンテンツにしにくいため擬似要素ではなく実要素にしてある。
+ * pointer-events: none は親 (.day-workloc-band、同じく none) から自然に継承されるが、
+ * 意図を明示するためここでも指定しておく ―― 帯の当たり判定 (::before) を一切妨げない。
+ * 色は墨 (#24211e) 固定 ―― 帯の塗りが薄い(opacity 0.68)ぶん、ピンだけはくっきり見える
+ * ようにして「どこで働くか」の視認性を確保する。
+ */
+.day-workloc-band-icon {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #24211e;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-workloc-band {
+    transition: opacity 120ms ease;
+  }
+}
+
+/*
+ * GitHub CI/Actions 実行オーバーレイ (フェーズ④b, docs/github-integration.md)。
+ * .day-activity-rail (commit 実績、右端) と対になる左端のレール — 同じ DAY_COLUMN_INSET_PX
+ * ぶんのガターを使うので予定カードと絶対に重ならない。左右に分けているのは、同じ日に
+ * commit と CI 実行の両方がある場合でも視覚的に別系列だと分かるようにするため。
+ * day-rail(不在・勤務場所の統合レール、上記)とはこの左端ガターを共有するが、z-index
+ * (day-ci-mark: 3 > day-ooo-line/day-workloc-band: 1) により CI マーカーが常に手前に出る
+ * (ユーザー決定、両者が同時に表示される機会自体は稀 — CI は既定 OFF)。
+ */
+.day-ci-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px; /* DAY_COLUMN_INSET_PX と揃える(day-activity-rail と同じ理由でハードコード許容) */
+  height: 100%;
+  pointer-events: none;
+}
+
+.day-ci-mark {
+  position: absolute;
+  left: -0.5px;
+  width: 4px;
+  height: 4px;
+  transform: translateY(-2px);
+  border-radius: 50%;
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3; /* .now-line (2) より少し上、day-activity-mark と同じ重なり順 */
+}
+
+/* success = 緑。GitHub Actions のチェックマーク色に合わせる(朱とは無関係の別文脈)。 */
+.day-ci-mark.status-success {
+  background: #1a7f37;
+}
+
+/*
+ * pending (queued/in_progress) と other (cancelled/skipped/neutral/timed_out/
+ * action_required/startup_failure) はどちらも「注目を引く必要が薄い」ものとして同じ薄墨で
+ * 塗る(意味の強さを付けない、点滅なし — brand/README.md の薄墨トーン #8a8478 系)。
+ */
+.day-ci-mark.status-pending,
+.day-ci-mark.status-other {
+  background: rgba(138, 132, 120, 0.55);
+}
+
+/*
+ * failure だけは注意を引く必要があるが、朱 (--logo-aka #d7402e、ブランドの通知アクセント) と
+ * 混同しないよう、色相を変えた控えめな danger (#8b3a3a、くすんだ赤茶) + 小さな✕グリフで
+ * 表現する。ベタ塗りにはしない(枠線+薄い背景のみ)ことで「朱の一点」と区別する。
+ */
+.day-ci-mark.status-failure {
+  background: rgba(139, 58, 58, 0.14);
+  border: 1px solid rgba(139, 58, 58, 0.6);
+}
+
+.day-ci-mark.status-failure::before {
+  content: "×";
+  font-size: 7px;
+  line-height: 1;
+  color: #8b3a3a;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.day-ci-mark:hover,
+.day-ci-mark:focus-visible {
+  outline: 2px solid rgba(138, 132, 120, 0.35);
+  outline-offset: 1px;
+}
+
+.day-ci-mark.status-success:hover,
+.day-ci-mark.status-success:focus-visible {
+  background: #156c2e;
+}
+
+.day-ci-mark.status-failure:hover,
+.day-ci-mark.status-failure:focus-visible {
+  background: rgba(139, 58, 58, 0.28);
+  outline-color: rgba(139, 58, 58, 0.35);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .day-ci-mark {
+    transition: background-color 120ms ease;
+  }
+}
+
+.day-ci-count {
+  font-size: 7px;
+  line-height: 1;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.now-line-dot {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+}

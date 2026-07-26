@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   classifySwipeAxis,
   computeTrailingVelocity,
-  resolveSwipeOutcome,
+  resolveSwipeDays,
   SWIPE_DIRECTION_DOMINANCE,
   SWIPE_DIRECTION_MIN_PX,
   SWIPE_VERTICAL_SLOP_PX,
@@ -55,10 +55,17 @@ describe("classifySwipeAxis", () => {
 
   it("縦成分が slop を超えた斜めスワイプは横に入らない(既に縦スクロールが始まっている)", () => {
     // レビュー指摘の再現ケース: dx=20 / dy=12 は 1.25 倍だと horizontal だが、
-    // 20 > 12*2.5 = 30 は満たさないので vertical(縦へ委ねる)
+    // 20 > 12*2.0 = 24 は満たさないので vertical(縦へ委ねる)
     expect(classifySwipeAxis(20, 12)).toBe("vertical");
     expect(classifySwipeAxis(-20, 12)).toBe("vertical");
-    expect(classifySwipeAxis(30, 12)).toBe("vertical"); // ちょうど 2.5 倍も vertical(> 判定)
+    expect(classifySwipeAxis(24, 12)).toBe("vertical"); // ちょうど strict 倍も vertical(> 判定)
+  });
+
+  // 2026-07-26: strict を 2.5 → 2.0 に緩和。親指の弧で dy が slop を少し超えた程度の
+  // 「明確に横」なスワイプが無反応になるのを減らす(M-7 の再現ケースは上のとおり据え置き)
+  it("縦成分が slop を超えていても、明確に横なら horizontal(親指の弧を拾う)", () => {
+    expect(classifySwipeAxis(30, 12)).toBe("horizontal"); // 30 > 12*2.0 = 24
+    expect(classifySwipeAxis(-30, -12)).toBe("horizontal");
   });
 
   it("縦成分があっても圧倒的に横なら horizontal(速い横フリックを取りこぼさない)", () => {
@@ -91,55 +98,80 @@ describe("swipeStripTransform", () => {
   });
 });
 
-describe("resolveSwipeOutcome", () => {
-  const panelWidthPx = 400;
-  // 既定 distanceRatio=0.18 → 閾値 400*0.18 = 72px
+describe("resolveSwipeDays", () => {
+  // 3日ビュー相当: パネル幅 390px / dayCount 3 → 1日カラム = 130px
+  const dayWidthPx = 130;
+  const maxDays = 3;
+  const base = { dayWidthPx, maxDays, velocityPxPerMs: 0 };
 
-  it("移動量がパネル幅の18%を超えたら確定する(遅いドラッグでもOK)", () => {
-    expect(resolveSwipeOutcome({ dxPx: -73, panelWidthPx, velocityPxPerMs: 0 })).toBe("next");
-    expect(resolveSwipeOutcome({ dxPx: 73, panelWidthPx, velocityPxPerMs: 0 })).toBe("prev");
+  // 符号の約束: 指を右へ(dxPx>0)= 前の日が覗く = timelineStart は過去へ(負)
+  it("指を離した位置に最も近い日へ丸める(0.5日が境界)", () => {
+    expect(resolveSwipeDays({ ...base, dxPx: -0.4 * dayWidthPx })).toBe(0); // 0.4日 → stay
+    expect(resolveSwipeDays({ ...base, dxPx: -0.6 * dayWidthPx })).toBe(1); // 0.6日 → 1日先へ
+    expect(resolveSwipeDays({ ...base, dxPx: -1.4 * dayWidthPx })).toBe(1); // 1.4日 → まだ1日
+    expect(resolveSwipeDays({ ...base, dxPx: -1.6 * dayWidthPx })).toBe(2); // 1.6日 → 2日先へ
   });
 
-  it("移動量が18%ちょうど・未満なら stay(> であって >= ではない)", () => {
-    expect(resolveSwipeOutcome({ dxPx: 72, panelWidthPx, velocityPxPerMs: 0 })).toBe("stay");
-    expect(resolveSwipeOutcome({ dxPx: 40, panelWidthPx, velocityPxPerMs: 0 })).toBe("stay");
+  it("符号: 指を右へ動かすと過去(負)、左へ動かすと未来(正)", () => {
+    expect(resolveSwipeDays({ ...base, dxPx: 0.6 * dayWidthPx })).toBe(-1);
+    expect(resolveSwipeDays({ ...base, dxPx: 1.6 * dayWidthPx })).toBe(-2);
+    expect(resolveSwipeDays({ ...base, dxPx: -0.6 * dayWidthPx })).toBe(1);
   });
 
-  it("移動量は閾値未満でもフリック(速い離し)なら確定する", () => {
-    expect(resolveSwipeOutcome({ dxPx: -20, panelWidthPx, velocityPxPerMs: -0.8 })).toBe("next");
-    expect(resolveSwipeOutcome({ dxPx: 20, panelWidthPx, velocityPxPerMs: 0.8 })).toBe("prev");
+  it("回帰防止: 1日固定ではなく、動かした量ぶん進む(旧 resolveSwipeOutcome の「戻される」症状)", () => {
+    // 旧実装は 1.5日ぶん動かしても必ず1日しか進まず、strip が指より手前へ戻っていた
+    expect(resolveSwipeDays({ ...base, dxPx: -2.2 * dayWidthPx })).toBe(2);
+    expect(resolveSwipeDays({ ...base, dxPx: -2.6 * dayWidthPx })).toBe(3);
   });
 
-  it("フリック速度が閾値(0.3)ちょうど・未満なら移動量条件と合わせて判定する(単独では確定しない)", () => {
-    expect(resolveSwipeOutcome({ dxPx: 20, panelWidthPx, velocityPxPerMs: 0.3 })).toBe("stay");
+  it("丸めて0日でも、フリック(速度が閾値超え)なら速度の向きへ最低1日進む", () => {
+    // 20px(0.15日)しか動かしていないが、左へ速く振り抜いた → 1日先へ
+    expect(resolveSwipeDays({ ...base, dxPx: -20, velocityPxPerMs: -0.8 })).toBe(1);
+    expect(resolveSwipeDays({ ...base, dxPx: 20, velocityPxPerMs: 0.8 })).toBe(-1);
+    // 閾値ちょうど(0.3)は超えていないので、慣性ぶんを足しても丸めが0なら stay のまま
+    expect(resolveSwipeDays({ ...base, dxPx: -5, velocityPxPerMs: -0.3 })).toBe(0);
   });
 
-  it("移動量・速度ともに閾値未満なら stay", () => {
-    expect(resolveSwipeOutcome({ dxPx: 5, panelWidthPx, velocityPxPerMs: 0.01 })).toBe("stay");
+  it("勢いは慣性として移動量に上乗せされる(強いフリックは2日以上届く)", () => {
+    // 1.2日ぶん(156px)を 1.5px/ms で振り抜き → +120px(0.92日)= 2.12日 → 2日
+    expect(resolveSwipeDays({ ...base, dxPx: -1.2 * dayWidthPx, velocityPxPerMs: -1.5 })).toBe(2);
+    // 同じ移動量でも指を止めて離せば(速度0)1日のまま
+    expect(resolveSwipeDays({ ...base, dxPx: -1.2 * dayWidthPx })).toBe(1);
   });
 
-  it("panelWidthPx が 0 以下(未測定の保険)なら常に stay", () => {
-    expect(resolveSwipeOutcome({ dxPx: 300, panelWidthPx: 0, velocityPxPerMs: 5 })).toBe("stay");
-    expect(resolveSwipeOutcome({ dxPx: 300, panelWidthPx: -10, velocityPxPerMs: 5 })).toBe("stay");
-  });
-
-  it("distanceRatio/flickVelocityPxPerMs を上書きできる", () => {
+  it("maxDays でクランプする(WeekGrid のレンダー済み3パネルを超えない)", () => {
+    expect(resolveSwipeDays({ ...base, dxPx: -10 * dayWidthPx })).toBe(maxDays);
+    expect(resolveSwipeDays({ ...base, dxPx: 10 * dayWidthPx })).toBe(-maxDays);
+    // day1 ビュー(dayCount=1)は1日までしか送れない
     expect(
-      resolveSwipeOutcome({
-        dxPx: -60,
-        panelWidthPx,
-        velocityPxPerMs: 0,
-        distanceRatio: 0.1,
-      }),
-    ).toBe("next");
+      resolveSwipeDays({ dayWidthPx, maxDays: 1, velocityPxPerMs: 0, dxPx: -5 * dayWidthPx }),
+    ).toBe(1);
+  });
+
+  it("dayWidthPx が 0 以下(未測定の保険)/ maxDays が 1 未満なら常に 0", () => {
+    expect(resolveSwipeDays({ dxPx: -300, dayWidthPx: 0, maxDays, velocityPxPerMs: 5 })).toBe(0);
+    expect(resolveSwipeDays({ dxPx: -300, dayWidthPx: -10, maxDays, velocityPxPerMs: 5 })).toBe(0);
+    expect(resolveSwipeDays({ dxPx: -300, dayWidthPx, maxDays: 0, velocityPxPerMs: 5 })).toBe(0);
+  });
+
+  it("まったく動いていなければ 0", () => {
+    expect(resolveSwipeDays({ ...base, dxPx: 0 })).toBe(0);
+    expect(resolveSwipeDays({ ...base, dxPx: -5, velocityPxPerMs: -0.01 })).toBe(0);
+  });
+
+  it("flickVelocityPxPerMs / flickProjectionMs を上書きできる", () => {
     expect(
-      resolveSwipeOutcome({
-        dxPx: 5,
-        panelWidthPx,
-        velocityPxPerMs: 0.2,
-        flickVelocityPxPerMs: 0.1,
+      resolveSwipeDays({ ...base, dxPx: -5, velocityPxPerMs: -0.2, flickVelocityPxPerMs: 0.1 }),
+    ).toBe(1);
+    // 慣性を切れば(0ms)、素の移動量だけで丸める
+    expect(
+      resolveSwipeDays({
+        ...base,
+        dxPx: -1.2 * dayWidthPx,
+        velocityPxPerMs: -1.5,
+        flickProjectionMs: 0,
       }),
-    ).toBe("prev");
+    ).toBe(1);
   });
 });
 

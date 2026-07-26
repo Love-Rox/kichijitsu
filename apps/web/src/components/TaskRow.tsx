@@ -1,4 +1,5 @@
 import type { TaskItem } from "../model/types";
+import "./TaskRow.css";
 
 interface TaskRowProps {
   task: TaskItem;

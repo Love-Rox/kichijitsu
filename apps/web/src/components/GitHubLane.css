@@ -1,0 +1,202 @@
+/*
+ * GitHub レーンの1日ぶんの内容 (GitHubLane.tsx)。2026-07-26 フェーズ3b で WeekGrid.css
+ * から分割(レーンの器 .week-grid-github* は WeekGrid.css に残している)。中身は移動のみ。
+ * 注意: 右ペイン側の .github-pane-* は別ファイル (GitHubPane.css) で、こちらとは無関係。
+ */
+
+.github-lane-day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.github-milestone-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/*
+ * milestone 見出し。brand/README.md「機能色の例外」に倣い、GitHub というデータソース
+ * 自体の識別色(GitHub の Octicon に近い落ち着いた紫)を左枠・ダイヤ記号だけに使う
+ * (朱はここでは使わない — アクセントは1画面につきひとつの原則を守る)。
+ */
+.github-milestone-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 4px;
+  border-left: 2px solid #6e5494;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #24211e;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-milestone-marker:hover .github-milestone-title {
+  text-decoration: underline;
+}
+
+.github-milestone-marker:focus-visible {
+  outline: 2px solid #6e5494;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.github-milestone-diamond {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: #6e5494;
+}
+
+.github-milestone-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-weight: 600;
+}
+
+.github-milestone-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: #8a8478;
+}
+
+.github-item-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding-left: 6px;
+}
+
+.github-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 1px 6px 1px 5px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #24211e;
+  background: #faf7f2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-item-chip:hover {
+  border-color: #6e5494;
+}
+
+.github-item-chip:focus-visible {
+  outline: 2px solid #6e5494;
+  outline-offset: 1px;
+}
+
+.github-item-chip-kind {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 700;
+  color: #6e5494;
+}
+
+.github-item-chip--pr .github-item-chip-kind {
+  color: #0b8043;
+}
+
+.github-item-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* milestone グループ数の上限を超えた分をまとめる「+N」表示(AllDayBar の .allday-overflow と同じ流儀) */
+.github-overflow {
+  padding-left: 6px;
+  font-size: 10px;
+  color: #8a8478;
+  cursor: default;
+}
+
+/*
+ * release マーカー (docs/github-integration.md フェーズ④「first cut」、2026-07-20)。
+ * milestone(紫 #6e5494)・issue/PR チップの PR(緑 #0b8043)とは別トーンにして、GitHub
+ * データソース内の種別を一目で区別できるようにする。brand/README.md の朱(#D7402E系)は
+ * ここでは使わない(アクセントは1画面につきひとつの原則)。GitHub 自身のリンク色に近い
+ * 落ち着いた青 #0969da を採用。milestone のダイヤ(◆)とは異なる印(🏷)にして混同を避ける。
+ */
+.github-release-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.github-release-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 4px;
+  border-left: 2px solid #0969da;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #24211e;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.github-release-marker:hover .github-release-title {
+  text-decoration: underline;
+}
+
+.github-release-marker:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/*
+ * タグアイコン(2026-07-22、絵文字 🏷 → フラット SVG 化)。.github-milestone-diamond と
+ * 同じ流儀で、親 (.github-release-marker、色は薄墨 #24211e) から独立して明示的に
+ * release の識別色 #0969da を持たせる(アイコンは currentColor で描画するため、ここで
+ * 指定しないと薄墨のまま描かれてしまう)。
+ */
+.github-release-tag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: #0969da;
+}
+
+.github-release-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-weight: 600;
+}
+
+.github-release-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: #8a8478;
+}

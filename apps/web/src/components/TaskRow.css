@@ -1,0 +1,49 @@
+/*
+ * タスクレーンの1日ぶんの列とタスク行 (TaskRow.tsx / WeekGrid.tsx)。
+ * 2026-07-26 フェーズ3b で WeekGrid.css から分割。.task-lane-day は WeekGrid.tsx が
+ * 描画する「TaskRow を縦に積む器」だが、TaskRow と一体でしか意味を持たないため
+ * .task-* をまとめてここに置く(レーン自体の器 .week-grid-tasks* は WeekGrid.css)。
+ * 中身は移動のみ。
+ */
+
+.task-lane-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.task-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 3px;
+  margin: -3px;
+  cursor: pointer;
+}
+
+.task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #1f2937;
+}
+
+.task-title--done {
+  color: #8a8478;
+  text-decoration: line-through;
+}
