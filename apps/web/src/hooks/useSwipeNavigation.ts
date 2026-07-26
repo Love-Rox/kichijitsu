@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import {
   classifySwipeAxis,
   computeTrailingVelocity,
-  resolveSwipeOutcome,
+  resolveSwipeDays,
   SWIPE_VELOCITY_WINDOW_MS,
   type SwipeAxis,
   type SwipeSample,
@@ -41,7 +41,7 @@ import {
  *      開始した場合は1本目に pointercancel が届くので、そこで stay として後片付けされる。
  * 6. 後片付けの保険: pointerup/pointercancel だけでなく lostpointercapture も購読する ――
  *    キャプチャ中の要素が DOM から外れた/他所が同じ pointerId を奪った等で pointerup が
- *    届かない経路でも、必ず onSwipeEnd("stay") を通して .is-swiping を落とす。
+ *    届かない経路でも、必ず onSwipeEnd(0)(= 確定せず元の位置へ)を通して .is-swiping を落とす。
  */
 
 export interface UseSwipeNavigationOptions {
@@ -58,12 +58,22 @@ export interface UseSwipeNavigationOptions {
   enabled: boolean;
   /** 1パネルぶんの表示幅(px)を測るための ref(days-viewport 要素を想定) */
   viewportRef: RefObject<HTMLElement | null>;
+  /**
+   * 1パネルに並んでいる日数(week=7 / day3=3 / day1=1)。
+   * 「パネル幅 / dayCount = 1日カラムの幅」としてスナップ単位に使い、同時に一度に送れる
+   * 日数の上限(レンダー済み3パネルに収まる範囲)にもなる ―― WeekGrid.tsx の
+   * `Math.abs(delta) <= dayCount` 判定と揃える(resolveSwipeDays の maxDays)。
+   */
+  dayCount: number;
   /** 横スワイプが確定した瞬間(指追従の開始)。WeekGrid は transition を切って 1:1 追従にする */
   onSwipeStart: () => void;
   /** 追従中、pointerdown からの水平移動量(px)を反映する。WeekGrid は --swipe-dx を命令的にセット */
   onSwipeMove: (dxPx: number) => void;
-  /** 指を離した/中断したときの決着。"prev"/"next"=隣パネルへ確定、"stay"=元位置へ戻す */
-  onSwipeEnd: (outcome: "prev" | "next" | "stay") => void;
+  /**
+   * 指を離した/中断したときの決着を「表示窓を動かす日数」で伝える。
+   * 正=先(未来)へ / 負=前(過去)へ / 0=確定せず元の位置へ戻す。
+   */
+  onSwipeEnd: (days: number) => void;
 }
 
 /** pointerdown からの追跡状態。React state ではなく ref で持つ(pointermove のたびに
@@ -77,8 +87,10 @@ interface TrackState {
    * (computeTrailingVelocity)。古いサンプルは onPointerMove で間引く。 */
   samples: SwipeSample[];
   axis: SwipeAxis;
-  /** pointerdown 時点で測った1パネルぶんの表示幅(px) */
-  panelWidthPx: number;
+  /** pointerdown 時点で測った1日カラムぶんの表示幅(px、= パネル幅 / dayCount) */
+  dayWidthPx: number;
+  /** pointerdown 時点の dayCount(= 一度に送れる日数の上限) */
+  maxDays: number;
 }
 
 /** samples の肥大化を防ぐため、速度窓の2倍より古いサンプルは捨てる(端点差分に十分な余裕) */
@@ -100,6 +112,7 @@ export interface SwipeNavigationHandlers {
 export function useSwipeNavigation({
   enabled,
   viewportRef,
+  dayCount,
   onSwipeStart,
   onSwipeMove,
   onSwipeEnd,
@@ -138,7 +151,8 @@ export function useSwipeNavigation({
         startY: e.clientY,
         samples: [{ x: e.clientX, time: e.timeStamp }],
         axis: "pending",
-        panelWidthPx: viewportRef.current?.clientWidth ?? 0,
+        dayWidthPx: dayCount > 0 ? (viewportRef.current?.clientWidth ?? 0) / dayCount : 0,
+        maxDays: dayCount,
       };
       // ここでは setPointerCapture も preventDefault も行わない ――
       // まだ横スワイプと確定していない(DayColumn の縦スクロール/長押し作成を妨げないため)。
@@ -192,7 +206,7 @@ export function useSwipeNavigation({
 
       if (!commit) {
         // pointercancel 等: 位置を戻すだけ(前後どちらへも確定しない)
-        onSwipeEnd("stay");
+        onSwipeEnd(0);
         return;
       }
 
@@ -201,14 +215,15 @@ export function useSwipeNavigation({
       // 直近1点だけだと指を止めてから離したとき速度 0 になりフリックが効かないため。
       t.samples.push({ x: e.clientX, time: e.timeStamp });
       const velocityPxPerMs = computeTrailingVelocity(t.samples);
-      const outcome = resolveSwipeOutcome({
+      const days = resolveSwipeDays({
         dxPx: dx,
-        panelWidthPx: t.panelWidthPx,
+        dayWidthPx: t.dayWidthPx,
+        maxDays: t.maxDays,
         velocityPxPerMs,
       });
-      // outcome の適用(transition 復帰・--swipe-dx=0 へのスナップ・確定時のナビゲーション)は
-      // WeekGrid の handleSwipeEnd 側で行う。純ロジックはここで outcome を決めるところまで。
-      onSwipeEnd(outcome);
+      // 日数の適用(transition 復帰・--swipe-dx=0 へのスナップ・確定時のナビゲーション)は
+      // WeekGrid の handleSwipeEnd 側で行う。純ロジックはここで日数を決めるところまで。
+      onSwipeEnd(days);
     }
 
     /**
@@ -230,7 +245,7 @@ export function useSwipeNavigation({
       if (!t || t.pointerId !== e.pointerId) return;
       reset();
       if (t.axis !== "horizontal") return; // 追従を始めていなければ知らせるべき終了は無い
-      onSwipeEnd("stay");
+      onSwipeEnd(0);
     }
 
     return {
@@ -242,5 +257,5 @@ export function useSwipeNavigation({
     };
     // trackRef は ref なので依存に含めない(同一インスタンスを使い続ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, viewportRef, onSwipeStart, onSwipeMove, onSwipeEnd]);
+  }, [enabled, viewportRef, dayCount, onSwipeStart, onSwipeMove, onSwipeEnd]);
 }

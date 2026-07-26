@@ -2,7 +2,7 @@
  * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)の純ロジック。
  * WeekGrid.tsx の3パネルストリップ(prev/current/next、`stripStyle` の translateX で
  * 横スライドする既存構造、dayGrid.ts の panelAnchors/panelSlideDirection と対になる)を
- * 指に追従させ、離した時に「前/次へ確定」か「元に戻す」かを決めるための計算だけを
+ * 指に追従させ、離した時に「何日ぶん動かすか(0 なら元に戻す)」を決めるための計算だけを
  * DOM/React から切り離してここに置く(dayGrid.ts と同じ流儀)。
  *
  * ジェスチャの実 DOM 配線(pointerdown/move/up の購読、setPointerCapture 等)は
@@ -30,17 +30,27 @@ export const SWIPE_VERTICAL_SLOP_PX = 8;
  * 斜めスワイプ(例 dx=20 / dy=12)は 1.25 倍だと horizontal に倒れてしまうが、その時点で
  * 既に縦スクロールが始まっているため見た目が破綻する(縦に流れながら横追従)。
  * 一方で完全に横方向へ振った速いフリック(例 dx=60 / dy=15 が1イベントで届く)は救いたいので、
- * 「圧倒的に横」と言える 2.5 倍を要求する ―― 縦成分が slop 以下のうちに横が決まる通常の
+ * 「明確に横」と言える倍率を要求する ―― 縦成分が slop 以下のうちに横が決まる通常の
  * 横スワイプ(dy がほぼ 0)はこの経路に入らないため、体感は変わらない。
+ *
+ * 2.5 → 2.0 に緩和(2026-07-26): 2.5 は水平から約 21.8°、親指で弧を描くスワイプだと
+ * 「横に振ったのに反応しない」が起きやすかった。2.0(約 26.6°)なら dx=30/dy=12 のような
+ * 明確な横振りを拾えるようになる一方、M-7 の再現ケース(dx=20/dy=12 → 20 > 24 は偽)は
+ * 引き続き vertical に倒れるため、縦スクロールを奪う退行にはならない。
  */
-export const SWIPE_DIRECTION_DOMINANCE_STRICT = 2.5;
-/** 指を離した時、パネル幅に対してこの割合を超えて動いていれば前/次へ確定する(18%)。
- * 25% は「引ききらないと戻される」体感が強かったため緩和(スムーズさ優先、2026-07-22) */
-export const SWIPE_SNAP_DISTANCE_RATIO = 0.18;
-/** フリックとみなす速度の閾値(px/ms)。0.3px/ms ≒ 300px/s ―― 移動量が閾値未満でも
- * これを超える速さで離せば前/次へ確定する(要件の「フリック速度」対応)。軽いフリックでも
+export const SWIPE_DIRECTION_DOMINANCE_STRICT = 2.0;
+/** フリックとみなす速度の閾値(px/ms)。0.3px/ms ≒ 300px/s ―― 丸めた日数が 0 でも
+ * これを超える速さで離せば速度の向きへ最低1日は送る(要件の「フリック速度」対応)。軽いフリックでも
  * 効くよう 0.5→0.3 に緩和(2026-07-22) */
 export const SWIPE_FLICK_VELOCITY_PX_PER_MS = 0.3;
+/**
+ * 指を離した瞬間の勢い(px/ms)を「この先何ミリ秒ぶん動き続けるか」として移動量に上乗せする量。
+ * これにより速く振り抜いたスワイプは、実際の指の移動量が半日ぶんに届いていなくても次の日境界を
+ * 越えて丸まる(逆に、強いフリックなら 1.5 日ぶんの移動でも 2 日先へ届く)。
+ * 80ms は「フリック閾値 0.3px/ms でも +24px(≒0.2日ぶん)、強いフリック 1.5px/ms なら +120px」
+ * となる控えめな値 ―― 大きくしすぎると狙った日を通り越すため、体感優先でこの程度に留める。
+ */
+export const SWIPE_FLICK_PROJECTION_MS = 80;
 /** フリック速度を「直近何ミリ秒ぶんのサンプルで測るか」のウィンドウ幅。pointerup 直前の
  * 1サンプルだけだと、指を止めてから離したときに速度 0 と誤検出されフリックが効かないため、
  * この時間窓の端点差分で平均速度を出す(computeTrailingVelocity 参照) */
@@ -123,40 +133,65 @@ export function swipeStripTransform(basePercent: number, dxPx: number): string {
   return `translateX(calc(${basePercent}% + ${dxPx}px))`;
 }
 
-export type SwipeOutcome = "prev" | "next" | "stay";
-
-export interface ResolveSwipeOutcomeParams {
+export interface ResolveSwipeDaysParams {
   /** pointerdown からの水平方向の累積移動量(px)。正=右(指を右へ)、負=左 */
   dxPx: number;
-  /** 1パネルぶんの表示幅(px)。0 以下なら常に "stay"(測定できていない異常系の保険) */
-  panelWidthPx: number;
-  /** 直近の pointermove サンプル間の速度(px/ms)。フリック判定に使う */
+  /** 1日カラムぶんの表示幅(px、= パネル幅 / dayCount)。0 以下なら常に 0(未測定の保険) */
+  dayWidthPx: number;
+  /** 進める日数の上限(絶対値)。WeekGrid のレンダー済み3パネルに収まる dayCount を渡す */
+  maxDays: number;
+  /** 離す直前の一定時間窓での水平速度(px/ms)。正=右へ動いている */
   velocityPxPerMs: number;
-  /** スナップ確定に必要な、パネル幅に対する移動量の割合(既定 25%) */
-  distanceRatio?: number;
-  /** フリックとみなす速度閾値(px/ms、既定 0.5) */
+  /** フリックとみなす速度閾値(px/ms、既定 0.3) */
   flickVelocityPxPerMs?: number;
+  /** 勢いを移動量へ上乗せする時間(ms、既定 80) */
+  flickProjectionMs?: number;
 }
 
 /**
- * pointerup(指を離した瞬間)の移動量・速度から、日付ナビを確定するかを決める。
- * 「移動量がパネル幅の25%を超えた」または「フリック(速い離し)」のどちらかを満たせば
- * 確定し、方向は実際の正味の移動量(dxPx)の符号で決める ―― 指を右へ動かした(dx>0)ときは
- * ストリップの見た目が右へ寄る(=前のパネルが覗く)ので "prev"、逆(dx<0)は "next"
- * (WeekGrid.tsx の panelForPhase/transformForPhase の符号と対応)。
- * どちらの条件も満たさなければ "stay"(元の位置へ戻すだけ)。
+ * pointerup(指を離した瞬間)の移動量・速度から、表示窓を「何日ぶん」動かすかを決める。
+ *
+ * 戻り値は timelineStart に足す日数 ―― 正=先(未来)へ / 負=前(過去)へ / 0=確定せず元の位置へ戻す。
+ * 指を右へ動かす(dxPx > 0)とストリップが右へ寄って前の日が覗くので、符号は反転する
+ * (WeekGrid.tsx の baseStripPercent / slideDays は「正=先へ」なのでそのまま渡せる)。
+ *
+ * 旧実装(resolveSwipeOutcome)は "prev"/"next"/"stay" の3値しか返さず、どれだけ指を動かしても
+ * 確定後は必ず1日しか進まなかった。3日ビューでは1日 = ビューポート幅の 1/3 なので、1.5日ぶん
+ * 動かして離すと strip が指より 0.5日ぶん手前へ戻り「スナップしそうな所で戻される」体感になっていた
+ * (2026-07-26 修正)。ここでは「指を離した位置に最も近い日」へ丸めることで、strip が必ず
+ * 指の位置の近傍へスナップするようにする。
+ *
+ * - 距離: `Math.round(移動量 / 1日カラム幅)` ―― 0.5日を境に手前/奥どちらか近い方の日へ。
+ *   旧 SWIPE_SNAP_DISTANCE_RATIO(パネル幅の18%)は役割を失うので廃止した。
+ * - 勢い: 離した瞬間の速度を flickProjectionMs ぶん先へ延長した位置で丸める(慣性)。
+ *   速く振り抜けば半日ぶん届いていなくても次の日へ、強ければ2日以上先へも届く。
+ * - フリック保証: 丸めて 0 日になっても速度が閾値を超えていれば、速度の向きへ最低1日は送る
+ *   (「短い距離で素早くフリック」を取りこぼさないため)。
+ * - クランプ: WeekGrid がレンダーしているのは中央 ± dayCount 日ぶんの3パネルだけで、
+ *   それを超える移動はスライドアニメーションできず瞬時切替になる(WeekGrid の
+ *   `Math.abs(delta) <= dayCount` 判定)。そのため |日数| <= maxDays に制限する。
  */
-export function resolveSwipeOutcome({
+export function resolveSwipeDays({
   dxPx,
-  panelWidthPx,
+  dayWidthPx,
+  maxDays,
   velocityPxPerMs,
-  distanceRatio = SWIPE_SNAP_DISTANCE_RATIO,
   flickVelocityPxPerMs = SWIPE_FLICK_VELOCITY_PX_PER_MS,
-}: ResolveSwipeOutcomeParams): SwipeOutcome {
-  if (panelWidthPx <= 0) return "stay";
-  const passedDistance = Math.abs(dxPx) > panelWidthPx * distanceRatio;
-  const passedFlick = Math.abs(velocityPxPerMs) > flickVelocityPxPerMs;
-  if (!passedDistance && !passedFlick) return "stay";
-  if (dxPx === 0) return "stay"; // 理論上到達しない保険(速度だけ閾値越えで移動量ゼロは無い)
-  return dxPx > 0 ? "prev" : "next";
+  flickProjectionMs = SWIPE_FLICK_PROJECTION_MS,
+}: ResolveSwipeDaysParams): number {
+  if (!(dayWidthPx > 0) || !(maxDays >= 1)) return 0;
+
+  // 離した瞬間の勢いぶんだけ先へ延長した「着地点」で丸める(慣性スクロールの簡易版)
+  const projectedPx = dxPx + velocityPxPerMs * flickProjectionMs;
+  let dragDays = Math.round(projectedPx / dayWidthPx);
+
+  // フリック保証: 丸めが 0 でも十分速ければ速度の向きへ1日送る
+  if (dragDays === 0 && Math.abs(velocityPxPerMs) > flickVelocityPxPerMs) {
+    dragDays = velocityPxPerMs > 0 ? 1 : -1;
+  }
+  if (dragDays === 0) return 0;
+
+  const clamped = Math.min(Math.abs(dragDays), Math.floor(maxDays)) * Math.sign(dragDays);
+  // dragDays は「strip/指が動いた向き」。右(正)へ動かす = 前の日へ戻るので符号を反転する。
+  return -clamped;
 }

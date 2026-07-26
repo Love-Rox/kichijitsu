@@ -200,14 +200,16 @@ interface WeekGridProps {
    */
   longPressCreate?: boolean;
   /**
-   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。横スワイプが
-   * 「前/次パネルへの確定」と判定されたとき(hooks/useSwipeNavigation.ts)に呼ばれる。
-   * App.tsx は既存の goToPrev/goToNext(ツールバー矢印ボタンと同じ関数)をそのまま渡す想定
-   * ―― timelineStart の更新は App 側に一本化し、WeekGrid は「確定した」ことだけを伝える。
+   * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22。日単位スナップへ変更、
+   * 2026-07-26)。横スワイプの確定時(hooks/useSwipeNavigation.ts)に「表示窓を動かす日数」で
+   * 呼ばれる ―― 正=先(未来)へ / 負=前(過去)へ。0 は呼ばれない(元の位置へ戻すだけなので
+   * WeekGrid 内で完結する)。指を離した位置に最も近い日へ丸めた結果なので、1回のスワイプで
+   * 2日以上動くこともある(上限は dayCount = レンダー済み3パネルに収まる範囲)。
+   * timelineStart の更新は App 側に一本化し、WeekGrid は「何日ぶん確定したか」だけを伝える。
    * 省略時はスワイプ自体を無効化する(longPressCreate と同じく、呼び出し側が明示的に
    * 対応する場合のみ有効になるオプトイン設計)。
    */
-  onSwipeNavigate?: (direction: "prev" | "next") => void;
+  onSwipeNavigate?: (days: number) => void;
   /**
    * 時間軸ズーム(2026-07-25): 1時間あたりの px 高さ。状態の持ち主は App.tsx
    * (view/timelineStart と同じ流儀で useState + localStorage 永続化)。
@@ -435,8 +437,9 @@ export function WeekGrid({
   // weekStart (App が持つ状態) が変わったら center に反映する。
   // 表示窓 [weekStart, weekStart+dayCount) がレンダー済みストリップ [center-dayCount, center+2*dayCount)
   // に収まる範囲(移動量 |delta日| <= dayCount)ならスライドアニメーションし、それ以外(today ジャンプ・
-  // ビュー切替等、レンダー外への移動)は瞬時に切り替える。スワイプは1日ずつ(delta=±1)、←/→ ボタンは
-  // dayCount ずつ(delta=±dayCount)ここへ合流し、同じ仕組みで delta 日ぶんスライドする。
+  // ビュー切替等、レンダー外への移動)は瞬時に切り替える。スワイプは指を離した位置に最も近い日へ
+  // (delta=±1..±dayCount、resolveSwipeDays が dayCount でクランプ済み)、←/→ ボタンは dayCount ずつ
+  // (delta=±dayCount)ここへ合流し、同じ仕組みで delta 日ぶんスライドする。
   useEffect(() => {
     if (weekStart.equals(center)) return;
     if (slideTimeoutRef.current !== undefined) {
@@ -446,7 +449,7 @@ export function WeekGrid({
     const delta = weekStart.since(center, { largestUnit: "day" }).days; // >0=先へ, <0=前へ
 
     // スワイプ確定の瞬間もここへ合流する(handleSwipeEnd → onSwipeNavigate → App.tsx の
-    // setTimelineStart(±1日) → weekStart 更新、という経路で他のナビゲーションと同じ effect を通る)。
+    // setTimelineStart(±N日) → weekStart 更新、という経路で他のナビゲーションと同じ effect を通る)。
     // 指追従の水平オフセット --swipe-dx を「slideDays 切替(=--strip-base をずらす)」と同じこの
     // バッチで 0 に戻す ―― handleSwipeEnd 側で先に 0 に戻すと、この effect(paint 後実行)より前に
     // 一旦中央へ戻る2段階のカクつきになるため、指の位置(--swipe-dx=finger)を保ったままここまで来て、
@@ -486,7 +489,7 @@ export function WeekGrid({
   // カクつき解消 + スナップ改善、2026-07-23)。実際の pointer 配線・方向判定は
   // hooks/useSwipeNavigation.ts(判定/数値計算は layout/swipeNav.ts の純関数)に委譲し、ここでは
   // 追従(--swipe-dx の命令的セット)・スナップ(.is-swiping の付け外し)・確定時の呼び出し先
-  // (onSwipeNavigate、App.tsx で timelineStart を1日ずつ動かす)を配線する。
+  // (onSwipeNavigate、App.tsx で timelineStart を指定日数ぶん動かす)を配線する。
   //
   // enabled は「longPressCreate(=isNarrow、モバイル幅)かつ、前回のスナップアニメーションが
   // 終わって slideDays===0(idle)のとき」だけ ―― longPressCreate=false(デスクトップの即時作成
@@ -510,20 +513,21 @@ export function WeekGrid({
   const handleSwipeMove = useCallback((dxPx: number) => setSwipeDx(dxPx), [setSwipeDx]);
 
   // 指を離したとき: .is-swiping を外して inline の transition(Xms ease)を復活させ、スナップさせる。
-  // - 'stay': weekStart が変わらず上の useEffect は走らないので、ここで --swipe-dx=0 に戻す
+  // days は「表示窓を動かす日数」(正=先へ/負=前へ/0=確定なし。resolveSwipeDays 参照)。
+  // - 0: weekStart が変わらず上の useEffect は走らないので、ここで --swipe-dx=0 に戻す
   //   →基準%(中央)へアニメーションで戻る。
-  // - 'prev'/'next': ここでは --swipe-dx をまだ 0 に戻さない。onSwipeNavigate で weekStart を1日動かし、
+  // - 非0: ここでは --swipe-dx をまだ 0 に戻さない。onSwipeNavigate で weekStart を days 日動かし、
   //   上の useEffect が「slideDays 切替(=--strip-base をずらす)」と「--swipe-dx=0」を同じバッチで
   //   行う。ここで先に 0 に戻すと、slideDays 切替(effect は paint 後実行)より前に一旦中央へ戻る2段階の
   //   カクつきになるため、指の位置(--swipe-dx=finger)を保ったまま effect に委ねる。
   const handleSwipeEnd = useCallback(
-    (outcome: "prev" | "next" | "stay") => {
+    (days: number) => {
       gridRootRef.current?.classList.remove("is-swiping");
-      if (outcome === "stay") {
+      if (days === 0) {
         setSwipeDx(0);
         return;
       }
-      onSwipeNavigate?.(outcome);
+      onSwipeNavigate?.(days);
     },
     [setSwipeDx, onSwipeNavigate],
   );
@@ -531,6 +535,8 @@ export function WeekGrid({
   const swipeHandlers = useSwipeNavigation({
     enabled: swipeEnabled,
     viewportRef: daysViewportRef,
+    // 1日カラムの幅(= パネル幅 / dayCount)をスナップ単位に、dayCount を送れる日数の上限に使う
+    dayCount,
     onSwipeStart: handleSwipeStart,
     onSwipeMove: handleSwipeMove,
     onSwipeEnd: handleSwipeEnd,
