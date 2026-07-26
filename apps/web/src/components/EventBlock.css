@@ -1,0 +1,792 @@
+/*
+ * 予定カード (EventBlock.tsx) とその周辺 ―― ホバーツールチップ / ドラッグ中の時刻バッジ /
+ * クリック詳細ポップオーバー (EventDetailCard.tsx) / 編集フォーム (EventEditForm.tsx)。
+ * 2026-07-26 フェーズ3b で WeekGrid.css から分割。中身は移動のみ。
+ *
+ * .drag-badge と .event-tooltip は EventBlock.tsx だけでなく eventPopoverShared.ts /
+ * useHoverTooltip.ts / PlannedBlock.tsx からも使われる共有ノードだが、主たる利用元が
+ * 予定カードなのでここに置く(EventBlock.tsx は DayColumn 経由で必ず読み込まれるため、
+ * PlannedBlock だけが表示される状況でもスタイルは常に効く)。
+ */
+
+/* ---- イベントブロック ---- */
+
+/*
+ * カスケード表示(フェーズ5): 重なる予定は列ごとに等分せず、少しずつ右へ
+ * ずらして重ねる(座標計算は WeekGrid、z-index は React 側で stackIndex+1 を
+ * インライン style に設定)。段差感を出すための既定の box-shadow を持たせ、
+ * hover 時は最前面(下に隠れているカードも中身が見えるように)+ シャドウを強調する。
+ * hover/dragging の z-index はインライン指定を上書きする必要があるため
+ * !important を使う(通常の CSS だけでは inline style に勝てない)。
+ */
+.event {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 4px;
+  border-left: 3px solid;
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #1f2937;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(36, 33, 30, 0.16);
+  transition: box-shadow 120ms ease;
+}
+
+.event:hover {
+  z-index: 500 !important;
+  box-shadow: 0 6px 18px rgba(36, 33, 30, 0.3);
+}
+
+/*
+ * Busy/予定あり = 中身の無い「ブロックされた時間」。実予定と一目で区別できるよう
+ * 斜線ハッチにするが、そのカレンダーの色を反映する(2026-07-20 ユーザー決定)。
+ * 色は EventBlock 側が --busy-color カスタムプロパティとしてインライン指定する
+ * (occurrence.color/calendarLookup 由来、不正なら従来のグレーにフォールバック済み)。
+ * 文字色は可読性優先で従来の薄墨のまま固定。z 順序は WeekGrid 側で常に最背面に回している。
+ */
+.event--busy {
+  border-left-color: var(--busy-color, #c9c2b4);
+  color: #8a8478;
+  box-shadow: none;
+  background-color: #f4f1ea;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    color-mix(in srgb, var(--busy-color, #8a8478) 30%, transparent) 5px,
+    color-mix(in srgb, var(--busy-color, #8a8478) 30%, transparent) 10px
+  );
+}
+
+.event--busy:hover {
+  box-shadow: 0 4px 12px rgba(36, 33, 30, 0.2);
+}
+
+/*
+ * 参加ステータス表示 (RSVP、2026-07-22)。needsAction は上の style 計算(EventBlock.tsx)で
+ * 背景透明+全周ボーダーに切り替え済みなので、ここでは tentative/declined の2つだけを
+ * クラスで表現する(要件どおり: tentative=半透明、declined=タイトル打ち消し線+全体を淡色に)。
+ */
+/*
+ * tentative (仮の参加) は要素全体の opacity では下のカード(同じカレンダー色で重なると
+ * 特に)が透けて読みづらくなるため、カード自体は不透明のまま、背景色の上に白半透明を
+ * 重ねて色だけを淡く洗う (ユーザー要望 2026-07-22)。左ボーダーのカレンダー色は
+ * EventBlock.tsx の style 計算でそのまま残るので、淡くしても所属は判別できる。
+ */
+.event--rsvp-tentative {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.5));
+}
+
+.event--rsvp-declined {
+  opacity: 0.45;
+}
+
+.event--rsvp-declined .event-title {
+  text-decoration: line-through;
+}
+
+.event-header-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-time {
+  display: block;
+  font-weight: 600;
+}
+
+.event-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 場所テキスト行 (2026-07-22)。location を持つ通常の予定(Busy/OOO/勤務場所を除く、
+ * EventBlock.tsx の hasLocationText 参照)のタイトル直下に、Google カレンダーの予定カードと
+ * 同じ体裁で「PlaceIcon + 場所名」の1行を追加する。色は薄墨(#8a8478)で控えめにし、
+ * カレンダー色(displayColor)は使わない ―― .event-means-icons や勤務場所帯上端のアイコン
+ * (.day-workloc-band-icon、RailBand.tsx)と同じトーンで統一する。
+ * ドラッグ/クリックの判定を奪わない
+ * よう pointer-events:none(mirror タグ・busy バッジと同じ流儀)。min-width:0 は flex 子要素の
+ * あふれ処理を効かせるために必須(無いと .event-location-text が縮まず親からはみ出す)。
+ *
+ * 折り返し表示 (2026-07-25、ユーザー要望): 以前は white-space: nowrap の1行省略で長い住所が
+ * 読めなかったため、「カードの高さに収まる行数だけ折り返し、あふれたら最終行を省略記号」に
+ * 変えた。行数は EventBlock.tsx が locationLineClamp(カード高さ)で求めて CSS 変数
+ * --location-lines として渡す(既定ズームの1時間の予定は従来どおり1行、ズームで縦に広がると
+ * 読める行数が増える)。align-items は center ではなく baseline ―― 複数行になったとき
+ * ピン/会議アイコンが行ブロックの中央に浮くのを避け、1行目の文字に揃える。
+ */
+.event-location {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  color: #8a8478;
+  pointer-events: none;
+}
+
+/* 先頭のピン/会議アイコンは折り返しに関わらず 10px のまま(flex の縮小に巻き込まれない) */
+.event-location > svg {
+  flex: 0 0 auto;
+}
+
+.event-location-text {
+  /*
+   * 行数指定つきの複数行省略。-webkit- 付きの3点セット(display/box-orient/line-clamp)は
+   * Chrome/Safari/Firefox いずれも対応している事実上の標準で、標準プロパティの line-clamp も
+   * 併記しておく(対応ブラウザではそちらが使われる)。
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--location-lines, 1);
+  line-clamp: var(--location-lines, 1);
+  overflow: hidden;
+  /* 住所や素の長い URL など切れ目の無い文字列でもカード幅で折り返す(横あふれを作らない) */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/*
+ * オンライン/現地の手段アイコン (参加ステータス表示、2026-07-22)。会議リンクあり=ビデオ、
+ * location 非空=ピン、両方あれば両方を並べる。ドラッグ/クリックの邪魔をしないよう
+ * pointer-events:none(mirror タグ・busy バッジと同じ流儀)。
+ */
+.event-means-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  color: #8a8478;
+  pointer-events: none;
+}
+
+/*
+ * 同一予定の集約(フェーズ6): 時刻グリッドのカードで2件以上のコピーがあるときは、
+ * 左端に所属カレンダーぶんの色ストライプを並べて「複数カレンダーにまたがっている」
+ * ことを一目で示す(単色の左ボーダーの代わり。EventBlock 側で borderLeft: none にして
+ * 代わりにこれを敷く)。ドラッグ/リサイズ/クリックの邪魔をしないよう pointer-events:none。
+ * (終日レーンの .event-group-dots は別レイアウトのため今回のスコープ外、そのまま残す)
+ */
+.event-cal-stripes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.event-cal-stripe {
+  width: 3px;
+  height: 100%;
+  flex: none;
+}
+
+/*
+ * 「予定あり」バッジ(2026-07-20 ユーザー決定): Busy は最背面のまま動かさず、代わりに
+ * Busy 区間と時間的に重なる実予定カードの右上へこの小さな斜線バッジを重ねて、隠れている
+ * Busy に気付けるようにする。.event--busy の斜線ハッチと同じ模様の縮小版、色は控えめな
+ * グレー(アプリの薄墨トーンに合わせる)。ドラッグ/クリックを奪わないよう pointer-events:none。
+ */
+/*
+ * 「予定あり」バッジ (2026-07-20): Busy に隠れている時間帯を示す。ブロック元 Busy の
+ * カレンダー色を斜線ストライプで反映(複数色は横に並べる)。少し大きめでどのカレンダーの
+ * Busy か色で分かるようにする(ユーザー指摘 2026-07-20)。
+ */
+.event-busy-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  height: 16px;
+  border-radius: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  background-color: #f4f1ea;
+}
+
+.event-busy-badge-stripe {
+  width: 10px;
+  height: 100%;
+  background-color: transparent;
+}
+
+/*
+ * 自動生成 mirror の印(カレンダーブロック機能 第5段階、2026-07-20)。occurrence.isMirror
+ * が true のカードの隅に控えめなラベルを出す。既存の .event--busy ハッチのトーン
+ * (薄墨 #8a8478、朱は使わない)に合わせ、目立ちすぎないようにする。ドラッグ/クリックを
+ * 奪わないよう pointer-events:none。event-busy-badge (右上) と同じ角に出ることはない
+ * (mirror は常に isBusy 側のカードなので blockedByBusyColors バッジとは排他)。
+ */
+.event-mirror-tag {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #8a8478;
+  background-color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+  letter-spacing: 0.02em;
+}
+
+/*
+ * 終日レーン (AllDayBar.tsx) 向け: 2件以上のコピーがあるときだけ、所属カレンダーの
+ * 色ドットをカード上に並べる(ホバー不要で「複数アカウントに存在する」と分かるように)
+ */
+.event-group-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.event-group-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+/* 40分未満の短時間イベント: タイトル+時刻を1行にまとめ、12px 高さでも収まるようにする */
+.event--compact {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.event--compact .event-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.event--compact .event-time {
+  display: inline;
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.event--compact .event-title {
+  display: inline;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event.event--dragging {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
+  cursor: grabbing;
+  z-index: 1000 !important;
+}
+
+.event-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* ---- ドラッグ中のフローティング時刻バッジ ---- */
+
+.drag-badge {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+/*
+ * ---- ホバーツールチップ ----
+ * EventBlock.tsx が document.body 直下に1個だけ作って使い回す DOM ノード
+ * (drag-badge と同じ流儀)。表示/非表示・位置更新は直接 style 書き込みで行う。
+ */
+.event-tooltip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 260px;
+  background: #24211e;
+  color: #faf7f2;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.event-tooltip-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-tooltip-range {
+  color: #d6d0c4;
+}
+
+/* 場所: 記号なしの薄墨表示 */
+.event-tooltip-location {
+  color: #a39c8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * ---- クリック詳細ポップオーバー ----
+ * EventBlock.tsx から document.body へ createPortal している(週ストリップの
+ * transform 祖先に position:fixed の containing block を奪われないため)。
+ */
+/*
+ * 詳細ポップオーバー/編集フォームの透明バックドロップ (2026-07-22)。ビューポート全面を覆い、
+ * 外側クリックを受け止めて「閉じるだけ」にする(EventBlock.tsx の onPointerDown が
+ * stopPropagation+onClose)。画面は暗くしない(transparent)。ポップオーバー(z:1000)の
+ * すぐ下(z:999)に敷き、グリッドより前面に出すことで外側クリックがグリッドに届かないようにする。
+ */
+.event-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
+.event-detail-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(36, 33, 30, 0.2);
+  padding: 14px 16px;
+}
+
+.event-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #8a8478;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.event-detail-close:hover {
+  color: #24211e;
+}
+
+.event-detail-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #24211e;
+  padding-right: 20px;
+  margin-bottom: 6px;
+}
+
+.event-detail-datetime {
+  font-size: 12px;
+  color: #55504a;
+  margin-bottom: 8px;
+}
+
+.event-detail-location {
+  font-size: 12px;
+  color: #8a8478;
+  margin-bottom: 8px;
+}
+
+/*
+ * オンライン/現地の手段表示 (参加ステータス表示、2026-07-22)。event-detail-location と
+ * 同じトーン・余白で揃え、アイコン+ラベルを横並びにする。
+ *
+ * ポップオーバーは縦に伸びられる(max-height 420px + overflow-y:auto)ので、場所は省略せず
+ * 全文を折り返して見せる(2026-07-25、カード側の折り返し対応と同じ要望)。折り返しが起きても
+ * アイコンが中央に浮かないよう align-items は baseline、切れ目の無い長い文字列でも
+ * 280px 幅からはみ出さないよう overflow-wrap: anywhere を付ける。
+ */
+.event-detail-conference,
+.event-detail-location {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.event-detail-conference {
+  font-size: 12px;
+  color: #8a8478;
+  margin-bottom: 8px;
+}
+
+/*
+ * 会議 URL (Slack ハドル / Meet / Zoom / Teams) が location に入っている予定の参加リンク
+ * (2026-07-25)。行の体裁・余白は .event-detail-location と共通のまま(同時に付けて使う)、
+ * リンクだと分かるように色だけ朱へ寄せる(.event-detail-link と同じ扱い)。
+ */
+.event-detail-meeting-link {
+  color: #d7402e;
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+
+.event-detail-meeting-link:hover {
+  text-decoration: underline;
+}
+
+/*
+ * 自動生成 mirror の詳細説明(第5段階、2026-07-20)。mirror は location/description を
+ * 持たない(無内容原則)ため、この一文が実質の主内容になる。他のテキストと同じ薄墨トーン。
+ */
+.event-detail-mirror-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a8478;
+  margin-bottom: 8px;
+}
+
+.event-detail-description {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #55504a;
+  white-space: pre-line;
+  margin-bottom: 10px;
+  /* 最大10行程度で省略する(それ以上は表示しない、編集機能もないため全文表示にはしない) */
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.event-detail-link {
+  display: inline-block;
+  font-size: 12px;
+  color: #d7402e;
+  margin-bottom: 10px;
+}
+
+.event-detail-link:hover {
+  text-decoration: underline;
+}
+
+/*
+ * 同一予定の集約(フェーズ5): 通常(集約なし)は1行、複数アカウント/カレンダーに
+ * 同じ予定がある場合は所属ぶんだけ行を積む。境界線・上余白はリスト全体側に持たせ、
+ * 各行は色ドット+カレンダー名のみのシンプルな見た目に揃える
+ */
+.event-detail-calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-calendar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #8a8478;
+}
+
+.event-detail-calendar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* ---- 削除導線 (フェーズ5) / 編集導線 (フェーズ2、2026-07-22) ---- */
+
+.event-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #55504a;
+}
+
+.event-detail-text-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  color: #8a8478;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.event-detail-text-btn:hover {
+  color: #24211e;
+}
+
+.event-detail-delete-btn {
+  color: #ef4444;
+}
+
+.event-detail-delete-btn:hover {
+  color: #b91c1c;
+}
+
+/*
+ * ---- RSVP ボタン (フェーズ2、2026-07-22) ----
+ * Notion カレンダー風の参加/未定/不参加の3択。選択中のみ朱(唯一アクセント原則、
+ * brand/README.md)、非選択は墨/薄墨の枠のみで抑制的に見せる。
+ */
+.event-detail-rsvp {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #f0ece3;
+}
+
+.event-detail-rsvp-label {
+  font-size: 11px;
+  color: #8a8478;
+  flex: none;
+}
+
+.event-detail-rsvp-buttons {
+  display: inline-flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.event-detail-rsvp-btn {
+  border: none;
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+  color: #55504a;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.event-detail-rsvp-btn + .event-detail-rsvp-btn {
+  border-left: 1px solid #e5e7eb;
+}
+
+.event-detail-rsvp-btn.is-selected {
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+}
+
+.event-detail-rsvp-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.event-detail-rsvp-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: -2px;
+}
+
+.event-detail-rsvp-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+/*
+ * ---- 予定編集フォーム (フェーズ2、2026-07-22) ----
+ * 詳細ポップオーバー (.event-detail-popover) の中身をそのまま編集モードに差し替える
+ * (別モーダルではなく既存カードの延長、ユーザー要望)。カード自体は編集モードのときだけ
+ * 少し広げる(入力欄が窮屈にならないよう)。
+ */
+.event-detail-popover--editing {
+  width: 320px;
+}
+
+.event-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.event-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.event-edit-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #55504a;
+}
+
+.event-edit-input,
+.event-edit-textarea {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #24211e;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.event-edit-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.event-edit-input:focus-visible,
+.event-edit-textarea:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 1px;
+}
+
+.event-edit-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #55504a;
+}
+
+.event-edit-datetime-row {
+  display: flex;
+  gap: 8px;
+}
+
+.event-edit-error {
+  margin: 0;
+  font-size: 11px;
+  color: #ef4444;
+}
+
+.event-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.event-edit-save-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--logo-aka, #d7402e);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.event-edit-save-btn:disabled {
+  background: #dcd6c9;
+  color: #8a8478;
+  cursor: default;
+}
+
+.event-edit-cancel-btn {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #55504a;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.event-edit-save-btn:focus-visible,
+.event-edit-cancel-btn:focus-visible {
+  outline: 2px solid var(--logo-aka, #d7402e);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .event-detail-rsvp-btn,
+  .event-edit-save-btn,
+  .event-edit-cancel-btn {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+}
+
+/* 狭幅(スマホ)ではフォームカード自体が画面幅に収まるよう全幅化し、開始/終了を縦積みにする */
+@media (max-width: 640px) {
+  .event-detail-popover--editing {
+    width: min(320px, calc(100vw - 32px));
+  }
+
+  .event-edit-datetime-row {
+    flex-direction: column;
+  }
+}
+
+/*
+ * モバイル対応(フェーズ2、docs/multiplatform.md)。分割前は WeekGrid.css 末尾の
+ * @media (max-width: 640px) に .week-grid-* と同居していたルールを、対象要素の CSS へ
+ * 移しただけ(内容は不変)。min-height を .event に与えるルールは他に無いので、
+ * 読み込み順が変わっても結果は同じ。
+ */
+@media (max-width: 640px) {
+  /* タップ領域の確保(44px 目安): 予定カードは指で押しやすいよう最低限の縦幅を確保する */
+  .event {
+    min-height: 18px;
+  }
+}

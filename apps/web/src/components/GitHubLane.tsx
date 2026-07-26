@@ -1,6 +1,7 @@
 import type { GitHubItem } from "../model/types";
 import type { GitHubMilestoneGroup } from "../sync/mapGitHub";
 import { TagIcon } from "./icons";
+import "./GitHubLane.css";
 
 interface GitHubLaneProps {
   /** その日ぶんの milestone グループ(表示上限適用済み、sync/mapGitHub.ts の layoutGitHubDay 参照) */

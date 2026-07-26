@@ -16,6 +16,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import "./AllDayBar.css";
 
 /** 終日レーンの勤務場所バー先頭に置く地図ピンの大きさ(px)。時刻予定側の帯上端ピンと揃える */
 const WORKING_LOCATION_ICON_SIZE_PX = 11;

@@ -5,6 +5,7 @@ import { formatRange, pxToMinutes } from "../layout/gridMetrics";
 import { computeMovedRange, computeResizedEndMs } from "../sync/planned";
 import { msToTopPx } from "../layout/gridMetrics";
 import { useHourHeight } from "../hooks/useHourHeight";
+import "./PlannedBlock.css";
 
 interface PlannedBlockCardProps {
   block: PlannedBlock;

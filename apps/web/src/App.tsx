@@ -5,21 +5,14 @@ import { hookActualByLinkedItem } from "./sync/hookActual";
 import { deleteJson } from "./sync/httpJson";
 import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
 import { WeekGrid } from "./components/WeekGrid";
-import { HourHeightControl } from "./components/HourHeightControl";
-import { MonthView } from "./components/MonthView";
-import { LogoMark, LogoWordmark } from "./components/Logo";
 import { MasuIndicator } from "./components/MasuIndicator";
-import { BlockRulesOverlay } from "./components/BlockRulesOverlay";
-import { SettingsModal } from "./components/SettingsModal";
+import { AppToolbar } from "./components/AppToolbar";
+import { AppOverlays } from "./components/AppOverlays";
+import { MonthView } from "./components/MonthView";
 import { MoveConfirmDialog } from "./components/MoveConfirmDialog";
 import { CalendarPane } from "./components/CalendarPane";
-import { KeyboardHelpOverlay } from "./components/KeyboardHelpOverlay";
-import { SearchOverlay } from "./components/SearchOverlay";
 import { GitHubPane } from "./components/GitHubPane";
-import { RunningTimersIndicator } from "./components/RunningTimersIndicator";
-import { TimeReportOverlay } from "./components/TimeReportOverlay";
 import type { CalendarInfo } from "./components/EventBlock";
-import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./components/icons";
 import { useBlockRules } from "./hooks/useBlockRules";
 import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
@@ -747,306 +740,35 @@ function App() {
 
   return (
     <div className="app">
-      <header className="toolbar">
-        <div className="logo-lockup">
-          <LogoMark />
-          <LogoWordmark />
-        </div>
-        <div className="toolbar-nav">
-          <button
-            type="button"
-            onClick={goToPrev}
-            aria-label={view === "week" ? "前週" : view === "month" ? "前月" : "前へ"}
-          >
-            ←
-          </button>
-          <button type="button" onClick={goToToday}>
-            今日
-          </button>
-          <button
-            type="button"
-            onClick={goToNext}
-            aria-label={view === "week" ? "次週" : view === "month" ? "次月" : "次へ"}
-          >
-            →
-          </button>
-          {/* 予定検索(フェーズ6)。SearchOverlay 側で入力欄にオートフォーカスする。
-           * アイコンは 2026-07-22 に絵文字 🔍 から SearchIcon(フラット SVG)へ置き換え */}
-          <button type="button" onClick={openSearch} aria-label="予定を検索">
-            <SearchIcon />
-          </button>
-        </div>
-        {/*
-         * ビュー切替(フェーズ6で週/月、フェーズ2でday3/day1を追加、docs/multiplatform.md)。
-         * 狭幅では Notion Calendar に倣い「1日/3日/月」を出し、広幅では従来通り「週/月」のまま
-         * (3日は任意扱いとして広幅ツールバーには出さない)。
-         */}
-        <div className="toolbar-view-toggle" role="group" aria-label="表示切替">
-          {isNarrow ? (
-            <>
-              <button
-                type="button"
-                className={view === "day1" ? "is-active" : ""}
-                aria-pressed={view === "day1"}
-                onClick={() => switchView("day1")}
-              >
-                1日
-              </button>
-              <button
-                type="button"
-                className={view === "day3" ? "is-active" : ""}
-                aria-pressed={view === "day3"}
-                onClick={() => switchView("day3")}
-              >
-                3日
-              </button>
-              <button
-                type="button"
-                className={view === "month" ? "is-active" : ""}
-                aria-pressed={view === "month"}
-                onClick={() => switchView("month")}
-              >
-                月
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={view === "week" ? "is-active" : ""}
-                aria-pressed={view === "week"}
-                onClick={() => switchView("week")}
-              >
-                週
-              </button>
-              <button
-                type="button"
-                className={view === "month" ? "is-active" : ""}
-                aria-pressed={view === "month"}
-                onClick={() => switchView("month")}
-              >
-                月
-              </button>
-            </>
-          )}
-        </div>
-        {/*
-         * 時間軸ズーム(2026-07-25、ユーザー要望)。「表示の粗さ」を決める操作なので
-         * ビュー切替(週/月・1日/3日/月)のセグメントの直後に置く ―― 同じ「表示の見え方」を
-         * 変える操作をツールバーの同じ塊にまとめる。時間軸を持たない月表示では出さない。
-         * 狭幅では compact 表示(プリセットを畳んで −/+ と現在値のみ、HourHeightControl.tsx 参照)。
-         */}
-        {view !== "month" && (
-          <HourHeightControl
-            hourHeight={hourHeight}
-            onChange={handleHourHeightChange}
-            compact={isNarrow}
-          />
-        )}
-        <div className="toolbar-right">
-          {/*
-           * モバイル狭幅対応: 年月表示を「7月」/「7/20」まで縮める(スマホヘッダー1段化)。
-           * 広幅は従来通りフル表記のまま(isNarrow は既存の useMediaQuery state を流用するだけで
-           * ロジックの追加は無い)。
-           */}
-          <span className="month-label">
-            {view === "month" ? (
-              isNarrow ? (
-                <>{monthCursor.month}月</>
-              ) : (
-                <>
-                  {monthCursor.year}年{monthCursor.month}月
-                </>
-              )
-            ) : view === "day1" ? (
-              isNarrow ? (
-                <>
-                  {timelineStart.month}/{timelineStart.day}
-                </>
-              ) : (
-                <>
-                  {timelineStart.year}年{timelineStart.month}月{timelineStart.day}日
-                </>
-              )
-            ) : isNarrow ? (
-              <>{timelineStart.month}月</>
-            ) : (
-              <>
-                {timelineStart.year}年{timelineStart.month}月
-              </>
-            )}
-          </span>
-          {offline && (
-            <span
-              className="offline-indicator"
-              title="サーバーに接続できません。表示はローカルに保存されたデータです"
-            >
-              <span className="masu masu--empty" aria-hidden="true" />
-              <span className="offline-indicator-label">オフライン</span>
-            </span>
-          )}
-          <div className="toolbar-account">
-            {me.accounts.length > 0 ? (
-              <>
-                <button
-                  type="button"
-                  className="account-summary"
-                  onClick={() => setPanelOpen((open) => !open)}
-                  aria-expanded={panelOpen}
-                  aria-haspopup="dialog"
-                  // 「○アカウント連携中」というラベルは何のボタンか分かりづらい (ユーザー指摘
-                  // 2026-07-22) ため、歯車アイコン + 「設定」ラベルにして設定画面を開くボタンで
-                  // あることを前面に出す。連携中のアカウント (email / 件数) は説明的な title/
-                  // aria-label に退避させ、必要な人には読めるようにしておく
-                  title={
-                    me.accounts.length === 1
-                      ? `設定 (${me.accounts[0].email})`
-                      : `設定 (${me.accounts.length}アカウント連携中)`
-                  }
-                  aria-label={
-                    me.accounts.length === 1
-                      ? `設定 (${me.accounts[0].email})`
-                      : `設定 (${me.accounts.length}アカウント連携中)`
-                  }
-                >
-                  <span className="account-gear" aria-hidden="true">
-                    <GearIcon width={16} height={16} />
-                  </span>
-                  <span className="account-summary-label">設定</span>
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-sync-btn"
-                  onClick={runSync}
-                  disabled={syncStatus === "syncing"}
-                  aria-label="同期"
-                  title="同期"
-                >
-                  {syncIndicator.visible ? (
-                    <span
-                      className={
-                        syncIndicator.fading
-                          ? "sync-indicator masu-indicator--fading"
-                          : "sync-indicator"
-                      }
-                    >
-                      <MasuIndicator size="sm" />
-                      {/* 狭幅ではテキストを省き枡アイコンのみにして幅を詰める(1段化) */}
-                      {!isNarrow && "同期中"}
-                    </span>
-                  ) : isNarrow ? (
-                    "⟳"
-                  ) : (
-                    "同期"
-                  )}
-                </button>
-                {syncStatus === "error" && <span className="sync-error">同期失敗</span>}
-                {saveError && <span className="sync-error">保存失敗（元に戻しました）</span>}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/auth/login";
-                }}
-              >
-                Google 連携
-              </button>
-            )}
-          </div>
-          {/*
-           * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)の開閉導線。
-           * 連携アカウントが1件も無ければ出す意味が無い(CalendarPane 自体は「連携中の
-           * アカウントがありません」を表示できるが、導線自体を隠した方が分かりやすい ――
-           * GitHubPane の me.github ゲートと同じ考え方)。
-           */}
-          {me.accounts.length > 0 && (
-            <button
-              type="button"
-              className="toolbar-calendar-btn"
-              onClick={toggleLeftPane}
-              aria-label="カレンダー"
-              title="カレンダー"
-              aria-expanded={leftPaneOpen}
-              aria-haspopup="dialog"
-            >
-              {/* 2026-07-22: 絵文字 📅 から CalendarIcon(フラット SVG)へ置き換え */}
-              <span aria-hidden="true">
-                <CalendarIcon />
-              </span>
-              {!isNarrow && <span className="toolbar-calendar-label">カレンダー</span>}
-            </button>
-          )}
-          {/*
-           * 「実績」ボタン(実績 UX 刷新、2026-07-23 → 2026-07-25 に右ペイントグルへ変更)。
-           * 実績の記録/タイマー/履歴は右ペイン(GitHubPane)に集約されたため、このボタンは
-           * モーダルではなく右ペインの開閉トグルになった(paneOpen を共有 ―― CalendarPane の
-           * 「作業キュー」ボタンと同じ state)。ラベルは「実績」のまま、title でペインが開く
-           * ことを補足する。表示条件はペインの描画条件(me.github)と揃える ―― GitHub 未連携で
-           * 押しても何も開かない、という状態を作らないため。
-           */}
-          {me.github && (
-            <button
-              type="button"
-              className="toolbar-actuals-btn"
-              onClick={toggleGitHubPane}
-              aria-label="実績(記録・タイマー・履歴)"
-              title="実績(右ペインを開く: 実行中・作業キュー・記録・履歴)"
-              aria-expanded={paneOpen}
-            >
-              <span aria-hidden="true">
-                <TimerIcon />
-              </span>
-              {!isNarrow && <span className="toolbar-actuals-label">実績</span>}
-            </button>
-          )}
-          {/*
-           * ヘッダー整理(増分3、2026-07-22、ユーザー要望「ヘッダーのメニューを減らしたい」)で
-           * 「作業キュー」開閉ボタン(GitHubPane トグル + 件数バッジ)・「レポート」ボタン
-           * (TimeReportOverlay トグル)・実績オーバーレイ/CI トグル(増分2で既に移設済み)を
-           * すべて CalendarPane の GitHub セクションへ集約した。ここに残すのは「カレンダーを
-           * 開けば辿り着ける操作」ではなく「常に見えている必要がある/カレンダーを開かなくても
-           * 使う操作」だけ ―― 走行中タイマー・? ヘルプ・(未ログイン時のみ)規約リンクの
-           * フォールバック(下記コメント参照)。
-           */}
-          {/*
-           * 走行中タイマーのインジケーター(増分2)。me 連携有無に関係なく、走行中エントリが
-           * 1件でもあれば表示する(コンポーネント自身が0件時に null を返す)。
-           */}
-          <RunningTimersIndicator
-            runningEntries={runningTimeEntries}
-            nowMs={timerNowMs}
-            onStop={onStopTimer}
-          />
-          {/* キーボードショートカット ヘルプ(フェーズ6)。'?' キーと同じトグル */}
-          <button
-            type="button"
-            className="toolbar-help-btn"
-            onClick={() => setHelpOpen((v) => !v)}
-            aria-label="キーボードショートカット一覧"
-            title="キーボードショートカット (?)"
-          >
-            ?
-          </button>
-          {/*
-           * プライバシー/規約リンクは増分3で CalendarPane のフッターへ移設したが、
-           * CalendarPane 自体は `me.accounts.length > 0` ゲートの内側(未ログイン時は
-           * マウントされない)なので、未ログインの訪問者には規約リンクへの導線が一切
-           * 無くなってしまう ―― Google 審査要件上、法的リンクは常時到達可能でなければ
-           * ならないため、未ログイン時(accounts.length === 0)だけツールバーの従来位置に
-           * フォールバック表示する。ログイン後は CalendarPane 側にしか出さない(重複を避ける)。
-           * 狭幅で隠す旧 CSS ルール(.toolbar-legal { display: none })もこのフォールバックには
-           * 適用しない(App.css 参照) ―― 未ログイン時は他に規約リンクへ辿り着く手段が
-           * 無いため、狭幅でも常に見せる。
-           */}
-          {me.accounts.length === 0 && (
-            <div className="toolbar-legal toolbar-legal--fallback">
-              <a href="/privacy.html">プライバシー</a>
-              <a href="/terms.html">規約</a>
-            </div>
-          )}
-        </div>
-      </header>
+      <AppToolbar
+        view={view}
+        isNarrow={isNarrow}
+        goToPrev={goToPrev}
+        goToNext={goToNext}
+        goToToday={goToToday}
+        switchView={switchView}
+        openSearch={openSearch}
+        hourHeight={hourHeight}
+        handleHourHeightChange={handleHourHeightChange}
+        monthCursor={monthCursor}
+        timelineStart={timelineStart}
+        offline={offline}
+        me={me}
+        panelOpen={panelOpen}
+        setPanelOpen={setPanelOpen}
+        runSync={runSync}
+        syncStatus={syncStatus}
+        syncIndicator={syncIndicator}
+        saveError={saveError}
+        leftPaneOpen={leftPaneOpen}
+        toggleLeftPane={toggleLeftPane}
+        paneOpen={paneOpen}
+        toggleGitHubPane={toggleGitHubPane}
+        runningTimeEntries={runningTimeEntries}
+        timerNowMs={timerNowMs}
+        onStopTimer={onStopTimer}
+        setHelpOpen={setHelpOpen}
+      />
       <main className="app-main">
         {/*
          * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。増分3で
@@ -1211,77 +933,42 @@ function App() {
           />
         )}
       </main>
-      {helpOpen && <KeyboardHelpOverlay onClose={() => setHelpOpen(false)} />}
-      {/*
-       * 設定モーダル(UI 改善、2026-07-22、ユーザー要望「中央配置の設定モーダルへ格上げ」)。
-       * 旧 CalendarSettingsPanel はツールバーの .toolbar-account 内にアンカー式ポップオーバーと
-       * して描画していたが、中央固定モーダルになったことでアンカー位置計算が不要になり、
-       * BlockRulesOverlay/SearchOverlay/TimeReportOverlay と同じくオーバーレイ群として
-       * ここ(App 直下)へ移した。開閉制御(panelOpen)自体は変更していない。
-       */}
-      {panelOpen && me.accounts.length > 0 && (
-        <SettingsModal
-          accounts={me.accounts}
-          onDisconnectAccount={handleDisconnectAccount}
-          onAddAccount={() => {
-            window.location.href = "/auth/login?add=1";
-          }}
-          tasksScopeMissingAccounts={tasksScopeMissingAccounts}
-          onReconnectAccount={(email) => {
-            // 同じ Google アカウントを選び直せば prompt=consent (apps/sync の oauth.ts) で
-            // 同意画面が再表示され、2026-07-20 追加の tasks スコープが付与される。
-            // 遷移先は「+ アカウントを追加」と同じ /auth/login?add=1 だが、login_hint に
-            // 対象アカウントのメールを載せて Google 側でそのアカウントを事前選択させる。
-            window.location.href = `/auth/login?add=1&login_hint=${encodeURIComponent(email)}`;
-          }}
-          onOpenBlockRules={() => {
-            setPanelOpen(false);
-            setBlockOverlayOpen(true);
-          }}
-          githubLogin={me.github?.login ?? null}
-          githubAuthExpired={githubAuthExpired}
-          onConnectGitHub={() => {
-            window.location.href = "/auth/github/login";
-          }}
-          onDisconnectGitHub={handleDisconnectGitHub}
-          mcpTokens={mcpTokens}
-          onCreateMcpToken={handleCreateMcpToken}
-          onDeleteMcpToken={handleDeleteMcpToken}
-          onClose={() => setPanelOpen(false)}
-        />
-      )}
-      {blockOverlayOpen && me.connected && (
-        <BlockRulesOverlay
-          accounts={me.accounts}
-          calendarsByAccount={calendarsByAccount}
-          rules={blockRules}
-          onCreate={handleCreateBlockRule}
-          onDelete={handleDeleteBlockRule}
-          onClose={() => setBlockOverlayOpen(false)}
-        />
-      )}
-      {searchOpen && (
-        <SearchOverlay
-          onClose={() => setSearchOpen(false)}
-          db={db}
-          timeZone={timeZone}
-          visibleCalendarKeys={visibleCalendarKeys}
-          calendarLookup={calendarLookup}
-          onJump={handleSearchJump}
-        />
-      )}
-      {reportOpen && (
-        <TimeReportOverlay
-          plannedBlocks={reportPlannedBlocks}
-          timeEntries={reportTimeEntries}
-          workLogs={reportWorkLogs}
-          nowMs={timerNowMs}
-          estimatedByKey={me.github ? prCommitEstimates : {}}
-          estimatesLoading={prCommitEstimatesLoading}
-          hookActualByLinkedItem={reportHookActualByLinkedItem}
-          onClose={() => setReportOpen(false)}
-        />
-      )}
+      <AppOverlays
+        me={me}
+        helpOpen={helpOpen}
+        setHelpOpen={setHelpOpen}
+        panelOpen={panelOpen}
+        setPanelOpen={setPanelOpen}
+        handleDisconnectAccount={handleDisconnectAccount}
+        tasksScopeMissingAccounts={tasksScopeMissingAccounts}
+        setBlockOverlayOpen={setBlockOverlayOpen}
+        githubAuthExpired={githubAuthExpired}
+        handleDisconnectGitHub={handleDisconnectGitHub}
+        mcpTokens={mcpTokens}
+        handleCreateMcpToken={handleCreateMcpToken}
+        handleDeleteMcpToken={handleDeleteMcpToken}
+        blockOverlayOpen={blockOverlayOpen}
+        calendarsByAccount={calendarsByAccount}
+        blockRules={blockRules}
+        handleCreateBlockRule={handleCreateBlockRule}
+        handleDeleteBlockRule={handleDeleteBlockRule}
+        searchOpen={searchOpen}
+        setSearchOpen={setSearchOpen}
+        db={db}
+        timeZone={timeZone}
+        visibleCalendarKeys={visibleCalendarKeys}
+        calendarLookup={calendarLookup}
+        handleSearchJump={handleSearchJump}
+        reportOpen={reportOpen}
+        setReportOpen={setReportOpen}
+        reportPlannedBlocks={reportPlannedBlocks}
+        reportTimeEntries={reportTimeEntries}
+        reportWorkLogs={reportWorkLogs}
+        timerNowMs={timerNowMs}
+        prCommitEstimates={prCommitEstimates}
+        prCommitEstimatesLoading={prCommitEstimatesLoading}
+        reportHookActualByLinkedItem={reportHookActualByLinkedItem}
+      />
     </div>
   );
 }

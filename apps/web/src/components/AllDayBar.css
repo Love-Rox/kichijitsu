@@ -1,0 +1,89 @@
+/*
+ * 終日レーンのバー (AllDayBar.tsx)。2026-07-26 フェーズ3b で WeekGrid.css から分割
+ * (レーンの器 .week-grid-allday* は WeekGrid.css に残している)。中身は移動のみ。
+ */
+
+.allday-bar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+  border-radius: 4px;
+  border-left: 3px solid;
+  margin: 0 2px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: #1f2937;
+  cursor: pointer;
+  user-select: none;
+}
+
+.allday-bar-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/*
+ * 参加ステータス表示 (RSVP、2026-07-22)。.event--rsvp-* / .month-chip--declined 等と対になる、
+ * 終日レーンの最小限の表現(要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。
+ */
+.allday-bar--declined {
+  opacity: 0.45;
+}
+
+.allday-bar--declined .allday-bar-title {
+  text-decoration: line-through;
+}
+
+.allday-bar--needs-action {
+  background-color: transparent;
+  border: 1.5px solid var(--rsvp-color, currentColor);
+}
+
+/*
+ * 勤務場所 (workingLocation) の終日バー (2026-07-22 終日レーンへ統合)。
+ *
+ * 経緯: 従来は終日の勤務場所も帯化して左端レール (.day-workloc-band) に全高帯として
+ * 出していたが、「その日いっぱい何も予定が無いように見える」「他の終日予定(祝日等)と
+ * 並べて一覧したい」というユーザー要望を受け、終日レーンの通常の並び
+ * (packDayBars/AllDayBar) に統合し直した。ただし「勤務場所である」ことは一目で分かるよう、
+ * カレンダー色を使わない専用スタイルにする(AllDayBar.tsx が isWorkingLocation(occurrence)
+ * の結果でこのクラスを付け外しし、通常バーの backgroundColor/borderLeftColor インライン
+ * 指定は isWorkingLoc の間一切渡さないので、ここで固定値を敷ける):
+ * - 背景: brand の薄墨枡色 (#DCD6C9、.day-workloc-band と同じ色) を敷く。他の終日予定
+ *   (カレンダー色を18%だけ混ぜた薄い背景)に埋もれない程度の濃さを保ちつつ、
+ *   ユーザー方針どおりカレンダー色/朱のような強い主張はしない。
+ * - 左ボーダー: 通常バーは所属カレンダー色の左ボーダー(3px)を立てるが、勤務場所は
+ *   カレンダーに紐づく情報ではないので消す。border-left 分の視覚的インデントは
+ *   padding-left で補う(通常バーの border 3px + padding 4px ≈ 7px に近づける)。
+ * - 先頭アイコン: 墨色 (#24211e、.day-workloc-band-icon と同じ) の地図ピン (PlaceIcon) を
+ *   タイトルの前に置く(下記 .allday-bar-working-location-icon)。
+ */
+.allday-bar--working-location {
+  background-color: #dcd6c9;
+  border-left: none;
+  padding-left: 7px;
+}
+
+.allday-bar-working-location-icon {
+  flex: 0 0 auto;
+  color: #24211e;
+}
+
+/* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
+.allday-overflow {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  margin: 0 2px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: #8a8478;
+  cursor: default;
+}
