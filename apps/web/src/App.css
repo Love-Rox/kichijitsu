@@ -11,13 +11,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   box-sizing: border-box;
 }
 
 .toolbar .month-label {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--c-ui-ink-mute);
 }
 
 .toolbar-nav {
@@ -29,16 +29,16 @@
 .toolbar-nav button {
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .toolbar-nav button:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 /*
@@ -48,7 +48,7 @@
 .toolbar-view-toggle {
   display: flex;
   align-items: center;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -57,23 +57,23 @@
   font: inherit;
   font-size: 13px;
   border: none;
-  background: #fff;
-  color: #374151;
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   padding: 4px 12px;
   cursor: pointer;
 }
 
 .toolbar-view-toggle button + button {
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
 }
 
 .toolbar-view-toggle button:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .toolbar-view-toggle button.is-active {
-  background: #d7402e;
-  color: #faf7f2;
+  background: var(--c-accent);
+  color: var(--c-on-ink);
 }
 
 .toolbar-right {
@@ -99,16 +99,16 @@
   gap: 6px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .account-summary:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .account-summary-label {
@@ -121,7 +121,7 @@
 /* GearIcon (2026-07-22、旧 ⚙ 絵文字) の色。サイズはコンポーネント側の width/height props で指定済み */
 .account-gear {
   display: inline-flex;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 /*
@@ -133,7 +133,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   white-space: nowrap;
 }
 
@@ -150,21 +150,21 @@
   gap: 5px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .toolbar-calendar-btn:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .toolbar-calendar-btn[aria-expanded="true"] {
-  border-color: #d7402e;
-  color: #24211e;
+  border-color: var(--c-accent);
+  color: var(--c-ink);
 }
 
 /*
@@ -179,22 +179,22 @@
   gap: 5px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .toolbar-actuals-btn:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 /* 右ペインが開いているあいだは押下状態を示す(.toolbar-calendar-btn と同じ流儀) */
 .toolbar-actuals-btn[aria-expanded="true"] {
-  border-color: #d7402e;
-  color: #24211e;
+  border-color: var(--c-accent);
+  color: var(--c-ink);
 }
 
 /*
@@ -214,22 +214,22 @@
   align-items: center;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .toolbar-activity-btn:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .toolbar-activity-btn.is-active {
-  border-color: #6e5494;
-  color: #6e5494;
-  background: rgba(110, 84, 148, 0.08);
+  border-color: var(--c-github);
+  color: var(--c-github);
+  background: rgba(var(--c-github-rgb), 0.08);
 }
 
 /* かつての .toolbar-queue-badge は増分3で calendar-pane-action-badge(CalendarPane.css)へ移設・撤去した */
@@ -244,10 +244,10 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 50%;
-  background: #fff;
-  color: #8a8478;
+  background: var(--c-surface);
+  color: var(--c-ink-sub);
   font-size: 11px;
   line-height: 1;
   padding: 0;
@@ -255,8 +255,8 @@
 }
 
 .toolbar-help-btn:hover {
-  color: #24211e;
-  background: #f3f4f6;
+  color: var(--c-ink);
+  background: var(--c-surface-hover);
 }
 
 /*
@@ -278,12 +278,12 @@
 
 .toolbar-legal a {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   text-decoration: none;
 }
 
 .toolbar-legal a:hover {
-  color: #24211e;
+  color: var(--c-ink);
   text-decoration: underline;
 }
 
@@ -296,26 +296,26 @@
 .toolbar-account > button {
   font: inherit;
   font-size: 13px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .toolbar-account > button:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .toolbar-account > button:disabled {
-  color: #9ca3af;
+  color: var(--c-ui-ink-faint);
   cursor: default;
 }
 
 .sync-error {
   font-size: 12px;
-  color: #ef4444;
+  color: var(--c-danger);
 }
 
 /* 同期ボタン内の枡インジケーター(MasuIndicator size="sm") + テキストのロックアップ */
@@ -361,7 +361,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(250, 247, 242, 0.72);
+  background: rgba(var(--c-bg-rgb), 0.72);
   pointer-events: none;
   z-index: 5;
 }

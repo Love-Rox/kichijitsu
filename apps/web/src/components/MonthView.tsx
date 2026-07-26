@@ -271,7 +271,7 @@ export function MonthView({
                               : isNeedsAction
                                 ? ({ "--rsvp-color": color } as CSSProperties)
                                 : {
-                                    backgroundColor: `color-mix(in srgb, ${color} 16%, white)`,
+                                    backgroundColor: `color-mix(in srgb, ${color} 16%, var(--c-surface))`,
                                     borderLeftColor: color,
                                   }
                           }

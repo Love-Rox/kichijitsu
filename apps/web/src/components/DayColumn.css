@@ -16,8 +16,8 @@
   left: 3px;
   right: 3px;
   border-radius: 4px;
-  border: 1.5px dashed #9ca3af;
-  background: rgba(156, 163, 175, 0.16);
+  border: 1.5px dashed var(--c-ui-ink-faint);
+  background: rgba(var(--c-ui-ink-faint-rgb), 0.16);
   pointer-events: none;
   z-index: 400;
 }
@@ -28,9 +28,9 @@
   left: 3px;
   right: 3px;
   border-radius: 4px;
-  border: 1.5px solid #d7402e;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(36, 33, 30, 0.25);
+  border: 1.5px solid var(--c-accent);
+  background: var(--c-surface);
+  box-shadow: 0 6px 16px rgba(var(--c-shadow-rgb), 0.25);
   z-index: 600;
   padding: 2px 4px;
   box-sizing: border-box;
@@ -43,7 +43,7 @@
   background: transparent;
   font: inherit;
   font-size: 12px;
-  color: #1f2937;
+  color: var(--c-ui-ink-strong);
 }
 
 /* 予定タイムブロック (PlannedBlock.tsx) を載せる独立レイヤ。カード側のスタイルと設計意図は
@@ -61,7 +61,7 @@
   left: 0;
   right: 0;
   height: 0;
-  border-top: 2px solid #ef4444;
+  border-top: 2px solid var(--c-danger);
   z-index: 2;
 }
 
@@ -88,7 +88,7 @@
   height: 4px;
   transform: translateY(-2px);
   border-radius: 50%;
-  background: rgba(110, 84, 148, 0.55); /* GitHub purple、控えめ。朱は使わない */
+  background: rgba(var(--c-github-rgb), 0.55); /* GitHub purple、控えめ。朱は使わない */
   pointer-events: auto;
   cursor: pointer;
   display: flex;
@@ -99,8 +99,8 @@
 
 .day-activity-mark:hover,
 .day-activity-mark:focus-visible {
-  background: rgba(110, 84, 148, 0.9);
-  outline: 2px solid rgba(110, 84, 148, 0.35);
+  background: rgba(var(--c-github-rgb), 0.9);
+  outline: 2px solid rgba(var(--c-github-rgb), 0.35);
   outline-offset: 1px;
 }
 
@@ -113,7 +113,7 @@
 .day-activity-count {
   font-size: 7px;
   line-height: 1;
-  color: #fff;
+  color: var(--c-on-color);
   font-weight: 700;
   pointer-events: none;
 }
@@ -142,7 +142,7 @@
 }
 
 /*
- * OOO の矩形バー本体。色はカレンダー色を使わず薄墨 (#8a8478 系) にフォールバックしつつ、
+ * OOO の矩形バー本体。色はカレンダー色を使わず薄墨 (--c-ink-sub 系) にフォールバックしつつ、
  * 基本は resolveDisplayColor の結果(下記)で塗る — 不在は「場が空いていないこと」の
  * 記号であって個別の予定ではないため、色で目立たせない(ユーザー決定)。
  *
@@ -199,7 +199,7 @@
   transform: translateX(-50%);
   font-size: 9px;
   line-height: 1;
-  color: #fff;
+  color: var(--c-on-color);
   font-weight: 700;
   pointer-events: none;
 }
@@ -226,7 +226,7 @@
  *
  * 配色は OOO と意図的に差別化する ―― OOO はカレンダー色(occurrence ごとの inline style)で
  * 「どのカレンダーの不在か」を主張するが、勤務場所はほぼ毎日出うる情報なので、朱・
- * カレンダー色は使わず brand の薄墨枡色(#DCD6C9、brand/README.md「ふつうの日の枡」)を
+ * カレンダー色は使わず brand の薄墨枡色(--c-masu、brand/README.md「ふつうの日の枡」)を
  * 低 opacity で敷くだけの「地の薄い帯」にする(ユーザー方針。終日レーン側の
  * .allday-bar--working-location も同じ色を使う)。値がイベントごとに変わらないため、
  * ここでは固定値のまま CSS に置く(OOO のように JS 側から backgroundColor を渡す必要が無い)。
@@ -234,7 +234,7 @@
 .day-workloc-band {
   position: absolute;
   width: 12px; /* RAIL_BAND_WIDTH_PX と揃える */
-  background-color: #dcd6c9; /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
+  background-color: var(--c-masu); /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
   opacity: 0.68; /* 毎日出ても重すぎないよう抑える ―― OOO 帯の 0.88 よりはっきり薄くしてある */
   border-radius: 3px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う。day-ooo-line と同じ手法 */
@@ -267,7 +267,7 @@
  * SVG は CSS 疑似要素のコンテンツにしにくいため擬似要素ではなく実要素にしてある。
  * pointer-events: none は親 (.day-workloc-band、同じく none) から自然に継承されるが、
  * 意図を明示するためここでも指定しておく ―― 帯の当たり判定 (::before) を一切妨げない。
- * 色は墨 (#24211e) 固定 ―― 帯の塗りが薄い(opacity 0.68)ぶん、ピンだけはくっきり見える
+ * 色は墨 (--c-ink) 固定 ―― 帯の塗りが薄い(opacity 0.68)ぶん、ピンだけはくっきり見える
  * ようにして「どこで働くか」の視認性を確保する。
  */
 .day-workloc-band-icon {
@@ -275,7 +275,7 @@
   top: 2px;
   left: 50%;
   transform: translateX(-50%);
-  color: #24211e;
+  color: var(--c-ink);
   pointer-events: none;
 }
 
@@ -320,53 +320,53 @@
 
 /* success = 緑。GitHub Actions のチェックマーク色に合わせる(朱とは無関係の別文脈)。 */
 .day-ci-mark.status-success {
-  background: #1a7f37;
+  background: var(--c-ci-success);
 }
 
 /*
  * pending (queued/in_progress) と other (cancelled/skipped/neutral/timed_out/
  * action_required/startup_failure) はどちらも「注目を引く必要が薄い」ものとして同じ薄墨で
- * 塗る(意味の強さを付けない、点滅なし — brand/README.md の薄墨トーン #8a8478 系)。
+ * 塗る(意味の強さを付けない、点滅なし — brand/README.md の薄墨トーン --c-ink-sub 系)。
  */
 .day-ci-mark.status-pending,
 .day-ci-mark.status-other {
-  background: rgba(138, 132, 120, 0.55);
+  background: rgba(var(--c-ink-sub-rgb), 0.55);
 }
 
 /*
- * failure だけは注意を引く必要があるが、朱 (--logo-aka #d7402e、ブランドの通知アクセント) と
- * 混同しないよう、色相を変えた控えめな danger (#8b3a3a、くすんだ赤茶) + 小さな✕グリフで
+ * failure だけは注意を引く必要があるが、朱 (--logo-aka --c-accent、ブランドの通知アクセント) と
+ * 混同しないよう、色相を変えた控えめな danger (--c-ci-failure、くすんだ赤茶) + 小さな✕グリフで
  * 表現する。ベタ塗りにはしない(枠線+薄い背景のみ)ことで「朱の一点」と区別する。
  */
 .day-ci-mark.status-failure {
-  background: rgba(139, 58, 58, 0.14);
-  border: 1px solid rgba(139, 58, 58, 0.6);
+  background: rgba(var(--c-ci-failure-rgb), 0.14);
+  border: 1px solid rgba(var(--c-ci-failure-rgb), 0.6);
 }
 
 .day-ci-mark.status-failure::before {
   content: "×";
   font-size: 7px;
   line-height: 1;
-  color: #8b3a3a;
+  color: var(--c-ci-failure);
   font-weight: 700;
   pointer-events: none;
 }
 
 .day-ci-mark:hover,
 .day-ci-mark:focus-visible {
-  outline: 2px solid rgba(138, 132, 120, 0.35);
+  outline: 2px solid rgba(var(--c-ink-sub-rgb), 0.35);
   outline-offset: 1px;
 }
 
 .day-ci-mark.status-success:hover,
 .day-ci-mark.status-success:focus-visible {
-  background: #156c2e;
+  background: var(--c-ci-success-hover);
 }
 
 .day-ci-mark.status-failure:hover,
 .day-ci-mark.status-failure:focus-visible {
-  background: rgba(139, 58, 58, 0.28);
-  outline-color: rgba(139, 58, 58, 0.35);
+  background: rgba(var(--c-ci-failure-rgb), 0.28);
+  outline-color: rgba(var(--c-ci-failure-rgb), 0.35);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -378,7 +378,7 @@
 .day-ci-count {
   font-size: 7px;
   line-height: 1;
-  color: #fff;
+  color: var(--c-on-color);
   font-weight: 700;
   pointer-events: none;
 }
@@ -390,5 +390,5 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: var(--c-danger);
 }

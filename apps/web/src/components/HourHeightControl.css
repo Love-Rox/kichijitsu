@@ -1,12 +1,12 @@
 /*
  * 時間軸ズーム(2026-07-25)のツールバーコントロール。見た目は既存の
  * .toolbar-view-toggle(週/月 のセグメント、App.css)と同じトーンに揃える ――
- * 枠線 #e5e7eb で1つのセグメントにまとめ、アクティブは朱(#d7402e)+生成り(#faf7f2)。
+ * 枠線 --c-line で1つのセグメントにまとめ、アクティブは朱(--c-accent)+生成り(--c-bg)。
  */
 .hour-zoom {
   display: flex;
   align-items: center;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -15,22 +15,22 @@
   font: inherit;
   font-size: 13px;
   border: none;
-  background: #fff;
-  color: #374151;
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .hour-zoom > * + * {
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
 }
 
 .hour-zoom button:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .hour-zoom button:disabled {
-  color: #c9c2b4;
+  color: var(--c-ink-disabled);
   cursor: default;
 }
 
@@ -44,8 +44,8 @@
   font-size: 12px;
   border: none;
   border-radius: 0;
-  background: #fff;
-  color: #374151;
+  background: var(--c-surface);
+  color: var(--c-ui-ink);
   padding: 4px 4px 4px 8px;
   cursor: pointer;
   /* 「コンパクト」「ゆったり」「120px」で幅が動いてボタン位置が揺れないよう固定幅にする */
@@ -53,12 +53,12 @@
 }
 
 .hour-zoom-select:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .hour-zoom-select:focus-visible,
 .hour-zoom button:focus-visible {
-  outline: 2px solid #b8321f;
+  outline: 2px solid var(--c-accent-strong);
   outline-offset: -2px;
 }
 
@@ -77,12 +77,12 @@
  */
 .hour-zoom-value {
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   padding: 4px 8px;
   min-width: 40px;
   text-align: center;
   white-space: nowrap;
-  background: #fff;
+  background: var(--c-surface);
 }
 
 @media (max-width: 640px) {

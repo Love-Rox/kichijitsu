@@ -142,7 +142,8 @@ export function RailBand({
         top,
         height,
         left,
-        backgroundColor: resolveDisplayColor(subject, calendarLookup) || "#8a8478",
+        // フォールバックの薄墨は UI のトーンなので theme.css のトークンを参照する
+        backgroundColor: resolveDisplayColor(subject, calendarLookup) || "var(--c-ink-sub)",
       }
     : { top, height, left };
 

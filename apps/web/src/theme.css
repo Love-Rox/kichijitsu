@@ -1,0 +1,188 @@
+/*
+ * ---- 色トークン層 (ダークモード対応 第1段: 色のトークン化、2026-07-26) ----
+ *
+ * なぜ1ファイルに集めるか: 置換前の CSS は 20 ファイル・650 箇所に色リテラルが散っており、
+ * ダーク配色を足すには全ファイルに prefers-color-scheme を書くしかなかった。役割名の
+ * カスタムプロパティを1箇所に集約しておけば、次段は「このファイルに
+ * @media (prefers-color-scheme: dark) ブロックを足すだけ」で済む
+ * (components/Logo.css が既に取っていた流儀を、アプリ全体へ広げたもの)。
+ *
+ * この段では**値を一切変えていない**。すべて置換前のライト値そのままで、
+ * ダーク値はまだ入れない(次段)。ブランド4色の正は /brand/README.md。
+ *
+ * 命名: --c-<役割>[-<強さ/バリエーション>]。
+ *   面 = bg / surface 系、文字 = ink 系、線 = line 系、それ以外は用途名。
+ * 同じライト値でも「ダークで別方向に動くべき役割」は別トークンに分けてある
+ * (例: #ffffff の面 --c-surface と、色塗りの上に載る文字 --c-on-color)。
+ */
+:root {
+  /* ---- 面 ---- */
+
+  /* 生成り。ペイン/モーダル/オーバーレイの地色 (CalendarPane, SettingsModal, GitHubPane ほか) */
+  --c-bg: #faf7f2;
+  /* カード・ボタン・入力欄の面。body の背景もこれ (index.css) */
+  --c-surface: #ffffff;
+  /* 一段沈んだ面。セクション見出し帯・バッジ地・スケルトンの下地 */
+  --c-surface-2: #f0ece3;
+  /* ごく浅く沈めた面。GitHubPane の入れ子カード・SettingsModal の内側ブロック */
+  --c-surface-3: #fbfaf7;
+  /* グレー系ボタンの hover 面 (ツールバー・HourHeightControl。生成り系より一段冷たい既存トーン) */
+  --c-surface-hover: #f3f4f6;
+  /* 行の hover/選択面 (SearchOverlay の結果行) */
+  --c-surface-active: #f5f1e8;
+  /* 予定ブロックの地色。カレンダー色を持たない Busy ハッチの下地 (EventBlock) */
+  --c-event-bg: #f4f1ea;
+  /* スケルトン(読み込み中)のハイライト。--c-surface-2 との間を流れる (GitHubPane) */
+  --c-skeleton-hi: #f7f4ee;
+
+  /* ---- 文字 (ink) ---- */
+
+  /* 墨。本文・見出し */
+  --c-ink: #24211e;
+  /* 墨のベタ塗り面。ツールチップ・主ボタンの背景 (文字側 --c-ink とは逆方向に動くので分離) */
+  --c-ink-fill: #24211e;
+  /* 杢。二次テキスト(説明文・メタ情報) */
+  --c-ink-mute: #55504a;
+  /* GitHubPane の issue/PR タイトル。--c-ink-mute-3 とは 1桁違いの別値だが、この段では
+     値を変えない方針なので寄せずに別トークンにしてある(統合の可否は次段で判断) */
+  --c-ink-mute-2: #6b655c;
+  /* MonthView の不在チップ文字。--c-ink-mute-2 と同上の関係 */
+  --c-ink-mute-3: #6b665c;
+  /* 薄墨。三次テキスト・控えめなアイコン・不在(OOO)の既定色 */
+  --c-ink-sub: #8a8478;
+  /* さらに薄い文字。プレースホルダ・空状態・無効ボタンの枠 */
+  --c-ink-faint: #cfc8ba;
+  /* 区切りグリフ("—" など)。--c-ink-faint より一段薄い */
+  --c-ink-faint-2: #b8b2a6;
+  /* 補足の小さな注記(ヒント文) */
+  --c-ink-hint: #b3ac9d;
+  /* 無効・当月外の日付など「読ませない」文字 */
+  --c-ink-disabled: #c9c2b4;
+  /* 実績レポートの空欄ダッシュ。--c-ink-disabled と近いが別値なので分けてある */
+  --c-ink-quiet: #c7c1b4;
+
+  /* ---- 濃い塗りの上に載る文字 ---- */
+
+  /* 生成り。墨/朱のベタ塗り(ツールチップ・主ボタン・今日バッジ)の上の文字 */
+  --c-on-ink: #faf7f2;
+  /* ツールチップ内の副次テキスト(時刻レンジ) */
+  --c-on-ink-2: #d6d0c4;
+  /* ツールチップ内の三次テキスト(場所) */
+  --c-on-ink-3: #a39c8c;
+  /* 白。カレンダー色・GitHub 紫/緑など「データ由来の色」の塗りの上の文字。
+     面の白 (--c-surface) と同値だがダークでは別方向に動くので分離 */
+  --c-on-color: #ffffff;
+
+  /* ---- 線 ---- */
+
+  /* 罫線の既定。枠線・区切り線・時間罫線 */
+  --c-line: #e5e7eb;
+  /* 生成り系の面どうしを分ける区切り線(モーダルのヘッダー/フッター境界) */
+  --c-line-warm: #f0ece3;
+  /* ごく薄い区切り(SettingsModal の項目間) */
+  --c-line-faint: #f7f4ee;
+  /* --c-line-faint より一段はっきりした区切り(SettingsModal 下部) */
+  --c-line-soft: #e9e4da;
+  /* 破線の区切り(TimeReportOverlay の列区切り) */
+  --c-line-dash: #d8d2c4;
+
+  /* ---- ブランド (正は /brand/README.md) ---- */
+
+  /* 朱。アクセントはこれひとつ。フォーカスリング・主ボタン・今日 */
+  --c-accent: #d7402e;
+  /* 朱の押し込み/フォーカス時の濃い方 (HourHeightControl) */
+  --c-accent-strong: #b8321f;
+  /* 朱の淡い地の上に置く文字色(濃い朱茶) */
+  --c-accent-ink: #7a3226;
+  /* 朱の淡い地。警告バナー・強調バッジ */
+  --c-accent-soft: #f6e3dc;
+  /* 朱の淡い地に添える枠線 */
+  --c-accent-soft-line: #f0d3ce;
+  /* 薄墨の枡。ふつうの日の枡・勤務場所バー・区切りの塗り (= --logo-usuzumi) */
+  --c-masu: #dcd6c9;
+  /* 空枡(未完了/オフライン)の枠線。masu.css 専用 ―― ダークでは枡の色として動くべきで、
+     文字の --c-ink-faint とは別方向になるため同値でも分けてある */
+  --c-masu-line: #cfc8ba;
+
+  /* ---- 状態色 ---- */
+
+  /* GitHub PR の緑 / 実績レポートの凡例 */
+  --c-success: #0b8043;
+  /* 緑の淡い地(GitHubPane の完了バッジ) */
+  --c-success-soft: #eef2e7;
+  /* CI success マーク。GitHub Actions のチェック色に合わせた別文脈の緑 */
+  --c-ci-success: #1a7f37;
+  /* CI success マークの hover */
+  --c-ci-success-hover: #156c2e;
+  /* CI failure。朱と混同させないための、色相をずらしたくすんだ赤茶 */
+  --c-ci-failure: #8b3a3a;
+  /* エラー文言・現在時刻線 */
+  --c-danger: #ef4444;
+  /* エラー文言の強い方(RSVP 辞退など) */
+  --c-danger-strong: #b91c1c;
+  /* GitHub purple。issue・稼働中タイマー(朱は使わない文脈の識別色) */
+  --c-github: #6e5494;
+  /* GitHub release の青。milestone/issue/PR と混同しないための第4の識別色 */
+  --c-release: #0969da;
+
+  /* ---- 既存のグレー系 (ブランド以前からツールバー等で使っている Tailwind 系トーン) ---- */
+
+  /* ツールバー・ボタンの文字 */
+  --c-ui-ink: #374151;
+  /* 予定タイトルなど、やや強い文字 */
+  --c-ui-ink-strong: #1f2937;
+  /* body の既定文字色 */
+  --c-ui-ink-max: #111827;
+  /* 月ラベル・時間軸ラベル */
+  --c-ui-ink-mute: #6b7280;
+  /* 無効ボタン・グリッドの時刻目盛り・ドラッグゴーストの枠 */
+  --c-ui-ink-faint: #9ca3af;
+  /* ドラッグ中の時刻バッジの塗り。--c-ui-ink-max と同値だが面なので分けてある */
+  --c-badge-fill: #111827;
+
+  /* ---- 効果 (影・幕・淡いティント) ---- */
+
+  /* 影の色。墨と同値だが、ダークでは影は暗いままにすべきなので分けてある */
+  --c-shadow: #24211e;
+  /* ドラッグ中の強い影。ロゴ/墨より黒に寄せた既存トーン */
+  --c-shadow-hard: #000000;
+  /* モーダルの背後を覆う幕。墨と同値だが役割が違う */
+  --c-scrim: #24211e;
+  /* カレンダー色の塗りを白で薄める幕(EventBlock/PlannedBlock の内側パーツ) */
+  --c-veil: #ffffff;
+  /* セルの hover ティント。既存の青系極薄トーン (MonthView/WeekGrid) */
+  --c-hover-tint: #2563eb;
+
+  /* ---- JS から渡る色のフォールバック (layout/eventColors.ts) ---- */
+
+  /* Busy プレースホルダの色が解決できないときのグレー */
+  --c-busy-fallback: #c9c2b4;
+  /* カレンダー色が未解決のときの中立グレー */
+  --c-unknown-calendar: #9ca3af;
+
+  /*
+   * ---- 半透明で使う色の RGB 成分 ----
+   *
+   * なぜ hex トークンと二重に持つのか: 半透明の指定は `rgba(var(--x-rgb), .28)` の形
+   * ―― つまり**レガシーな rgba()** のまま書く必要があるため。
+   * `color-mix(in srgb, C 28%, transparent)` や `rgb(from C r g b / .28)` は「値」としては
+   * rgba() と完全に同じ色に解決される(canvas で全ケース一致を確認済み)が、
+   * ブラウザの**描画時の合成経路が違い**、実測で 102 ケース中 26 ケースが 1/255 だけ
+   * ずれた(Chrome 131 実測。色差は肉眼では見えないがピクセル差分は 0 にならない)。
+   * 第1段の約束は「1px も見た目を変えない」なので、alpha 付きだけは rgba() を維持する。
+   *
+   * ダーク値を入れる段では、上の hex トークンと**必ず対で**更新すること。
+   */
+  --c-shadow-rgb: 36, 33, 30; /* = --c-shadow */
+  --c-shadow-hard-rgb: 0, 0, 0; /* = --c-shadow-hard */
+  --c-scrim-rgb: 36, 33, 30; /* = --c-scrim */
+  --c-veil-rgb: 255, 255, 255; /* = --c-veil */
+  --c-hover-tint-rgb: 37, 99, 235; /* = --c-hover-tint */
+  --c-bg-rgb: 250, 247, 242; /* = --c-bg */
+  --c-line-rgb: 229, 231, 235; /* = --c-line */
+  --c-ink-sub-rgb: 138, 132, 120; /* = --c-ink-sub */
+  --c-accent-rgb: 215, 64, 46; /* = --c-accent */
+  --c-github-rgb: 110, 84, 148; /* = --c-github */
+  --c-ci-failure-rgb: 139, 58, 58; /* = --c-ci-failure */
+  --c-ui-ink-faint-rgb: 156, 163, 175; /* = --c-ui-ink-faint */
+}

@@ -1,12 +1,12 @@
 /*
  * 予定 vs 実績レポート(docs/github-integration.md「時間計測」増分2)。BlockRulesOverlay.css と
- * 同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・生成り #faf7f2)を踏襲する。
+ * 同じブランドトークン(墨 --c-ink・杢 --c-ink-sub・罫線 --c-line・生成り --c-bg)を踏襲する。
  * 予定=GitHub purple・実績=緑(PR の色と揃える)の2色バーで比率を示し、朱は使わない。
  */
 .time-report-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -18,10 +18,10 @@
   width: min(640px, calc(100vw - 32px));
   max-height: min(88vh, 720px);
   overflow-y: auto;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
   text-align: left;
 }
@@ -32,13 +32,13 @@
   justify-content: space-between;
   margin-bottom: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .time-report-title {
   font-size: 15px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .time-report-header-actions {
@@ -49,9 +49,9 @@
 
 /* CSV エクスポート(実績 UX 刷新 2026-07-23、旧 GitHubPane 実績セクションから移設)。 */
 .time-report-csv-btn {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #55504a;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-ink-mute);
   font: inherit;
   font-size: 11px;
   font-weight: 600;
@@ -61,17 +61,17 @@
 }
 
 .time-report-csv-btn:hover:not(:disabled) {
-  border-color: #cfc8ba;
-  color: #24211e;
+  border-color: var(--c-ink-faint);
+  color: var(--c-ink);
 }
 
 .time-report-csv-btn:disabled {
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
   cursor: default;
 }
 
 .time-report-csv-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -80,26 +80,26 @@
   background: none;
   font-size: 18px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 2px 4px;
 }
 
 .time-report-close:hover {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .time-report-description {
   margin: 12px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .time-report-empty {
   margin: 16px 0 0;
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .time-report-table {
@@ -112,14 +112,14 @@
 .time-report-table th {
   text-align: left;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
   padding: 4px 8px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
 }
 
 .time-report-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
   vertical-align: middle;
 }
 
@@ -145,7 +145,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #24211e;
+  color: var(--c-ink);
   text-decoration: none;
   font-weight: 500;
 }
@@ -156,14 +156,14 @@
 
 .time-report-item-repo {
   font-size: 10px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .time-report-bar-track {
   position: relative;
   height: 5px;
   border-radius: 3px;
-  background: #f0ece3;
+  background: var(--c-surface-2);
   overflow: hidden;
 }
 
@@ -178,11 +178,11 @@
 }
 
 .time-report-bar--planned {
-  background: #6e5494;
+  background: var(--c-github);
 }
 
 .time-report-bar--actual {
-  background: #0b8043;
+  background: var(--c-success);
 }
 
 /*
@@ -192,16 +192,16 @@
  * (推定列のイタリック・淡色とは対照的に、実績列に近いトーン)。
  */
 .time-report-col-hook {
-  border-left: 1px dashed #d8d2c4;
+  border-left: 1px dashed var(--c-line-dash);
   width: 72px;
 }
 
 .time-report-hook-value {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .time-report-hook-empty {
-  color: #c7c1b4;
+  color: var(--c-ink-quiet);
 }
 
 /*
@@ -210,16 +210,16 @@
  * 分かるようにする(実績列の実線罫線・墨色の数字とは対照的に)。
  */
 .time-report-col-estimate {
-  border-left: 1px dashed #d8d2c4;
+  border-left: 1px dashed var(--c-line-dash);
   width: 72px;
 }
 
 .time-report-estimate-value {
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-style: italic;
 }
 
 .time-report-estimate-empty {
-  color: #c7c1b4;
+  color: var(--c-ink-quiet);
 }
 

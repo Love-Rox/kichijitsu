@@ -1,13 +1,13 @@
 /*
  * ミニ月カレンダー(左ペイン増分2、2026-07-22)。CalendarPane 最上部に常設する
  * 小さな月グリッド。配色は MonthView.css/CalendarPane.css と揃える
- * (アクセント #d7402e、薄墨 #8a8478、地色 #faf7f2、罫線 #e5e7eb/#f0ece3)。
+ * (アクセント --c-accent、薄墨 --c-ink-sub、地色 --c-bg、罫線 --c-line/--c-surface-2)。
  */
 .mini-month {
   flex: none;
   margin-bottom: 14px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .mini-month-header {
@@ -20,13 +20,13 @@
 .mini-month-title {
   font-size: 12px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .mini-month-nav-btn {
   border: none;
   background: none;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-size: 12px;
   line-height: 1;
   padding: 4px 6px;
@@ -35,12 +35,12 @@
 }
 
 .mini-month-nav-btn:hover {
-  color: #24211e;
-  background: #f0ece3;
+  color: var(--c-ink);
+  background: var(--c-surface-2);
 }
 
 .mini-month-nav-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -53,7 +53,7 @@
 .mini-month-weekday {
   text-align: center;
   font-size: 9px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   padding-bottom: 2px;
 }
 
@@ -71,27 +71,27 @@
 }
 
 .mini-month-day:hover {
-  background: #f0ece3;
+  background: var(--c-surface-2);
 }
 
 .mini-month-day:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
 
 /* 当月外(前後月の埋め日)は淡色にして後退させる(MonthView.css の月外表現と揃える) */
 .mini-month-day--outside .mini-month-day-num {
-  color: #c9c2b4;
+  color: var(--c-ink-disabled);
 }
 
 /* メインが現在表示中の範囲(タイムラインの表示日 or 月) ―― 淡いハイライト */
 .mini-month-day--active {
-  background: rgba(215, 64, 46, 0.08);
+  background: rgba(var(--c-accent-rgb), 0.08);
 }
 
 .mini-month-day-num {
   font-size: 10.5px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 /*
@@ -106,11 +106,11 @@
   width: 15px;
   height: 15px;
   border-radius: 30%;
-  background: #d7402e;
-  color: #faf7f2;
+  background: var(--c-accent);
+  color: var(--c-on-ink);
   font-weight: 600;
 }
 
 .mini-month-day--outside .mini-month-day-num.is-today {
-  color: #faf7f2;
+  color: var(--c-on-ink);
 }

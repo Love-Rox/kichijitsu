@@ -117,7 +117,7 @@ export function AllDayBar({
       : isNeedsAction
         ? ({ "--rsvp-color": displayColor } as CSSProperties)
         : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 18%, white)`,
+            backgroundColor: `color-mix(in srgb, ${displayColor} 18%, var(--c-surface))`,
             borderLeftColor: displayColor,
           }),
   };

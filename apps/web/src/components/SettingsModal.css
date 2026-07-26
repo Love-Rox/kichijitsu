@@ -1,14 +1,14 @@
 /*
  * 設定モーダル(UI 改善、2026-07-22)。BlockRulesOverlay.css/TimeReportOverlay.css と同じ
- * 画面中央固定のモーダル構成・ブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
- * 生成り #faf7f2)を踏襲する。旧 CalendarSettingsPanel.css のアンカー式ポップオーバー
+ * 画面中央固定のモーダル構成・ブランドトークン(墨 --c-ink・杢 --c-ink-sub・罫線 --c-line・
+ * 生成り --c-bg)を踏襲する。旧 CalendarSettingsPanel.css のアンカー式ポップオーバー
  * (position: absolute, width: 300px)は廃止 ―― 幅は要件どおり max-width 560px 程度に広げ、
  * 縦スクロール可・狭幅ではほぼ全幅にする。
  */
 .settings-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -20,10 +20,10 @@
   width: min(560px, calc(100vw - 32px));
   max-height: min(88vh, 720px);
   overflow-y: auto;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
   text-align: left;
 }
@@ -34,13 +34,13 @@
   justify-content: space-between;
   margin-bottom: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .settings-modal-title {
   font-size: 15px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .settings-modal-close {
@@ -48,20 +48,20 @@
   background: none;
   font-size: 18px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 2px 4px;
 }
 
 .settings-modal-close:hover {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 /* セクション見出し付き区切り(BlockRulesOverlay の .block-rules-section と同じ流儀) */
 .settings-modal-section {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
 }
 
 .settings-modal-section:first-of-type {
@@ -72,32 +72,32 @@
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .settings-modal-section-desc {
   margin: 0 0 10px;
   font-size: 12px;
   line-height: 1.6;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .settings-modal-empty {
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   margin: 4px 0 10px;
 }
 
 .settings-modal-account + .settings-modal-account {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #f7f4ee;
+  border-top: 1px solid var(--c-line-faint);
 }
 
 .settings-modal-account-header {
   font-size: 13px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -110,7 +110,7 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .settings-modal-text-btn {
@@ -118,23 +118,23 @@
   background: none;
   padding: 0;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .settings-modal-text-btn:hover:not(:disabled) {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .settings-modal-text-btn:disabled {
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
   cursor: default;
 }
 
 .settings-modal-error {
   font-size: 11px;
-  color: #ef4444;
+  color: var(--c-danger);
 }
 
 .settings-modal-add-account {
@@ -143,11 +143,11 @@
   margin-top: 10px;
   padding-top: 10px;
   border: none;
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
   background: none;
   font: inherit;
   font-size: 12px;
-  color: #d7402e;
+  color: var(--c-accent);
   text-align: left;
   cursor: pointer;
 }
@@ -166,7 +166,7 @@
   gap: 6px;
   margin: 6px 0 0;
   font-size: 11px;
-  color: #d7402e;
+  color: var(--c-accent);
 }
 
 /* GitHub 連携セクション本体 */
@@ -175,7 +175,7 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .settings-modal-github-login {
@@ -191,7 +191,7 @@
   gap: 6px;
   margin: 6px 0 0;
   font-size: 11px;
-  color: #d7402e;
+  color: var(--c-accent);
 }
 
 /* MCP トークンセクション本体 */
@@ -210,7 +210,7 @@
 }
 
 .settings-modal-mcp-item + .settings-modal-mcp-item {
-  border-top: 1px solid #f7f4ee;
+  border-top: 1px solid var(--c-line-faint);
 }
 
 .settings-modal-mcp-item-main {
@@ -222,7 +222,7 @@
 
 .settings-modal-mcp-item-label {
   font-size: 13px;
-  color: #24211e;
+  color: var(--c-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -230,7 +230,7 @@
 
 .settings-modal-mcp-item-meta {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .settings-modal-mcp-form {
@@ -246,24 +246,24 @@
   font: inherit;
   font-size: 12px;
   padding: 4px 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 4px;
-  background: #fff;
-  color: #24211e;
+  background: var(--c-surface);
+  color: var(--c-ink);
 }
 
 .settings-modal-mcp-created {
   margin-top: 10px;
   padding: 10px;
-  border: 1px solid #f0ece3;
+  border: 1px solid var(--c-line-warm);
   border-radius: 6px;
-  background: #fbfaf7;
+  background: var(--c-surface-3);
 }
 
 .settings-modal-mcp-warning {
   margin: 0 0 8px;
   font-size: 11px;
-  color: #d7402e;
+  color: var(--c-accent);
 }
 
 .settings-modal-mcp-token-row {
@@ -279,8 +279,8 @@
   overflow-wrap: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: #24211e;
-  background: #f0ece3;
+  color: var(--c-ink);
+  background: var(--c-surface-2);
   padding: 4px 6px;
   border-radius: 4px;
 }
@@ -288,7 +288,7 @@
 .settings-modal-mcp-hint {
   margin: 0 0 8px;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   line-height: 1.5;
 }
 
@@ -304,17 +304,17 @@
   gap: 12px;
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
 }
 
 .settings-modal-legal a {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   text-decoration: none;
 }
 
 .settings-modal-legal a:hover {
-  color: #24211e;
+  color: var(--c-ink);
   text-decoration: underline;
 }
 
@@ -322,7 +322,7 @@
 .settings-build-info {
   margin: 6px 0 0;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 @media (max-width: 640px) {
@@ -341,14 +341,14 @@
 .settings-modal-gh-path {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e9e4da;
+  border-top: 1px solid var(--c-line-soft);
 }
 
 .settings-modal-gh-path-label {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
   margin-bottom: 6px;
 }
 
@@ -364,21 +364,21 @@
   font: inherit;
   font-size: 13px;
   padding: 7px 10px;
-  border: 1px solid #dcd6c9;
+  border: 1px solid var(--c-masu);
   border-radius: 8px;
-  background: #fff;
-  color: #24211e;
+  background: var(--c-surface);
+  color: var(--c-ink);
 }
 
 .settings-modal-gh-path-input:focus-visible {
-  outline: 2px solid #d7402e;
+  outline: 2px solid var(--c-accent);
   outline-offset: 1px;
-  border-color: #d7402e;
+  border-color: var(--c-accent);
 }
 
 .settings-modal-gh-path-hint {
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.6;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }

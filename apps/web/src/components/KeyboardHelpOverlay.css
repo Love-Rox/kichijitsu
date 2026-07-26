@@ -7,7 +7,7 @@
 .keyboard-help-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -18,10 +18,10 @@
   width: min(360px, calc(100vw - 32px));
   max-height: min(480px, calc(100vh - 64px));
   overflow-y: auto;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(36, 33, 30, 0.16);
+  box-shadow: 0 10px 28px rgba(var(--c-shadow-rgb), 0.16);
   padding: 16px;
   text-align: left;
 }
@@ -32,13 +32,13 @@
   justify-content: space-between;
   margin-bottom: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .keyboard-help-title {
   font-size: 13px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .keyboard-help-close {
@@ -46,13 +46,13 @@
   background: none;
   font-size: 16px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 2px 4px;
 }
 
 .keyboard-help-close:hover {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .keyboard-help-list {
@@ -70,7 +70,7 @@
 }
 
 .keyboard-help-row + .keyboard-help-row {
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
 }
 
 .keyboard-help-keys {
@@ -82,7 +82,7 @@
 .keyboard-help-key-sep {
   margin: 0 3px;
   font-size: 11px;
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
 }
 
 .keyboard-help-kbd {
@@ -92,9 +92,9 @@
   font: inherit;
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #55504a;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  color: var(--c-ink-mute);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
   border-bottom-width: 2px;
   border-radius: 4px;
   padding: 2px 6px;
@@ -102,7 +102,7 @@
 
 .keyboard-help-label {
   font-size: 13px;
-  color: #24211e;
+  color: var(--c-ink);
   text-align: right;
 }
 

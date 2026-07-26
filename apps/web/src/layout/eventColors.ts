@@ -26,11 +26,18 @@ export interface CalendarColorInfo {
   backgroundColor?: string;
 }
 
+/*
+ * ここのフォールバック2つは「カレンダー由来のデータの色」ではなく UI のトーンなので、
+ * ダークで反転すべき側。リテラルではなく theme.css のトークン参照を文字列で持たせて
+ * CSS 側に解決させる(inline style / CSS カスタムプロパティのどちらに渡しても var() は効く)。
+ * Google のカレンダー色そのもの(resolveDisplayColor の戻り値)は従来どおり触らない。
+ */
+
 /** Busy プレースホルダの色が解決できない/不正なときのフォールバック(従来の一律グレー) */
-export const BUSY_FALLBACK_COLOR = "#c9c2b4";
+export const BUSY_FALLBACK_COLOR = "var(--c-busy-fallback)";
 
 /** カレンダー色が未解決/不正なときの中立フォールバック(EventDetailCard の既存デフォルトと揃える) */
-export const UNKNOWN_CALENDAR_COLOR = "#9ca3af";
+export const UNKNOWN_CALENDAR_COLOR = "var(--c-unknown-calendar)";
 
 /** 集約ストライプの既定上限本数。超過分は最後の1本にまとめる */
 const DEFAULT_MAX_STRIPES = 5;

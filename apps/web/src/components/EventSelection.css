@@ -6,7 +6,9 @@
  * EventBlock.tsx / PlannedBlock.tsx の双方から読み込む(同じ CSS を2回 import しても
  * バンドラが1回にまとめるため重複しない)。既存の EventBlock.css / PlannedBlock.css を
  * 直接編集せず新規ファイルに分けてあるのは、既存 CSS 側で別途トークン化作業が
- * 進行しているため(競合回避)。色は既存の朱 #d7402e / 墨 #24211e をそのまま使う。
+ * 進行しているため(競合回避)。色は既存の朱 --c-accent / 墨 --c-shadow をそのまま使う
+ * (色のトークン化 2026-07-26 でリテラルから theme.css のトークン参照へ差し替え済み。
+ * 値は変わっていない)。
  *
  * クラスの出どころは layout/swipeNav.ts(TAP_SELECT_CARD_CLASS / SELECTED_CARD_CLASS)――
  * 同じ印を JS 側の判定(shouldIgnoreSwipeStart / shouldClearSelectionOnPointerDown)も
@@ -45,9 +47,9 @@
  */
 .event.is-tap-select.is-card-selected,
 .planned-block.is-tap-select.is-card-selected {
-  outline: 1.5px solid #d7402e;
+  outline: 1.5px solid var(--c-accent);
   outline-offset: -1.5px;
   box-shadow:
-    0 0 0 3px rgba(215, 64, 46, 0.16),
-    0 2px 8px rgba(36, 33, 30, 0.24);
+    0 0 0 3px rgba(var(--c-accent-rgb), 0.16),
+    0 2px 8px rgba(var(--c-shadow-rgb), 0.24);
 }

@@ -7,8 +7,9 @@ import "./Logo.css";
  * コンセプト「枡の週」: 7つの枡=1週間、5番目(金)だけ朱の枡が押印のように傾いて載る。
  * 色は fill を直接持たず CSS クラス経由 (.logo-cell / .logo-cell--kichi、実体は
  * Logo.css の --logo-usuzumi / --logo-aka カスタムプロパティ) にしてある。
- * アプリ本体はまだライト固定なのでダーク値は未適用 (Logo.css 側にコメントで
- * 値を残してある) — ダークテーマ実装時はそちらに prefers-color-scheme を足すだけでよい。
+ * アプリ本体はまだライト固定なのでダーク値は未適用 — --logo-* は色のトークン化
+ * (2026-07-26) でアプリ全体のトークン層 src/theme.css を指す別名になったので、
+ * ダークテーマ実装時は theme.css に prefers-color-scheme を足すだけでよい。
  */
 export function LogoMark({ className }: { className?: string }) {
   return (
@@ -55,8 +56,11 @@ interface LogoWordmarkProps {
  * 固定パスに置き換えたことで、どの環境でも同一ジオメトリになる。
  *
  * - i の点3つ (x=62.08/206.23/259.36) = 正立した墨の枡、fill="currentColor"
- * - j の点 (x=231.15) = -8° 傾いた朱の枡、fill="#D7402E" 固定 (ブランドルール:
- *   j の枡は常にマーク併用時も朱のまま)
+ * - j の点 (x=231.15) = -8° 傾いた朱の枡 (ブランドルール: j の枡は常にマーク併用時も朱のまま)。
+ *   色のトークン化 (2026-07-26) で fill="#D7402E" のリテラルをやめ、LogoMark と同じく
+ *   CSS クラス経由 (.logo-wordmark-kichi → --logo-aka) にした ―― ライトでは同値なので
+ *   見た目は変わらず、ダーク配色を入れた段でブランドのダーク朱に自動で追従する。
+ *   presentation attribute (fill="var(...)") は var() が解決されないためクラスで当てる。
  */
 export function LogoWordmark({ className }: LogoWordmarkProps) {
   const classes = ["logo-wordmark", className].filter(Boolean).join(" ");
@@ -76,7 +80,7 @@ export function LogoWordmark({ className }: LogoWordmarkProps) {
         width="16.45"
         height="16.45"
         rx="3.62"
-        fill="#D7402E"
+        className="logo-wordmark-kichi"
         transform="rotate(-8 239.37 32.92)"
       />
     </svg>
