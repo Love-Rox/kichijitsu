@@ -8,7 +8,7 @@
  * ---- 予定タイムブロック (docs/github-integration.md「時間計測」増分1、2026-07-20) ----
  * 作業キューからグリッドへドラッグして作る、Google に一切書き戻さないローカル専用ブロック。
  * .event (Google 予定) と混同しないよう実線ではなく破線ボーダー + GitHub 連携の識別色
- * (issue=紫 #6e5494 / PR=緑 #0b8043、work-queue-item/github-item-chip と同じトーン、
+ * (issue=紫 --c-github / PR=緑 --c-success、work-queue-item/github-item-chip と同じトーン、
  * 朱は使わない) にする。.event のカスケード列と重ね計算を共有せず、DayColumn 内の
  * 独立レイヤ (.day-column-planned-layer) に絶対配置する — レイヤ自体は
  * pointer-events:none にして、カード外の背景クリック(新規予定作成トリガー)を妨げない。
@@ -18,13 +18,13 @@
   box-sizing: border-box;
   overflow: hidden;
   border-radius: 4px;
-  border: 1.5px dashed #6e5494;
-  background: color-mix(in srgb, #6e5494 10%, #faf7f2);
+  border: 1.5px dashed var(--c-github);
+  background: color-mix(in srgb, var(--c-github) 10%, var(--c-bg));
   /* delete(左端14px)+timer(その隣14px)ぶんの余白 */
   padding: 2px 4px 2px 32px;
   font-size: 11px;
   line-height: 1.35;
-  color: #24211e;
+  color: var(--c-ink);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -32,17 +32,17 @@
 }
 
 .planned-block--pr {
-  border-color: #0b8043;
-  background: color-mix(in srgb, #0b8043 10%, #faf7f2);
+  border-color: var(--c-success);
+  background: color-mix(in srgb, var(--c-success) 10%, var(--c-bg));
 }
 
 .planned-block:hover {
   z-index: 700 !important;
-  box-shadow: 0 4px 12px rgba(36, 33, 30, 0.2);
+  box-shadow: 0 4px 12px rgba(var(--c-shadow-rgb), 0.2);
 }
 
 .planned-block.planned-block--dragging {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 6px 16px rgba(var(--c-shadow-hard-rgb), 0.25);
   opacity: 0.92;
   cursor: grabbing;
   z-index: 1000 !important;
@@ -58,16 +58,16 @@
 }
 
 .planned-block.planned-block--timer-running.planned-block--pr {
-  border-color: #0b8043;
+  border-color: var(--c-success);
 }
 
 @keyframes planned-block-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, #6e5494 35%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-github) 35%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, #6e5494 0%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-github) 0%, transparent);
   }
 }
 
@@ -82,8 +82,8 @@
   justify-content: center;
   border: none;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.75);
-  color: #8a8478;
+  background: rgba(var(--c-veil-rgb), 0.75);
+  color: var(--c-ink-sub);
   font-size: 10px;
   line-height: 1;
   cursor: pointer;
@@ -91,8 +91,8 @@
 }
 
 .planned-block-delete:hover {
-  color: #d7402e;
-  background: #fff;
+  color: var(--c-accent);
+  background: var(--c-surface);
 }
 
 /* ▶/⏹ ボタン。delete ボタンのすぐ右隣、同じ「小さな枠外アイコン」の見た目に揃える */
@@ -107,8 +107,8 @@
   justify-content: center;
   border: none;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.75);
-  color: #6e5494;
+  background: rgba(var(--c-veil-rgb), 0.75);
+  color: var(--c-github);
   font-size: 9px;
   line-height: 1;
   cursor: pointer;
@@ -116,23 +116,23 @@
 }
 
 .planned-block-timer:hover {
-  background: #fff;
+  background: var(--c-surface);
 }
 
 .planned-block-timer.is-running {
-  background: #6e5494;
-  color: #fff;
+  background: var(--c-github);
+  color: var(--c-on-color);
 }
 
 .planned-block-link {
   font-weight: 700;
-  color: #6e5494;
+  color: var(--c-github);
   text-decoration: none;
   margin-right: 3px;
 }
 
 .planned-block--pr .planned-block-link {
-  color: #0b8043;
+  color: var(--c-success);
 }
 
 .planned-block-link:hover {
@@ -151,7 +151,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 9px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .planned-block-resize-handle {

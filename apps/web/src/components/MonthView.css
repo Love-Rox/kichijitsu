@@ -1,7 +1,7 @@
 /*
  * 月表示ビュー(フェーズ6)。WeekGrid とは違い横スクロール/週送りスライドを持たない
  * 固定 6週×7列グリッド。色トークンは WeekGrid.css/App.css と揃える
- * (アクセント #d7402e、薄墨 #8a8478、罫線 #e5e7eb)。
+ * (アクセント --c-accent、薄墨 --c-ink-sub、罫線 --c-line)。
  */
 
 .month-view {
@@ -15,14 +15,14 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
 }
 
 .month-view-weekday {
   padding: 6px 0;
   text-align: center;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--c-ui-ink-mute);
 }
 
 .month-view-grid {
@@ -47,27 +47,27 @@
   flex-direction: column;
   gap: 2px;
   padding: 3px;
-  border-left: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
   overflow: hidden;
   cursor: pointer;
 }
 
 .month-cell:hover {
-  background-color: rgba(37, 99, 235, 0.03);
+  background-color: rgba(var(--c-hover-tint-rgb), 0.03);
 }
 
 /* 当月外(前後月の埋め日)は日付・チップとも淡色にして視覚的に後退させる */
 .month-cell--outside {
-  background-color: rgba(229, 231, 235, 0.28);
+  background-color: rgba(var(--c-line-rgb), 0.28);
 }
 
 .month-cell--outside .month-cell-date {
-  color: #c9c2b4;
+  color: var(--c-ink-disabled);
 }
 
 .month-cell--today {
-  background-color: rgba(215, 64, 46, 0.04);
+  background-color: rgba(var(--c-accent-rgb), 0.04);
 }
 
 .month-cell-header {
@@ -78,7 +78,7 @@
 
 .month-cell-date {
   font-size: 11px;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 /* 今日バッジ = WeekGrid の枡バッジ(brand/README.md)を月表示用に縮小したもの */
@@ -90,8 +90,8 @@
   height: 16px;
   padding: 0 3px;
   border-radius: 30%;
-  background: #d7402e;
-  color: #faf7f2;
+  background: var(--c-accent);
+  color: var(--c-on-ink);
   font-weight: 600;
 }
 
@@ -117,7 +117,7 @@
   font: inherit;
   font-size: 10.5px;
   line-height: 16px;
-  color: #24211e;
+  color: var(--c-ink);
   text-align: left;
   cursor: pointer;
 }
@@ -130,7 +130,7 @@
   flex: 0 0 auto;
   font-weight: 600;
   font-size: 10px;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .month-chip-title {
@@ -153,9 +153,9 @@
  * ユーザー決定)。タイトル先頭の "×" 接頭辞(MonthView.tsx 側)と合わせて見分ける。
  */
 .month-chip--ooo {
-  background-color: rgba(138, 132, 120, 0.12);
-  border-left-color: #8a8478;
-  color: #6b665c;
+  background-color: rgba(var(--c-ink-sub-rgb), 0.12);
+  border-left-color: var(--c-ink-sub);
+  color: var(--c-ink-mute-3);
 }
 
 /*
@@ -167,7 +167,7 @@
   background: none;
   border-left: none;
   padding-left: 4px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-size: 10px;
 }
 
@@ -195,11 +195,11 @@
   background: none;
   padding: 0 4px;
   font-size: 10px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
 }
 
 .month-chip-overflow:hover {
-  color: #24211e;
+  color: var(--c-ink);
   text-decoration: underline;
 }

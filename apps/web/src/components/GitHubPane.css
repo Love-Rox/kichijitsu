@@ -5,15 +5,15 @@
  * overlay モードでは使う。docked モードは position: fixed を使わず通常の flex アイテムとして
  * .app-main 内に並ぶ(App.css .app-main-calendar と flex サイドバイサイド、グリッド側が
  * flex-shrink する)。
- * 色は既存オーバーレイと同じブランドトークン(墨 #24211e・杢 #55504a・薄墨 #8a8478・
- * 罫線 #e5e7eb / #f0ece3・生成り #faf7f2・朱 --logo-aka)。GitHub の type バッジ色は
- * GitHubLane.tsx (WeekGrid.css) と揃える(issue=紫 #6e5494・PR=緑 #0b8043、
+ * 色は既存オーバーレイと同じブランドトークン(墨 --c-ink・杢 --c-ink-mute・薄墨 --c-ink-sub・
+ * 罫線 --c-line / --c-surface-2・生成り --c-bg・朱 --logo-aka)。GitHub の type バッジ色は
+ * GitHubLane.tsx (WeekGrid.css) と揃える(issue=紫 --c-github・PR=緑 --c-success、
  * brand/README.md「機能色の例外」)。
  */
 .github-pane-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.18);
+  background: rgba(var(--c-scrim-rgb), 0.18);
   z-index: 2000;
   display: flex;
   justify-content: flex-end;
@@ -23,7 +23,7 @@
 .github-pane {
   display: flex;
   flex-direction: column;
-  background: #faf7f2;
+  background: var(--c-bg);
   overflow: hidden;
 }
 
@@ -31,8 +31,8 @@
   width: min(420px, 100vw);
   max-width: min(420px, 100vw);
   height: 100%;
-  border-left: 1px solid #e5e7eb;
-  box-shadow: -20px 0 48px rgba(36, 33, 30, 0.24);
+  border-left: 1px solid var(--c-line);
+  box-shadow: -20px 0 48px rgba(var(--c-shadow-rgb), 0.24);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -62,7 +62,7 @@
   flex: 0 0 420px;
   width: 420px;
   height: 100%;
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
 }
 
 .github-pane-header {
@@ -72,13 +72,13 @@
   justify-content: space-between;
   gap: 8px;
   padding: 14px 16px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .github-pane-title {
   font-size: 15px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-actions {
@@ -94,7 +94,7 @@
   background: none;
   font-size: 16px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 6px;
@@ -103,19 +103,19 @@
 .github-pane-mode-btn:hover,
 .github-pane-close-btn:hover,
 .github-pane-refresh-btn:hover:not(:disabled) {
-  color: #24211e;
-  background: #f0ece3;
+  color: var(--c-ink);
+  background: var(--c-surface-2);
 }
 
 .github-pane-refresh-btn:disabled {
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
   cursor: default;
 }
 
 .github-pane-mode-btn:focus-visible,
 .github-pane-close-btn:focus-visible,
 .github-pane-refresh-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -141,7 +141,7 @@
 }
 
 .github-pane-section + .github-pane-section {
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
   padding-top: 12px;
 }
 
@@ -171,22 +171,22 @@
   padding: 3px 4px;
   border-radius: 6px;
   cursor: pointer;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-section-toggle:hover {
-  background: #f0ece3;
+  background: var(--c-surface-2);
 }
 
 .github-pane-section-toggle:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 1px;
 }
 
 .github-pane-section-caret {
   flex: none;
   font-size: 10px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   width: 10px;
 }
 
@@ -194,7 +194,7 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 /* 見出しに添える件数・合計(折りたたみ中でも中身の量が分かるようにする) */
@@ -202,14 +202,14 @@
   margin-left: auto;
   flex: none;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .github-pane-section-meta-strong {
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .github-pane-section-body {
@@ -222,13 +222,13 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.6;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .github-pane-empty {
   margin: 0;
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .github-pane-auth-expired {
@@ -237,10 +237,10 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
-  background: #f6e3dc;
+  background: var(--c-accent-soft);
   border-radius: 8px;
   font-size: 12px;
-  color: #7a3226;
+  color: var(--c-accent-ink);
 }
 
 .github-pane-auth-expired p {
@@ -252,8 +252,8 @@
   flex: none;
   border: none;
   border-radius: 6px;
-  background: var(--logo-aka, #d7402e);
-  color: #fff;
+  background: var(--c-accent);
+  color: var(--c-on-color);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -262,7 +262,7 @@
 }
 
 .github-pane-reconnect-btn:focus-visible {
-  outline: 2px solid #7a3226;
+  outline: 2px solid var(--c-accent-ink);
   outline-offset: 2px;
 }
 
@@ -270,7 +270,7 @@
   margin: 16px 0;
   text-align: center;
   font-size: 13px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 /* kind (review_requested/assigned/authored) ごとのグループ。github-pane-section (トップレベルの
@@ -285,13 +285,13 @@
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .github-pane-kind-empty {
   margin: 0;
   font-size: 12px;
-  color: #b3ac9d;
+  color: var(--c-ink-hint);
 }
 
 .github-pane-item-list {
@@ -326,23 +326,23 @@
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--c-surface);
   text-decoration: none;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-item:hover {
-  border-color: #6e5494;
+  border-color: var(--c-github);
 }
 
 .github-pane-item--pr:hover {
-  border-color: #0b8043;
+  border-color: var(--c-success);
 }
 
 .github-pane-item:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -351,11 +351,11 @@
   margin-top: 1px;
   font-size: 10px;
   font-weight: 700;
-  color: #6e5494;
+  color: var(--c-github);
 }
 
 .github-pane-item--pr .github-pane-item-kind {
-  color: #0b8043;
+  color: var(--c-success);
 }
 
 .github-pane-item-main {
@@ -377,7 +377,7 @@
 
 .github-pane-item-meta {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -393,7 +393,7 @@
 .github-pane-skeleton-line {
   height: 44px;
   border-radius: 8px;
-  background: linear-gradient(90deg, #f0ece3 0%, #f7f4ee 50%, #f0ece3 100%);
+  background: linear-gradient(90deg, var(--c-surface-2) 0%, var(--c-skeleton-hi) 50%, var(--c-surface-2) 100%);
   background-size: 200% 100%;
 }
 
@@ -417,7 +417,7 @@
 }
 
 /* ── 実行中タイマー(旧 WorkLogModal のタイマー節、2026-07-25 に移設)────────────────
-   種別バッジ色は作業キュー行と同じ(issue=紫 #6e5494 / PR=緑 #0b8043)。 */
+   種別バッジ色は作業キュー行と同じ(issue=紫 --c-github / PR=緑 --c-success)。 */
 .github-pane-timer-list {
   list-style: none;
   margin: 0;
@@ -432,11 +432,11 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px 6px 10px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
   border-radius: 8px;
   font-size: 12px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-timer-link {
@@ -457,18 +457,18 @@
   flex: none;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
+  color: var(--c-on-color);
   border-radius: 4px;
   padding: 1px 5px;
   line-height: 1.4;
 }
 
 .github-pane-timer-link--issue .github-pane-timer-kind {
-  background: #6e5494;
+  background: var(--c-github);
 }
 
 .github-pane-timer-link--pr .github-pane-timer-kind {
-  background: #0b8043;
+  background: var(--c-success);
 }
 
 .github-pane-timer-main {
@@ -487,7 +487,7 @@
 
 .github-pane-timer-meta {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -497,7 +497,7 @@
   flex: none;
   font-size: 11px;
   font-weight: 600;
-  color: #0b8043;
+  color: var(--c-success);
   font-variant-numeric: tabular-nums;
 }
 
@@ -505,29 +505,29 @@
 .github-pane-timer-btn {
   flex: none;
   align-self: center;
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1;
   padding: 5px 8px;
   cursor: pointer;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .github-pane-timer-btn:hover {
-  background: #f0ece3;
-  color: #24211e;
+  background: var(--c-surface-2);
+  color: var(--c-ink);
 }
 
 .github-pane-timer-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 1px;
 }
 
 .github-pane-timer-btn--stop {
-  color: var(--logo-aka, #d7402e);
-  border-color: #f0d3ce;
+  color: var(--c-accent);
+  border-color: var(--c-accent-soft-line);
 }
 
 /* ── フォーム(手動記録・インライン編集で共有、2026-07-25 に移設)─────────────────
@@ -550,29 +550,29 @@
 .github-pane-label {
   font-size: 11px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .github-pane-input {
   font: inherit;
   font-size: 13px;
   padding: 6px 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 6px;
-  background: #fff;
-  color: #24211e;
+  background: var(--c-surface);
+  color: var(--c-ink);
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
 }
 
 .github-pane-input:disabled {
-  background: #f0ece3;
-  color: #8a8478;
+  background: var(--c-surface-2);
+  color: var(--c-ink-sub);
 }
 
 .github-pane-input:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 1px;
 }
 
@@ -580,7 +580,7 @@
 .github-pane-hint {
   font-size: 11px;
   line-height: 1.5;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .github-pane-submit-row {
@@ -593,8 +593,8 @@
 .github-pane-save-btn {
   border: none;
   border-radius: 8px;
-  background: var(--logo-aka, #d7402e);
-  color: #fff;
+  background: var(--c-accent);
+  color: var(--c-on-color);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -603,13 +603,13 @@
 }
 
 .github-pane-save-btn:disabled {
-  background: #dcd6c9;
-  color: #8a8478;
+  background: var(--c-masu);
+  color: var(--c-ink-sub);
   cursor: default;
 }
 
 .github-pane-save-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -619,28 +619,28 @@
   padding: 0;
   font: inherit;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .github-pane-text-btn:hover:not(:disabled) {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-text-btn:disabled {
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
   cursor: default;
 }
 
 .github-pane-text-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
 .github-pane-error {
   font-size: 11px;
-  color: #ef4444;
+  color: var(--c-danger);
 }
 
 /* ── 実績履歴(2026-07-25 に移設)────────────────────────────────────────────
@@ -655,9 +655,9 @@
 }
 
 .github-pane-group {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--c-surface);
   overflow: hidden;
 }
 
@@ -672,15 +672,15 @@
   text-align: left;
   padding: 9px 10px;
   cursor: pointer;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-group-summary:hover {
-  background: #fbfaf7;
+  background: var(--c-surface-3);
 }
 
 .github-pane-group-summary:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
 
@@ -688,7 +688,7 @@
   flex: none;
   margin-top: 2px;
   font-size: 10px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   width: 10px;
 }
 
@@ -720,13 +720,13 @@
    前に区切りを挟む。長いタイトルは見出し全体の ellipsis に任せる。 */
 .github-pane-group-heading-title {
   font-weight: 400;
-  color: #6b655c;
+  color: var(--c-ink-mute-2);
 }
 
 .github-pane-group-heading-title::before {
   content: "—";
   margin: 0 6px;
-  color: #b8b2a6;
+  color: var(--c-ink-faint-2);
 }
 
 .github-pane-group-meta {
@@ -735,21 +735,21 @@
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-variant-numeric: tabular-nums;
 }
 
 .github-pane-group-total {
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 /* 展開時の個別記録リスト(.github-pane-history-list を継承しつつ、グループ枠内の
    余白と上罫線を足す)。 */
 .github-pane-group-logs {
   padding: 8px 10px 10px;
-  border-top: 1px solid #f0ece3;
-  background: #fbfaf7;
+  border-top: 1px solid var(--c-line-warm);
+  background: var(--c-surface-3);
 }
 
 .github-pane-history-list {
@@ -768,16 +768,16 @@
   align-items: flex-start;
   gap: 4px;
   padding: 8px 10px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
   border-radius: 8px;
   font-size: 12px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .github-pane-history-item--editing {
   display: block;
-  background: #fbfaf7;
+  background: var(--c-surface-3);
 }
 
 .github-pane-history-main {
@@ -798,28 +798,28 @@
 
 .github-pane-history-issue {
   flex: none;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .github-pane-history-badge {
   flex: none;
   font-size: 10px;
   font-weight: 600;
-  color: #8a8478;
-  background: #f0ece3;
+  color: var(--c-ink-sub);
+  background: var(--c-surface-2);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
 }
 
 .github-pane-history-badge--manual {
-  color: #55504a;
-  background: #eef2e7;
+  color: var(--c-ink-mute);
+  background: var(--c-success-soft);
 }
 
 .github-pane-history-time {
   font-size: 11px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-variant-numeric: tabular-nums;
 }
 
@@ -830,17 +830,17 @@
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 /* 詳細レポート(予定 vs 実績、TimeReportOverlay)を開く導線。ペイン内で唯一モーダルを開く
    ボタンなので、セクションの外に独立して置く(2026-07-25、旧 WorkLogModal ヘッダーから移設)。 */
 .github-pane-report-btn {
   flex: none;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 8px;
-  background: #fff;
-  color: #55504a;
+  background: var(--c-surface);
+  color: var(--c-ink-mute);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -850,12 +850,12 @@
 }
 
 .github-pane-report-btn:hover {
-  border-color: #cfc8ba;
-  color: #24211e;
+  border-color: var(--c-ink-faint);
+  color: var(--c-ink);
 }
 
 .github-pane-report-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 

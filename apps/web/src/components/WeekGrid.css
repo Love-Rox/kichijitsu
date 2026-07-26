@@ -60,20 +60,20 @@
     to bottom,
     transparent 0,
     transparent calc(var(--hour-height) / 4 - 1px),
-    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) / 4 - 1px),
-    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) / 4),
+    rgba(var(--c-line-rgb), var(--hour-quarter-alpha)) calc(var(--hour-height) / 4 - 1px),
+    rgba(var(--c-line-rgb), var(--hour-quarter-alpha)) calc(var(--hour-height) / 4),
     transparent calc(var(--hour-height) / 4),
     transparent calc(var(--hour-height) / 2 - 1px),
-    rgba(229, 231, 235, 0.45) calc(var(--hour-height) / 2 - 1px),
-    rgba(229, 231, 235, 0.45) calc(var(--hour-height) / 2),
+    rgba(var(--c-line-rgb), 0.45) calc(var(--hour-height) / 2 - 1px),
+    rgba(var(--c-line-rgb), 0.45) calc(var(--hour-height) / 2),
     transparent calc(var(--hour-height) / 2),
     transparent calc(var(--hour-height) * 3 / 4 - 1px),
-    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4 - 1px),
-    rgba(229, 231, 235, var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4),
+    rgba(var(--c-line-rgb), var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4 - 1px),
+    rgba(var(--c-line-rgb), var(--hour-quarter-alpha)) calc(var(--hour-height) * 3 / 4),
     transparent calc(var(--hour-height) * 3 / 4),
     transparent calc(var(--hour-height) - 1px),
-    #e5e7eb calc(var(--hour-height) - 1px),
-    #e5e7eb var(--hour-height)
+    var(--c-line) calc(var(--hour-height) - 1px),
+    var(--c-line) var(--hour-height)
   );
   /*
    * スマホでのスワイプ日付移動(モバイル対応フェーズ2 増分、2026-07-22)。pan-y にすることで
@@ -92,7 +92,7 @@
   display: flex;
   flex: 0 0 auto;
   height: 44px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   /* 下の .week-grid-scroll と同じスクロールバー分の余白を確保し、列がズレないようにする */
   overflow-y: hidden;
   scrollbar-gutter: stable;
@@ -149,14 +149,14 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
   font-size: 12px;
-  color: #374151;
+  color: var(--c-ui-ink);
 }
 
 .week-grid-day-header .weekday {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--c-ui-ink-mute);
 }
 
 .week-grid-day-header .date {
@@ -166,7 +166,7 @@
 
 .week-grid-day-header.is-today .weekday {
   /* brand/README.md: アクセントは常に朱ひとつ。下の枡バッジと揃える */
-  color: #d7402e;
+  color: var(--c-accent);
 }
 
 /*
@@ -180,8 +180,8 @@
   width: 20px;
   height: 20px;
   border-radius: 26%;
-  background: #d7402e;
-  color: #faf7f2;
+  background: var(--c-accent);
+  color: var(--c-on-ink);
   transform: rotate(-8deg);
 }
 
@@ -200,7 +200,7 @@
 .week-grid-allday {
   display: flex;
   flex: 0 0 auto;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   overflow-y: hidden;
   scrollbar-gutter: stable;
 }
@@ -212,7 +212,7 @@
   justify-content: center;
   padding-top: 3px;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--c-ui-ink-faint);
 }
 
 .week-grid-allday-viewport {
@@ -245,7 +245,7 @@
 .week-grid-tasks {
   display: flex;
   flex: 0 0 auto;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   max-height: 30vh;
   overflow-y: auto;
 }
@@ -257,7 +257,7 @@
   justify-content: center;
   padding-top: 3px;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--c-ui-ink-faint);
 }
 
 .week-grid-tasks-viewport {
@@ -291,7 +291,7 @@
 .week-grid-github {
   display: flex;
   flex: 0 0 auto;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   max-height: 30vh;
   overflow-y: auto;
 }
@@ -303,7 +303,7 @@
   justify-content: center;
   padding-top: 3px;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--c-ui-ink-faint);
 }
 
 .week-grid-github-viewport {
@@ -353,7 +353,7 @@
   right: 8px;
   transform: translateY(-50%);
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--c-ui-ink-faint);
   white-space: nowrap;
 }
 
@@ -384,12 +384,12 @@
  */
 .week-grid-day-column {
   position: relative;
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
   background-image: var(--hour-grid-lines);
 }
 
 .week-grid-day-column.is-today {
-  background-color: rgba(37, 99, 235, 0.04);
+  background-color: rgba(var(--c-hover-tint-rgb), 0.04);
 }
 
 /*

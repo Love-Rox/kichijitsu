@@ -129,7 +129,10 @@ export function EventDetailCard({
           ? calendarLookup.get(calendarKey(m.accountId, m.calendarId))
           : undefined;
       return info
-        ? { key: m.id, color: info.backgroundColor ?? "#9ca3af", summary: info.summary }
+        ? // カレンダー色が無いときの中立グレーは UI のトーン(データの色ではない)なので
+          // theme.css のトークンを参照する ―― layout/eventColors.ts の
+          // UNKNOWN_CALENDAR_COLOR と同じ値・同じ意味
+          { key: m.id, color: info.backgroundColor ?? "var(--c-unknown-calendar)", summary: info.summary }
         : null;
     })
     .filter((info) => info !== null);

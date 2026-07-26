@@ -13,16 +13,16 @@
   gap: 5px;
   font: inherit;
   font-size: 13px;
-  border: 1px solid #6e5494;
-  background: rgba(110, 84, 148, 0.08);
-  color: #6e5494;
+  border: 1px solid var(--c-github);
+  background: rgba(var(--c-github-rgb), 0.08);
+  color: var(--c-github);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
 
 .running-timers-toggle:hover {
-  background: rgba(110, 84, 148, 0.16);
+  background: rgba(var(--c-github-rgb), 0.16);
 }
 
 /* TimerIcon (2026-07-22、旧 ⏱ 絵文字) + 件数を横並びで揃えるためだけの薄いラッパー */
@@ -36,7 +36,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #6e5494;
+  background: var(--c-github);
   animation: running-timers-pulse 1.8s ease-in-out infinite;
 }
 
@@ -60,10 +60,10 @@
   width: min(320px, calc(100vw - 32px));
   max-height: 320px;
   overflow-y: auto;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(36, 33, 30, 0.22);
+  box-shadow: 0 12px 32px rgba(var(--c-shadow-rgb), 0.22);
   padding: 6px;
 }
 
@@ -85,7 +85,7 @@
 }
 
 .running-timers-item:hover {
-  background: #f3f4f6;
+  background: var(--c-surface-hover);
 }
 
 .running-timers-item-label {
@@ -94,7 +94,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: #24211e;
+  color: var(--c-ink);
   text-decoration: none;
 }
 
@@ -105,7 +105,7 @@
 .running-timers-item-elapsed {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: #6e5494;
+  color: var(--c-github);
   white-space: nowrap;
 }
 
@@ -118,13 +118,13 @@
   border: none;
   border-radius: 4px;
   background: none;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   font-size: 11px;
   cursor: pointer;
   padding: 0;
 }
 
 .running-timers-item-stop:hover {
-  color: #24211e;
-  background: #fff;
+  color: var(--c-ink);
+  background: var(--c-surface);
 }

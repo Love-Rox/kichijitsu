@@ -1,18 +1,17 @@
 /*
  * トークンの正は /brand/README.md。
  *
- * ライト値のみを CSS カスタムプロパティとして定義する。アプリ本体がまだ
- * ライト背景固定 (ダークテーマ未実装) のため、ここで prefers-color-scheme
- * によるダーク値への自動切り替えは行わない — OS 側がダークモードでも
- * トークンだけ暗色に切り替えると、まだ明色のツールバー背景の上で
- * 墨(文字)が生成り寄りの薄い色になり視認できなくなってしまうため。
- * ダークテーマ本体を実装する際、このファイルに以下の値を追加すればよい:
- *   --logo-aka: #E8543F / --logo-sumi: #F5F1E9 / --logo-usuzumi: #3E3B44
+ * ここで持っていたライト値は、色のトークン化 (2026-07-26) でアプリ全体の
+ * トークン層 src/theme.css へ移した。--logo-* はブランド語彙のままの別名として
+ * 残す ―― ロゴ/枡オーナメントの実装は「朱・墨・薄墨」で読めた方が brand/README.md と
+ * 対応が取れるため。値そのものは持たず theme.css を指すだけにしてあるので、
+ * ダーク値は theme.css 側に prefers-color-scheme を1回書けば全体に効く
+ * (ブランドのダーク値: 朱 #E8543F / 墨 #F5F1E9 / 薄墨 #3E3B44 / 生成り #17161A)。
  */
 :root {
-  --logo-aka: #d7402e;
-  --logo-sumi: #24211e;
-  --logo-usuzumi: #dcd6c9;
+  --logo-aka: var(--c-accent);
+  --logo-sumi: var(--c-ink);
+  --logo-usuzumi: var(--c-masu);
 }
 
 .logo-lockup {
@@ -40,8 +39,9 @@
  * アウトライン化済みの固定ジオメトリなので、文字組み実装だった頃のような
  * line-height ガードや tittle の絶対配置調整は不要になった。
  *
- * color は i の点(currentColor で塗った rect/path)に効く。j の点は brand
- * 側で朱 (#D7402E) 固定なのでここでは触らない。
+ * color は i の点(currentColor で塗った rect/path)に効く。j の点だけは朱なので
+ * .logo-wordmark-kichi で別に塗る(色のトークン化 2026-07-26 まで Logo.tsx 側の
+ * fill="#D7402E" リテラルだったもの。LogoMark の .logo-cell--kichi と同じ流儀に揃えた)。
  *
  * height: LogoMark (18px) と並べたときのバランスを Chrome DevTools MCP の
  * スクリーンショットで確認して決めた値。
@@ -51,4 +51,9 @@
   width: auto;
   display: block;
   color: var(--logo-sumi);
+}
+
+/* ワードマークの j の点 = 朱の枡(ブランドルール: マーク併用時も常に朱) */
+.logo-wordmark-kichi {
+  fill: var(--logo-aka);
 }

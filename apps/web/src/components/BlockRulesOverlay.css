@@ -1,8 +1,8 @@
 /*
  * カレンダーブロック設定オーバーレイ(フェーズ7、docs/blocking.md)。設定パネル(300px)には
  * 収まらない作成フォームを持つため、SearchOverlay/KeyboardHelpOverlay と同じ画面中央の
- * モーダル構成にする。色は同じブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・
- * 生成り #faf7f2・朱 --logo-aka)。朱は「保存済みルールが不在モードのバッジ」「保存ボタン」
+ * モーダル構成にする。色は同じブランドトークン(墨 --c-ink・杢 --c-ink-sub・罫線 --c-line・
+ * 生成り --c-bg・朱 --logo-aka)。朱は「保存済みルールが不在モードのバッジ」「保存ボタン」
  * 「フォーカスリング」の抑制的な用途にのみ使う(brand/README.md「朱の枡は1つのまとまりに
  * つき基本1個」)。z-index は SearchOverlay と同じ 2000 台(カレンダー設定ポップオーバーの
  * 50 より確実に上)。
@@ -10,7 +10,7 @@
 .block-rules-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -22,10 +22,10 @@
   width: min(640px, calc(100vw - 32px));
   max-height: min(88vh, 720px);
   overflow-y: auto;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
   text-align: left;
 }
@@ -36,13 +36,13 @@
   justify-content: space-between;
   margin-bottom: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0ece3;
+  border-bottom: 1px solid var(--c-line-warm);
 }
 
 .block-rules-title {
   font-size: 15px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .block-rules-close {
@@ -50,39 +50,39 @@
   background: none;
   font-size: 18px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 2px 4px;
 }
 
 .block-rules-close:hover {
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .block-rules-description {
   margin: 12px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .block-rules-section {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #f0ece3;
+  border-top: 1px solid var(--c-line-warm);
 }
 
 .block-rules-section-title {
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .block-rules-empty {
   margin: 0;
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 /* ルール一覧 */
@@ -101,11 +101,11 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px 10px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
   border-radius: 8px;
   font-size: 13px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .block-rules-rule-summary {
@@ -125,21 +125,21 @@
 
 .block-rules-rule-arrow {
   flex: none;
-  color: #b3ac9d;
+  color: var(--c-ink-hint);
 }
 
 .block-rules-badge {
   flex: none;
   font-size: 11px;
-  color: #55504a;
-  background: #f0ece3;
+  color: var(--c-ink-mute);
+  background: var(--c-surface-2);
   border-radius: 999px;
   padding: 2px 8px;
 }
 
 .block-rules-badge--ooo {
-  color: #7a3226;
-  background: #f6e3dc;
+  color: var(--c-accent-ink);
+  background: var(--c-accent-soft);
 }
 
 /* .block-rules-rule は flex-wrap の行 — 注記は幅いっぱいを使って自分の行に折り返す */
@@ -154,24 +154,24 @@
   background: none;
   font-size: 15px;
   line-height: 1;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   cursor: pointer;
   padding: 2px 6px;
 }
 
 .block-rules-rule-delete:hover:not(:disabled) {
-  color: #d7402e;
+  color: var(--c-accent);
 }
 
 .block-rules-rule-delete:disabled {
-  color: #cfc8ba;
+  color: var(--c-ink-faint);
   cursor: default;
 }
 
 .block-rules-error {
   flex: none;
   font-size: 11px;
-  color: #ef4444;
+  color: var(--c-danger);
 }
 
 /* 新規作成フォーム */
@@ -190,7 +190,7 @@
 .block-rules-field-label {
   font-size: 12px;
   font-weight: 600;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .block-rules-account-group + .block-rules-account-group {
@@ -200,7 +200,7 @@
 .block-rules-account-header {
   font-size: 11px;
   font-weight: 600;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -222,7 +222,7 @@
   gap: 8px;
   padding: 4px 2px;
   font-size: 13px;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 /* 枡チェックボックス/ラジオ: CalendarSettingsPanel.css の .calendar-panel-checkbox を踏襲 */
@@ -260,7 +260,7 @@
 }
 
 .block-rules-cal-checkbox:focus-visible .masu {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -274,32 +274,32 @@
 .block-rules-mode-segment {
   display: inline-flex;
   align-self: flex-start;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .block-rules-mode-btn {
   border: none;
-  background: #fff;
+  background: var(--c-surface);
   font: inherit;
   font-size: 12px;
-  color: #55504a;
+  color: var(--c-ink-mute);
   padding: 6px 14px;
   cursor: pointer;
 }
 
 .block-rules-mode-btn + .block-rules-mode-btn {
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-line);
 }
 
 .block-rules-mode-btn.is-selected {
-  background: #24211e;
-  color: #faf7f2;
+  background: var(--c-ink-fill);
+  color: var(--c-on-ink);
 }
 
 .block-rules-mode-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
 
@@ -307,7 +307,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.6;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 /* 保存 */
@@ -320,8 +320,8 @@
 .block-rules-save-btn {
   border: none;
   border-radius: 8px;
-  background: var(--logo-aka, #d7402e);
-  color: #fff;
+  background: var(--c-accent);
+  color: var(--c-on-color);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -330,13 +330,13 @@
 }
 
 .block-rules-save-btn:disabled {
-  background: #dcd6c9;
-  color: #8a8478;
+  background: var(--c-masu);
+  color: var(--c-ink-sub);
   cursor: default;
 }
 
 .block-rules-save-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 

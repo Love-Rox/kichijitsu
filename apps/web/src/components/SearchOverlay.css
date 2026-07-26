@@ -2,12 +2,12 @@
  * 予定検索オーバーレイ(フェーズ6)。画面全体を薄く覆うバックドロップ + 上部中央に浮かぶ
  * 検索カード、というコマンドパレット的な構成。z-index は WeekGrid のドラッグ関連 (最大1000)
  * より確実に上に出るよう 2000 台にしてある。色は CalendarSettingsPanel.css / App.css と
- * 揃えたブランドトークン(墨 #24211e・杢 #8a8478・罫線 #e5e7eb・朱 --logo-aka)を使う。
+ * 揃えたブランドトークン(墨 --c-ink・杢 --c-ink-sub・罫線 --c-line・朱 --logo-aka)を使う。
  */
 .search-overlay-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   z-index: 2000;
   display: flex;
   justify-content: center;
@@ -20,10 +20,10 @@
   max-height: min(60vh, 520px);
   display: flex;
   flex-direction: column;
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   overflow: hidden;
 }
 
@@ -31,15 +31,15 @@
   font: inherit;
   font-size: 15px;
   border: none;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--c-line);
   padding: 14px 16px;
   outline: none;
-  color: #24211e;
+  color: var(--c-ink);
   background: transparent;
 }
 
 .search-overlay-input::placeholder {
-  color: #b3ac9d;
+  color: var(--c-ink-hint);
 }
 
 .search-overlay-results {
@@ -51,7 +51,7 @@
   padding: 24px 12px;
   text-align: center;
   font-size: 13px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
 }
 
 .search-result-row {
@@ -66,12 +66,12 @@
   border-radius: 8px;
   padding: 8px 10px;
   cursor: pointer;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .search-result-row:hover,
 .search-result-row.is-active {
-  background: #f5f1e8;
+  background: var(--c-surface-active);
 }
 
 .search-result-dot {
@@ -99,7 +99,7 @@
 
 .search-result-meta {
   font-size: 12px;
-  color: #8a8478;
+  color: var(--c-ink-sub);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1,7 +1,7 @@
 /*
  * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。BlockRulesOverlay.css と同じ
- * 画面中央のバックドロップ+カード構成・ブランドトークン(墨 #24211e・薄墨 #8a8478・
- * 罫線 #e5e7eb・生成り #faf7f2・朱 --logo-aka)を踏襲する。朱は「移動する」ボタン
+ * 画面中央のバックドロップ+カード構成・ブランドトークン(墨 --c-ink・薄墨 --c-ink-sub・
+ * 罫線 --c-line・生成り --c-bg・朱 --logo-aka)を踏襲する。朱は「移動する」ボタン
  * (確定操作)にのみ使う(brand/README.md「朱の枡は1つのまとまりにつき基本1個」)。
  * z-index は event-detail-popover (1000) より確実に上、block-rules-backdrop と同じ 2000 台
  * (同時に開くことは無い設計だが、他のオーバーレイ相当の重なり順に揃えておく)。
@@ -9,7 +9,7 @@
 .move-confirm-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 33, 30, 0.28);
+  background: rgba(var(--c-scrim-rgb), 0.28);
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -19,10 +19,10 @@
 
 .move-confirm-card {
   width: min(420px, calc(100vw - 32px));
-  background: #faf7f2;
-  border: 1px solid #e5e7eb;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(36, 33, 30, 0.28);
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
   text-align: left;
   outline: none;
@@ -32,7 +32,7 @@
   margin: 0 0 10px;
   font-size: 14px;
   font-weight: 600;
-  color: #24211e;
+  color: var(--c-ink);
 }
 
 .move-confirm-range {
@@ -42,21 +42,21 @@
   gap: 8px;
   margin: 0 0 18px;
   font-size: 12px;
-  color: #55504a;
+  color: var(--c-ink-mute);
 }
 
 .move-confirm-from {
-  color: #8a8478;
+  color: var(--c-ink-sub);
   text-decoration: line-through;
 }
 
 .move-confirm-arrow {
-  color: #b3ac9d;
+  color: var(--c-ink-hint);
   flex: none;
 }
 
 .move-confirm-to {
-  color: #24211e;
+  color: var(--c-ink);
   font-weight: 600;
 }
 
@@ -69,8 +69,8 @@
 .move-confirm-confirm-btn {
   border: none;
   border-radius: 8px;
-  background: var(--logo-aka, #d7402e);
-  color: #fff;
+  background: var(--c-accent);
+  color: var(--c-on-color);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -79,10 +79,10 @@
 }
 
 .move-confirm-cancel-btn {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--c-line);
   border-radius: 8px;
-  background: #fff;
-  color: #55504a;
+  background: var(--c-surface);
+  color: var(--c-ink-mute);
   font: inherit;
   font-size: 13px;
   padding: 8px 18px;
@@ -91,7 +91,7 @@
 
 .move-confirm-confirm-btn:focus-visible,
 .move-confirm-cancel-btn:focus-visible {
-  outline: 2px solid var(--logo-aka, #d7402e);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
