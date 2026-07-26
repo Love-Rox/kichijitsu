@@ -4,8 +4,9 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
-    "build:official": "KICHIJITSU_OPERATOR_NAME=love-rox KICHIJITSU_OPERATOR_CONTACT=kichijitsu@love-rox.cc KICHIJITSU_INSTANCE_HOST=kichijitsu.love-rox.cc pnpm --filter web build",
-    "lint": "pnpm --filter web lint",
+    "build:site": "pnpm --filter site build",
+    "build:official": "KICHIJITSU_OPERATOR_NAME=love-rox KICHIJITSU_OPERATOR_CONTACT=kichijitsu@love-rox.cc KICHIJITSU_INSTANCE_HOST=kichijitsu.love-rox.cc pnpm --filter web build && pnpm --filter site build && cp -R apps/site/dist/. apps/web/dist/",
+    "lint": "pnpm --filter web lint && pnpm --filter site lint",
     "deploy:sync": "pnpm --filter sync exec wrangler deploy",
     "deploy:web": "pnpm --filter sync exec wrangler deploy --config ../web/wrangler.jsonc",
     "dev:desktop": "pnpm --filter desktop dev",

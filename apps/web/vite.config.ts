@@ -73,20 +73,27 @@ export default defineConfig({
     __BUILD_SHA__: JSON.stringify(BUILD_SHA),
     __BUILD_TIME__: JSON.stringify(BUILD_TIME),
   },
-  // マルチページ化 (2026-07-22): トップ (/) はプロダクト紹介ランディング (静的 HTML)、
-  // アプリ本体は /app へ移設。base はデフォルト "/" のままなので共有 assets は
+  // マルチページ化 (2026-07-22): アプリ本体は /app へ移設し、トップ (/) や読み物ページを
+  // 静的 HTML として並べている。base はデフォルト "/" のままなので共有 assets は
   // /assets/ 配下に出力される。Cloudflare 側の配信は wrangler.jsonc の assets
   // (html_handling: auto-trailing-slash) が /app → /app/ → dist/app/index.html を解決する。
+  //
+  // 紹介サイトの分離 (2026-07-26): 公式インスタンスの紹介ページ (ランディング / MCP ガイド
+  // /mcp/ / セルフホスト手順 /self-hosting/) は apps/site へ切り出した。dist はまるごと
+  // assets Worker に上がるため、同居させているとセルフホストした人のドメインで公式の
+  // 宣伝ページが配信されてしまうため (規約ページの運営者情報と同じ種類の事故)。
+  // 公式ビルドでは `pnpm build:official` が site の成果物をこの dist へ合流させるので、
+  // 公開 URL と見た目は分離前から変わらない (ルート package.json 参照)。
+  // → このパッケージが持つのは **アプリ本体 + 規約** だけ。
   build: {
     rollupOptions: {
       input: {
+        // `/` の最小ページ。公式ビルドでは apps/site のランディングに上書きされる
+        // (詳細は index.html 冒頭のコメント)。wrangler.jsonc の
+        // not_found_handling: "single-page-application" が dist/index.html を要求するので、
+        // セルフホストのビルドでもこれが必ず1つある状態を保つ。
         landing: r("./index.html"),
         app: r("./app/index.html"),
-        // MCP 接続ガイド / セルフホスト手順 (2026-07-22 追加)。どちらも静的な読み物ページで、
-        // Cloudflare assets の auto-trailing-slash により /mcp/ /self-hosting/ で解決される
-        // (wrangler.jsonc 側の変更は不要、既存の /app と同じ仕組み)。
-        mcp: r("./mcp/index.html"),
-        selfHosting: r("./self-hosting/index.html"),
         // 規約 / プライバシーポリシー (2026-07-26 に public/ から移設)。public/ 配下は Vite が
         // 素通しコピーするだけで transformIndexHtml が効かず、運営者情報をビルド時に
         // 差し込めなかったため。ルート直下の input なので出力は dist/privacy.html /

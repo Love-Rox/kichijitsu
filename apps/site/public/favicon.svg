@@ -1,0 +1,11 @@
+<!-- 正は /brand/favicon.svg (変更禁止)。ビルドに brand/ を巻き込まないためのコピー。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- kichijitsu favicon: 16px でも読める 2x2 の簡約版。朱の枡は少し大きく、傾く -->
+  <rect x="4" y="4" width="88" height="88" rx="22" fill="#ffffff" stroke="#D8D2C6" stroke-width="3"/>
+  <g fill="#DCD6C9">
+    <rect x="16" y="16" width="22" height="22" rx="6"/>
+    <rect x="58" y="16" width="22" height="22" rx="6"/>
+    <rect x="16" y="58" width="22" height="22" rx="6"/>
+  </g>
+  <rect x="54" y="54" width="28" height="28" rx="7" fill="#D7402E" transform="rotate(-8 68 68)"/>
+</svg>

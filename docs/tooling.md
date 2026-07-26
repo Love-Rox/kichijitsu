@@ -7,6 +7,9 @@
 ## 採用範囲
 
 - `apps/web` — dev/build/test/lint/fmt すべて `vp` 経由。
+- `apps/site` (公式インスタンスの紹介サイト、2026-07-26 に `apps/web` から分離) — `vp` 経由。
+  静的 HTML 3ページのみで JS を持たないため、`build`/`lint`/`dev`/`preview` だけ。
+  型もテストも無いので `tsc -b` / `vp test` は無し。
 - `apps/sync` (Cloudflare Workers) — **デプロイは従来どおり `wrangler`**。
   `vp` はテスト実行のみに使う (`dev`/`deploy` は wrangler のまま)。
 - `packages/shared` — 型のみのパッケージなのでビルド/テストなし、対象外。

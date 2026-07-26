@@ -741,6 +741,61 @@ export KICHIJITSU_INSTANCE_HOST="cal.example.com"</code></pre>
               (法的な責任はインスタンスの運営者にある)。
             </p>
           </div>
+
+          <h3>この紹介サイトはあなたのインスタンスには入らない</h3>
+          <p>
+            いま読んでいるこのページを含む公式サイトの紹介ページ ―― ランディング
+            (<code>/</code>)・<a href="/mcp/">MCP 接続ガイド</a> (<code>/mcp/</code>)・セルフホスト手順
+            (<code>/self-hosting/</code>) ―― は<strong
+              >別パッケージ <code>apps/site</code> にあり、<code>pnpm build</code>
+              の成果物には含まれない。</strong
+            >
+            <code>apps/web/dist</code>
+            はまるごと配信されるので、同居させているとあなたのドメインで kichijitsu
+            公式インスタンスの宣伝ページが配信されてしまうため。あなたが何もしなくてもそうならない。
+          </p>
+          <p>あなたのインスタンスで配信されるのは次の4つだけ。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>パス</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/app/</code></td>
+                  <td>アプリ本体</td>
+                </tr>
+                <tr>
+                  <td><code>/</code></td>
+                  <td><code>/app/</code> へのリンクだけを置いた最小のページ</td>
+                </tr>
+                <tr>
+                  <td><code>/privacy.html</code></td>
+                  <td>プライバシーポリシー(運営者情報は上記の環境変数で差し込み)</td>
+                </tr>
+                <tr>
+                  <td><code>/terms.html</code></td>
+                  <td>利用規約(同上)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <p>
+              <code>/</code> の実体は <code>apps/web/index.html</code>。
+              <code>apps/web/wrangler.jsonc</code> の
+              <code>not_found_handling: "single-page-application"</code>
+              により、存在しないパスへのアクセスにもこのページが返る。
+            </p>
+            <p>
+              トップに独自の紹介ページを出したいなら、このファイルを差し替えればよい
+              (<code>/app/</code> へ即リダイレクトさせたいだけなら meta refresh
+              を足すのが最短。ただし打ち間違えた URL も一緒に飛ぶ点には注意)。
+            </p>
+          </div>
         </section>
 
         <section class="doc-section" id="step4" aria-labelledby="step4-title">

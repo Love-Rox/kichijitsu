@@ -3,6 +3,11 @@
   // apps/web の静的アセットだけを配信する assets-only Worker (Worker スクリプト本体は無い)。
   // デプロイ前提: `pnpm --filter web build` 済みで ./dist が最新であること
   // (wrangler deploy はビルドを行わず、既存の dist をそのままアップロードする)。
+  //
+  // 公式インスタンスをデプロイする場合は `pnpm build:official` を使うこと。素の build との差は
+  // (1) 規約ページの運営者情報を差し込む、(2) apps/site (紹介サイト) をビルドして
+  // その成果物を ./dist へ合流させる、の2点 (docs/deploy.md 参照)。Worker はこの1つのままで、
+  // 紹介サイト用に別 Worker を立てているわけではない。
   "name": "kichijitsu-web",
   "compatibility_date": "2026-07-19",
   "observability": {
@@ -10,14 +15,29 @@
   },
   "assets": {
     "directory": "./dist",
-    // マルチページ化 (2026-07-22): dist/index.html (ランディング) と dist/app/index.html
-    // (React アプリ) の2エントリになった (apps/web/vite.config.ts の rollupOptions.input 参照)。
+    // マルチページ構成 (2026-07-22、2026-07-26 に紹介サイト分離を反映)。dist に置かれる
+    // HTML は次のとおり (apps/web/vite.config.ts の rollupOptions.input 参照):
+    //
+    //   どのビルドでも      dist/index.html (/)           … 素の build では /app/ への誘導ページ、
+    //                                                       build:official では apps/site の
+    //                                                       ランディングで上書きされる
+    //                       dist/app/index.html (/app/)   … React アプリ本体
+    //                       dist/privacy.html, terms.html … 規約 (運営者情報はビルド時差し込み)
+    //   build:official のみ dist/mcp/index.html (/mcp/)          … 公式の MCP 接続ガイド
+    //                       dist/self-hosting/index.html (/self-hosting/) … 公式のセルフホスト手順
+    //
+    // 後半2つは apps/site の成果物で、セルフホストが叩く素の `pnpm build` では dist に入らない
+    // (他人のドメインで公式インスタンスの紹介ページが配信されるのを防ぐため)。
+    //
     // html_handling はデフォルト "auto-trailing-slash" のままでよい: /app (トレイリングスラッシュ
-    // 無し) は /app/ へリダイレクトされ、dist/app/index.html が解決される。
+    // 無し) は /app/ へリダイレクトされ、dist/app/index.html が解決される。/mcp /self-hosting も
+    // 同じ仕組みで解決されるので、site 側を合流させるだけで追加設定は要らない。
     // not_found_handling は "single-page-application" のまま維持するが、意味が変わる点に注意:
-    // クライアントサイドルーティングのフォールバックではなく、単に「未知パスは 200 でランディング
-    // (dist/index.html) を返す」設定として使っている (素の 404 でも良いが、ランディングの方が
-    // ユーザー体験として自然なためこちらを選択)。/app 配下は実ファイルとして直接解決されるので
+    // クライアントサイドルーティングのフォールバックではなく、単に「未知パスは 200 で
+    // dist/index.html を返す」設定として使っている (素の 404 でも良いが、トップの方が
+    // ユーザー体験として自然なためこちらを選択)。この設定がある以上 dist/index.html は
+    // **どのビルドでも必ず1つ存在している必要がある** ―― 紹介サイトを切り出しても
+    // apps/web/index.html を残しているのはそのため。/app 配下は実ファイルとして直接解決されるので
     // このフォールバックの対象にはならない。
     "not_found_handling": "single-page-application",
   },

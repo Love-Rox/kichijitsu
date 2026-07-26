@@ -4,8 +4,8 @@
 
 ## サービング構成
 
-- `kichijitsu.love-rox.cc` — Worker `kichijitsu-web` (apps/web の静的アセット。Custom Domain で
-  DNS レコードは自動管理される)
+- `kichijitsu.love-rox.cc` — Worker `kichijitsu-web` (apps/web の静的アセット + 公式ビルド時のみ
+  合流する apps/site の紹介サイト。Custom Domain で DNS レコードは自動管理される)
 - `kichijitsu.love-rox.cc/api/*`, `/auth/*` — Worker `kichijitsu-sync` (apps/sync。zone route。
   同一ホスト上では zone route が Custom Domain より優先されるため、この 2 パスだけこちらに届く)
 - 同一オリジンなので CORS 設定は不要。Cookie も `SameSite=Lax` のままでよい。
@@ -171,7 +171,7 @@ https://kichijitsu.love-rox.cc/auth/callback
 
 まず apps/web をビルドする (デプロイスクリプトはビルドを行わず、既存の `apps/web/dist` を
 そのままアップロードするだけなので、必ず先にビルドすること)。**公式インスタンスのビルドには
-`build:official` を使う** (理由は下記「規約ページの運営者情報」):
+`build:official` を使う** (理由は下記「規約ページの運営者情報」「紹介サイトの合流」):
 
 ```sh
 mise exec -- pnpm run build:official
@@ -221,6 +221,40 @@ mise exec -- pnpm run build:official
 ```sh
 curl -s https://kichijitsu.love-rox.cc/terms.html | grep -c 'love-rox'
 # => 0 なら build:official を使わずにビルドしている (再ビルドしてデプロイし直すこと)
+```
+
+### 紹介サイトの合流 (2026-07-26)
+
+公式インスタンスの紹介サイト ―― ランディング `/`、MCP 接続ガイド `/mcp/`、セルフホスト手順
+`/self-hosting/` ―― のソースは **`apps/site`** に分けてある。`apps/web/dist` はまるごと assets
+Worker に上がるので、apps/web に置いたままだと**セルフホストした人のドメインで公式インスタンスの
+紹介ページがそのまま配信される**(規約ページの運営者情報と同じ種類の事故)。そこで
+「ソースは別パッケージ・成果物は公式ビルドのときだけ合流」という形にした。
+
+**Worker は `kichijitsu-web` 1つのままで、紹介サイト用に別 Worker は立てていない。**
+`deploy:web` も従来どおり `apps/web/dist` をアップロードするだけで、公開 URL は
+分離前から1つも変わっていない。
+
+| スクリプト            | 何をするか                                                                                | `apps/web/dist` の中身     |
+| --------------------- | ----------------------------------------------------------------------------------------- | -------------------------- |
+| `pnpm build`          | apps/web のみビルド (セルフホストの既定)                                                  | アプリ + 規約              |
+| `pnpm build:site`     | apps/site のみビルド (`apps/site/dist` に出る。確認・開発用)                              | 変化なし                   |
+| `pnpm build:official` | 運営者情報 env 付きで web → site の順にビルドし、site の成果物を `apps/web/dist` へコピー | アプリ + 規約 + 紹介サイト |
+
+**順序が重要**: vite は各ビルドの冒頭で出力先を空にするので、必ず「web を先にビルド →
+site をビルド → コピー」の順にすること。逆順にすると web のビルドが合流済みのファイルを
+消してしまう。`build:official` はこの順序を `&&` で固定してある (途中で失敗したら止まる)。
+逆に、`build:official` の後で素の `pnpm build` を叩けば紹介サイトのファイルは消える
+(= セルフホスト相当の成果物に戻る) ので、ローカルで両方を試したあとの残骸を気にしなくてよい。
+
+なお apps/site のビルドは `build.assetsDir` を `site-assets` にしてある。合流時にアプリ本体の
+`dist/assets/` を site 側が触らないようにするため (apps/site/vite.config.ts のコメント参照)。
+
+デプロイ後の確認:
+
+```sh
+curl -sI https://kichijitsu.love-rox.cc/mcp/ | head -1
+# => HTTP/2 200 (404 なら site の合流に失敗している = build:official を使わずにビルドしている)
 ```
 
 ### デプロイ順序: sync を先、web を後 (2026-07-25)
