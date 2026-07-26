@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ドキュメント | kichijitsu</title>
+    <meta
+      name="description"
+      content="kichijitsu の使い方と運用のドキュメント。ログインから予定の扱い、GitHub 連携、カレンダーブロック、デスクトップ版と PWA、データの保存先、セルフホストまで。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="ドキュメント | kichijitsu" />
+    <meta
+      property="og:description"
+      content="kichijitsu を使う人向け・運用する人向けのドキュメント一覧。"
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">ドキュメント</h1>
+        <p class="doc-header__lede">
+          kichijitsu の使い方と、自分で運用するときの手引き。
+          読む人によって必要なページが違うので、「使う人向け」と「運用する人向け」に分けてある。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#for-users">使う人向け</a></li>
+            <li><a href="#for-operators">運用する人向け</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-index__group" id="for-users" aria-labelledby="for-users-title">
+          <h2 class="doc-index__group-title" id="for-users-title">使う人向け</h2>
+          <p class="doc-index__group-lede">
+            kichijitsu で予定を扱う人へ。上から順に読めば、ひととおり使えるようになる。
+          </p>
+          <ul class="doc-index__list">
+            <li class="doc-index__item">
+              <a href="/docs/start/">
+                <span class="doc-index__name">はじめかた</span>
+                <span class="doc-index__path">/docs/start/</span>
+                <span class="doc-index__desc"
+                  >Google アカウントでログインし、複数アカウントを束ね、画面の各部を把握するまで。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/calendar/">
+                <span class="doc-index__name">予定の扱い</span>
+                <span class="doc-index__path">/docs/calendar/</span>
+                <span class="doc-index__desc"
+                  >表示の切り替え、予定の作成・編集、RSVP
+                  返信、不在、勤務場所、キーボードショートカット。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/work/">
+                <span class="doc-index__name">GitHub 連携と実績記録</span>
+                <span class="doc-index__path">/docs/work/</span>
+                <span class="doc-index__desc"
+                  >issue・PR を作業キューに載せ、かけた時間を記録してグループごとに集計する。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/blocking/">
+                <span class="doc-index__name">カレンダーブロック</span>
+                <span class="doc-index__path">/docs/blocking/</span>
+                <span class="doc-index__desc"
+                  >別のカレンダーへ予定を自動でミラーして、多重予約を防ぐ設定。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/apps/">
+                <span class="doc-index__name">デスクトップ版と PWA</span>
+                <span class="doc-index__path">/docs/apps/</span>
+                <span class="doc-index__desc"
+                  >Tauri 製アプリと PWA の入れかた・更新のされかた、更新されないときのキャッシュ削除。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/data/">
+                <span class="doc-index__name">データの扱い</span>
+                <span class="doc-index__path">/docs/data/</span>
+                <span class="doc-index__desc"
+                  >予定・認可情報・UI 設定が、それぞれどこに保存されるか。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/mcp/">
+                <span class="doc-index__name">MCP 接続ガイド</span>
+                <span class="doc-index__path">/mcp/</span>
+                <span class="doc-index__desc"
+                  >Claude
+                  などのエージェントに予定を読み書きさせるための接続手順と、使えるツール一覧。</span
+                >
+              </a>
+            </li>
+          </ul>
+        </section>
+
+        <section class="doc-index__group" id="for-operators" aria-labelledby="for-operators-title">
+          <h2 class="doc-index__group-title" id="for-operators-title">運用する人向け</h2>
+          <p class="doc-index__group-lede">
+            自分の Cloudflare アカウントに kichijitsu を立てて、自分で運用する人へ。
+          </p>
+          <ul class="doc-index__list">
+            <li class="doc-index__item">
+              <a href="/self-hosting/">
+                <span class="doc-index__name">セルフホスト手順</span>
+                <span class="doc-index__path">/self-hosting/</span>
+                <span class="doc-index__desc"
+                  >リポジトリの準備から Google OAuth クライアントの作成、デプロイ、セキュリティ設定まで。</span
+                >
+              </a>
+            </li>
+            <li class="doc-index__item">
+              <a href="/docs/operator/">
+                <span class="doc-index__name">運営者情報と規約の差し替え</span>
+                <span class="doc-index__path">/docs/operator/</span>
+                <span class="doc-index__desc"
+                  >あなたのインスタンスの規約・プライバシーポリシーに、あなたの運営者情報を出す。</span
+                >
+              </a>
+            </li>
+          </ul>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/">トップへ</a>
+          <a href="https://github.com/Love-Rox/kichijitsu" target="_blank" rel="noopener noreferrer"
+            >GitHub で見る</a
+          >
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/mcp/">MCP ガイド</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

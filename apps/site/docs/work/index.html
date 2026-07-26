@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GitHub 連携と実績記録 | kichijitsu</title>
+    <meta name="description" content="kichijitsu の GitHub 連携。issue・PR を作業キューに載せ、かけた時間を記録してグループごとに集計する。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="GitHub 連携と実績記録 | kichijitsu" />
+    <meta property="og:description" content="issue・PR を作業キューに。稼働の記録・グループ化・集計までの使いかた。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">GitHub 連携と実績記録</h1>
+        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <!-- 本文の <section class="doc-section" id="..."> に合わせて
+                 <li><a href="#id">見出し</a></li> をここに並べる -->
+          </ol>
+        </nav>
+
+        <!--
+        ======================================================================
+        このページはまだ「器」で、本文は未執筆。
+
+        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
+        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
+        ======================================================================
+
+        ## このページで説明すること
+
+        1. GitHub をつなぐ — 接続手順。何が読めるようになるか。
+        2. 作業キュー — どの issue / PR が、どの区分に入るか (WORK_QUEUE_SECTION_LABELS が正)。
+           実行中と待機の分かれかた。
+        3. 稼働を記録する — 開始 / 停止、記録中の見えかた、閉じ忘れ (オープン区間) の扱い、手動記録。
+        4. グループ化 — issue / PR 単位でのまとまりかたと合計。
+        5. 集計を見る・出す — レポート画面とエクスポート形式。
+        6. エージェントから記録する — /mcp/ の `log_work_interval` と
+           POST /api/work-intervals への導線 (手順の重複は書かず、/mcp/ へリンクする)。
+
+        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+
+        - docs/github-integration.md — 連携全体の設計メモ。このページの下敷きとして最重要
+        - docs/github-oauth.md — GitHub App 登録と接続手順 (利用者が最初にやること)
+        - apps/web/src/sync/workQueue.ts — 作業キューの区分 (WORK_QUEUE_SECTION_LABELS) と実行中 / 待機の分割
+        - apps/web/src/components/WorkQueueSection.tsx, GitHubPane.tsx — 作業キュー UI と GitHub ペイン
+        - apps/web/src/sync/workLogEntry.ts, openIntervals.ts — 稼働記録の開始 / 停止とオープン区間
+        - apps/web/src/sync/workLogGrouping.ts (+ .test.ts) — issue / PR 単位のグループ化と合計
+        - apps/web/src/components/TimeReportOverlay.tsx, apps/web/src/sync/reportExport.ts — 集計画面とエクスポート
+        - apps/web/src/components/ManualWorkLogForm.tsx, WorkLogHistory.tsx, RunningTimersIndicator.tsx — 手動記録・履歴・記録中表示
+        - apps/sync/src/core/work-log.ts, routes/work-logs.ts, routes/work-intervals.ts — サーバー側 API
+        - apps/sync/src/core/github-queue.ts — キューの生成元
+        - packages/shared/src/work-log.ts — DTO 定義
+
+        ## 書きかたの決まり
+
+        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
+        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
+        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
+        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
+        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
+            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
+            h2 / h3 / p / ul / ol / strong / code
+            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
+              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
+            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
+            <div class="table-scroll"><table> … </table></div>
+            <div class="callout"><p> … </p></div>            ← 注意書き
+        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
+          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
+        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
+          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
+        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
+          全10ページが共有しているので、触ると他ページの見た目が変わる。
+        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
+        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
+        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
+        -->
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

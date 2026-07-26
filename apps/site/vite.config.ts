@@ -6,7 +6,7 @@ import { defineConfig } from "vite-plus";
  *
  * **なぜ apps/web から切り出したか**: apps/web/wrangler.jsonc は `apps/web/dist` を
  * まるごと assets Worker に上げる。紹介サイト (ランディング `/`、MCP ガイド `/mcp/`、
- * セルフホスト手順 `/self-hosting/`) が dist に同居していると、セルフホストした人の
+ * セルフホスト手順 `/self-hosting/`、ドキュメント `/docs/**`) が dist に同居していると、セルフホストした人の
  * ドメインで「公式インスタンス (kichijitsu.love-rox.cc) の宣伝ページ」が配信されてしまう。
  * 規約ページの運営者情報 (apps/web/build/legalText.ts) と同じ種類の事故なので、
  * こちらは成果物ごと切り離した。
@@ -14,11 +14,13 @@ import { defineConfig } from "vite-plus";
  * **配信のされ方**: 別 Worker には分けていない。`pnpm build:official` (公式ビルド専用) が
  * web → site の順にビルドし、site の dist を web の dist へコピーして合流させる
  * (ルート package.json 参照)。したがって公開 URL は分離前と完全に同じで、
- * `/` `/mcp/` `/self-hosting/` はこれまでどおり単一の kichijitsu-web Worker から出る。
+ * `/` `/mcp/` `/self-hosting/` `/docs/**` はこれまでどおり単一の kichijitsu-web Worker から出る。
  * セルフホストが叩く `pnpm build` は web だけをビルドするので、これらは dist に入らない。
  *
- * 3ページとも JS を持たず、CSS もインライン <style> で自己完結しているので、
- * ここでの設定はマルチページ入力と出力先の調整だけでよい。
+ * どのページも JS を持たない。CSS はランディングだけがインライン <style> で自己完結し、
+ * ドキュメント系 (`/mcp/` `/self-hosting/` `/docs/**`) は apps/site/doc-shell.css を
+ * <link> で共有する (10ページぶんの全文コピーを避けるため。経緯は doc-shell.css 冒頭)。
+ * したがってここでの設定はマルチページ入力と出力先の調整だけでよい。
  */
 
 // マルチページビルド用の入力解決 (プロジェクトルート基準の絶対パスを要求する
@@ -54,10 +56,23 @@ export default defineConfig({
      */
     assetsDir: "site-assets",
     rollupOptions: {
+      /**
+       * 追加したページはここに登録しないとビルドされない (vite のマルチページ入力は
+       * 自動探索しない)。/docs/ 配下は先に全ページぶんを登録済みなので、
+       * 各ページの本文を書くときにこのファイルを触る必要は無い。
+       */
       input: {
         landing: r("./index.html"),
         mcp: r("./mcp/index.html"),
         selfHosting: r("./self-hosting/index.html"),
+        docs: r("./docs/index.html"),
+        docsStart: r("./docs/start/index.html"),
+        docsCalendar: r("./docs/calendar/index.html"),
+        docsWork: r("./docs/work/index.html"),
+        docsBlocking: r("./docs/blocking/index.html"),
+        docsApps: r("./docs/apps/index.html"),
+        docsData: r("./docs/data/index.html"),
+        docsOperator: r("./docs/operator/index.html"),
       },
     },
   },

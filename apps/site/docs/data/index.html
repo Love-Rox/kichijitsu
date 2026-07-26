@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>データの扱い | kichijitsu</title>
+    <meta name="description" content="kichijitsu がどこに何を保存するか。ブラウザの IndexedDB、D1、Durable Object、localStorage の内訳。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="データの扱い | kichijitsu" />
+    <meta property="og:description" content="予定・認可情報・UI 設定が、それぞれどこに保存されるか。ローカルファーストの実際。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">データの扱い</h1>
+        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <!-- 本文の <section class="doc-section" id="..."> に合わせて
+                 <li><a href="#id">見出し</a></li> をここに並べる -->
+          </ol>
+        </nav>
+
+        <!--
+        ======================================================================
+        このページはまだ「器」で、本文は未執筆。
+
+        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
+        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
+        ======================================================================
+
+        ## このページで説明すること
+
+        1. 原則 — 予定の正本は Google にあり、kichijitsu はその複製を手元に置く。
+           サーバーは予定を永続化しない (/mcp/ の read-through 原則と用語をそろえること)。
+        2. ブラウザに入るもの — IndexedDB (DB 名と各ストアが何を持つか) と localStorage (UI 設定)。
+           ストアの一覧は apps/web/src/db/database.ts が正。
+        3. サーバーに入るもの — D1 のテーブルと、Durable Object が持つもの。
+           migrations 一式を見て、実際に存在するものだけを書く。
+        4. 認可情報の守りかた — refresh token が at-rest 暗号化されていること、鍵の位置づけ。
+        5. 消しかた — ブラウザ側のキャッシュ削除 (/docs/apps/ へリンク)、アカウント解除で何が消えるか。
+        6. 公式インスタンスとセルフホストの違い — 「誰を信頼することになるか」。
+           /self-hosting/ と /docs/operator/ へ送る。
+
+        プライバシーポリシー (apps/web/privacy.html) と食い違う記述を書かないこと。
+        食い違いを見つけたら本文で辻褄を合わせず、報告に上げること
+        (privacy.html は apps/web 配下なのでこの作業では触らない)。
+
+        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+
+        - apps/web/src/db/database.ts — IndexedDB の全ストア定義。「ブラウザに何が入るか」の一次資料
+        - apps/sync/migrations/*.sql (0001_init.sql ほか全 11 本) — D1 のテーブル一覧
+        - apps/sync/src/durable-object/user-sync-do.ts — ユーザーごとの DO (同期トークン・SSE・DO ストレージ)
+        - apps/sync/src/durable-object/profile-hub-do.ts — 複数アカウントを束ねる側の DO
+        - apps/sync/src/crypto.ts — refresh token などの暗号化保存方式
+        - apps/sync/src/core/sync-token-store.ts — Google 同期トークンの保存場所
+        - apps/web/src/layout/localStore.ts — localStorage に置く UI 設定のキー一覧
+        - apps/web/src/sync/themePref.ts, apps/web/src/hooks/useHourHeight.ts, apps/web/src/sync/visibleCalendars.ts — 同上
+        - apps/sync/wrangler.jsonc — D1 / DO / KV バインディングの全体像
+        - docs/self-hosting.md — どこに何が置かれるかの説明
+        - apps/web/privacy.html — 現行のプライバシー記述 (整合をとる相手。編集はしない)
+
+        ## 書きかたの決まり
+
+        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
+        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
+        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
+        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
+        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
+            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
+            h2 / h3 / p / ul / ol / strong / code
+            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
+              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
+            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
+            <div class="table-scroll"><table> … </table></div>
+            <div class="callout"><p> … </p></div>            ← 注意書き
+        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
+          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
+        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
+          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
+        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
+          全10ページが共有しているので、触ると他ページの見た目が変わる。
+        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
+        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
+        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
+        -->
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

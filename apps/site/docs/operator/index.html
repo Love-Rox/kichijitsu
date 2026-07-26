@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>運営者情報と規約の差し替え | kichijitsu</title>
+    <meta name="description" content="セルフホストした kichijitsu で、規約とプライバシーポリシーに自分の運営者情報を出す方法。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="運営者情報と規約の差し替え | kichijitsu" />
+    <meta property="og:description" content="セルフホストしたインスタンスの規約・プライバシーポリシーを、自分の運営者情報に差し替える。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">運営者情報と規約の差し替え</h1>
+        <!-- ここに lede を置く: <p class="doc-header__lede">1〜3行の導入文</p> -->
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <!-- 本文の <section class="doc-section" id="..."> に合わせて
+                 <li><a href="#id">見出し</a></li> をここに並べる -->
+          </ol>
+        </nav>
+
+        <!--
+        ======================================================================
+        このページはまだ「器」で、本文は未執筆。
+
+        後続エージェントへ: 下の指示に従って本文を書き、**書き終えたらこのコメント
+        ごと消すこと**。コメントが残っていたら、そのページはまだ未完成という合図。
+        ======================================================================
+
+        ## このページで説明すること
+
+        1. なぜ差し替えるのか — 同梱の規約・ポリシーは公式インスタンスのものを**ひな形として**
+           付けているだけで、あなたのインスタンスの運営者はあなた。法的な責任の所在も。
+        2. 3 つの環境変数 — KICHIJITSU_OPERATOR_NAME / _CONTACT / _HOST。
+           それぞれ規約・ポリシーのどこに出るか。ビルド時に差し込まれること。
+        3. 未設定のままだとどうなるか — フォールバック文言。公式 (love-rox) の名前が
+           あなたのインスタンスに出ることは無い、という保証を明示する。
+        4. 内容そのものを書き換える — テンプレート (apps/web/terms.html, privacy.html) の位置と
+           プレースホルダの形。差し替えても壊れない書き方。
+        5. この紹介サイトはあなたのインスタンスに入らない — apps/site の成果物は
+           `pnpm build` には含まれない。あなたのドメインで配信される 4 つのパスの表。
+
+        /self-hosting/ の「3. 設定を自分の環境に合わせる」に同じ話の要約が既にある。
+        **同じ文章を二度書かない。** あちらは手順の一部として短く、こちらは掘り下げて書き、
+        相互にリンクする。あちらの表現 (用語・変数名の書き方) にそろえること。
+
+        ## 参照するソース (パスはリポジトリルート kichijitsu/ からの相対)
+
+        - apps/web/build/legalText.ts — 中核。OPERATOR_ENV_KEYS から日英の運営者文言を生成する
+        - apps/web/build/legalText.test.ts — 未設定時のフォールバック文言など、期待挙動の具体例
+        - apps/web/vite.config.ts — ビルド時に terms.html / privacy.html へ差し込む仕組みと未設定時の警告
+        - apps/web/terms.html, apps/web/privacy.html — 差し込み先のテンプレートとプレースホルダの位置
+        - apps/web/wrangler.jsonc — assets Worker の設定 (dist を丸ごと配信する = 同居の危険)
+        - apps/site/vite.config.ts — 紹介サイトを apps/web から切り離した理由 (冒頭コメント)
+        - apps/site/self-hosting/index.html — 既存の要約。重複を避けるために必ず読むこと
+        - docs/self-hosting.md, docs/deploy.md — セルフホスト手順と本番デプロイ時の環境変数投入
+
+        ## 書きかたの決まり
+
+        - 文体は /mcp/ と /self-hosting/ に合わせる。日本語・常体 (「〜する」「〜だ」)。です・ます調にしない。
+        - 技術用語とコード識別子は原文のまま (例: IndexedDB, refresh token, `list_events`)。
+        - 読者は開発者とは限らない。「どこを押すと何が起きるか」を先に書き、実装の理屈は必要な分だけ。
+        - **実装を読んで書くこと。挙動を推測で書かない。** 迷ったら書かずに落とす方がよい。
+        - 使える意匠 (apps/site/doc-shell.css に定義済み。これ以外を使わない):
+            <section class="doc-section" id="..." aria-labelledby="...-title"> … </section>
+            h2 / h3 / p / ul / ol / strong / code
+            <ol class="steps"><li class="step"><span class="step__num" aria-hidden="true"></span>
+              <div class="step__body"> … </div></li></ol>   ← 番号つき手順
+            <pre><code> … </code></pre>                      ← コードブロック (< > は実体参照で)
+            <div class="table-scroll"><table> … </table></div>
+            <div class="callout"><p> … </p></div>            ← 注意書き
+        - 上の <nav class="doc-toc"> の <ol class="doc-toc__list"> はいま空。書いた
+          <section> の id に対応する <li><a href="#id">見出し</a></li> を並べること。
+        - <header class="doc-header"> の中に lede (1〜3行の導入文) を
+          <p class="doc-header__lede"> で足すこと。プレースホルダのコメントを置いてある。
+        - **CSS を足さない。** 共通シェル apps/site/doc-shell.css は /mcp/ /self-hosting/ /docs/ の
+          全10ページが共有しているので、触ると他ページの見た目が変わる。
+        - **JS もライブラリも足さない。** このサイトは JS 無しで完結している。
+        - vite.config.ts は触らなくてよい。このページは既に rollupOptions.input に登録済み。
+        - 確認: `pnpm --filter site build` と `pnpm --filter site lint` を通すこと。
+        -->
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>
