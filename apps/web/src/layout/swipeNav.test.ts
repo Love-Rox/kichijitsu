@@ -3,10 +3,14 @@ import {
   classifySwipeAxis,
   computeTrailingVelocity,
   resolveSwipeDays,
+  shouldBeginCardDrag,
+  shouldClearSelectionOnPointerDown,
+  shouldIgnoreSwipeStart,
   SWIPE_DIRECTION_DOMINANCE,
   SWIPE_DIRECTION_MIN_PX,
   SWIPE_VERTICAL_SLOP_PX,
   swipeStripTransform,
+  type SwipeTargetLike,
 } from "./swipeNav";
 
 describe("classifySwipeAxis", () => {
@@ -220,5 +224,130 @@ describe("computeTrailingVelocity", () => {
         { x: 30, time: 50 },
       ]),
     ).toBe(0);
+  });
+});
+
+/**
+ * スマホの操作体系(2026-07-26)の判定。DOM に依存しないよう、SwipeTargetLike の
+ * 最小面(closest)だけをフェイクで用意する ―― 各要素が「どのセレクタに一致するか」を
+ * トークンの配列で表し、祖先チェーンを先頭(自分自身)から順に走査する。
+ */
+function fakeTarget(chain: readonly (readonly string[])[]): SwipeTargetLike {
+  function at(index: number): SwipeTargetLike | null {
+    if (index >= chain.length) return null;
+    return {
+      closest(selectors: string): SwipeTargetLike | null {
+        const wanted = selectors.split(",").map((s) => s.trim());
+        for (let i = index; i < chain.length; i++) {
+          if (chain[i].some((token) => wanted.includes(token))) return at(i);
+        }
+        return null;
+      },
+    };
+  }
+  const self = at(0);
+  // 空チェーン(祖先を持たない target)でも呼び出せるようにしておく
+  return self ?? { closest: () => null };
+}
+
+/** 予定カードの子要素(タイトル等)から始めた pointerdown を表すチェーン */
+const unselectedEventChain = [["span"], [".event"], [".week-grid-day-column"], [".week-grid"]];
+const selectedEventChain = [
+  ["span"],
+  [".event", ".is-card-selected"],
+  [".week-grid-day-column"],
+  [".week-grid"],
+];
+
+describe("shouldIgnoreSwipeStart", () => {
+  it("日列の背景から始めたタッチは従来どおりスワイプ候補(除外しない)", () => {
+    const target = fakeTarget([[".week-grid-day-column"], [".week-grid"]]);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "touch" })).toBe(false);
+  });
+
+  it("未選択の予定カードの上から始めたタッチもスワイプ候補にする(今回の主目的)", () => {
+    const target = fakeTarget(unselectedEventChain);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "touch" })).toBe(false);
+  });
+
+  it("未選択の予定タイムブロックの上も同様にスワイプ候補にする", () => {
+    const target = fakeTarget([[".planned-block"], [".week-grid-day-column"]]);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "touch" })).toBe(false);
+  });
+
+  it("選択中のカードの上から始めたタッチは除外する(そのカードのドラッグ移動を優先)", () => {
+    const target = fakeTarget(selectedEventChain);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "touch" })).toBe(true);
+  });
+
+  it("マウス/ペンはカード上なら従来どおり除外(デスクトップの挙動を変えない)", () => {
+    const target = fakeTarget(unselectedEventChain);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "mouse" })).toBe(true);
+    expect(shouldIgnoreSwipeStart(target, { pointerType: "pen" })).toBe(true);
+  });
+
+  it("フォーム部品・詳細ポップオーバーは選択状態に関わらず常に除外", () => {
+    expect(
+      shouldIgnoreSwipeStart(fakeTarget([["button"], [".planned-block"]]), {
+        pointerType: "touch",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreSwipeStart(fakeTarget([["input"], [".day-column-create-draft"]]), {
+        pointerType: "touch",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreSwipeStart(fakeTarget([["span"], [".event-detail-popover"]]), {
+        pointerType: "touch",
+      }),
+    ).toBe(true);
+  });
+
+  it("target が無い(null)場合は除外しない(保険。追跡開始しても実害はない)", () => {
+    expect(shouldIgnoreSwipeStart(null, { pointerType: "touch" })).toBe(false);
+  });
+});
+
+describe("shouldBeginCardDrag", () => {
+  it("デスクトップ(selectBeforeDrag=false)は常に即ドラッグ ―― 挙動を一切変えない", () => {
+    for (const pointerType of ["mouse", "pen", "touch"]) {
+      expect(shouldBeginCardDrag({ pointerType, selectBeforeDrag: false, isSelected: false })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("スマホ幅のタッチは、選択中のカードだけドラッグを始める", () => {
+    expect(
+      shouldBeginCardDrag({ pointerType: "touch", selectBeforeDrag: true, isSelected: false }),
+    ).toBe(false);
+    expect(
+      shouldBeginCardDrag({ pointerType: "touch", selectBeforeDrag: true, isSelected: true }),
+    ).toBe(true);
+  });
+
+  it("スマホ幅でもマウス/ペンなら即ドラッグ(操作不能にしない)", () => {
+    expect(
+      shouldBeginCardDrag({ pointerType: "mouse", selectBeforeDrag: true, isSelected: false }),
+    ).toBe(true);
+    expect(
+      shouldBeginCardDrag({ pointerType: "pen", selectBeforeDrag: true, isSelected: false }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldClearSelectionOnPointerDown", () => {
+  it("選択中カードの外(背景・別のカード)を触ったら解除する", () => {
+    expect(shouldClearSelectionOnPointerDown(fakeTarget([[".week-grid-day-column"]]))).toBe(true);
+    expect(shouldClearSelectionOnPointerDown(fakeTarget(unselectedEventChain))).toBe(true);
+  });
+
+  it("選択中カード自身(またはその子)を触ったときは解除しない(ドラッグ開始を壊さない)", () => {
+    expect(shouldClearSelectionOnPointerDown(fakeTarget(selectedEventChain))).toBe(false);
+  });
+
+  it("target が無いときは解除側に倒す(選択が残り続けるより安全)", () => {
+    expect(shouldClearSelectionOnPointerDown(null)).toBe(true);
   });
 });

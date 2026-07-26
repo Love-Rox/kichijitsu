@@ -9,6 +9,112 @@
  * hooks/useSwipeNavigation.ts が担い、判定・数値計算はすべてここへ委譲する。
  */
 
+/**
+ * スマホの操作体系(2026-07-26、ユーザー要望)――
+ * 「どこをスワイプしても日移動できる」/「予定はタップして選んでからドラッグで移動」を
+ * 成立させるための、ジェスチャの振り分け(スワイプ vs カードのドラッグ)の判定もここに置く。
+ * DOM を直接触らずに済むよう、必要な最小面(closest だけ)を SwipeTargetLike として切り出し、
+ * テストでは素のオブジェクトで代用できるようにしてある(この設計判断自体が仕様)。
+ */
+
+/** 選択中の予定/予定タイムブロックに付ける印。CSS(EventSelection.css)と判定の両方で使う */
+export const SELECTED_CARD_CLASS = "is-card-selected";
+/** 「タップで選択してからドラッグ」モード(スマホ幅)のカードに付ける印。CSS の touch-action 切替に使う */
+export const TAP_SELECT_CARD_CLASS = "is-tap-select";
+
+/** 予定カード / 予定タイムブロック(自前の pointer ドラッグを持つカード) */
+export const SWIPE_CARD_SELECTOR = ".event, .planned-block";
+/** 選択中カード。単一クラスセレクタに保つ(判定を closest 1回で済ませるため) */
+export const SWIPE_SELECTED_CARD_SELECTOR = `.${SELECTED_CARD_CLASS}`;
+/**
+ * 選択状態に関わらず常にスワイプ対象外にするもの ――
+ * 詳細ポップオーバー(実際は body へ portal されるので .week-grid には来ないが保険)と、
+ * 自前のタップ/入力を持つフォーム部品。
+ */
+export const SWIPE_CONTROL_EXCLUDE_SELECTOR =
+  ".event-detail-popover, .event-detail-backdrop, input, textarea, button, a";
+
+/** shouldIgnoreSwipeStart / shouldClearSelectionOnPointerDown が必要とする DOM の最小面 */
+export interface SwipeTargetLike {
+  closest(selectors: string): SwipeTargetLike | null;
+}
+
+/**
+ * pointerdown の起点(target)を見て、このジェスチャを日移動スワイプの候補から外すか判定する。
+ *
+ * 2026-07-26 以前は「.event / .planned-block の上から始まった pointerdown は常に除外」という
+ * 静的セレクタだった ―― 予定が密な日ではスワイプの開始位置がほぼ塞がれ、「スワイプのスタート
+ * 位置が悪いと戻される」というユーザー報告の直接の原因になっていた。そこで:
+ *
+ * - タッチかつ「未選択のカード」の上: 除外しない(false)。カード側(EventBlock/PlannedBlock)も
+ *   shouldBeginCardDrag で自分のドラッグを始めないので、pointerdown はそのまま .week-grid の
+ *   スワイプに拾われる ―― どこをスワイプしても日が動く。
+ * - タッチかつ「選択中のカード」の上: 除外する(true)。選択済みのカードはドラッグ移動/リサイズが
+ *   優先で、横スワイプは発動させない。
+ * - マウス/ペン: カード上は従来どおり除外(そもそもフック側が pointerType!=="touch" で
+ *   起動しないため到達しないが、判定関数としての完全性のため明示しておく)。
+ * - フォーム部品・詳細ポップオーバー: 選択状態に関わらず常に除外。
+ */
+export function shouldIgnoreSwipeStart(
+  target: SwipeTargetLike | null | undefined,
+  { pointerType }: { pointerType: string },
+): boolean {
+  if (!target) return false;
+  if (target.closest(SWIPE_CONTROL_EXCLUDE_SELECTOR)) return true;
+  // 選択中カード(またはその子)から始まったら、そのカードのドラッグを優先する
+  if (target.closest(SWIPE_SELECTED_CARD_SELECTOR)) return true;
+  // カードの外(日列の背景等)は従来どおりスワイプ候補
+  if (!target.closest(SWIPE_CARD_SELECTOR)) return false;
+  // 未選択カードの上: タッチのときだけスワイプを通す
+  return pointerType !== "touch";
+}
+
+/**
+ * カード(EventBlock / PlannedBlockCard)の pointerdown で、その場でドラッグ移動/リサイズを
+ * 始めてよいかを判定する。
+ *
+ * - selectBeforeDrag=false(デスクトップ、= longPressCreate が false の広い幅): 常に true。
+ *   マウスでもタッチでも従来どおり pointerdown で即ドラッグを開始する(挙動を一切変えない)。
+ * - selectBeforeDrag=true(スマホ幅)かつタッチ: 選択中のカードだけドラッグを始める。
+ *   未選択なら false ―― 呼び出し側は pointerdown を素通しし(setPointerCapture も
+ *   stopPropagation もしない)、.week-grid の横スワイプに拾わせる。タップ(移動なしの
+ *   pointerup)だけを自前で見張って「選択+詳細ポップオーバー」に繋げる。
+ * - selectBeforeDrag=true でもマウス/ペンなら true(スマホ幅でマウスを繋いだ場合に
+ *   操作不能にしない ―― 横スワイプ自体もタッチ限定なので競合しない)。
+ */
+export function shouldBeginCardDrag({
+  pointerType,
+  selectBeforeDrag,
+  isSelected,
+}: {
+  pointerType: string;
+  selectBeforeDrag: boolean;
+  isSelected: boolean;
+}): boolean {
+  if (!selectBeforeDrag) return true;
+  if (pointerType !== "touch") return true;
+  return isSelected;
+}
+
+/**
+ * 選択解除の判定。.week-grid で pointerdown を観測したとき、その起点が「選択中カードの外」なら
+ * 解除する(true)。
+ *
+ * 解除条件をこの1点に寄せている理由: 詳細ポップオーバーの開閉(EventBlock の detailPos)と
+ * 選択状態を同一視すると、useCloseOnOutsideOrEscape が「カード自身の pointerdown」も
+ * 外側クリックとみなして閉じるため、選択カードを掴んでドラッグし始めた瞬間に選択が外れてしまう。
+ * そこで選択は WeekGrid 側の独立した state とし、「別の場所を触った」「日を移動した」という
+ * 分かりやすい2条件だけで解除する(ポップオーバーは従来どおり独立して開閉する)。
+ * 詳細ポップオーバーは body へ portal されるため .week-grid の pointerdown には来ない
+ * (= ポップオーバー内の操作で選択が外れることはない)。
+ */
+export function shouldClearSelectionOnPointerDown(
+  target: SwipeTargetLike | null | undefined,
+): boolean {
+  if (!target) return true;
+  return target.closest(SWIPE_SELECTED_CARD_SELECTOR) === null;
+}
+
 /** 「横方向が支配的」と確定するまでの最小移動量(px)。ごく僅かな指のブレでは反応しない */
 export const SWIPE_DIRECTION_MIN_PX = 10;
 /** |dx| が |dy| のこの倍数を超えたら横方向優勢、そうでなければ縦方向(スクロール等)優勢とみなす。

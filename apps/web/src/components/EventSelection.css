@@ -1,0 +1,53 @@
+/*
+ * スマホの操作体系(2026-07-26、ユーザー要望)専用のスタイル ――
+ *   1. どこをスワイプしても日を移動できる
+ *   2. 予定はタップして選んでからドラッグで移動する
+ *
+ * EventBlock.tsx / PlannedBlock.tsx の双方から読み込む(同じ CSS を2回 import しても
+ * バンドラが1回にまとめるため重複しない)。既存の EventBlock.css / PlannedBlock.css を
+ * 直接編集せず新規ファイルに分けてあるのは、既存 CSS 側で別途トークン化作業が
+ * 進行しているため(競合回避)。色は既存の朱 #d7402e / 墨 #24211e をそのまま使う。
+ *
+ * クラスの出どころは layout/swipeNav.ts(TAP_SELECT_CARD_CLASS / SELECTED_CARD_CLASS)――
+ * 同じ印を JS 側の判定(shouldIgnoreSwipeStart / shouldClearSelectionOnPointerDown)も
+ * 見ているので、名前を変えるときは両方を揃えること。
+ */
+
+/*
+ * 未選択カードは横スワイプ(日移動)と縦スクロールをブラウザ/親へ通す。
+ *
+ * .event / .planned-block は既定で touch-action: none を持つ(ドラッグ移動のため)。
+ * それだとカードの上から始めたタッチはネイティブの縦スクロールも起こせず、
+ * 「予定の上からスワイプすると日が動かない」の一因でもあった。pan-y にすると
+ * 縦は素直にスクロールし、横方向のパンはブラウザが行わない = pointermove が
+ * こちらへ届くので .week-grid の横スワイプ判定がそのまま働く
+ * (.week-grid-scroll が既に pan-y でスワイプが成立しているのと同じ条件)。
+ *
+ * セレクタは3クラスぶんの詳細度があるので、読み込み順に関わらず
+ * EventBlock.css / PlannedBlock.css の touch-action: none に必ず勝つ。
+ * 選択中(.is-card-selected)のカードは既定の none のまま ―― ドラッグ中に
+ * ページが一緒にスクロールしないようにするため。
+ */
+.event.is-tap-select:not(.is-card-selected),
+.planned-block.is-tap-select:not(.is-card-selected) {
+  touch-action: pan-y;
+}
+
+/* リサイズハンドルも同じ扱い(こちらも既定は touch-action: none) */
+.event.is-tap-select:not(.is-card-selected) .event-resize-handle,
+.planned-block.is-tap-select:not(.is-card-selected) .planned-block-resize-handle {
+  touch-action: pan-y;
+}
+
+/*
+ * 選択中の印。控えめに ―― 内側の朱の輪郭(outline-offset を負にしてカード内に収め、
+ * レイアウトを1pxも動かさない)+ 薄い朱のリング。カードの背景色・文字色には触らない。
+ */
+.event.is-tap-select.is-card-selected,
+.planned-block.is-tap-select.is-card-selected {
+  outline: 1.5px solid #d7402e;
+  outline-offset: -1.5px;
+  box-shadow:
+    0 0 0 3px rgba(215, 64, 46, 0.16),
+    0 2px 8px rgba(36, 33, 30, 0.24);
+}

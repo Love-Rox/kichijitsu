@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { GitHubActivityDTO, GitHubCiRunDTO, RsvpResponseStatus } from "@kichijitsu/shared";
 import type { AllDayOccurrence, Occurrence, PlannedBlock, TaskItem } from "../model/types";
@@ -53,6 +53,7 @@ import {
   zoomedScrollTop,
 } from "../layout/gridMetrics";
 import { panelAnchors } from "../layout/dayGrid";
+import { shouldClearSelectionOnPointerDown } from "../layout/swipeNav";
 import { useSwipeNavigation } from "../hooks/useSwipeNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { HourHeightContext } from "../hooks/useHourHeight";
@@ -532,6 +533,23 @@ export function WeekGrid({
     [setSwipeDx, onSwipeNavigate],
   );
 
+  // ---- 予定カードの選択状態(スマホの「タップで選択 → ドラッグで移動」、2026-07-26) ----
+  //
+  // 状態をここ(WeekGrid)に置く理由: 選択は「日タイムライン全体で高々1つ」というグリッド全体の
+  // 関心事で、解除の起点(.week-grid の pointerdown・日の移動)も全てこの層に揃っているため。
+  // 詳細ポップオーバー(EventBlock の detailPos)とは意図的に別物にしてある ――
+  // 統合すると useCloseOnOutsideOrEscape が「選択カード自身の pointerdown」も外側クリックと
+  // みなして閉じるため、掴んでドラッグし始めた瞬間に選択が外れてしまう
+  // (layout/swipeNav.ts の shouldClearSelectionOnPointerDown のコメント参照)。
+  // 値は `event:<id>` / `planned:<id>`(DayColumn が組み立てる)。
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
+  // 解除条件その2: 日を移動したら選択を解く(スワイプ・←/→ ボタン・today ジャンプ・
+  // ビュー切替のすべてがここへ合流する)。移動先で前の日のカードが選ばれたままにならないようにする。
+  useEffect(() => {
+    setSelectedCardId(null);
+  }, [weekStart, dayCount]);
+
   const swipeHandlers = useSwipeNavigation({
     enabled: swipeEnabled,
     viewportRef: daysViewportRef,
@@ -541,6 +559,22 @@ export function WeekGrid({
     onSwipeMove: handleSwipeMove,
     onSwipeEnd: handleSwipeEnd,
   });
+
+  // 解除条件その1: 選択中カードの外で pointerdown が起きたら解く(背景・別のカード・
+  // 空き領域のタップ)。判定は純関数へ ―― 選択中カードの子要素を触ったときは解除しない
+  // (そこはドラッグ移動の始まりなので)。詳細ポップオーバーは body へ portal されるため
+  // ここには来ない(= ポップオーバー内の操作で選択は外れない)。
+  // スワイプ配線(swipeHandlers.onPointerDown)はこの後にそのまま呼ぶだけで、判定内容には
+  // 一切干渉しない。
+  const handleGridPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (selectedCardId !== null && shouldClearSelectionOnPointerDown(e.target as Element | null)) {
+        setSelectedCardId(null);
+      }
+      swipeHandlers.onPointerDown(e);
+    },
+    [selectedCardId, swipeHandlers],
+  );
 
   // 3パネル(prev/current/next)の先頭日。dayCount=7 なら従来通り「3週」、3/1 なら
   // 「3×N日」ぶんのストリップになる(panelAnchors、dayGrid.ts)
@@ -858,7 +892,7 @@ export function WeekGrid({
       className="week-grid"
       ref={gridRootRef}
       style={gridRootStyle}
-      onPointerDown={swipeHandlers.onPointerDown}
+      onPointerDown={handleGridPointerDown}
       onPointerMove={swipeHandlers.onPointerMove}
       onPointerUp={swipeHandlers.onPointerUp}
       onPointerCancel={swipeHandlers.onPointerCancel}
@@ -1054,6 +1088,8 @@ export function WeekGrid({
                       runningLinkedItemIds={runningLinkedItemIds}
                       onStartTimer={onStartTimer}
                       onStopTimer={onStopTimer}
+                      selectedCardId={selectedCardId}
+                      onSelectCard={setSelectedCardId}
                     />
                   ))}
                 </div>
