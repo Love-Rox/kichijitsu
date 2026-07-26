@@ -33,11 +33,17 @@ import {
   meetingProviderLabel,
   resolveMeetingUrl,
 } from "../layout/meetingLinks";
+import {
+  SELECTED_CARD_CLASS,
+  shouldBeginCardDrag,
+  TAP_SELECT_CARD_CLASS,
+} from "../layout/swipeNav";
 import { PlaceIcon, VideoIcon } from "./icons";
 import type { CalendarInfo } from "./calendarInfo";
 import { MeetingProviderIcon } from "./meetingProviderIcon";
 import { EventDetailCard } from "./EventDetailCard";
 import "./EventBlock.css";
+import "./EventSelection.css";
 
 /*
  * 互換のための re-export(リファクタ フェーズ1a、2026-07-25)。
@@ -115,6 +121,17 @@ interface EventBlockProps {
    * 422 (not_an_attendee) は RsvpNotAttendeeError を reject する取り決め(sync/eventRsvp.ts 参照)。
    */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
+  /**
+   * スマホの操作体系(2026-07-26、ユーザー要望): true のとき「タップで選択 → 選択中だけ
+   * ドラッグで移動/リサイズ」に切り替える。WeekGrid からは longPressCreate(=isNarrow、
+   * スワイプ日移動を有効にしているのと同じ条件)がそのまま降りてくる。false(デスクトップ)では
+   * 従来どおり pointerdown で即ドラッグが始まり、選択状態は一切関与しない。
+   */
+  selectBeforeDrag?: boolean;
+  /** このカードが選択中か(WeekGrid の selectedCardId と一致するか) */
+  isSelected?: boolean;
+  /** タップ(移動を伴わない pointerup)でこのカードを選択状態にする。WeekGrid の state を更新する */
+  onSelect?: () => void;
 }
 
 interface DragState {
@@ -178,12 +195,25 @@ export function EventBlock({
   onDelete,
   onSaveEdit,
   onRsvp,
+  selectBeforeDrag = false,
+  isSelected = false,
+  onSelect,
 }: EventBlockProps) {
   // 時間軸ズーム(2026-07-25): ドラッグ中の px⇔分 変換に使う現在のズーム値
   // (WeekGrid が張る context 経由。hooks/useHourHeight.tsx 参照)
   const hourHeight = useHourHeight();
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  /**
+   * 「タップで選択」待ちの状態(selectBeforeDrag かつ未選択のタッチのときだけ使う)。
+   * ドラッグを始めない = setPointerCapture もしないので、この pointerdown は .week-grid の
+   * 横スワイプへそのまま流れる。ここでは「移動を伴わない pointerup」だけを自前で見張り、
+   * タップだったときに選択+詳細ポップオーバーへ繋げる。
+   * 横スワイプが確定すると .week-grid がポインタをキャプチャして以後のイベントはこちらへ
+   * 届かなくなるが、その前に閾値超えの pointermove で必ず捨てられる(CLICK_THRESHOLD_PX <
+   * 横確定の SWIPE_DIRECTION_MIN_PX)ので取り残しにならない。
+   */
+  const tapRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const detailCardRef = useRef<HTMLDivElement>(null);
   // クリック(≒詳細ポップオーバーを開く座標)。null の間は非表示
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
@@ -288,16 +318,44 @@ export function EventBlock({
     window.addEventListener("keydown", handleKeyDown);
   }
 
+  /** スマホの「未選択カードはドラッグを始めず、横スワイプに通す」判定(layout/swipeNav.ts) */
+  function canBeginDrag(e: ReactPointerEvent<HTMLDivElement>): boolean {
+    return shouldBeginCardDrag({
+      pointerType: e.pointerType,
+      selectBeforeDrag,
+      isSelected,
+    });
+  }
+
   function handlePointerDownMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!canBeginDrag(e)) {
+      // 未選択カードの上のタッチ: 何も掴まず素通しして .week-grid の日移動スワイプに委ねる。
+      // タップだった場合だけ pointerup で選択+詳細を開く。
+      if (e.button !== 0) return;
+      tapRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    tapRef.current = null;
     beginDrag(e, "move");
   }
 
   function handlePointerDownResize(e: ReactPointerEvent<HTMLDivElement>) {
+    // 未選択カード(スマホ)では stopPropagation もしない ―― 親(カード本体)の
+    // handlePointerDownMove がタップ判定を張り、そのまま .week-grid のスワイプへも流れる
+    if (!canBeginDrag(e)) return;
     e.stopPropagation();
     beginDrag(e, "resize");
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    // タップ待ち中に閾値を超えて動いたら、それはタップではない(スワイプ/スクロール)ので捨てる
+    const tap = tapRef.current;
+    if (tap && tap.pointerId === e.pointerId) {
+      if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= CLICK_THRESHOLD_PX) {
+        tapRef.current = null;
+      }
+    }
+
     const ds = dragRef.current;
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) {
@@ -361,6 +419,25 @@ export function EventBlock({
   }
 
   function handlePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    // スマホの未選択カード: 移動を伴わない pointerup = タップ。ここで「選択」だけ行い、
+    // **詳細ポップオーバーは開かない**(2026-07-26、ユーザー要望「予定をクリックしてから
+    // ドラッグで移動」)。
+    //
+    // なぜ詳細を開かないか: 詳細ポップオーバーには透明バックドロップ (.event-detail-backdrop、
+    // 全面 fixed) があり、開いている間はカードに指が届かない。タップで詳細まで開くと
+    // 「タップ→詳細が開く→もう一度触って閉じる→3回目でようやくドラッグ」となり、要望の
+    // 「タップしてからドラッグ」が成立しない。バックドロップ自体は「モーダルが開いている
+    // ときのクリックは閉じるだけにする」という別の要望で入れたものなので外せない。
+    // よってスマホでは タップ=選択(この後すぐドラッグできる)/ 選択済みカードの再タップ=詳細、
+    // と段階を分ける(下の !ds.moved 分岐が再タップ側を担当する)。
+    const tap = tapRef.current;
+    if (tap && tap.pointerId === e.pointerId) {
+      tapRef.current = null;
+      onSelect?.();
+      tooltip.hide();
+      return;
+    }
+
     const ds = dragRef.current;
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) return;
@@ -392,6 +469,7 @@ export function EventBlock({
   }
 
   function handlePointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
+    if (tapRef.current?.pointerId === e.pointerId) tapRef.current = null;
     if (dragRef.current?.pointerId !== e.pointerId) return;
     cancelDrag();
   }
@@ -502,7 +580,10 @@ export function EventBlock({
     width: `calc(${usableWidthExpr} * ${widthPct / 100})`,
     zIndex: stackIndex + 1,
     // カスケード重ね (2026-07-20) 以降、背景は不透明必須: 半透明 (`${color}26`) だと
-    // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま白と混合して不透明化。
+    // 重なった下のカードの文字が透けて読めなくなる。色味は同等のまま「カードの面の色」と
+    // 混合して不透明化する。混合先はリテラルの white ではなく面のトークン --c-surface に
+    // してある(現状ライトでは #ffffff なので結果は完全に同じ。ダーク配色を入れた段で、
+    // カレンダー色が暗い面の上でも成立するようになる)。
     // Busy は背景を独自指定せず、色付きハッチ(CSS 側 .event--busy + --busy-color)に任せる。
     // needsAction (RSVP 未返信、2026-07-22) は「輪郭のみ・塗りなし」を要件どおり表現するため、
     // 左ボーダーのみの通常カードとは別に全周 1.5px のカレンダー色枠に切り替える。
@@ -514,7 +595,7 @@ export function EventBlock({
             border: `1.5px solid ${displayColor}`,
           } as CSSProperties)
         : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, white)`,
+            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, var(--c-surface))`,
             borderLeftColor: displayColor,
           }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す
@@ -539,9 +620,18 @@ export function EventBlock({
           isBusy ? "event--busy" : "",
           isTentative ? "event--rsvp-tentative" : "",
           isDeclined ? "event--rsvp-declined" : "",
+          // スマホの「タップで選択 → ドラッグで移動」(2026-07-26)。
+          // is-tap-select: 未選択の間は touch-action を pan-y に緩め、縦スクロールと
+          //   .week-grid の横スワイプ(日移動)を通す(EventSelection.css)。
+          // is-card-selected: 選択中の印。CSS の強調表示と、
+          //   layout/swipeNav.ts の shouldIgnoreSwipeStart / shouldClearSelectionOnPointerDown が
+          //   DOM から選択状態を読み取る唯一の手掛かりでもある。
+          selectBeforeDrag ? TAP_SELECT_CARD_CLASS : "",
+          selectBeforeDrag && isSelected ? SELECTED_CARD_CLASS : "",
         ]
           .filter(Boolean)
           .join(" ")}
+        aria-selected={selectBeforeDrag ? isSelected : undefined}
         style={style}
         onPointerDown={handlePointerDownMove}
         onPointerMove={handlePointerMove}

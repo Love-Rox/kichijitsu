@@ -180,6 +180,15 @@ interface DayColumnProps {
   onStartTimer: (block: PlannedBlock) => void;
   /** ⏹ ボタンから呼ばれる(ローカルのみ)。対象 item だけを止める(他の並走には触れない) */
   onStopTimer: (linkedItemId: string) => void;
+  /**
+   * スマホの操作体系(2026-07-26、ユーザー要望): いま選択中のカードのキー(未選択なら null)。
+   * 状態の持ち主は WeekGrid ―― ここでは「自分の子カードのどれが選択中か」を比べて渡すだけ。
+   * キーは EventBlock(予定)と PlannedBlockCard(予定タイムブロック)の id 空間が混ざらないよう
+   * 種別で前置してある(`event:` / `planned:`)。
+   */
+  selectedCardId: string | null;
+  /** カードのタップで選択状態を更新する(WeekGrid の setSelectedCardId) */
+  onSelectCard: (cardId: string | null) => void;
 }
 
 /**
@@ -220,6 +229,8 @@ export function DayColumn({
   runningLinkedItemIds,
   onStartTimer,
   onStopTimer,
+  selectedCardId,
+  onSelectCard,
 }: DayColumnProps) {
   // 時間軸ズーム(2026-07-25): px⇔分 の変換係数は context 経由で受け取る
   // (状態の持ち主は App.tsx、WeekGrid が Provider を張る。hooks/useHourHeight.tsx 参照)
@@ -577,6 +588,9 @@ export function DayColumn({
         const blockedByBusyColors = isBusyPlaceholder(occurrence.title)
           ? []
           : busyOverlapColors(occurrence, busyIntervals);
+        // 選択キー(スマホの「タップで選択 → ドラッグで移動」)。PlannedBlock と id 空間が
+        // 混ざらないよう種別を前置する
+        const cardId = `event:${occurrence.id}`;
 
         return (
           <EventBlock
@@ -600,6 +614,11 @@ export function DayColumn({
             onSaveEdit={onSaveEdit}
             onRsvp={onRsvp}
             calendarLookup={calendarLookup}
+            // 「タップで選択してからドラッグ」は横スワイプ日移動と同じ条件(=スマホ幅)でだけ
+            // 有効にする。longPressCreate は isNarrow がそのまま降りてきている値
+            selectBeforeDrag={longPressCreate}
+            isSelected={selectedCardId === cardId}
+            onSelect={() => onSelectCard(cardId)}
           />
         );
       })}
@@ -609,6 +628,7 @@ export function DayColumn({
             const step = cascadeStepFrac(columnCount);
             const leftPct = column * step * 100;
             const widthPct = 100 - leftPct;
+            const cardId = `planned:${block.id}`;
             return (
               <PlannedBlockCard
                 key={block.id}
@@ -624,6 +644,9 @@ export function DayColumn({
                 isTimerRunning={runningLinkedItemIds.has(block.linkedItemId)}
                 onStartTimer={onStartTimer}
                 onStopTimer={onStopTimer}
+                selectBeforeDrag={longPressCreate}
+                isSelected={selectedCardId === cardId}
+                onSelect={() => onSelectCard(cardId)}
               />
             );
           })}

@@ -4,6 +4,7 @@ import {
   classifySwipeAxis,
   computeTrailingVelocity,
   resolveSwipeDays,
+  shouldIgnoreSwipeStart,
   SWIPE_VELOCITY_WINDOW_MS,
   type SwipeAxis,
   type SwipeSample,
@@ -17,10 +18,14 @@ import {
  * 挙動のユニットテストは困難なため、テストは swipeNav.ts 側の純ロジックで固めてある)。
  *
  * 競合回避の要 ――
- * 1. イベントカード(.event)・予定タイムブロック(.planned-block)・詳細ポップオーバー
- *    (.event-detail-popover/.event-detail-backdrop)・フォーム部品(input/textarea/button/a)
- *    上で始まった pointerdown は最初から無視する(それらは自前の pointer ドラッグ/タップを
- *    持つため、このフックは一切介入しない)。
+ * 1. pointerdown の起点が「日移動スワイプの対象外」かは layout/swipeNav.ts の
+ *    shouldIgnoreSwipeStart に委ねる(静的なセレクタから関数へ、2026-07-26)。
+ *    詳細ポップオーバー(.event-detail-popover/.event-detail-backdrop)とフォーム部品
+ *    (input/textarea/button/a)は常に対象外だが、イベントカード(.event)・予定タイムブロック
+ *    (.planned-block)は「選択中のときだけ」対象外になる ―― 未選択のカードの上から始めた
+ *    スワイプでも日が移動する(ユーザー要望「どこをスワイプしても日の移動ができるように」)。
+ *    カード側(EventBlock/PlannedBlock)も同じ判定(shouldBeginCardDrag)で未選択時は自分の
+ *    ドラッグを始めないため、pointerdown はそのままここへ流れてくる。
  * 2. それ以外の背景で始まった pointerdown は「判定待ち」として dx/dy の観測だけ始める
  *    (setPointerCapture も preventDefault もまだしない ―― DayColumn の長押し新規作成・
  *    縦スクロールを一切妨げない)。
@@ -96,10 +101,6 @@ interface TrackState {
 /** samples の肥大化を防ぐため、速度窓の2倍より古いサンプルは捨てる(端点差分に十分な余裕) */
 const SAMPLE_RETENTION_MS = SWIPE_VELOCITY_WINDOW_MS * 2;
 
-/** pointerdown 時、この中(またはその子孫)から始まったジェスチャはスワイプ候補にしない */
-const SWIPE_EXCLUDE_SELECTOR =
-  ".event, .planned-block, .event-detail-popover, .event-detail-backdrop, input, textarea, button, a";
-
 export interface SwipeNavigationHandlers {
   onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
   onPointerMove: (e: ReactPointerEvent<HTMLElement>) => void;
@@ -142,8 +143,8 @@ export function useSwipeNavigation({
         return;
       }
 
-      const target = e.target as HTMLElement | null;
-      if (target?.closest(SWIPE_EXCLUDE_SELECTOR)) return;
+      // 除外判定は純関数へ(選択中カードかどうかを DOM の印で見る、layout/swipeNav.ts)
+      if (shouldIgnoreSwipeStart(e.target as Element | null, { pointerType: e.pointerType })) return;
 
       trackRef.current = {
         pointerId: e.pointerId,

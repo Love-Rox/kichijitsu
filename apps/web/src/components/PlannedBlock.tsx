@@ -5,7 +5,13 @@ import { formatRange, pxToMinutes } from "../layout/gridMetrics";
 import { computeMovedRange, computeResizedEndMs } from "../sync/planned";
 import { msToTopPx } from "../layout/gridMetrics";
 import { useHourHeight } from "../hooks/useHourHeight";
+import {
+  SELECTED_CARD_CLASS,
+  shouldBeginCardDrag,
+  TAP_SELECT_CARD_CLASS,
+} from "../layout/swipeNav";
 import "./PlannedBlock.css";
+import "./EventSelection.css";
 
 interface PlannedBlockCardProps {
   block: PlannedBlock;
@@ -34,6 +40,16 @@ interface PlannedBlockCardProps {
   onStartTimer: (block: PlannedBlock) => void;
   /** ⏹ ボタンから呼ばれる(ローカルのみ)。この block の linkedItemId のタイマーだけを止める */
   onStopTimer: (linkedItemId: string) => void;
+  /**
+   * スマホの操作体系(2026-07-26、ユーザー要望): true のとき「タップで選択 → 選択中だけ
+   * ドラッグで移動/リサイズ」に切り替える(EventBlock と全く同じ考え方に揃える)。
+   * false(デスクトップ)では従来どおり pointerdown で即ドラッグが始まる。
+   */
+  selectBeforeDrag?: boolean;
+  /** このカードが選択中か(WeekGrid の selectedCardId と一致するか) */
+  isSelected?: boolean;
+  /** タップ(移動を伴わない pointerup)でこのカードを選択状態にする */
+  onSelect?: () => void;
 }
 
 interface DragState {
@@ -74,12 +90,21 @@ export function PlannedBlockCard({
   isTimerRunning,
   onStartTimer,
   onStopTimer,
+  selectBeforeDrag = false,
+  isSelected = false,
+  onSelect,
 }: PlannedBlockCardProps) {
   // 時間軸ズーム(2026-07-25): ドラッグ中の px⇔分 変換に使う現在のズーム値
   // (top/height 自体は親 DayColumn が同じ値で計算済み)
   const hourHeight = useHourHeight();
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  /**
+   * 「タップで選択」待ちの状態(EventBlock.tsx の tapRef と同じ役割・同じ理由)。
+   * ドラッグを始めない = 何も掴まないので、この pointerdown は .week-grid の横スワイプ
+   * (日移動)へそのまま流れる。移動を伴わない pointerup だけを拾って選択に繋げる。
+   */
+  const tapRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   // アンマウント時にドラッグ中なら後始末(バッジの残留防止、EventBlock と同じ流儀)
   useEffect(() => {
@@ -119,16 +144,37 @@ export function PlannedBlockCard({
     };
   }
 
+  /** スマホの「未選択カードはドラッグを始めず、横スワイプに通す」判定(layout/swipeNav.ts) */
+  function canBeginDrag(e: ReactPointerEvent<HTMLDivElement>): boolean {
+    return shouldBeginCardDrag({ pointerType: e.pointerType, selectBeforeDrag, isSelected });
+  }
+
   function handlePointerDownMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!canBeginDrag(e)) {
+      if (e.button !== 0) return;
+      tapRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    tapRef.current = null;
     beginDrag(e, "move");
   }
 
   function handlePointerDownResize(e: ReactPointerEvent<HTMLDivElement>) {
+    // 未選択カード(スマホ)では stopPropagation もしない ―― 親のタップ判定と
+    // .week-grid のスワイプへ通すため(EventBlock.tsx と同じ)
+    if (!canBeginDrag(e)) return;
     e.stopPropagation();
     beginDrag(e, "resize");
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const tap = tapRef.current;
+    if (tap && tap.pointerId === e.pointerId) {
+      if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= CLICK_THRESHOLD_PX) {
+        tapRef.current = null;
+      }
+    }
+
     const ds = dragRef.current;
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) return;
@@ -172,6 +218,15 @@ export function PlannedBlockCard({
   }
 
   function handlePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    // スマホの未選択カード: 移動を伴わない pointerup = タップ → 選択(以後ドラッグで移動できる)。
+    // 予定タイムブロックには詳細ポップオーバーが無いので、選択だけを行う。
+    const tap = tapRef.current;
+    if (tap && tap.pointerId === e.pointerId) {
+      tapRef.current = null;
+      onSelect?.();
+      return;
+    }
+
     const ds = dragRef.current;
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) return;
@@ -201,6 +256,7 @@ export function PlannedBlockCard({
   }
 
   function handlePointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
+    if (tapRef.current?.pointerId === e.pointerId) tapRef.current = null;
     const ds = dragRef.current;
     const el = elRef.current;
     if (!ds || !el || ds.pointerId !== e.pointerId) return;
@@ -227,11 +283,17 @@ export function PlannedBlockCard({
   return (
     <div
       ref={elRef}
-      className={
-        isTimerRunning
-          ? `planned-block planned-block--${block.itemType} planned-block--timer-running`
-          : `planned-block planned-block--${block.itemType}`
-      }
+      className={[
+        "planned-block",
+        `planned-block--${block.itemType}`,
+        isTimerRunning ? "planned-block--timer-running" : "",
+        // スマホの「タップで選択 → ドラッグで移動」(2026-07-26、EventBlock.tsx と同じ印)
+        selectBeforeDrag ? TAP_SELECT_CARD_CLASS : "",
+        selectBeforeDrag && isSelected ? SELECTED_CARD_CLASS : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-selected={selectBeforeDrag ? isSelected : undefined}
       style={style}
       onPointerDown={handlePointerDownMove}
       onPointerMove={handlePointerMove}
