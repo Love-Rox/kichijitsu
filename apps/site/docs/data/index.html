@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>データの扱い | kichijitsu</title>
+    <meta name="description" content="kichijitsu がどこに何を保存するか。ブラウザの IndexedDB、D1、Durable Object、localStorage の内訳。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="データの扱い | kichijitsu" />
+    <meta property="og:description" content="予定・認可情報・UI 設定が、それぞれどこに保存されるか。ローカルファーストの実際。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">データの扱い</h1>
+        <p class="doc-header__lede">
+          kichijitsu は予定の複製を手元に置いて動く。予定そのものの正本は Google
+          にあり、サーバーが持つのは同期に必要な最小限だけ。
+          どこに何が保存され、消すと何が起きるかをまとめた。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#principle">正本は Google にある</a></li>
+            <li><a href="#browser">ブラウザに入るもの</a></li>
+            <li><a href="#server">サーバーに入るもの</a></li>
+            <li><a href="#tokens">認可情報の守りかた</a></li>
+            <li><a href="#google-tasks">Google タスクで扱えないもの</a></li>
+            <li><a href="#delete">消しかた</a></li>
+            <li><a href="#trust">公式インスタンスとセルフホスト</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="principle" aria-labelledby="principle-title">
+          <h2 id="principle-title">正本は Google にある</h2>
+          <p>
+            kichijitsu は Google カレンダーと Google
+            ToDo リストのクライアントであって、予定の保管庫ではない。
+            <strong>予定の正本 (オリジナル) は常に Google 側にあり</strong>、kichijitsu
+            が扱うのはその複製 (レプリカ) にすぎない。
+          </p>
+          <p>
+            複製が置かれるのは、あなたが使っている端末のブラウザの中 (IndexedDB)
+            だけ。画面はこの手元の複製から組み立てるので、表示や移動の操作は Google
+            への往復を待たずに済む。予定を編集すると kichijitsu は Google
+            へ書き戻し、更新された正本が次の同期で手元へ還ってくる。
+          </p>
+          <p>
+            その間に立つサーバー (Cloudflare Worker) は、Google
+            と端末をつなぐ中継役で、<strong>予定の中身を保存しない</strong>。エージェント向けの
+            <a href="/mcp/">MCP サーバー</a>も同じ <strong>read-through 原則</strong>
+            で、ツールが呼ばれるたびに Google から取り直すか、その場で書き戻すだけになっている。
+          </p>
+          <p>
+            この前提があるので、以降の「どこに何が保存されるか」は
+            <strong>手元 (ブラウザ)・サーバー・Google</strong>
+            の3つに分けて読むとよい。プライバシーポリシー上の位置づけは
+            <a href="/privacy.html">プライバシーポリシー</a>にまとめてある。
+          </p>
+        </section>
+
+        <section class="doc-section" id="browser" aria-labelledby="browser-title">
+          <h2 id="browser-title">ブラウザに入るもの</h2>
+          <p>
+            予定の複製と、この端末だけの設定が入る。保存先は3種類あり、性質がそれぞれ違う。
+          </p>
+
+          <h3>IndexedDB — 予定の複製</h3>
+          <p>
+            <code>kichijitsu</code> という名前のデータベースに入る。中身はストアごとに分かれている。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ストア</th>
+                  <th>入るもの</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>occurrences</code></td>
+                  <td>時刻のある予定の1回分。週グリッドに並ぶのはこれ</td>
+                </tr>
+                <tr>
+                  <td><code>allDayOccurrences</code></td>
+                  <td>終日予定</td>
+                </tr>
+                <tr>
+                  <td><code>tasks</code></td>
+                  <td>Google タスク</td>
+                </tr>
+                <tr>
+                  <td><code>series</code></td>
+                  <td>繰り返し予定の定義 (何回分に展開するかの元)</td>
+                </tr>
+                <tr>
+                  <td><code>overrides</code></td>
+                  <td>繰り返しのうち、その回だけ変更された予定</td>
+                </tr>
+                <tr>
+                  <td><code>githubItems</code></td>
+                  <td>
+                    GitHub の issue・PR・milestone。取得のたびに丸ごと置き換える (<a
+                      href="/docs/work/"
+                      >GitHub 連携と実績記録</a
+                    >)
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>plannedBlocks</code></td>
+                  <td>
+                    作業の予定ブロック。Google に正本が無い kichijitsu
+                    だけのデータで、この端末にしか存在しない
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>timeEntries</code></td>
+                  <td>
+                    旧・手動タイマーの実績。現在は読み書きしておらず、既存ユーザーとの互換のために残してある
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>meta</code></td>
+                  <td>
+                    この端末の識別子、表示するカレンダーの選択、非表示にしたタスクリスト、不参加予定の表示設定など
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>localStorage — 画面の設定</h3>
+          <p>
+            見た目と操作の好みだけが入る。予定は入らない。キーはすべて
+            <code>kichijitsu:</code> で始まる。
+          </p>
+          <ul>
+            <li><code>kichijitsu:theme</code> — テーマ (自動/ライト/ダーク)</li>
+            <li><code>kichijitsu:view</code> — 最後に選んでいた表示 (日/週/月など)</li>
+            <li><code>kichijitsu:hourHeight</code> — 週グリッドの縦ズーム</li>
+            <li><code>kichijitsu:paneMode</code> / <code>kichijitsu:leftPaneOpen</code> — ペインの配置と開閉</li>
+            <li>
+              <code>kichijitsu:calendarPaneCollapsedAccounts</code> /
+              <code>kichijitsu:calendarPaneCollapsedGroups</code> —
+              カレンダー一覧の折りたたみ状態
+            </li>
+            <li>
+              <code>kichijitsu:ghPath</code> — <code>gh</code> コマンドのパス (デスクトップ版のみ)
+            </li>
+          </ul>
+
+          <h3>Cache Storage — 画面を組み立てるファイル</h3>
+          <p>
+            <code>kichijitsu-</code> で始まるキャッシュ (<code>kichijitsu-shell-v1</code> と
+            <code>kichijitsu-assets-v1</code>) に、JavaScript や CSS
+            といった画面を組み立てるファイルが入る。予定は一切入らない。
+          </p>
+
+          <div class="callout">
+            <p>
+              これら3つは<strong>端末ごと・ブラウザプロファイルごとに独立している</strong>。同じ
+              Google アカウントで使っていても、PC とスマートフォンでは別々の複製を持つ
+              (どちらも同じ正本を見ているので、内容は同期で揃う)。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="server" aria-labelledby="server-title">
+          <h2 id="server-title">サーバーに入るもの</h2>
+          <p>
+            サーバー側の保存先は Cloudflare の D1 (データベース) と Durable Object
+            の2つ。<strong>どちらにも予定のタイトル・参加者・本文は保存されない。</strong>
+            ただし MCP
+            連携だけは例外で、エージェントへの応答を取りこぼさずに届けるため、返した予定の要約が
+            送達が終わるまでのあいだ Durable Object の作業領域を通る。送達後に消えるので蓄積はしない。
+          </p>
+
+          <h3>D1 — 連携の情報</h3>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>テーブル</th>
+                  <th>入るもの</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>accounts</code></td>
+                  <td>
+                    連携した Google アカウントの識別子とメールアドレス、暗号化した refresh
+                    token、どれがログイン用のアカウントか
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>account_visible_calendars</code><br />
+                    <code>account_calendar_prefs</code>
+                  </td>
+                  <td>どのカレンダーを表示するかの選択。端末をまたいで揃えるためにサーバーが持つ</td>
+                </tr>
+                <tr>
+                  <td><code>watches</code></td>
+                  <td>
+                    Google からの更新通知を受け取るための登録状態 (チャネル ID・対象カレンダー・期限)
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>block_rules</code><br />
+                    <code>block_rule_sources</code><br />
+                    <code>block_mirrors</code>
+                  </td>
+                  <td>
+                    <a href="/docs/blocking/">カレンダーブロック</a>の設定と、「元の予定の ID →
+                    生成したブロックの ID」の対応。予定の内容は写さない
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>github_connections</code></td>
+                  <td>GitHub のログイン名と、暗号化したアクセストークン</td>
+                </tr>
+                <tr>
+                  <td><code>mcp_tokens</code></td>
+                  <td>
+                    MCP トークンのハッシュ値・ラベル・最終使用日時。生のトークンは保存されない
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>work_logs</code></td>
+                  <td>
+                    作業実績 (リポジトリ・issue・ブランチ・エージェント名・開始と終了の時刻)。Google
+                    に正本が無い kichijitsu 固有のデータなので、ここだけはサーバーが保管する
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Durable Object — 同期の状態</h3>
+          <ul>
+            <li>
+              <strong>アカウントごとの同期状態</strong> — Google
+              から差分を受け取るための同期カーソル (syncToken)
+              を、カレンダーと端末の組ごとに持つ。あわせて access token
+              のキャッシュ (寿命は1時間ほど) と、更新通知が届かないときのポーリング状態を持つ
+            </li>
+            <li>
+              <strong>更新の配信</strong> — 開いているタブへ「変わった」と知らせる接続を束ねる。接続は保持するが保存はしない
+            </li>
+            <li>
+              <strong>MCP の接続</strong> — エージェントとの接続1つにつき1つ。read-through
+              原則どおり、予定を溜め込むことはない
+            </li>
+          </ul>
+        </section>
+
+        <section class="doc-section" id="tokens" aria-labelledby="tokens-title">
+          <h2 id="tokens-title">認可情報の守りかた</h2>
+          <p>
+            サーバーが預かるもののうち、いちばん重いのが Google の
+            <strong>refresh token</strong> ―― これがあると、あなたのカレンダーに
+            kichijitsu としてアクセスできてしまう。
+          </p>
+          <ul>
+            <li>
+              refresh token は <strong>AES-256-GCM で暗号化してから</strong> D1
+              に保存する。暗号化のたびに新しい初期化ベクトルを使い、保存されるのは暗号文だけ
+            </li>
+            <li>
+              復号の鍵はデータベースの中には無く、Worker の秘密情報 (secret) として別に持つ。D1
+              の中身だけを取り出しても復号できない
+            </li>
+            <li>
+              GitHub のアクセストークンも同じ方式で暗号化する
+            </li>
+            <li>
+              MCP トークンは<strong>ハッシュ値しか保存しない</strong>。生の値は発行直後に一度だけ表示され、以降どこにも残らない
+              (<a href="/mcp/">MCP 接続ガイド</a>)
+            </li>
+            <li>
+              寿命の短い access token (1時間ほど) は Durable Object
+              にそのままキャッシュする。毎回 refresh token
+              から取り直す負荷を避けるための割り切りで、期限切れとともに無効になる
+            </li>
+            <li>Google・GitHub・ブラウザとの通信はすべて TLS で暗号化される</li>
+          </ul>
+        </section>
+
+        <section class="doc-section" id="google-tasks" aria-labelledby="google-tasks-title">
+          <h2 id="google-tasks-title">Google タスクで扱えないもの</h2>
+          <p>
+            タスクの正本も Google 側にあるが、Google Tasks API
+            はカレンダーの API ほど多くを返さない。kichijitsu
+            が受け取れるのは、タスクの ID・タイトル・完了状態・期限・メモ・親タスクだけで、ここから外れる情報は
+            <strong>そもそも届かない</strong>。
+          </p>
+          <ul>
+            <li>
+              <strong>繰り返し (定期) タスク</strong> — API は繰り返しの設定を返さない。kichijitsu
+              から見えるのは個々のタスクだけで、それらが繰り返しの一部であることを知る手立てが無い
+            </li>
+            <li>
+              <strong>期限の時刻</strong> — API が時刻を捨てるため、期限は日付までしか扱えない。タスクが日付のレーンに並び、週グリッドの時間帯に置かれないのはこのため
+            </li>
+            <li>
+              <strong>即時の更新通知</strong> — タスクにはカレンダーのような push
+              通知が無い。反映はカレンダーより遅れる
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              <strong
+                >繰り返しタスクが期待どおりに扱えないのは Google Tasks API 側の制約であって、kichijitsu
+                の不具合ではない。</strong
+              >
+              kichijitsu 側で直せる種類の問題ではないので、繰り返しの設定・変更は Google
+              ToDo リスト側で行うこと。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="delete" aria-labelledby="delete-title">
+          <h2 id="delete-title">消しかた</h2>
+          <p>
+            消す操作は3段階ある。<strong>どれを実行しても Google
+            側の予定そのものは消えない</strong> (正本は Google にあるため)。
+          </p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>キャッシュ削除 — 表示が古いとき</h3>
+                <p>
+                  設定 (歯車アイコン) のいちばん下、「キャッシュを削除して再読み込み」。消えるのは
+                  <code>kichijitsu-</code> で始まる Cache Storage
+                  ―― つまり<strong>画面を組み立てるファイルだけ</strong>で、
+                  <strong>予定データ・連携アカウント・設定はどれも消えない</strong>。
+                  更新したはずの画面が古いままのときの脱出口で、詳しくは<a href="/docs/apps/"
+                    >デスクトップ版と PWA</a
+                  >にある。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>連携解除 — そのアカウントとの縁を切る</h3>
+                <p>設定のアカウント一覧にある「連携解除」。次の順で処理される。</p>
+                <ul>
+                  <li>Google 側のトークンを失効させる</li>
+                  <li>
+                    サーバーからそのアカウントの行 (認可情報・カレンダー選択) と、Durable Object
+                    の同期状態を消す
+                  </li>
+                  <li>
+                    ブラウザの IndexedDB から、そのアカウント由来の予定・終日予定・タスクを消す
+                  </li>
+                </ul>
+                <p>
+                  最後の1アカウントを外すと、そのプロファイルにぶら下がっていた GitHub 連携・MCP
+                  トークン・作業実績もまとめて消え、ログイン状態も破棄される。
+                  <a href="https://myaccount.google.com/permissions"
+                    >Google アカウントの設定</a
+                  >から kichijitsu のアクセス権を取り消してもよい。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>ブラウザのサイトデータ削除 — 手元を空にする</h3>
+                <p>
+                  ブラウザの設定から kichijitsu
+                  のサイトデータを消すと、IndexedDB・localStorage・Cache Storage
+                  がすべて消える。予定・タスクは正本が Google
+                  にあるので、次にログインすれば同期で戻ってくる。ただし
+                  <strong>作業の予定ブロックのようにこの端末にしか無いデータは戻らない</strong>。
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="doc-section" id="trust" aria-labelledby="trust-title">
+          <h2 id="trust-title">公式インスタンスとセルフホスト</h2>
+          <p>
+            予定の中身がサーバーに保存されないのは、どちらで使っても変わらない。違うのは
+            <strong>暗号化された認可情報を誰の Cloudflare アカウントに預けるか</strong>
+            ―― つまり、誰を信頼することになるかだ。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>公式インスタンス</th>
+                  <th>セルフホスト</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>D1 と Durable Object</th>
+                  <td>運営者の Cloudflare アカウント</td>
+                  <td>あなたの Cloudflare アカウント</td>
+                </tr>
+                <tr>
+                  <th>OAuth クライアント</th>
+                  <td>運営者のもの</td>
+                  <td>あなたが Google Cloud で作ったもの</td>
+                </tr>
+                <tr>
+                  <th>信頼する相手</th>
+                  <td>運営者 (と Cloudflare・Google)</td>
+                  <td>あなた自身 (と Cloudflare・Google)</td>
+                </tr>
+                <tr>
+                  <th>利用条件</th>
+                  <td>招待制</td>
+                  <td>制限なし (Cloudflare の無料プランで動く)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            自分のデータの置き場所を自分で管理したいなら<a href="/self-hosting/"
+              >セルフホスト手順</a
+            >へ。セルフホストしたインスタンスの規約・プライバシーポリシーには、運営者であるあなた自身の情報を出す必要がある
+            (<a href="/docs/operator/">運営者情報と規約の差し替え</a>)。
+          </p>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

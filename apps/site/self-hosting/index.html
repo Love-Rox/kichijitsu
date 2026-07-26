@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>セルフホスト手順 | kichijitsu</title>
+    <meta
+      name="description"
+      content="kichijitsu は MIT ライセンスのオープンソース。自分の Cloudflare アカウントにデプロイして、自分のデータを自分で管理する手順。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="セルフホスト手順 | kichijitsu" />
+    <meta
+      property="og:description"
+      content="自分の Cloudflare アカウントに kichijitsu をデプロイして、カレンダーの認可情報を自分で管理する手順。"
+    />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Guide</span>
+        <h1 class="doc-header__title">セルフホスト手順</h1>
+        <p class="doc-header__lede">
+          kichijitsu は MIT ライセンスのオープンソース。自分の Cloudflare
+          アカウントにデプロイして、カレンダーの認可情報を自分だけで管理する手順をまとめた。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#overview">概要</a></li>
+            <li><a href="#requirements">必要なもの</a></li>
+            <li><a href="#step1">1. リポジトリの準備</a></li>
+            <li><a href="#step2">2. Google OAuth クライアントの作成</a></li>
+            <li><a href="#step3">3. 設定を自分の環境に合わせる</a></li>
+            <li><a href="#step4">4. デプロイ</a></li>
+            <li><a href="#step5">5. セキュリティ設定</a></li>
+            <li><a href="#official">公式インスタンスとの関係</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="overview" aria-labelledby="overview-title">
+          <h2 id="overview-title">概要</h2>
+          <p>
+            kichijitsu は
+            <strong>自分の Cloudflare アカウントに自分でデプロイして使う</strong
+            >ことを基本線にしている、MIT
+            ライセンスのオープンソースソフトウェア。あなたのカレンダーの認可情報 (Google の refresh
+            token) は、あなた自身のアカウントの D1 にだけ保存され、運営者を信頼する必要が無い。
+          </p>
+          <p>
+            公式インスタンス (<a href="https://kichijitsu.love-rox.cc">kichijitsu.love-rox.cc</a>)
+            は招待制で運用している。自分のデータの置き場所を自分で管理したい場合は、このガイドでセルフホストすること。
+          </p>
+        </section>
+
+        <section class="doc-section" id="requirements" aria-labelledby="requirements-title">
+          <h2 id="requirements-title">必要なもの</h2>
+          <ul>
+            <li>
+              Cloudflare アカウント(<strong>無料プランで動く</strong>。Durable Object は SQLite
+              バックエンドを使っているため有料プランは不要)
+            </li>
+            <li>
+              Cloudflare に載せたドメイン1つ(例: <code>kichijitsu.example.com</code>)。Web と API
+              を同一オリジンで配信する構成のため、<strong>カスタムドメインは必須</strong> (<code
+                >*.workers.dev</code
+              >
+              のみでの運用は現状サポート外)
+            </li>
+            <li>Google Cloud のアカウント(無料。自分専用の OAuth クライアントを作る)</li>
+            <li>
+              Node.js 26 / pnpm(リポジトリの <code>mise.toml</code> を使う場合は
+              <code>mise install</code> だけで揃う)
+            </li>
+          </ul>
+        </section>
+
+        <section class="doc-section" id="step1" aria-labelledby="step1-title">
+          <h2 id="step1-title">1. リポジトリの準備</h2>
+          <pre><code>git clone https://github.com/love-rox/kichijitsu.git
+cd kichijitsu
+mise install   # または Node 26 を自前で用意
+pnpm install</code></pre>
+        </section>
+
+        <section class="doc-section" id="step2" aria-labelledby="step2-title">
+          <h2 id="step2-title">2. Google OAuth クライアントの作成</h2>
+          <ol>
+            <li>
+              <a href="https://console.cloud.google.com/">Google Cloud Console</a>
+              で新規プロジェクトを作成する
+            </li>
+            <li>「API とサービス」→ Google Calendar API を有効化する</li>
+            <li>
+              OAuth 同意画面を設定する(User Type:
+              External、<strong>公開ステータスは「テスト」のまま</strong>でよい。テストユーザーに自分の
+              Gmail を追加する)
+            </li>
+            <li>
+              認証情報 → OAuth クライアント ID(ウェブアプリケーション)を作成し、承認済みリダイレクト
+              URI に以下を追加する。
+              <ul>
+                <li><code>http://localhost:8787/auth/callback</code>(ローカル開発用)</li>
+                <li><code>https://&lt;あなたのドメイン&gt;/auth/callback</code>(本番用)</li>
+              </ul>
+            </li>
+          </ol>
+          <p>自分(＋テストユーザーに追加した人)しか使わないなら、Google の審査は不要。</p>
+        </section>
+
+        <section class="doc-section" id="step3" aria-labelledby="step3-title">
+          <h2 id="step3-title">3. 設定を自分の環境に合わせる</h2>
+          <p>以下の3箇所を自分の値に書き換える。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ファイル</th>
+                  <th>書き換える箇所</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>apps/web/wrangler.jsonc</code></td>
+                  <td>
+                    <code>name</code>(任意)、<code>routes[0].pattern</code> → あなたのドメイン
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>apps/sync/wrangler.jsonc</code></td>
+                  <td>
+                    <code>name</code>(任意)、<code>routes</code> の2つの pattern と
+                    <code>zone_name</code>、<code>vars.APP_URL</code>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>apps/sync/wrangler.jsonc</code></td>
+                  <td><code>d1_databases[0].database_id</code> → 次の手順で作る実 ID</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>運営者情報(規約・プライバシーポリシー)</h3>
+          <p>
+            <a href="/privacy.html">プライバシーポリシー</a> と
+            <a href="/terms.html">利用規約</a>
+            はあなたのドメインでもそのまま配信される。<strong
+              >このインスタンスの運営者はあなた自身なので、あなたの情報を設定すること。</strong
+            >ビルド時の環境変数で差し込む。
+          </p>
+          <pre><code>export KICHIJITSU_OPERATOR_NAME="あなたの名前 / 組織名"
+export KICHIJITSU_OPERATOR_CONTACT="you@example.com"   # 未設定なら mailto: リンクは出ない
+export KICHIJITSU_INSTANCE_HOST="cal.example.com"</code></pre>
+          <div class="callout">
+            <p>
+              未設定のままでも、kichijitsu 公式 (love-rox)
+              の運営者名・連絡先があなたのインスタンスの規約に出ることはない。該当箇所は「本インスタンスの運営者情報は設定されていません。」という表示になる。
+            </p>
+            <p>
+              同梱の規約・ポリシーは公式インスタンスのものを<strong>ひな形として</strong>付けているだけ。
+              内容が自分の運用に合っているかは自分で確認・修正すること
+              (法的な責任はインスタンスの運営者にある)。
+            </p>
+          </div>
+
+          <h3>この紹介サイトはあなたのインスタンスには入らない</h3>
+          <p>
+            いま読んでいるこのページを含む公式サイトの紹介ページ ―― ランディング
+            (<code>/</code>)・<a href="/mcp/">MCP 接続ガイド</a> (<code>/mcp/</code>)・セルフホスト手順
+            (<code>/self-hosting/</code>) ―― は<strong
+              >別パッケージ <code>apps/site</code> にあり、<code>pnpm build</code>
+              の成果物には含まれない。</strong
+            >
+            <code>apps/web/dist</code>
+            はまるごと配信されるので、同居させているとあなたのドメインで kichijitsu
+            公式インスタンスの宣伝ページが配信されてしまうため。あなたが何もしなくてもそうならない。
+          </p>
+          <p>あなたのインスタンスで配信されるのは次の4つだけ。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>パス</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/app/</code></td>
+                  <td>アプリ本体</td>
+                </tr>
+                <tr>
+                  <td><code>/</code></td>
+                  <td><code>/app/</code> へのリンクだけを置いた最小のページ</td>
+                </tr>
+                <tr>
+                  <td><code>/privacy.html</code></td>
+                  <td>プライバシーポリシー(運営者情報は上記の環境変数で差し込み)</td>
+                </tr>
+                <tr>
+                  <td><code>/terms.html</code></td>
+                  <td>利用規約(同上)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout">
+            <p>
+              <code>/</code> の実体は <code>apps/web/index.html</code>。
+              <code>apps/web/wrangler.jsonc</code> の
+              <code>not_found_handling: "single-page-application"</code>
+              により、存在しないパスへのアクセスにもこのページが返る。
+            </p>
+            <p>
+              トップに独自の紹介ページを出したいなら、このファイルを差し替えればよい
+              (<code>/app/</code> へ即リダイレクトさせたいだけなら meta refresh
+              を足すのが最短。ただし打ち間違えた URL も一緒に飛ぶ点には注意)。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="step4" aria-labelledby="step4-title">
+          <h2 id="step4-title">4. デプロイ</h2>
+          <p>まず Cloudflare にログインし、D1 データベースの実体を作る。</p>
+          <pre><code>pnpm --filter sync exec wrangler login
+pnpm --filter sync exec wrangler d1 create &lt;あなたのD1名&gt;   # → database_id を wrangler.jsonc へ</code></pre>
+          <p>
+            出力された <code>database_id</code> を <code>apps/sync/wrangler.jsonc</code> の
+            <code>d1_databases[0].database_id</code>
+            に反映してから、マイグレーションを本番 D1 に適用する。
+          </p>
+          <pre><code>pnpm --filter sync exec wrangler d1 migrations apply &lt;あなたのD1名&gt; --remote</code></pre>
+          <p>続けて Secrets を登録する。</p>
+          <pre><code>pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_ID
+pnpm --filter sync exec wrangler secret put GOOGLE_CLIENT_SECRET
+pnpm --filter sync exec wrangler secret put SESSION_SECRET   # ランダムな長い文字列
+pnpm --filter sync exec wrangler secret put TOKEN_ENC_KEY     # openssl rand -base64 32 (refresh_token 暗号化鍵)</code></pre>
+          <div class="callout">
+            <p>
+              <code>SESSION_SECRET</code> と <code>TOKEN_ENC_KEY</code> は、<code
+                >openssl rand -base64 32</code
+              >
+              などで新規に生成した、ローカル開発用とは別のランダム値を使うこと。
+            </p>
+            <p>
+              <code>TOKEN_ENC_KEY</code> は D1 に保存する refresh_token の at-rest 暗号化
+              (AES-256-GCM) に使う鍵。これを失う、または変更すると既存ユーザーの refresh_token
+              が復号できなくなり全員再連携が必要になるので、生成した値は安全な場所
+              (パスワードマネージャ等) に控えておくこと。
+            </p>
+          </div>
+          <p>最後に apps/web をビルドしてから、両方の Worker をデプロイする。</p>
+          <pre><code>pnpm --filter web build
+pnpm run deploy:sync
+pnpm run deploy:web</code></pre>
+        </section>
+
+        <section class="doc-section" id="step5" aria-labelledby="step5-title">
+          <h2 id="step5-title">5. セキュリティ設定</h2>
+          <ul>
+            <li>
+              <code>ALLOWED_EMAILS</code>(<code>apps/sync/wrangler.jsonc</code> の
+              vars)に自分のメールアドレスを設定しておくと、OAuth
+              設定を誤って公開した場合でもサーバー側で登録を拒否できる。
+            </li>
+            <li>
+              Cloudflare ダッシュボードで <code>/auth/*</code> <code>/api/*</code> への Rate
+              Limiting ルールを追加すると、さらに安心(無料枠あり)。
+            </li>
+          </ul>
+        </section>
+
+        <section class="doc-section" aria-labelledby="localdev-title">
+          <h2 id="localdev-title">ローカル開発</h2>
+          <pre><code>cp apps/sync/.dev.vars.example apps/sync/.dev.vars   # 値を記入
+pnpm --filter sync dev    # localhost:8787
+pnpm dev                  # localhost:5173 (API は自動でプロキシ)</code></pre>
+        </section>
+
+        <section class="doc-section" id="official" aria-labelledby="official-title">
+          <h2 id="official-title">公式インスタンスとの関係</h2>
+          <ul>
+            <li>公式インスタンス(kichijitsu.love-rox.cc)は招待制で運用している。</li>
+            <li>
+              将来的に、審査済みの公式 API(レート制限・API
+              キー付き)の提供を検討している。それまでは「自分の分は自分でデプロイ」が最も安全な使い方。
+            </li>
+          </ul>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="/mcp/">MCP 接続ガイドを見る</a>
+          <a href="https://github.com/Love-Rox/kichijitsu" target="_blank" rel="noopener noreferrer"
+            >GitHub で見る</a
+          >
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/mcp/">MCP ガイド</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>カレンダーブロック | kichijitsu</title>
+    <meta name="description" content="kichijitsu のカレンダーブロック。別のカレンダーへ予定を自動でミラーして、多重予約を防ぐ。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="カレンダーブロック | kichijitsu" />
+    <meta property="og:description" content="別カレンダーへ予定を自動ミラーして多重予約を防ぐ、カレンダーブロックの設定と挙動。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">カレンダーブロック</h1>
+        <p class="doc-header__lede">
+          仕事用と個人用のように複数のカレンダーを使い分けていると、片方だけを見た相手には埋まっている時間が空きに見えてしまう。カレンダーブロックは、あるカレンダーの予定を別のカレンダーへ「予定あり」として自動でコピーし、多重予約を防ぐ機能。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#what">何のための機能か</a></li>
+            <li><a href="#setup">ルールを作る</a></li>
+            <li><a href="#mirror">コピー先に何が作られるか</a></li>
+            <li><a href="#timing">いつ反映されるか</a></li>
+            <li><a href="#changes">元の予定を変えた・消したとき</a></li>
+            <li><a href="#ooo">「不在」を選んだとき</a></li>
+            <li><a href="#notes">注意点</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="what" aria-labelledby="what-title">
+          <h2 id="what-title">何のための機能か</h2>
+          <p>
+            仕事用と個人用、会社 A と会社 B
+            のように複数のカレンダーを持っていると、相手が見られるのはそのうちの1つだけ、ということが起きる。他方のカレンダーが埋まっていても相手には空きに見えるので、同じ時間に別の予定を入れられてしまう。
+          </p>
+          <p>
+            カレンダーブロックは、選んだカレンダー(コピー元)の予定がある時間帯を、別のカレンダー(コピー先)に<strong>「予定あり」という名前の予定</strong>として自動で作る。相手からは埋まっている時間として見えるようになり、多重予約を防げる。コピーされるのは<strong>時間帯だけ</strong>で、タイトル・場所・説明・参加者といった中身は一切写らない。何の予定かは相手に伝わらない。
+          </p>
+          <p>
+            コピー元とコピー先は別の Google
+            アカウントでもよい。kichijitsu に両方のアカウントを登録してあれば、アカウントをまたいでブロックできる。アカウントの登録は<a
+              href="/docs/start/"
+              >はじめかた</a
+            >を参照。
+          </p>
+        </section>
+
+        <section class="doc-section" id="setup" aria-labelledby="setup-title">
+          <h2 id="setup-title">ルールを作る</h2>
+          <p>
+            「どのカレンダーの予定を、どのカレンダーに、どう写すか」の1組をルールと呼ぶ。ルールはいくつでも作れる。
+          </p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>設定を開く</h3>
+                <p>
+                  アプリ右上の設定(歯車アイコン)を開き、「カレンダーブロック」セクションの<strong>「予定のブロックを設定」</strong>を押す。「予定のブロック」の画面が開く。閉じるときは右上の
+                  × か Escape キー、画面の外側をクリックでもよい。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>コピー元を選ぶ</h3>
+                <p>
+                  「ルールを追加」の<strong>「コピー元(複数選択できます)」</strong>で、埋まっている時間を知らせたいカレンダーを選ぶ。アカウントごとにカレンダーが並ぶので、名前の左の枡を押して選ぶ。複数選んでよい。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>コピー先を選ぶ</h3>
+                <p>
+                  <strong>「コピー先(1つ選びます)」</strong>で、「予定あり」を作る先のカレンダーを1つ選ぶ。同じカレンダーをコピー元とコピー先の両方にはできないので、片方で選んだカレンダーはもう片方では選べなくなる。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>コピーする内容を選ぶ</h3>
+                <p>
+                  <strong>「コピーする内容」</strong>で「予定あり」か「不在」を選ぶ。通常は「予定あり」でよい。「不在」は
+                  Google Workspace のアカウントでしか使えない制限があるので、<a href="#ooo"
+                    >「不在」を選んだとき</a
+                  >を読んでから選ぶこと。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>保存する</h3>
+                <p>
+                  <strong>「ルールを保存」</strong>を押すと、上の「設定済みのルール」に「コピー元 →
+                  コピー先」の形で1行増える。行の右端の
+                  × で削除できる(確認は出ず、その場で消える)。同じ組み合わせをもう一度作りたい場合は、ルールを追加し直す。
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <p>ルールとして保存されるのは、次の項目だけ。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>項目</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>コピー元</td>
+                  <td>アカウントとカレンダーの組。複数持てる。</td>
+                </tr>
+                <tr>
+                  <td>コピー先</td>
+                  <td>アカウントとカレンダーの組。1ルールにつき1つ。</td>
+                </tr>
+                <tr>
+                  <td>コピーする内容</td>
+                  <td>「予定あり」または「不在」。</td>
+                </tr>
+                <tr>
+                  <td>不在のフォールバック記録</td>
+                  <td>
+                    「不在」を選んだが Google
+                    側が対応しておらず「予定あり」で作った、という事実。ルール一覧の注記に使う。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            ルールはログインしている本人(プロファイル)に紐づいてサーバーに保存される。使う端末が変わっても同じルールが効く。予定の中身がサーバーに保存されることはない
+            —
+            保存されるのはカレンダーの ID
+            と、どの予定にどのコピーが対応するかという ID
+            の対応表だけ。詳しくは<a href="/docs/data/">データの扱い</a>を参照。
+          </p>
+        </section>
+
+        <section class="doc-section" id="mirror" aria-labelledby="mirror-title">
+          <h2 id="mirror-title">コピー先に何が作られるか</h2>
+          <p>ルールが動くと、コピー先のカレンダーに次のような予定が作られる。</p>
+          <ul>
+            <li>タイトルは<strong>「予定あり」</strong>で固定。元のタイトルは使わない</li>
+            <li>時間帯は元の予定と同じ。終日の予定は終日のままコピーされる</li>
+            <li>場所・説明・参加者・添付などは写さない。空のまま</li>
+            <li>公開範囲は非公開。空き時間の判定では「予定あり」として扱われる</li>
+          </ul>
+          <p>
+            kichijitsu の画面では、この自動生成された予定の隅に小さく<strong>「自動」</strong>と表示される。クリックすると「他のカレンダーの予定から自動でブロックされた時間です」と出る。自分で作った予定と見分けるための印。
+          </p>
+          <p>
+            この予定は kichijitsu
+            上では編集できない(編集の導線が出ない)。中身はルールが管理しているので、直すときは元の予定を直す。
+          </p>
+        </section>
+
+        <section class="doc-section" id="timing" aria-labelledby="timing-title">
+          <h2 id="timing-title">いつ反映されるか</h2>
+          <p>
+            コピーの処理はサーバー側で動く。<strong>kichijitsu
+            を開いていなくても追従する</strong>ので、アプリを閉じた状態で入った予定もブロックされる。
+          </p>
+          <p>きっかけは次の2つ。</p>
+          <ul>
+            <li>
+              <strong>Google からの変更通知</strong> —
+              コピー元のカレンダーに変更が入ると Google
+              から通知が届き、それを受けて処理が走る。通常はこちらで数十秒以内に反映される
+            </li>
+            <li>
+              <strong>定期チェック</strong> — 通知が届かなかったときの保険として、kichijitsu
+              を開いている間はおよそ10分ごとに変更の有無を確認する
+            </li>
+          </ul>
+          <p>
+            対象になるのは<strong>1日前から60日後まで</strong>の予定。それより先の予定は、この範囲に入ってから初めてコピーされる。
+          </p>
+          <div class="callout">
+            <p>
+              ルールを保存しただけでは、その場ではコピーは作られない。コピー元のカレンダーに次の変更が入ったとき(または定期チェックで変更が見つかったとき)に、その時点の予定がまとめて処理される。すぐ試したいときは、コピー元のカレンダーに何か予定を作ってみるとよい。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="changes" aria-labelledby="changes-title">
+          <h2 id="changes-title">元の予定を変えた・消したとき</h2>
+          <p>
+            処理が走るたびに、コピー元の予定とコピー先にある「予定あり」を突き合わせて、足りないものを作り、ずれたものを直し、要らなくなったものを消す。手作業での追従は要らない。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>元の予定でしたこと</th>
+                  <th>コピー先で起きること</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>新しく予定を作った</td>
+                  <td>同じ時間帯に「予定あり」が作られる</td>
+                </tr>
+                <tr>
+                  <td>時間を動かした・長さを変えた</td>
+                  <td>対応する「予定あり」の時間が同じように直る</td>
+                </tr>
+                <tr>
+                  <td>タイトルや場所だけ変えた</td>
+                  <td>「予定あり」は中身を持たないので、見た目は変わらない</td>
+                </tr>
+                <tr>
+                  <td>予定を削除した・キャンセルになった</td>
+                  <td>対応する「予定あり」も削除される</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="ooo" aria-labelledby="ooo-title">
+          <h2 id="ooo-title">「不在」を選んだとき</h2>
+          <p>
+            「コピーする内容」で「不在」を選ぶと、通常の予定ではなく Google
+            カレンダーの<strong>不在(Out of office)</strong>としてコピーが作られる。不在は予定と違う見え方をし、会議への招待を自動で断る設定もできるので、休みや外出を知らせたいときに向く。
+          </p>
+          <div class="callout">
+            <p>
+              不在は Google
+              側の制限で、<strong>Google Workspace アカウントのメインカレンダー</strong>でしか作れない。個人の
+              Gmail アカウントや、メイン以外のカレンダーをコピー先にすると Google
+              に断られる。
+            </p>
+            <p>
+              その場合、kichijitsu
+              は失敗させずに<strong>「予定あり」に切り替えて作り直す</strong>。時間はブロックされるので予定が漏れることはないが、見た目は不在ではなく通常の「予定あり」になる。
+            </p>
+          </div>
+          <p>
+            切り替えが起きたルールには、設定画面の「設定済みのルール」に<strong>「不在に非対応のため『予定あり』で作成しています」</strong>という注記が出る。「不在」を選んだのにこの注記が出ていたら、コピー先が対応していないということ。不在として出したい場合は、コピー先を
+            Workspace アカウントのメインカレンダーに変える。
+          </p>
+          <p>
+            この注記は、実際にコピーを作ろうとした結果として付く。ルールを保存した直後はまだ判定されていないので、注記が出るのは最初のコピーが作られたあと。
+          </p>
+          <p>
+            自分で作った不在の予定が kichijitsu
+            の画面でどう表示されるかは、<a href="/docs/calendar/">予定の扱い</a>を参照。
+          </p>
+        </section>
+
+        <section class="doc-section" id="notes" aria-labelledby="notes-title">
+          <h2 id="notes-title">注意点</h2>
+
+          <h3>「予定あり」は直接いじらない</h3>
+          <p>
+            コピー先にできた「予定あり」を Google
+            カレンダー側で手で動かしても、元の予定には反映されない。しかも元の予定が次に変わったときに時間が上書きされるので、手で直した内容は残らない。時間を変えたいときは元の予定を変える。
+          </p>
+          <p>
+            手で削除した場合、ルールが残っていても自動では作り直されない。元の予定は変わっていない
+            —
+            つまり直すべきものは無い、と判断されるため。もう一度ブロックしたいときは、ルールを削除して作り直す。作り直したルールは対象期間の予定をひととおりコピーし直すので、残っている「予定あり」を先に消しておかないと二重にできてしまう点に注意。
+          </p>
+
+          <h3>ルールを削除しても、作られた予定は残る</h3>
+          <p>
+            ルールを削除すると、それ以降の追従は止まる。ただし<strong>すでにコピー先に作られている「予定あり」は消えない</strong>。要らなければ
+            Google
+            カレンダー側で手で削除する。先に元の予定を消してコピーを片付けてから、ルールを削除するときれいに終われる。
+          </p>
+
+          <h3>コピーがさらにコピーされることはない</h3>
+          <p>
+            自動生成された「予定あり」には目印が付いていて、どのルールのコピー元としても拾われない。A
+            → B と B → A のようにルールを組んでも、コピーが際限なく増えることはない。
+          </p>
+
+          <h3>うまくいかないときに画面へは出ない</h3>
+          <p>
+            コピーの作成・更新・削除が Google
+            側の都合で失敗しても、その1件が飛ばされるだけで、アプリ上にエラーは出ない。他の予定や他のルールには波及しない。反映されない予定があるときは、コピー元・コピー先の選択と、対象が1日前〜60日後の範囲に入っているかを確かめる。
+          </p>
+          <p>
+            また、ごく短い時間に変更が集中した場合の完全な整合までは保証していない。数が合わないと感じたら、コピー元の予定を1つ動かして処理を起こし直すとよい。
+          </p>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

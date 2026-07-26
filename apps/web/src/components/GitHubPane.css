@@ -31,7 +31,7 @@
   width: min(420px, 100vw);
   max-width: min(420px, 100vw);
   height: 100%;
-  border-left: 1px solid var(--c-line);
+  border-left: 1px solid var(--c-line-elevated);
   box-shadow: -20px 0 48px rgba(var(--c-shadow-rgb), 0.24);
 }
 
@@ -253,7 +253,7 @@
   border: none;
   border-radius: 6px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -594,7 +594,7 @@
   border: none;
   border-radius: 8px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;

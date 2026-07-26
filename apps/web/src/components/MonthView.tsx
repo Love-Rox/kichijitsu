@@ -271,7 +271,8 @@ export function MonthView({
                               : isNeedsAction
                                 ? ({ "--rsvp-color": color } as CSSProperties)
                                 : {
-                                    backgroundColor: `color-mix(in srgb, ${color} 16%, var(--c-surface))`,
+                                    // 混合比はトークン (theme.css の --c-event-tint-chip、ダークで上がる)
+                                    backgroundColor: `color-mix(in srgb, ${color} var(--c-event-tint-chip), var(--c-surface))`,
                                     borderLeftColor: color,
                                   }
                           }

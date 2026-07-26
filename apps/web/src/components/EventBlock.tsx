@@ -595,7 +595,9 @@ export function EventBlock({
             border: `1.5px solid ${displayColor}`,
           } as CSSProperties)
         : {
-            backgroundColor: `color-mix(in srgb, ${displayColor} 15%, var(--c-surface))`,
+            // 混合比はトークン (theme.css の --c-event-tint) ―― ダークでは地が暗いぶん
+            // 比率を上げないとカレンダー色が地に飲まれて見分けが付かなくなるため
+            backgroundColor: `color-mix(in srgb, ${displayColor} var(--c-event-tint), var(--c-surface))`,
             borderLeftColor: displayColor,
           }),
     // ストライプ表示時は単色の左ボーダーを消し、そのぶんテキストの開始位置を右へ押し出す

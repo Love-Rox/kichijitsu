@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>デスクトップ版と PWA | kichijitsu</title>
+    <meta name="description" content="kichijitsu のデスクトップ版 (Tauri) と PWA。導入、更新のされかた、更新されないときのキャッシュ削除。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="デスクトップ版と PWA | kichijitsu" />
+    <meta property="og:description" content="Homebrew で入れるデスクトップ版と、ブラウザから入れる PWA。更新とキャッシュ削除まで。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">デスクトップ版と PWA</h1>
+        <p class="doc-header__lede">
+          kichijitsu はブラウザで開くだけでも使えるが、PWA として入れれば独立したウィンドウになり、macOS
+          ならデスクトップ版でトレイ常駐とグローバルショートカットが付く。
+          どれを選んでも中身は同じアプリで、見ているデータも同じだ。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#choose">どれを使うか</a></li>
+            <li><a href="#desktop">デスクトップ版を入れる</a></li>
+            <li><a href="#pwa">PWA を入れる</a></li>
+            <li><a href="#update">更新はどうなるか</a></li>
+            <li><a href="#cache">更新されないとき</a></li>
+            <li><a href="#theme">テーマを切り替える</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="choose" aria-labelledby="choose-title">
+          <h2 id="choose-title">どれを使うか</h2>
+          <p>
+            入口は3つある。ブラウザでそのまま開く、PWA
+            として端末に入れる、macOS ならデスクトップ版を入れる。
+            どれも表示しているのは同じアプリで、予定も設定も共通だ。違うのは「ウィンドウの出かた」と「OS
+            とどこまで繋がるか」だけ。
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>ブラウザ</th>
+                  <th>PWA</th>
+                  <th>デスクトップ版 (macOS)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>入れかた</th>
+                  <td>不要。アプリの画面を開くだけ</td>
+                  <td>ブラウザのインストール操作</td>
+                  <td>Homebrew Cask</td>
+                </tr>
+                <tr>
+                  <th>ウィンドウ</th>
+                  <td>ブラウザのタブ</td>
+                  <td>タブもアドレスバーも無い独立ウィンドウ</td>
+                  <td>ネイティブウィンドウ。サイズと位置を覚える</td>
+                </tr>
+                <tr>
+                  <th>GitHub のデータ</th>
+                  <td>ブラウザで GitHub を認可して取得</td>
+                  <td>同じ</td>
+                  <td>手元の <code>gh</code> CLI から取得</td>
+                </tr>
+                <tr>
+                  <th>OS との連携</th>
+                  <td>無し</td>
+                  <td>アプリ一覧やホーム画面にアイコンが並ぶ</td>
+                  <td>トレイ常駐・グローバルショートカット</td>
+                </tr>
+                <tr>
+                  <th>画面の更新</th>
+                  <td>開き直せば新しくなる</td>
+                  <td>同じ</td>
+                  <td>同じ (アプリの入れ直しは不要)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            とくにデスクトップ版は、<strong>画面を同梱していない</strong>のが特徴。ウィンドウの中身は公式インスタンス
+            <code>https://kichijitsu.love-rox.cc/app</code>
+            をそのまま読み込んでいるだけで、アプリ本体はその外側のガワにすぎない。
+            そのため、サイトが新しくなればアプリを入れ直さなくても中身は新しくなる。逆に、トレイやショートカットといったガワの部分を新しくするには
+            Homebrew から入れ直す必要がある。
+          </p>
+          <p>
+            ログインも同じ理屈で、Google
+            の認可はブラウザ版とまったく同じ画面・同じ手順になる。デスクトップ版のためにアカウントを作り直したり、連携をやり直したりする必要は無い。
+          </p>
+        </section>
+
+        <section class="doc-section" id="desktop" aria-labelledby="desktop-title">
+          <h2 id="desktop-title">デスクトップ版を入れる</h2>
+          <p>
+            配布しているのは macOS 版だけ (macOS 13 Ventura 以降。Apple Silicon と Intel
+            の両方で動く universal バイナリ)。Windows / Linux 版は配布していない。
+          </p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>Homebrew で入れる</h3>
+                <pre><code>brew install --cask love-rox/tap/kichijitsu</code></pre>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>初回起動のブロックを外す</h3>
+                <p>
+                  Apple の署名・公証を行わない無署名配布のため、そのままでは Gatekeeper
+                  が初回起動を止める。インストール後に隔離属性を外しておく。
+                </p>
+                <pre><code>xattr -rd com.apple.quarantine /Applications/kichijitsu.app</code></pre>
+                <p>
+                  外さずに起動してブロックされた場合は、システム設定 → プライバシーとセキュリティ →
+                  「このまま開く」からでもよい。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>起動してログインする</h3>
+                <p>
+                  起動するとウィンドウにアプリの画面がそのまま開く。Google
+                  アカウントの連携はブラウザ版と同じ手順 (<a href="/docs/start/">はじめかた</a>)。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>GitHub を使うなら gh を用意する</h3>
+                <p>
+                  デスクトップ版は GitHub のデータを、ブラウザ経由の認可ではなく手元の
+                  <code>gh</code> CLI の認証で取る。使うなら先に入れてログインしておく
+                  (<a href="/docs/work/">GitHub 連携と実績記録</a>)。
+                </p>
+                <pre><code>brew install gh
+gh auth login</code></pre>
+              </div>
+            </li>
+          </ol>
+
+          <h3>デスクトップ版だけの動き</h3>
+          <ul>
+            <li>
+              <strong>ウィンドウを閉じてもアプリは終了しない。</strong>
+              閉じるボタンを押すとトレイに格納されるだけで、常駐は続く。完全に終了するのはトレイメニューの「終了」だけ。
+            </li>
+            <li>
+              トレイアイコンを<strong>左クリック</strong>すると、ウィンドウの表示/非表示が切り替わる。<strong>右クリック</strong>で「表示/隠す」「再読み込み」「終了」のメニューが開く。
+            </li>
+            <li>
+              <code>Cmd+Shift+K</code>
+              で、他のアプリを使っているときでもウィンドウの表示/非表示を切り替えられる。
+            </li>
+            <li>
+              <code>Cmd+R</code>
+              で画面を読み直せる。kichijitsu が前面にあるか表示中のときだけ効くので、他のアプリで押しても誤爆しない。
+            </li>
+            <li>
+              ウィンドウのサイズと位置を覚えていて、次に起動したときも同じ大きさ・同じ場所で開く。
+            </li>
+          </ul>
+
+          <div class="callout">
+            <p>
+              起動時に「トレイ常駐・グローバルショートカット・通知の土台が起動しました」という通知が1回出る。これは通知機能が動くことを確かめるためのもので、予定のリマインダー通知はまだ配線されていない。
+            </p>
+          </div>
+
+          <h3>GitHub が表示されないとき (gh のパス)</h3>
+          <p>
+            Dock や Finder から起動したアプリは、ターミナルと違って
+            <code>/opt/homebrew/bin</code>
+            を含まない最小限の PATH しか持たない。そのため「ターミナルでは <code>gh</code>
+            が動くのに、アプリからは GitHub が出ない」ことが起きる。
+          </p>
+          <p>
+            アプリ側は <code>/opt/homebrew/bin/gh</code> → <code>/usr/local/bin/gh</code> →
+            <code>/usr/bin/gh</code> → <code>~/.local/bin/gh</code>
+            の順に自動で探すので、普通に Homebrew で入れていれば何もしなくてよい。それ以外の場所に置いている場合は、設定から手で指定できる。
+          </p>
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>設定を開く</h3>
+                <p>画面右上の歯車 (「設定」) を押す。</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>「gh のパス」に絶対パスを入れて保存する</h3>
+                <p>
+                  「GitHub」セクションの「gh のパス(任意)」に <code>gh</code>
+                  の場所を入れ、「保存」を押す。この項目はデスクトップ版でだけ表示される。空欄に戻すと自動検出に戻る。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>再読み込みする</h3>
+                <p><code>Cmd+R</code> で読み直すと、次の GitHub 取得から新しい指定が使われる。</p>
+              </div>
+            </li>
+          </ol>
+          <div class="callout">
+            <p>
+              指定できるのはファイル名が <code>gh</code> のパスだけ。それ以外を指定すると保存はできても
+              GitHub の取得時にエラーになる。「<code>gh</code>
+              の置き場所を教える」ための項目であって、別のコマンドを実行させるためのものではない。
+            </p>
+          </div>
+
+          <h3>アプリを新しくする</h3>
+          <p>
+            画面の中身はサイト側なので自動で新しくなる。更新が要るのはガワの部分
+            (トレイ・ショートカット・ウィンドウまわり) だけで、Homebrew から行う。
+          </p>
+          <pre><code>brew upgrade --cask love-rox/tap/kichijitsu</code></pre>
+        </section>
+
+        <section class="doc-section" id="pwa" aria-labelledby="pwa-title">
+          <h2 id="pwa-title">PWA を入れる</h2>
+          <p>
+            PWA は「ブラウザで開いているアプリを、独立したウィンドウとして OS
+            に登録する」仕組み。追加でダウンロードするものは無く、対応ブラウザさえあれば macOS でも
+            Windows でも Android / iOS でも入れられる。
+          </p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>アプリの画面を開く</h3>
+                <p>
+                  <code>https://kichijitsu.love-rox.cc/app</code>
+                  を開く。インストールの情報が付いているのはこのアプリ画面だけで、トップページやこのドキュメントからはインストールできない。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>ブラウザのインストール操作を実行する</h3>
+                <p>
+                  Chrome / Edge ならアドレスバー付近に出るインストールのボタン、iOS / iPadOS の Safari
+                  なら「共有」→「ホーム画面に追加」。名前は
+                  <code>kichijitsu</code> で登録され、アイコンも専用のものが付く。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>アイコンから起動する</h3>
+                <p>
+                  以降はアプリ一覧やホーム画面のアイコンから起動する。開くのは常にアプリ画面
+                  (<code>/app</code>) で、タブもアドレスバーも出ない。
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <p>
+            アプリとして扱われる範囲は <code>/app</code>
+            配下だけ。設定画面から開くプライバシーポリシーやこのドキュメントのようなサイト側のページは、PWA
+            のウィンドウではなく通常のブラウザで開く。
+          </p>
+        </section>
+
+        <section class="doc-section" id="update" aria-labelledby="update-title">
+          <h2 id="update-title">更新はどうなるか</h2>
+          <p>
+            アプリの画面には Service Worker
+            が入っていて、一度開いた端末では通信の一部を肩代わりする。おかげでオフラインでも起動できるが、そのぶん「何をどこまで手元に持つか」は決め打ちしてある。
+          </p>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>対象</th>
+                  <th>扱い</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>画面そのもの (HTML)</td>
+                  <td>
+                    まずネットワークから取りに行き、取れなかったときだけ最後に取れたものを表示する
+                    (オフライン起動用)
+                  </td>
+                </tr>
+                <tr>
+                  <td>js / css / アイコンなどの部品</td>
+                  <td>まず手元のキャッシュを返し、その裏で新しいものを取り直して差し替えておく</td>
+                </tr>
+                <tr>
+                  <td><code>/api</code> と <code>/auth</code> (予定の読み書き・ログイン)</td>
+                  <td>一切触らない。常にネットワークへ直行する</td>
+                </tr>
+                <tr>
+                  <td>別ドメインへの通信、書き込み系の通信</td>
+                  <td>一切触らない</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            この作りから言えることが2つある。ひとつは、<strong>予定のデータが古くなることは無い</strong>ということ。同期はすべて
+            <code>/api</code> を通り、Service Worker
+            はそこに手を出さない。オフラインで見えている予定は端末内の IndexedDB
+            にあるもので、ここで言うキャッシュとは別物だ (<a href="/docs/data/">データの扱い</a>)。
+          </p>
+          <p>
+            もうひとつは、<strong>画面を組み立てる部品は「まず手元のもの」を使う</strong>ということ。サイトを更新した直後の1回だけ、古い画面が出ることがある。裏では新しいものを取り直しているので、次に開いたときには新しくなっている。
+          </p>
+          <p>
+            いま見ているものがどのビルドかは、設定画面の一番下に出る
+            (「ビルド」＋コミットの短縮 SHA
+            ＋ビルド日時)。デスクトップ版ではその前にアプリ自身のバージョンも並ぶので、ガワと中身のどちらが古いのかを見分けられる。
+          </p>
+          <p>
+            なお、デスクトップ版は起動したときのページを持ち続ける。開きっぱなしにしているとサイトの更新に気づかないので、トレイメニューの「再読み込み」か
+            <code>Cmd+R</code> で読み直す (この操作はキャッシュを捨ててから読み直す)。
+          </p>
+        </section>
+
+        <section class="doc-section" id="cache" aria-labelledby="cache-title">
+          <h2 id="cache-title">更新されないとき</h2>
+          <p>
+            開き直しても古い画面のままなら、設定画面からキャッシュを消して読み直せる。ブラウザ・PWA・デスクトップ版のどれでも同じ場所にある。
+          </p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>設定を開く</h3>
+                <p>画面右上の歯車 (「設定」) を押す。</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>「キャッシュを削除して再読み込み」を押す</h3>
+                <p>設定画面の一番下、ビルド情報のすぐ下にある。</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>確認して「削除する」</h3>
+                <p>
+                  「削除して再読み込みしますか？」と出るので「削除する」を押す。キャッシュを消してから画面が読み直され、新しい部品が取り直される。やめるときは「やめる」。
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="callout">
+            <p>
+              <strong>消えるのは、画面を組み立てるためのファイルのキャッシュだけ。</strong>
+              カレンダーの予定データ・連携している Google / GitHub
+              アカウント・表示設定は消えない。同期をやり直す必要も、ログインし直す必要も無い。
+            </p>
+            <p>
+              Service Worker
+              の登録自体も残したままなので、削除したあともオフラインで開ける状態は保たれる。
+            </p>
+          </div>
+
+          <h3>それでも直らないとき</h3>
+          <ul>
+            <li>
+              <strong>デスクトップ版</strong>: ガワが古い可能性がある。
+              <code>brew upgrade --cask love-rox/tap/kichijitsu</code>
+              で新しくする。それでも駄目なら
+              <code>brew reinstall --cask love-rox/tap/kichijitsu</code> で入れ直す。
+            </li>
+            <li>
+              <strong>PWA</strong>: 一度アンインストールし、ブラウザでアプリ画面を開き直してから入れ直す。
+            </li>
+            <li><strong>ブラウザ</strong>: タブを全部閉じてから開き直す。</li>
+          </ul>
+          <p>
+            入れ直しで端末内のデータが消えても困らない。予定の正本は Google
+            側にあり、連携し直せば同期しなおされる (<a href="/docs/data/">データの扱い</a>)。
+          </p>
+        </section>
+
+        <section class="doc-section" id="theme" aria-labelledby="theme-title">
+          <h2 id="theme-title">テーマを切り替える</h2>
+          <p>
+            設定画面の「テーマ」で、<strong>自動 / ライト / ダーク</strong>
+            の3つから選べる。保存ボタンは無く、選んだ瞬間に切り替わる。
+          </p>
+          <p>
+            「自動」は、お使いの端末 (OS)
+            の外観設定に合わせて自動で切り替わる。OS をダークにすればアプリもダークになり、明るく戻せば一緒に戻る。OS
+            の設定に関係なくどちらかで固定したいときは「ライト」か「ダーク」を選ぶ。
+          </p>
+          <p>
+            この設定はこの端末のこのアプリ (ブラウザ)
+            だけに保存される。仕事用の PC はライト、手元の PWA
+            はダーク、といった使い分けができる。
+          </p>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

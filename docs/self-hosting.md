@@ -49,6 +49,46 @@ pnpm install
 | `apps/sync/wrangler.jsonc` | `name`（任意）、`routes` の 2 つの pattern と `zone_name`、`vars.APP_URL` |
 | `apps/sync/wrangler.jsonc` | `d1_databases[0].database_id` → 手順4で作る実 ID                          |
 
+### 運営者情報（規約・プライバシーポリシー）
+
+`/privacy.html` `/terms.html` はあなたのドメインでもそのまま配信されます。**運営者はあなた自身
+なので、あなたの情報を設定してください。**ビルド時の環境変数で差し込みます（未設定でも
+kichijitsu 公式の情報が出ることはありません。「本インスタンスの運営者情報は設定されていません。」
+と表示されます）。
+
+```sh
+export KICHIJITSU_OPERATOR_NAME="あなたの名前 / 組織名"
+export KICHIJITSU_OPERATOR_CONTACT="you@example.com"   # 未設定なら mailto: リンクは出ません
+export KICHIJITSU_INSTANCE_HOST="cal.example.com"
+```
+
+規約・ポリシーの本文そのものは kichijitsu 公式のものをひな形として同梱しています。**内容が
+自分の運用に合っているかは自分で確認・修正してください**（法的な責任はインスタンスの運営者に
+あります）。
+
+### 公式インスタンスの紹介サイトは配信されません
+
+公式サイトのランディング（`/`）・MCP 接続ガイド（`/mcp/`）・セルフホスト手順（`/self-hosting/`）は
+**別パッケージ `apps/site` にあり、`pnpm build` の成果物には含まれません。**
+`apps/web/dist` はまるごと配信されるので、これらが同居していると、あなたのドメインで
+kichijitsu 公式インスタンスの宣伝ページが配信されてしまうためです。あなたが何もしなくても
+そうならないようになっています。
+
+そのため、あなたのインスタンスで配信されるのは次の4つだけです:
+
+| パス            | 内容                                                         |
+| --------------- | ------------------------------------------------------------ |
+| `/app/`         | アプリ本体                                                   |
+| `/`             | `/app/` へのリンクだけを置いた最小のページ                   |
+| `/privacy.html` | プライバシーポリシー（運営者情報は上記の環境変数で差し込み） |
+| `/terms.html`   | 利用規約（同上）                                             |
+
+`/` は `apps/web/index.html` です。`apps/web/wrangler.jsonc` の
+`not_found_handling: "single-page-application"` により、存在しないパスへのアクセスにもこの
+ページが返ります。トップに独自の紹介ページを出したい場合はこのファイルを差し替えてください
+（`/app/` へ即リダイレクトさせたいだけなら、このファイルに meta refresh を足すのが最短です。
+ただし打ち間違えた URL も一緒に飛ぶ点には注意）。
+
 ## 4. デプロイ
 
 `docs/deploy.md` の手順どおりです。要約すると:

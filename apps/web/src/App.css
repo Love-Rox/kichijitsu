@@ -73,7 +73,7 @@
 
 .toolbar-view-toggle button.is-active {
   background: var(--c-accent);
-  color: var(--c-on-ink);
+  color: var(--c-on-accent);
 }
 
 .toolbar-right {

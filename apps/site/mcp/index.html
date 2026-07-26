@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP 接続ガイド | kichijitsu</title>
+    <meta
+      name="description"
+      content="kichijitsu の MCP サーバーに Claude Code / Claude Desktop を接続する手順。使えるツール一覧、hook からの作業時間記録、運用上の注意まで。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="MCP 接続ガイド | kichijitsu" />
+    <meta
+      property="og:description"
+      content="Claude などのエージェントが kichijitsu のカレンダーを読み書きできる MCP サーバーへの接続手順。"
+    />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Guide</span>
+        <h1 class="doc-header__title">MCP 接続ガイド</h1>
+        <p class="doc-header__lede">
+          Claude などのエージェントが、あなたに代わってカレンダーを読み書きできるようにする。
+          kichijitsu が備える「公式 API」の接続手順と、使えるツールをまとめた。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#what">MCP とは</a></li>
+            <li><a href="#connect">接続手順</a></li>
+            <li><a href="#tools">使えるツール一覧</a></li>
+            <li><a href="#hooks">hook からの作業時間記録</a></li>
+            <li><a href="#operations">運用の注意</a></li>
+            <li><a href="#security">トークンの取り扱い</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="what" aria-labelledby="what-title">
+          <h2 id="what-title">MCP とは</h2>
+          <p>
+            MCP (Model Context Protocol) は、Claude
+            のようなエージェントがユーザーに代わって外部のツールやデータへアクセスするための、
+            クライアント/サーバー共通の規格。kichijitsu
+            はこれを使って、カレンダーを読み書きできる「公式 API」を提供している。
+          </p>
+          <p>
+            サーバーは
+            <strong>read-through 原則</strong
+            >を守っており、予定そのものを永続化することはない。ツールが呼ばれるたびに Google
+            から取得して返すか、その場で書き戻すだけ。エージェントは予定の一覧・検索に加えて、
+            空き時間の提案や予定の作成・変更・削除まで行える — Notion Calendar には無い、kichijitsu
+            の差別化要素の一つ。
+          </p>
+        </section>
+
+        <section class="doc-section" id="connect" aria-labelledby="connect-title">
+          <h2 id="connect-title">接続手順</h2>
+          <p>MCP サーバーのエンドポイントは <code>https://kichijitsu.love-rox.cc/mcp</code> 。</p>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>MCP トークンを発行する</h3>
+                <p>
+                  kichijitsu アプリ右上の設定(歯車アイコン)を開き、「MCP トークン」セクションの「+
+                  トークンを発行」から発行する(ラベルは任意)。生の値は発行直後に一度だけ表示され、以降は二度と表示されない。その場でコピーしておくこと。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>Claude Code へ登録する</h3>
+                <p>発行したトークンを使って、ターミナルから1回登録すればよい。</p>
+                <pre><code>claude mcp add --transport http kichijitsu https://kichijitsu.love-rox.cc/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre>
+                <p>登録後は Claude Code を再起動してから使い始めること。</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>Claude Desktop へ登録する</h3>
+                <p>
+                  Claude Desktop はリモートの Streamable HTTP MCP
+                  サーバーを直接サポートしていないため、橋渡し役の
+                  <code>mcp-remote</code> パッケージを経由する。設定ファイル (macOS では
+                  <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>)
+                  に以下を追加する。
+                </p>
+                <pre><code>{
+  "mcpServers": {
+    "kichijitsu": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://kichijitsu.love-rox.cc/mcp",
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer &lt;token&gt;"
+      }
+    }
+  }
+}</code></pre>
+                <p>
+                  <code>Authorization:${AUTH_HEADER}</code>のように
+                  <code>:</code> の前後にスペースを入れない書き方は、Claude Desktop (Windows)
+                  が引数中のスペースを正しく渡せない既知の問題を避けるための
+                  <code>mcp-remote</code> 側の回避策。値は <code>env</code>
+                  側に置けばスペースを含めてよい。設定を保存したら Claude Desktop を再起動する。
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="doc-section" id="tools" aria-labelledby="tools-title">
+          <h2 id="tools-title">使えるツール一覧</h2>
+          <p>
+            現在 8
+            つのツールを公開している。書き込み系はエージェント側でユーザーへの実行前確認を前提にした説明になっている。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ツール</th>
+                  <th>種別</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>list_events</code></td>
+                  <td>読み取り</td>
+                  <td>期間を指定して予定一覧を返す。繰り返し予定は展開済みで返る。</td>
+                </tr>
+                <tr>
+                  <td><code>search_events</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    キーワードで予定を検索する。期間省略時は今日の30日前〜90日後を対象にする。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>suggest_free_slots</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    指定した期間・所要時間から空き時間の候補を、早い順に返す。エージェント利用の主役。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>create_event</code></td>
+                  <td>書き込み</td>
+                  <td>新しい予定を作成する。実行前にユーザーへの確認が前提。</td>
+                </tr>
+                <tr>
+                  <td><code>update_event</code></td>
+                  <td>書き込み</td>
+                  <td>
+                    既存の予定の日時を変更する(タイトルなど時刻以外は変更できない)。実行前にユーザーへの確認が前提。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>delete_event</code></td>
+                  <td>書き込み</td>
+                  <td>予定を削除する。取り消せない操作。実行前にユーザーへの確認が前提。</td>
+                </tr>
+                <tr>
+                  <td><code>log_work_interval</code></td>
+                  <td>記録</td>
+                  <td>
+                    作業実績を記録する。Google カレンダーには書き込まず、kichijitsu 側に保存する。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>work_summary</code></td>
+                  <td>読み取り</td>
+                  <td>
+                    <code>log_work_interval</code> で記録した実績を、repo/issue 単位で集計して返す。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="hooks" aria-labelledby="hooks-title">
+          <h2 id="hooks-title">hook からの作業時間記録</h2>
+          <p>
+            Claude Code の SessionStart/Stop hook のような非対話のシェルからは、MCP 接続を経由せず
+            <code>curl</code> 一発で作業実績を記録できる。認証は MCP トークンの Bearer
+            で、値は設定ファイルに直書きせず環境変数から読むこと。
+          </p>
+          <pre><code>curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals \
+  -H "Authorization: Bearer ${KICHIJITSU_MCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start": "'"$SESSION_START_ISO"'",
+    "end": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+    "repo": "Love-Rox/kichijitsu",
+    "branch": "'"$(git branch --show-current)"'",
+    "agent": "claude-code"
+  }'</code></pre>
+          <p>
+            成功すると <code>{ calendarId, eventId }</code> を 200 で返す。認証失敗は 401、
+            <code>start &gt;= end</code>・<code>repo</code> 欠落などの入力不正は 400、Google
+            側の失敗は 502 になる。
+          </p>
+        </section>
+
+        <section class="doc-section" id="operations" aria-labelledby="operations-title">
+          <h2 id="operations-title">運用の注意</h2>
+          <p>
+            <strong>デプロイ後・トークン再発行後は、MCP クライアントの再起動が必要</strong
+            >になる。McpAgent は Durable Object
+            なので、接続を保持しているインスタンスはデプロイ後も旧コードのまま動き続ける
+            (ツールのスキーマもクライアントが接続時にキャッシュする)。反映を確認するときは、まず
+            Claude Code / Claude Desktop を再起動してから検証すること。
+          </p>
+          <p>
+            同様に、トークンを再発行(＝旧トークンを失効)した場合も、起動中のセッションは旧トークンを掴んだまま
+            401 が続く。Claude Code はこれを
+            <code>requires re-authorization (token expired)</code> と表示するが、kichijitsu の MCP
+            トークンに
+            <strong>有効期限は無い</strong
+            >。この表示が出たら、実際は「トークンが失効/未登録」か「クライアントのセッションが古い」のどちらか。
+          </p>
+          <p>
+            サーバー側で認証が通ったことがあるかどうかは <code>last_used_at</code>
+            で客観的に判定できる(null のままなら、クライアントが新しいトークンをまだ送れていない)。
+          </p>
+        </section>
+
+        <section class="doc-section" id="security" aria-labelledby="security-title">
+          <h2 id="security-title">トークンの取り扱い</h2>
+          <div class="callout">
+            <p>
+              MCP
+              トークンはあなたのカレンダーを読み書きできる秘密情報。パスワードと同じ扱いにすること。
+            </p>
+            <p>
+              発行直後の画面以外に生の値が表示されることは無い。設定ファイルやスクリプトに直書きせず、環境変数(例:
+              <code>KICHIJITSU_MCP_TOKEN</code
+              >)から読み込むこと。リポジトリにコミットしない、他人と共有しない、流出した場合は設定画面から即座に失効させること。
+            </p>
+          </div>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="/self-hosting/">セルフホスト手順を見る</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

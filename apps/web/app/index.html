@@ -7,11 +7,66 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#FAF7F2" />
+    <!--
+      PWA / モバイルブラウザのアドレスバー・ステータスバーの色。ここは CSS 変数が届かない
+      (ブラウザ UI であってページではない) ので、src/theme.css の --c-bg のライト値/ダーク値を
+      写している唯一の場所 ―― theme.css 側を変えたらここも直すこと。
+      既定は prefers-color-scheme による OS 追従で、明示指定 (ライト/ダーク) が選ばれたときだけ
+      下のスクリプトが media 属性を "all"/"not all" に差し替えて OS を無視させる
+      (src/sync/themePref.ts の resolveThemeColorMedia)。
+    -->
+    <meta
+      name="theme-color"
+      data-scheme="light"
+      media="(prefers-color-scheme: light)"
+      content="#FAF7F2"
+    />
+    <meta
+      name="theme-color"
+      data-scheme="dark"
+      media="(prefers-color-scheme: dark)"
+      content="#201F25"
+    />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="kichijitsu" />
     <title>kichijitsu</title>
+    <!--
+      テーマ設定の初回適用 (ダークモード切替、2026-07-26)。
+
+      なぜ head の**インライン**スクリプトなのか:
+      配色は src/theme.css が color-scheme (:root[data-theme] で固定) で切り替えるので、
+      data-theme は「最初のスタイル適用より前」に確定していなければならない。
+      React (src/main.tsx) は module script = defer 相当で、HTML のパース完了後に走る。
+      そこで属性を付けると「OS はライト / 設定はダーク」の人に一瞬ライトの画面が見える (FOUC)。
+      外部ファイルにすると今度はその取得待ちが描画をブロックするため、
+      同期実行される数行をここに直接置くのが唯一 FOUC を作らない形になる。
+
+      中身は src/sync/themePref.ts の normalizeThemePref / resolveThemeAttr /
+      resolveThemeColorMedia を手で書き下したもの (バンドル前に走るので import できない)。
+      規則を変えるときは両方を直すこと ―― 判断の正は themePref.ts 側 (テストがある)。
+
+      CSP: 現状の配信 (apps/web/wrangler.jsonc の assets-only Worker) は
+      Content-Security-Policy ヘッダーを付けていないため nonce/hash は不要。
+      将来 CSP を導入する場合は、このスクリプトの hash を script-src に載せること。
+    -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("kichijitsu:theme");
+          // "auto" / 未設定 / 壊れた値はすべて OS 連動 = 何もしないのが正しい状態
+          if (pref !== "light" && pref !== "dark") return;
+          document.documentElement.setAttribute("data-theme", pref);
+          var metas = document.querySelectorAll('meta[name="theme-color"][data-scheme]');
+          for (var i = 0; i < metas.length; i++) {
+            metas[i].media = metas[i].getAttribute("data-scheme") === pref ? "all" : "not all";
+          }
+        } catch (e) {
+          // localStorage の参照自体が throw する環境 (Safari のプライベートモード等) では
+          // OS 連動のまま続行する。テーマの復元に失敗してもページは動くべきなので握り潰す。
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijitsu/shared";
 import { mcpTokenCreatedLabel, mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import { getGhPathOverride, isTauri, setGhPathOverride } from "../sync/githubProvider";
+import { clearAppCaches } from "../sync/appCache";
+import { getThemePref, setThemePref, type ThemePref } from "../sync/themePref";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
 import "./SettingsModal.css";
@@ -227,6 +229,18 @@ export function SettingsModal({
         )}
 
         {/*
+         * テーマ (ダークモード切替、ユーザー要望、2026-07-26)。連携系のセクションとは
+         * 性質が違う「見た目の設定」なので最後に置く。呼び出し元の props に依存しない
+         * (localStorage だけで完結する) ため、他セクションと違い常に描画される。
+         */}
+        <section className="settings-modal-section">
+          <h3 className="settings-modal-section-title" id="settings-theme-title">
+            テーマ
+          </h3>
+          <ThemeControl />
+        </section>
+
+        {/*
          * Google 審査要件の導線(プライバシーポリシー・規約)。旧 CalendarSettingsPanel と
          * 同じくモーダル下部に集約する。
          */}
@@ -244,12 +258,101 @@ export function SettingsModal({
           {desktopVersion && `アプリ v${desktopVersion} · `}
           ビルド {BUILD_SHA} · {formatBuildTime(BUILD_TIME)}
         </p>
+
+        {/*
+         * キャッシュ削除 (ユーザー要望、2026-07-26)。上のビルド情報で「古いビルドを
+         * 見ている」と気づいた人がその場で直せるよう、すぐ下に脱出口を置く。
+         */}
+        <CacheClearControl />
       </div>
     </div>
   );
 }
 
 type DisconnectRowState = "idle" | "confirming" | "disconnecting" | "error";
+
+type CacheClearState = "idle" | "confirming" | "clearing" | "error";
+
+/**
+ * 「キャッシュを削除して再読み込み」導線 (ユーザー要望、2026-07-26)。
+ *
+ * PWA / ブラウザでは Service Worker (public/sw.js) が静的アセットを cache-first で
+ * 保持するため、再デプロイ後に古い画面が残ることがある。デスクトップ版のトレイ
+ * 「再読み込み」(apps/desktop/src-tauri/src/lib.rs の RELOAD_JS) と同じ操作を
+ * ユーザー自身が実行できるようにするのがこのボタン。
+ *
+ * 破壊的操作なので、AccountDisconnectControl / GitHubDisconnectControl /
+ * McpTokenDeleteControl と同じインライン2段階確認 (window.confirm は使わない) に揃える。
+ * 何が消えて何が消えないかは誤解されやすいため、確認前から説明文を常時出しておく。
+ */
+function CacheClearControl() {
+  const [state, setState] = useState<CacheClearState>("idle");
+
+  // JSX に日本語を直接改行して書くと折り返し位置に半角スペースが入るため、
+  // 説明文は文字列連結で組んでから埋め込む。
+  const desc = (
+    <p className="settings-modal-section-desc">
+      {"表示が古いままのときに使います。消えるのは画面を組み立てるファイルのキャッシュだけで、" +
+        "カレンダーの予定データ・連携アカウント・設定は消えません。"}
+    </p>
+  );
+
+  if (state === "confirming" || state === "clearing") {
+    return (
+      <div className="settings-modal-cache">
+        {desc}
+        <span className="settings-modal-disconnect-confirm">
+          削除して再読み込みしますか？
+          <button
+            type="button"
+            className="settings-modal-text-btn"
+            disabled={state === "clearing"}
+            onClick={() => {
+              setState("clearing");
+              clearAppCaches()
+                .then((keys) => {
+                  // 削除したキー名はサポート時の手がかりとして残す(表示はしない)
+                  console.info("kichijitsu: cleared app caches", keys);
+                  // リロードで Service Worker が最新アセットを取り直し、キャッシュを埋め直す
+                  window.location.reload();
+                })
+                .catch((err: unknown) => {
+                  console.error("kichijitsu: clearing app caches failed", err);
+                  setState("error");
+                });
+            }}
+          >
+            削除する
+          </button>
+          <button
+            type="button"
+            className="settings-modal-text-btn"
+            disabled={state === "clearing"}
+            onClick={() => setState("idle")}
+          >
+            やめる
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-modal-cache">
+      {desc}
+      <span className="settings-modal-disconnect-row">
+        <button
+          type="button"
+          className="settings-modal-text-btn"
+          onClick={() => setState("confirming")}
+        >
+          キャッシュを削除して再読み込み
+        </button>
+        {state === "error" && <span className="settings-modal-error">削除失敗</span>}
+      </span>
+    </div>
+  );
+}
 
 /**
  * アカウント1件ぶんの「連携解除」導線。window.confirm を使わないインライン2段階確認を、
@@ -413,6 +516,61 @@ function GhPathOverrideControl() {
   );
 }
 
+/** テーマ3択の表示ラベル。値の正は sync/themePref.ts の ThemePref */
+const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
+  { value: "auto", label: "自動" },
+  { value: "light", label: "ライト" },
+  { value: "dark", label: "ダーク" },
+];
+
+/**
+ * テーマ3択 (自動 / ライト / ダーク、ユーザー要望、2026-07-26)。
+ *
+ * 保存ボタンは持たず、選んだ瞬間に setThemePref が localStorage への保存と
+ * <html data-theme> の書き換えを両方行う ―― 配色の反映は theme.css (color-scheme +
+ * light-dark()) が担うので、React 側に再描画すべきものは何も無い。
+ *
+ * したがって値の正は localStorage であり、ここの useState は「いま何にチェックが
+ * 入っているか」を描くためだけのローカルな写し (GhPathOverrideControl と同じ流儀)。
+ * App.tsx に state を持ち上げると二重管理になるだけで得が無いので持ち上げていない。
+ *
+ * ラジオグループにしたのは3択が排他だから ―― ネイティブの <input type="radio"> を
+ * 同じ name で並べれば、矢印キーでの移動と読み上げ時の「n個中m番目・選択済み」が
+ * ブラウザ標準で手に入る。
+ */
+function ThemeControl() {
+  const [pref, setPref] = useState<ThemePref>(() => getThemePref());
+
+  return (
+    <>
+      <p className="settings-modal-section-desc">
+        「自動」は、お使いの端末(OS)の外観設定に合わせて自動で切り替わります。
+      </p>
+      <div
+        className="settings-modal-theme-options"
+        role="radiogroup"
+        aria-labelledby="settings-theme-title"
+      >
+        {THEME_OPTIONS.map((option) => (
+          <label className="settings-modal-theme-option" key={option.value}>
+            <input
+              type="radio"
+              name="settings-theme"
+              value={option.value}
+              checked={pref === option.value}
+              onChange={() => {
+                setThemePref(option.value);
+                setPref(option.value);
+              }}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /**
  * MCP トークン (docs/mcp.md Part A、2026-07-20) セクション本体。一覧 + 発行導線を持つ。
  * 「発行直後だけ生値を表示する」状態はこのコンポーネントがローカルに持つ — サーバーは
@@ -551,10 +709,17 @@ function McpTokenCreateControl({
             コピー
           </button>
         </div>
+        {/*
+         * MCP エンドポイントは公式ホスト名を焼き込まず、いま開いているインスタンスの
+         * origin から組み立てる (2026-07-26)。セルフホストした人の設定画面に
+         * 公式インスタンスの URL が出ると、エージェントを他人のサーバーへ繋がせてしまう。
+         * デスクトップ版はリモート URL を読み込む方式なので、origin は
+         * そのアプリが指しているインスタンスと一致する。
+         */}
         <p className="settings-modal-mcp-hint">
           Claude 等の MCP クライアント設定で、この値を{" "}
           <code>Authorization: Bearer &lt;token&gt;</code> として{" "}
-          <code>https://kichijitsu.love-rox.cc/mcp</code> に登録してください。
+          <code>{`${window.location.origin}/mcp`}</code> に登録してください。
         </p>
         <button
           type="button"

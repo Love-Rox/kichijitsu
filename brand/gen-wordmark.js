@@ -2,7 +2,7 @@
 // Inter SemiBold (SIL OFL 1.1, https://rsms.me/inter/) をアウトライン化し、
 // i/j の点をすべて「枡」に置き換える:
 //   ı ×3 → 正立した墨の枡 (currentColor)
-//   ȷ ×1 → -8° 傾いた朱の枡 (#D7402E)
+//   ȷ ×1 → -8° 傾いた朱の枡 (#C13625)
 //
 // 再生成手順:
 //   npm i opentype.js
@@ -77,7 +77,7 @@ for (const idx of dotlessIdx) {
   // 簡便化: ȷ の bbox 右端 - stemW/2 を中心とみなす (Inter の ȷ は stem が右端)
   const bb = bboxes[jIdx];
   const cx = bb.x2 - stemW / 2;
-  rects += rect(cx, dotCenterY, akaSide, "#D7402E", true);
+  rects += rect(cx, dotCenterY, akaSide, "#C13625", true);
 }
 
 // viewBox: 文字パス + 枡の外接

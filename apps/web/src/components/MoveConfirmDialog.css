@@ -20,7 +20,7 @@
 .move-confirm-card {
   width: min(420px, calc(100vw - 32px));
   background: var(--c-bg);
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-elevated);
   border-radius: 12px;
   box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
   padding: 20px;
@@ -70,7 +70,7 @@
   border: none;
   border-radius: 8px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;

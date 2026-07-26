@@ -57,9 +57,10 @@
   background-color: rgba(var(--c-hover-tint-rgb), 0.03);
 }
 
-/* 当月外(前後月の埋め日)は日付・チップとも淡色にして視覚的に後退させる */
+/* 当月外(前後月の埋め日)は日付・チップとも淡色にして視覚的に後退させる。
+   ライト/ダークで「後退させる」向きが逆になるので、値はトークン側 (--c-cell-outside) */
 .month-cell--outside {
-  background-color: rgba(var(--c-line-rgb), 0.28);
+  background-color: var(--c-cell-outside);
 }
 
 .month-cell--outside .month-cell-date {
@@ -91,7 +92,7 @@
   padding: 0 3px;
   border-radius: 30%;
   background: var(--c-accent);
-  color: var(--c-on-ink);
+  color: var(--c-on-accent);
   font-weight: 600;
 }
 

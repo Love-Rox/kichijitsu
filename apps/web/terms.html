@@ -34,7 +34,7 @@
         margin-top: 4px;
       }
       a {
-        color: #d7402e;
+        color: #c13625;
       }
       .en {
         color: #55504a;
@@ -97,13 +97,17 @@
     </header>
     <main>
       <h1>利用規約 <small>kichijitsu Terms of Service</small></h1>
-      <p class="updated">最終更新: 2026-07-19</p>
+      <p class="updated">最終更新: 2026-07-26</p>
 
+      <!--
+        運営者名・連絡先・ホスト名はビルド時に差し込む (apps/web/build/legalText.ts)。
+        セルフホストされたインスタンスで公式インスタンスの運営者情報が出ないようにするため、
+        ここに直書きしてはいけない。未設定時は中立の文言にフォールバックする。
+      -->
       <h2>サービスの内容</h2>
       <p>
-        kichijitsu は Google カレンダーのクライアントアプリです。公式インスタンス
-        （kichijitsu.love-rox.cc）は
-        love-rox（以下「運営者」）が個人プロジェクトとして運営しています。
+        kichijitsu は Google カレンダーのクライアントアプリです。
+        <!--KJ:TERMS_OPERATOR_JA-->
         ソースコードは公開されており、<a href="/self-hosting">セルフホスト</a
         >して利用することもできます。
       </p>
@@ -111,7 +115,7 @@
       <h2>利用条件</h2>
       <ul>
         <li>本サービスの利用には Google アカウントが必要です</li>
-        <li>公式インスタンスは招待制で提供される場合があります</li>
+        <li>本インスタンスは招待制で提供される場合があります</li>
         <li>不正アクセス、過度な自動リクエストなど、サービス運営を妨げる行為を禁止します</li>
       </ul>
 
@@ -126,7 +130,10 @@
       <h2>サービスの変更・終了</h2>
       <p>
         運営者は、事前の告知なくサービス内容の変更・停止・終了を行うことがあります。
-        終了時、保存されているトークン類は削除されます。
+        終了時、サーバーに保存されているデータ（トークン類のほか、カレンダー選択などの設定、
+        作業実績を含みます）は削除されます。詳しくは<a href="/privacy.html"
+          >プライバシーポリシー</a
+        >をご覧ください。
       </p>
 
       <h2>プライバシー</h2>
@@ -134,20 +141,22 @@
 
       <h2>規約の変更・連絡先</h2>
       <p>
-        本規約は必要に応じて改定されます。重要な変更はアプリ内で告知します。 連絡先:
-        <a href="mailto:kichijitsu@love-rox.cc">kichijitsu@love-rox.cc</a>
+        本規約は必要に応じて改定されます。重要な変更はアプリ内で告知します。
+        <!--KJ:CONTACT_LINE_JA-->
       </p>
 
       <div class="en">
         <h2>Terms of Service (English)</h2>
         <p>
-          kichijitsu is a calendar client for Google Calendar, operated as a personal project by
-          love-rox. The service is provided "as is" without warranties of any kind. The official
-          instance may be invite-only. You may also self-host kichijitsu using the published source
-          code. Do not attempt unauthorized access or excessive automated requests. The operator may
-          modify or discontinue the service at any time; stored tokens are deleted upon termination.
-          See our <a href="/privacy.html">Privacy Policy</a> for how we handle your data. Contact:
-          kichijitsu@love-rox.cc
+          kichijitsu is a calendar client for Google Calendar.
+          <!--KJ:TERMS_OPERATOR_EN-->
+          The service is provided "as is" without warranties of any kind. This instance may be
+          invite-only. You may also self-host kichijitsu using the published source code. Do not
+          attempt unauthorized access or excessive automated requests. The operator may modify or
+          discontinue the service at any time; data stored on the server (tokens, settings such as
+          your calendar selection, and work logs) is deleted upon termination. See our
+          <a href="/privacy.html">Privacy Policy</a> for how we handle your data.
+          <!--KJ:CONTACT_LINE_EN-->
         </p>
       </div>
     </main>

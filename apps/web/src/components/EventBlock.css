@@ -393,7 +393,7 @@
   max-height: 420px;
   overflow-y: auto;
   background: var(--c-surface);
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-elevated);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(var(--c-shadow-rgb), 0.2);
   padding: 14px 16px;
@@ -622,7 +622,7 @@
 
 .event-detail-rsvp-btn.is-selected {
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
 }
 
 .event-detail-rsvp-btn:disabled {
@@ -726,7 +726,7 @@
   border: none;
   border-radius: 8px;
   background: var(--c-accent);
-  color: var(--c-on-color);
+  color: var(--c-on-accent);
   font: inherit;
   font-size: 12px;
   font-weight: 600;

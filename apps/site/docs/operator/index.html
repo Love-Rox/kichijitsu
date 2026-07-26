@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>運営者情報と規約の差し替え | kichijitsu</title>
+    <meta name="description" content="セルフホストした kichijitsu で、規約とプライバシーポリシーに自分の運営者情報を出す方法。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <meta property="og:title" content="運営者情報と規約の差し替え | kichijitsu" />
+    <meta property="og:description" content="セルフホストしたインスタンスの規約・プライバシーポリシーを、自分の運営者情報に差し替える。" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../doc-shell.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__row">
+        <a class="nav__brand" href="/">
+          <img class="nav__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </a>
+        <a class="btn btn--outline btn--sm" href="#" onclick="history.back();return false;">← 戻る</a>
+      </div>
+    </header>
+
+    <header class="doc-header">
+      <div class="container doc-header__inner">
+        <span class="doc-header__kicker">Docs</span>
+        <h1 class="doc-header__title">運営者情報と規約の差し替え</h1>
+        <p class="doc-header__lede">
+          プライバシーポリシーと利用規約は、セルフホストしたあなたのドメインでもそのまま配信される。そこに出る運営者名・連絡先・ホスト名は、ビルド時に環境変数から差し込む仕組みになっている。設定を忘れても公式
+          (love-rox) の情報が出ることは無いが、あなたの情報も出ない。
+        </p>
+      </div>
+    </header>
+
+    <main class="doc-main">
+      <div class="container doc-body">
+        <nav class="doc-toc" aria-label="目次">
+          <p class="doc-toc__title">目次</p>
+          <ol class="doc-toc__list">
+            <li><a href="#why">なぜ差し替えるのか</a></li>
+            <li><a href="#env">3つの環境変数</a></li>
+            <li><a href="#fallback">未設定のままだとどうなるか</a></li>
+            <li><a href="#rewrite">規約の内容そのものを書き換える</a></li>
+            <li><a href="#site">この紹介サイトは配信されない</a></li>
+            <li><a href="#verify">設定できたか確かめる</a></li>
+          </ol>
+        </nav>
+
+        <section class="doc-section" id="why" aria-labelledby="why-title">
+          <h2 id="why-title">なぜ差し替えるのか</h2>
+          <p>
+            kichijitsu をセルフホストすると、ビルド成果物
+            <code>apps/web/dist</code> がまるごと Cloudflare の assets Worker
+            に上がる。つまり同梱の <a href="/privacy.html">プライバシーポリシー</a> と
+            <a href="/terms.html">利用規約</a>
+            も、あなたのドメインの <code>/privacy.html</code> <code>/terms.html</code>
+            としてそのまま公開される。
+          </p>
+          <p>
+            もしこの2ページに公式インスタンスの運営者名や連絡先が直接書かれていたら、二重の事故になる。
+          </p>
+          <ul>
+            <li><strong>他人の規約が、あなたのインスタンスの規約として提示される</strong></li>
+            <li>
+              <strong
+                >love-rox が、運営していないインスタンスの運営者として名指しされる</strong
+              >
+            </li>
+          </ul>
+          <p>
+            そこで運営者にまつわる部分だけを HTML から追い出し、<strong
+              >ビルド時に環境変数から差し込む</strong
+            >ようにしてある。同じ理屈で公式サイトの紹介ページも成果物から切り離してある
+            (<a href="#site">後述</a>)。
+          </p>
+          <div class="callout">
+            <p>
+              同梱の規約・ポリシーの本文は、公式インスタンスのものを<strong>ひな形として</strong>付けているだけ。
+              あなたのインスタンスの運営者はあなたであり、法的な責任もあなたにある。文面が自分の運用に合っているかは自分で確認・修正すること。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="env" aria-labelledby="env-title">
+          <h2 id="env-title">3つの環境変数</h2>
+          <p>
+            差し込む値は次の3つ。すべて任意で、設定したものだけが反映される
+            (セルフホストの手順全体での位置づけは
+            <a href="/self-hosting/#step3">セルフホスト手順の「3. 設定を自分の環境に合わせる」</a>
+            、コマンドを含む手順の正本はリポジトリの
+            <a
+              href="https://github.com/Love-Rox/kichijitsu/blob/main/docs/self-hosting.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              >docs/self-hosting.md</a
+            >
+            を参照)。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>環境変数</th>
+                  <th>どこに出るか</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>KICHIJITSU_OPERATOR_NAME</code></td>
+                  <td>
+                    規約「サービスの内容」の運営者の定義文、ポリシー「連絡先」の運営者名
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>KICHIJITSU_OPERATOR_CONTACT</code></td>
+                  <td>
+                    規約「規約の変更・連絡先」とポリシー「連絡先」の <code>mailto:</code> リンク
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>KICHIJITSU_INSTANCE_HOST</code></td>
+                  <td>「本インスタンス（ホスト名）」の括弧書き。規約とポリシーの両方</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>ビルドするシェルの環境変数として渡す。CI なら CI 側の環境変数に入れればよい。</p>
+          <pre><code>export KICHIJITSU_OPERATOR_NAME="あなたの名前 / 組織名"
+export KICHIJITSU_OPERATOR_CONTACT="you@example.com"
+export KICHIJITSU_INSTANCE_HOST="cal.example.com"
+pnpm build</code></pre>
+          <p>細かい挙動は次のとおり。</p>
+          <ul>
+            <li>
+              値は環境変数からのみ読む。<strong><code>.env</code> ファイルは見ない。</strong>
+            </li>
+            <li>
+              前後の空白は落とされ、<strong>空文字や空白だけの値は「未設定」と同じ扱い</strong>になる
+              (<code>KICHIJITSU_OPERATOR_NAME= pnpm build</code> のような事故を吸収するため)。
+            </li>
+            <li>
+              値は HTML エスケープされる。記号や
+              <code>&amp;</code> を含む名前を入れてもページは壊れない。
+            </li>
+            <li>
+              変数名に <code>VITE_</code> を付けていないので、これらの値が JavaScript
+              バンドルに載ることは無い。入るのは規約・ポリシーの HTML だけ。
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              <strong>値を変えたら必ずビルドし直すこと。</strong> 差し込みはビルド時に一度きりで、
+              <code>wrangler deploy</code> はビルドを行わず既存の
+              <code>apps/web/dist</code> をアップロードするだけ。環境変数だけ書き換えてデプロイしても、公開されるページは古いままになる。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="fallback" aria-labelledby="fallback-title">
+          <h2 id="fallback-title">未設定のままだとどうなるか</h2>
+          <p>
+            未設定の項目は、<strong>語ではなく文まるごとが中立の言い回しに差し替わる</strong>。
+            「本インスタンス（）は が運営しています」のような壊れた日本語にはならない。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>未設定のもの</th>
+                  <th>表示される文言</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>運営者名</td>
+                  <td>本インスタンスの運営者情報は設定されていません。</td>
+                </tr>
+                <tr>
+                  <td>連絡先</td>
+                  <td>本インスタンスの連絡先は設定されていません。</td>
+                </tr>
+                <tr>
+                  <td>ホスト名</td>
+                  <td>「本インスタンス（ホスト名）」の括弧ごと消え、単に「本インスタンス」になる</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ul>
+            <li>
+              運営者名が未設定でも、規約の
+              <strong>「運営者」という語の定義文自体は残る</strong>。無保証・免責やサービスの変更といった以降の条項がこの語に依存しているため、ここが消えると規約の意味が変わってしまう。
+            </li>
+            <li>
+              連絡先が未設定のときは <code>mailto:</code>
+              リンクを出さない。空の <code>mailto:</code>
+              は、押すと空のメーラーが開くだけの壊れたリンクになるため。
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              <strong
+                >未設定のとき、公式インスタンスの運営者名 (love-rox)・連絡先・ホスト名が出力に現れることは無い。</strong
+              >
+              これはこの仕組みの最重要の不変条件で、<code>apps/web/build/legalText.test.ts</code>
+              が実物の <code>terms.html</code> <code>privacy.html</code> に対して明示的に検証している。
+            </p>
+            <p>
+              つまり未設定で困るのは「あなたの運営者情報が載らない」ことだけで、他人の情報が載ることではない。
+            </p>
+          </div>
+          <div class="callout">
+            <p>
+              <strong>セルフホストで <code>pnpm build:official</code> を使わないこと。</strong>
+              これは公式インスタンス専用のスクリプトで、3つの環境変数に love-rox
+              の値が固定で入っているうえ、公式サイトの紹介ページまで成果物に合流させる。セルフホストで使うのは素の
+              <code>pnpm build</code>。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="rewrite" aria-labelledby="rewrite-title">
+          <h2 id="rewrite-title">規約の内容そのものを書き換える</h2>
+          <p>
+            文面を自分の運用に合わせたいときは、テンプレートを直接編集する。実体は
+            <code>apps/web/terms.html</code> と <code>apps/web/privacy.html</code> の2ファイル。
+          </p>
+          <p>
+            差し込み位置は <code>&lt;!--KJ:TOKEN--&gt;</code> という形の HTML
+            コメントで書かれている。Vite が HTML 中の <code>%KEY%</code>
+            を環境変数として解釈する仕組みと衝突しないよう、あえてコメント形式にしてある。使えるトークンは次の8つ。
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>トークン</th>
+                  <th>差し込まれる内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>INSTANCE_JA</code> / <code>INSTANCE_EN</code>
+                  </td>
+                  <td>文中に埋めるインスタンスの呼称 (「本インスタンス（ホスト名）」)</td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>TERMS_OPERATOR_JA</code> / <code>TERMS_OPERATOR_EN</code>
+                  </td>
+                  <td>規約の「運営者」の定義文 (1文まるごと)</td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>OPERATOR_LINE_JA</code> / <code>OPERATOR_LINE_EN</code>
+                  </td>
+                  <td>運営者名の単独表示 (「運営者: ○○」)</td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>CONTACT_LINE_JA</code> / <code>CONTACT_LINE_EN</code>
+                  </td>
+                  <td>連絡先の行 (設定時は <code>mailto:</code> リンクを含む)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <h3>壊れない書き方</h3>
+          <ul>
+            <li>
+              <strong>運営者名や連絡先を HTML に直接書かない。</strong>
+              書いてしまうと、そのリポジトリを fork した人のインスタンスにあなたの名前が出る。
+            </li>
+            <li>
+              トークンは「語」ではなく<strong>「文まるごと」に対応している</strong>。周りに「〜は」「〜が運営しています」のような続きを書き足すと、未設定時に日本語が破綻する。
+            </li>
+            <li>
+              <strong>存在しないトークン名を書くとビルドが失敗する。</strong>
+              黙って空文字にすると運営者情報が抜けた規約がそのまま公開されてしまうため、あえて例外にしてある。
+            </li>
+            <li>
+              規約を全面的に書き直すなら、トークンを1つも残さない形でもよい (残っていないものは何も置換されない)。その場合は3つの環境変数も効かなくなるので、運営者情報は自分で書くこと。
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              この2ファイルを <code>apps/web/public/</code>
+              配下へ移動しないこと。<code>public/</code>
+              の中身はビルド時に素通しでコピーされるだけで差し込み処理が走らず、<code
+                >&lt;!--KJ:TOKEN--&gt;</code
+              >
+              がそのまま公開されてしまう。
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="site" aria-labelledby="site-title">
+          <h2 id="site-title">この紹介サイトは配信されない</h2>
+          <p>
+            いま読んでいるこのページを含む公式サイトの紹介ページ ―― ランディング
+            (<code>/</code>)、<a href="/mcp/">MCP 接続ガイド</a>、<a href="/self-hosting/"
+              >セルフホスト手順</a
+            >、<a href="/docs/">ドキュメント</a> (<code>/docs/**</code>) ―― は<strong
+              >別パッケージ <code>apps/site</code> にあり、<code>pnpm build</code>
+              の成果物には入らない</strong
+            >。規約の運営者情報と同じ種類の事故 ―― あなたのドメインで公式インスタンスの宣伝ページが配信される
+            ―― を防ぐため、成果物ごと切り離してある。あなたが何もしなくてもそうなる。
+          </p>
+          <p>ルートのビルドスクリプトは3つあり、関係は次のとおり。</p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>スクリプト</th>
+                  <th>何をするか</th>
+                  <th><code>apps/web/dist</code> の中身</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>pnpm build</code></td>
+                  <td>apps/web だけをビルドする (<strong>セルフホストはこれを使う</strong>)</td>
+                  <td>アプリ + 規約</td>
+                </tr>
+                <tr>
+                  <td><code>pnpm build:site</code></td>
+                  <td>apps/site だけをビルドする (確認用。出力は <code>apps/site/dist</code>)</td>
+                  <td>変化なし</td>
+                </tr>
+                <tr>
+                  <td><code>pnpm build:official</code></td>
+                  <td>公式専用。運営者情報の環境変数付きでビルドし、紹介サイトを合流させる</td>
+                  <td>アプリ + 規約 + 紹介サイト</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            結果として、あなたのインスタンスで配信されるのは
+            <code>/app/</code> <code>/</code> <code>/privacy.html</code> <code>/terms.html</code>
+            の4つだけになる。それぞれの中身と、<code>/</code>
+            を自分の紹介ページに差し替える方法は
+            <a href="/self-hosting/#step3">セルフホスト手順</a> にまとめてある。ビルドの順序や公式デプロイ側の事情は
+            <a
+              href="https://github.com/Love-Rox/kichijitsu/blob/main/docs/deploy.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              >docs/deploy.md</a
+            >
+            が正本。
+          </p>
+        </section>
+
+        <section class="doc-section" id="verify" aria-labelledby="verify-title">
+          <h2 id="verify-title">設定できたか確かめる</h2>
+          <ol class="steps">
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>ビルドログの警告を見る</h3>
+                <p>
+                  設定が漏れていると、本番ビルド時に
+                  <code>[legal] 運営者情報が未設定です (...)</code>
+                  という警告が出る。括弧の中に、未設定の変数名が並ぶ。3つとも設定できていれば何も出ない。
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>成果物を検索する</h3>
+                <pre><code>grep -c '運営者名にした文字列' apps/web/dist/terms.html
+# =&gt; 0 なら環境変数がビルドに渡っていない</code></pre>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step__num" aria-hidden="true"></span>
+              <div class="step__body">
+                <h3>デプロイ後にページを開く</h3>
+                <p>
+                  <code>/terms.html</code> の「サービスの内容」と <code>/privacy.html</code>
+                  の「連絡先」に、自分の名前と連絡先が出ていることを確認する。
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <div class="doc-pagelinks">
+          <a href="/self-hosting/">セルフホスト手順へ</a>
+          <a href="/docs/">ドキュメント一覧へ</a>
+          <a href="#" onclick="history.back();return false;">← 戻る</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__row">
+        <div class="footer__brand">
+          <img class="footer__wordmark" src="/wordmark.svg?v=1" alt="kichijitsu" />
+        </div>
+        <ul class="footer__links">
+          <li><a href="/privacy.html">プライバシー</a></li>
+          <li><a href="/terms.html">規約</a></li>
+          <li><a href="/docs/">ドキュメント</a></li>
+          <li><a href="/self-hosting/">セルフホスト</a></li>
+          <li>
+            <a
+              href="https://github.com/Love-Rox/kichijitsu"
+              target="_blank"
+              rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+        <p class="footer__meta">© 2026 Love-Rox</p>
+      </div>
+    </footer>
+  </body>
+</html>

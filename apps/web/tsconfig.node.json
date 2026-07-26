@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // build/ はビルド時にだけ動くコード (vite.config.ts から import される)。
+  // アプリ本体 (src/, tsconfig.app.json) とは lib/types が違うのでこちら側に置く。
+  "include": ["vite.config.ts", "build"]
 }
