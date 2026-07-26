@@ -641,10 +641,17 @@ function McpTokenCreateControl({
             コピー
           </button>
         </div>
+        {/*
+         * MCP エンドポイントは公式ホスト名を焼き込まず、いま開いているインスタンスの
+         * origin から組み立てる (2026-07-26)。セルフホストした人の設定画面に
+         * 公式インスタンスの URL が出ると、エージェントを他人のサーバーへ繋がせてしまう。
+         * デスクトップ版はリモート URL を読み込む方式なので、origin は
+         * そのアプリが指しているインスタンスと一致する。
+         */}
         <p className="settings-modal-mcp-hint">
           Claude 等の MCP クライアント設定で、この値を{" "}
           <code>Authorization: Bearer &lt;token&gt;</code> として{" "}
-          <code>https://kichijitsu.love-rox.cc/mcp</code> に登録してください。
+          <code>{`${window.location.origin}/mcp`}</code> に登録してください。
         </p>
         <button
           type="button"

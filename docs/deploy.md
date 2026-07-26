@@ -170,10 +170,11 @@ https://kichijitsu.love-rox.cc/auth/callback
 ## 6. デプロイ
 
 まず apps/web をビルドする (デプロイスクリプトはビルドを行わず、既存の `apps/web/dist` を
-そのままアップロードするだけなので、必ず先にビルドすること):
+そのままアップロードするだけなので、必ず先にビルドすること)。**公式インスタンスのビルドには
+`build:official` を使う** (理由は下記「規約ページの運営者情報」):
 
 ```sh
-mise exec -- pnpm --filter web build
+mise exec -- pnpm run build:official
 ```
 
 その後、両方の Worker をデプロイする。**必ず sync → web の順にする** (理由は下記):
@@ -181,6 +182,45 @@ mise exec -- pnpm --filter web build
 ```sh
 mise exec -- pnpm run deploy:sync
 mise exec -- pnpm run deploy:web
+```
+
+### 規約ページの運営者情報 (2026-07-26)
+
+`/privacy.html` `/terms.html` の運営者名・連絡先・ホスト名は**ビルド時に環境変数から差し込む**。
+`dist` はまるごと assets Worker に上がるため、セルフホストした人のドメインでもこの2ページは
+そのまま配信される。公式の値を HTML に焼き込んだままだと「他人の規約が自分のインスタンスの規約
+として提示される」「love-rox が運営していないインスタンスの運営者として名指しされる」という
+事故になるので、ここだけは外から入れる (実体は `apps/web/build/legalText.ts`、
+差し込みプラグインは `apps/web/vite.config.ts`)。
+
+| 環境変数                      | 公式の値                 |
+| ----------------------------- | ------------------------ |
+| `KICHIJITSU_OPERATOR_NAME`    | `love-rox`               |
+| `KICHIJITSU_OPERATOR_CONTACT` | `kichijitsu@love-rox.cc` |
+| `KICHIJITSU_INSTANCE_HOST`    | `kichijitsu.love-rox.cc` |
+
+**公式の値はリポジトリの `.env` にはコミットしていない。** コミットしてしまうと、fork や
+セルフホストで「消し忘れ」が起きたときに love-rox の名前が他人のインスタンスの規約に出てしまう
+(= そもそも直したかった事故がそのまま再発する)。代わりに、値をインラインで渡すだけの
+ルートスクリプト `build:official` を用意してある:
+
+```sh
+# package.json の build:official は 3 つの環境変数を付けて pnpm --filter web build を呼ぶだけ
+mise exec -- pnpm run build:official
+```
+
+`pnpm --filter web build` (素のビルド) を使うとこれらは未設定になり、該当箇所は
+「本インスタンスの運営者情報は設定されていません。」等の中立な文言になる ―― **公式の値が
+勝手に入ることはないが、入れ忘れると運営者名が消えたまま公開される**ので、公式デプロイでは
+必ず `build:official` を使うこと。設定漏れがあると本番ビルド時に
+`[legal] 運営者情報が未設定です (...)` という警告がビルドログに出るので、デプロイ前に
+ログを見る運用でも気づける。
+
+デプロイ後の確認:
+
+```sh
+curl -s https://kichijitsu.love-rox.cc/terms.html | grep -c 'love-rox'
+# => 0 なら build:official を使わずにビルドしている (再ビルドしてデプロイし直すこと)
 ```
 
 ### デプロイ順序: sync を先、web を後 (2026-07-25)

@@ -49,6 +49,23 @@ pnpm install
 | `apps/sync/wrangler.jsonc` | `name`（任意）、`routes` の 2 つの pattern と `zone_name`、`vars.APP_URL` |
 | `apps/sync/wrangler.jsonc` | `d1_databases[0].database_id` → 手順4で作る実 ID                          |
 
+### 運営者情報（規約・プライバシーポリシー）
+
+`/privacy.html` `/terms.html` はあなたのドメインでもそのまま配信されます。**運営者はあなた自身
+なので、あなたの情報を設定してください。**ビルド時の環境変数で差し込みます（未設定でも
+kichijitsu 公式の情報が出ることはありません。「本インスタンスの運営者情報は設定されていません。」
+と表示されます）。
+
+```sh
+export KICHIJITSU_OPERATOR_NAME="あなたの名前 / 組織名"
+export KICHIJITSU_OPERATOR_CONTACT="you@example.com"   # 未設定なら mailto: リンクは出ません
+export KICHIJITSU_INSTANCE_HOST="cal.example.com"
+```
+
+規約・ポリシーの本文そのものは kichijitsu 公式のものをひな形として同梱しています。**内容が
+自分の運用に合っているかは自分で確認・修正してください**（法的な責任はインスタンスの運営者に
+あります）。
+
 ## 4. デプロイ
 
 `docs/deploy.md` の手順どおりです。要約すると:

@@ -718,6 +718,29 @@ pnpm install</code></pre>
               </tbody>
             </table>
           </div>
+
+          <h3>運営者情報(規約・プライバシーポリシー)</h3>
+          <p>
+            <a href="/privacy.html">プライバシーポリシー</a> と
+            <a href="/terms.html">利用規約</a>
+            はあなたのドメインでもそのまま配信される。<strong
+              >このインスタンスの運営者はあなた自身なので、あなたの情報を設定すること。</strong
+            >ビルド時の環境変数で差し込む。
+          </p>
+          <pre><code>export KICHIJITSU_OPERATOR_NAME="あなたの名前 / 組織名"
+export KICHIJITSU_OPERATOR_CONTACT="you@example.com"   # 未設定なら mailto: リンクは出ない
+export KICHIJITSU_INSTANCE_HOST="cal.example.com"</code></pre>
+          <div class="callout">
+            <p>
+              未設定のままでも、kichijitsu 公式 (love-rox)
+              の運営者名・連絡先があなたのインスタンスの規約に出ることはない。該当箇所は「本インスタンスの運営者情報は設定されていません。」という表示になる。
+            </p>
+            <p>
+              同梱の規約・ポリシーは公式インスタンスのものを<strong>ひな形として</strong>付けているだけ。
+              内容が自分の運用に合っているかは自分で確認・修正すること
+              (法的な責任はインスタンスの運営者にある)。
+            </p>
+          </div>
         </section>
 
         <section class="doc-section" id="step4" aria-labelledby="step4-title">

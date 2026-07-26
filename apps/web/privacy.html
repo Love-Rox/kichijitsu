@@ -99,10 +99,15 @@
       <h1>プライバシーポリシー <small>kichijitsu Privacy Policy</small></h1>
       <p class="updated">最終更新: 2026-07-19</p>
 
+      <!--
+        運営者名・連絡先・ホスト名はビルド時に差し込む (apps/web/build/legalText.ts)。
+        セルフホストされたインスタンスで公式インスタンスの運営者情報が出ないようにするため、
+        ここに直書きしてはいけない。未設定時は中立の文言にフォールバックする。
+      -->
       <h2>概要</h2>
       <p>
         kichijitsu（以下「本アプリ」）は、Google カレンダーのクライアントアプリです。
-        本ポリシーは、公式インスタンス（kichijitsu.love-rox.cc）が取り扱う情報と、その扱い方を説明します。
+        本ポリシーは、<!--KJ:INSTANCE_JA-->が取り扱う情報と、その扱い方を説明します。
       </p>
 
       <h2>取得・保存する情報</h2>
@@ -152,13 +157,14 @@
       </p>
 
       <h2>連絡先</h2>
-      <p>運営者: love-rox / <a href="mailto:kichijitsu@love-rox.cc">kichijitsu@love-rox.cc</a></p>
+      <p><!--KJ:OPERATOR_LINE_JA--></p>
+      <p><!--KJ:CONTACT_LINE_JA--></p>
 
       <div class="en">
         <h2>Privacy Policy (English)</h2>
         <p>
-          kichijitsu is a calendar client for Google Calendar. The official instance
-          (kichijitsu.love-rox.cc) stores: your Google account identifier and email address (for
+          kichijitsu is a calendar client for Google Calendar. When you use
+          <!--KJ:INSTANCE_EN-->, it stores: your Google account identifier and email address (for
           sign-in), OAuth tokens (refresh tokens are encrypted at rest with AES-256-GCM on
           Cloudflare D1), and sync cursors.
           <b>Your calendar event contents are never stored on our servers</b> — events are synced
@@ -175,9 +181,10 @@
         <p>
           You can disconnect at any time from within the app (which revokes and deletes your tokens)
           or from your
-          <a href="https://myaccount.google.com/permissions">Google Account settings</a>. Contact:
-          kichijitsu@love-rox.cc
+          <a href="https://myaccount.google.com/permissions">Google Account settings</a>.
         </p>
+        <p><!--KJ:OPERATOR_LINE_EN--></p>
+        <p><!--KJ:CONTACT_LINE_EN--></p>
       </div>
     </main>
   </body>

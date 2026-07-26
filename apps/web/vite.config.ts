@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import react from "@vitejs/plugin-react";
+import { OPERATOR_ENV_KEYS, readOperatorInfo, renderLegalHtml } from "./build/legalText.ts";
 
 // マルチページビルド用の入力解決 (プロジェクトルート基準の絶対パスを要求する
 // rollupOptions.input 向け)。
@@ -27,6 +28,45 @@ function resolveBuildSha(): string {
 const BUILD_SHA = resolveBuildSha();
 const BUILD_TIME = new Date().toISOString();
 
+/**
+ * 規約 / プライバシーポリシーの運営者情報をビルド時に差し込むプラグイン (2026-07-26)。
+ *
+ * dist はまるごと assets Worker に上がるので、`/privacy.html` `/terms.html` は
+ * セルフホストした人のドメインでもそのまま配信される。公式インスタンスの運営者名・連絡先が
+ * 焼き込まれていると「他人の規約が自分のインスタンスの規約として出る」「love-rox が
+ * 運営していないインスタンスの運営者として名指しされる」という事故になるため、
+ * これらは環境変数から差し込む (未設定なら中立の文言。文言と置換ロジックの本体は
+ * apps/web/build/legalText.ts、テストは同ディレクトリの legalText.test.ts)。
+ *
+ * Vite 組み込みの `%VITE_FOO%` 置換を使わないのは、未設定時に空文字が入って
+ * 「本インスタンス（）は が運営しています」のような壊れた日本語になるため。
+ * また `VITE_` prefix を付けていないので、これらの値がクライアントバンドルに載ることもない。
+ *
+ * 値は process.env からのみ読む (.env ファイルは見ない)。公式ビルドでの渡し方は
+ * ルート package.json の `build:official` / docs/deploy.md を参照。
+ */
+function legalOperatorPlugin() {
+  const info = readOperatorInfo(process.env);
+  const missing = Object.values(OPERATOR_ENV_KEYS).filter((key) => !process.env[key]?.trim());
+  return {
+    name: "kichijitsu:legal-operator",
+    // 未設定でも「公式の情報が漏れる」ことは無い (中立の文言になる) のでビルドは落とさないが、
+    // 公式デプロイでの設定漏れに気づけるよう本番ビルド時だけ警告を出す。dev / test では
+    // 未設定が通常なので黙らせる。
+    configResolved(config: { command: string }) {
+      if (config.command === "build" && missing.length > 0) {
+        console.warn(
+          `[legal] 運営者情報が未設定です (${missing.join(", ")})。` +
+            "/privacy.html /terms.html の該当箇所は「設定されていません」と表示されます。",
+        );
+      }
+    },
+    transformIndexHtml(html: string) {
+      return renderLegalHtml(html, info);
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   define: {
@@ -47,6 +87,12 @@ export default defineConfig({
         // (wrangler.jsonc 側の変更は不要、既存の /app と同じ仕組み)。
         mcp: r("./mcp/index.html"),
         selfHosting: r("./self-hosting/index.html"),
+        // 規約 / プライバシーポリシー (2026-07-26 に public/ から移設)。public/ 配下は Vite が
+        // 素通しコピーするだけで transformIndexHtml が効かず、運営者情報をビルド時に
+        // 差し込めなかったため。ルート直下の input なので出力は dist/privacy.html /
+        // dist/terms.html になり、公開 URL (/privacy.html /terms.html) は従来どおり変わらない。
+        privacy: r("./privacy.html"),
+        terms: r("./terms.html"),
       },
     },
   },
@@ -73,7 +119,8 @@ export default defineConfig({
       },
     ],
   },
-  plugins: lazyPlugins(() => [react()]),
+  // PluginOption はネストした配列を許すので、lazyPlugins の戻り値をそのまま要素にできる。
+  plugins: [legalOperatorPlugin(), lazyPlugins(() => [react()])],
   server: {
     proxy: {
       // apps/sync (wrangler dev, localhost:8787) への開発プロキシ。
