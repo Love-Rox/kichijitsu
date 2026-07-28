@@ -24,9 +24,19 @@ export function buildBlockRuleUpsertRequest(
   return { id, sources, target, mode };
 }
 
-/** DELETE /api/block-rules のリクエストボディを組み立てる */
-export function buildBlockRuleDeleteRequest(id: string): BlockRuleDeleteRequest {
-  return { id };
+/**
+ * DELETE /api/block-rules のリクエストボディを組み立てる。
+ *
+ * deleteMirrors は必須引数にしてある ―― サーバー側の既定は false (省略で来たら Google の
+ * 予定は消さない、shared の BlockRuleDeleteRequest 参照) なので、UI からは常に
+ * 「利用者がチェックボックスで選んだ値」を明示して送る。省略できると
+ * 「チェックしたのに送られていない」取り違えが起きうるため。
+ */
+export function buildBlockRuleDeleteRequest(
+  id: string,
+  deleteMirrors: boolean,
+): BlockRuleDeleteRequest {
+  return { id, deleteMirrors };
 }
 
 /** mode の表示名 (バッジに使う) */

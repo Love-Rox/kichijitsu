@@ -19,6 +19,18 @@ function baseEvent(overrides: Partial<GoogleEventDTO> = {}): GoogleEventDTO {
   };
 }
 
+/**
+ * 差分同期 (syncToken) が返す **削除済みイベントの実際の最小ペイロード**。
+ * Google Calendar API の incremental sync では削除は id と status="cancelled" のみが
+ * 保証され、start/end/summary/recurrence は付いてこない。baseEvent() は start/end を
+ * 必ず持たせてしまい現実の削除通知を再現できないため、専用のヘルパを分けている
+ * (この形を通さないテストしか無かったせいで、削除が握りつぶされるバグを
+ * 長らく検出できていなかった: 2026-07-28 修正)。
+ */
+function cancelledEvent(overrides: Partial<GoogleEventDTO> = {}): GoogleEventDTO {
+  return { id: "evt-deleted", status: "cancelled", ...overrides };
+}
+
 /** テスト全体の既定コンテキスト。マルチアカウント対応の id スコープ検証は専用の describe で行う */
 const ctx: MapGoogleContext = { accountId: "acc-1", calendarId: "cal-1" };
 
@@ -111,6 +123,30 @@ describe("mapGoogleEvents", () => {
     expect(override.patch).toBeNull();
   });
 
+  /**
+   * 削除通知を status だけで判定するようにした後 (2026-07-28) も、繰り返しインスタンスの
+   * キャンセルだけは「削除」ではなく patch:null の override であり続けること。
+   * Google 曰く cancelled exception で保証されるのは id / recurringEventId /
+   * originalStartTime の3つだけなので、その最小形で検証する
+   * (親シリーズは生きているので deletedSeriesIds には入れてはいけない)。
+   */
+  it("最小ペイロードの cancelled な例外インスタンスは削除ではなく patch:null の override になる", () => {
+    const event = cancelledEvent({
+      id: "series-evt_20260727T010000Z",
+      recurringEventId: "series-evt",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const result = mapGoogleEvents([event], ctx);
+
+    expect(result.overrides).toHaveLength(1);
+    expect(result.overrides[0].patch).toBeNull();
+    expect(result.overrides[0].seriesId).toBe("g:acc-1:cal-1:series-evt");
+    expect(result.deletedSingleIds).toEqual([]);
+    expect(result.deletedAllDayIds).toEqual([]);
+    expect(result.deletedSeriesIds).toEqual([]);
+  });
+
   it("時刻変更された例外インスタンスを patch 付き InstanceOverride に変換する", () => {
     const event = baseEvent({
       id: "exception-2",
@@ -156,13 +192,57 @@ describe("mapGoogleEvents", () => {
     expect(occ.link).toEqual({ url: "https://calendar.google.com/event?eid=abc" });
   });
 
-  it("cancelled な単発イベントは deletedSingleIds に入る", () => {
+  it("cancelled な単発イベントは deletedSingleIds に入る (start/end 付きで届いた場合)", () => {
     const event = baseEvent({ id: "single-cancelled", status: "cancelled" });
 
     const result = mapGoogleEvents([event], ctx);
 
     expect(result.singles).toHaveLength(0);
     expect(result.deletedSingleIds).toEqual(["g:acc-1:cal-1:single-cancelled"]);
+  });
+
+  /**
+   * 回帰テスト (2026-07-28): 差分同期の削除通知は start/end を持たない。
+   * 以前は「単発の start/end 必須チェック」が cancelled 判定より前にあったため、
+   * この形の削除が握りつぶされ、Google/スマホ側で消した予定がローカルに残っていた
+   * (勤務場所の変更は「古いのを cancelled + 新しいのを作成」で届くので、
+   * 変更前と変更後の両方が並んで見えるという症状になっていた)。
+   */
+  it("start/end を持たない最小ペイロードの削除通知でも deletedSingleIds/deletedAllDayIds に入る", () => {
+    const event = cancelledEvent({ id: "deleted-minimal" });
+
+    const result = mapGoogleEvents([event], ctx);
+
+    expect(result.singles).toHaveLength(0);
+    expect(result.allDays).toHaveLength(0);
+    expect(result.overrides).toHaveLength(0);
+    // 単発だったか終日だったかは判別できないため、両方のリストに入れる
+    expect(result.deletedSingleIds).toEqual(["g:acc-1:cal-1:deleted-minimal"]);
+    expect(result.deletedAllDayIds).toEqual(["g:acc-1:cal-1:deleted-minimal"]);
+    expect(result.deletedSeriesIds).toEqual(["g:acc-1:cal-1:deleted-minimal"]);
+  });
+
+  it("最小ペイロードの削除通知を warn でスキップしない (以前は start/end 無しとして捨てられていた)", () => {
+    const result = mapGoogleEvents([cancelledEvent({ id: "deleted-minimal" })], ctx);
+
+    expect(result.deletedSingleIds).toHaveLength(1);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("削除通知と新規作成が同じ応答に混ざっていても、両方正しく処理する (勤務場所の変更の実際の形)", () => {
+    // Google は勤務場所の変更を「古い workingLocation を cancelled にして、新しいものを作る」
+    // 形で送ってくる。修正前は cancelled 側だけが握りつぶされ、両方が残っていた
+    const events: GoogleEventDTO[] = [
+      cancelledEvent({ id: "wl-old" }),
+      baseEvent({ id: "wl-new", summary: "オフィス", eventType: "workingLocation" }),
+    ];
+
+    const result = mapGoogleEvents(events, ctx);
+
+    expect(result.deletedSingleIds).toEqual(["g:acc-1:cal-1:wl-old"]);
+    expect(result.singles).toHaveLength(1);
+    expect(result.singles[0].id).toBe("g:acc-1:cal-1:wl-new");
+    expect(result.singles[0].isWorkingLocation).toBe(true);
   });
 
   it("終日の単発イベント (start.date のみ) は AllDayOccurrence に変換する (end.date は排他的→inclusive に正規化)", () => {

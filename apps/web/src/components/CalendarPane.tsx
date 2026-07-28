@@ -8,6 +8,7 @@ import type { View } from "../keyboard/shortcuts";
 import { calendarPaneGroupKey } from "../layout/calendarPaneGroups";
 import { taskListKey } from "../layout/keys";
 import { readStoredStringSet, writeStoredStringSet } from "../layout/localStore";
+import type { OooAllDayPlacement } from "../layout/oooAllDayPlacement";
 import { toggleSetMember } from "../layout/setOps";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import "./CalendarPane.css";
@@ -33,6 +34,12 @@ export interface CalendarPaneProps {
   onToggleShowDeclined: () => void;
   /** サブオプション「自分が主催の予定は残す」チェックのトグル(showDeclined が false のときのみ意味を持つ) */
   onToggleKeepOrganizerDeclined: () => void;
+
+  // ---- 表示セクション(終日の不在の置き場所、2026-07-28) ----
+  /** 終日の不在をどこに描くか。App.tsx の oooAllDayPlacement state をそのまま渡す */
+  oooAllDayPlacement: OooAllDayPlacement;
+  /** 「終日の不在を終日欄に表示」チェックのトグル(timeline ⇄ allday) */
+  onToggleOooAllDayPlacement: () => void;
 
   // ---- ミニ月カレンダー(左ペイン増分2、2026-07-22) ----
   /** 現在の表示形式。ミニカレンダーが「メインの表示中の範囲」を淡くハイライトするのに使う */
@@ -141,8 +148,8 @@ function saveCollapsedGroups(collapsed: Set<string>): void {
  * 「表示」セクションを追加):
  *   1. ミニ月カレンダー(MiniMonthCalendar) ―― タイムラインナビゲーション
  *   2. 表示セクション(DisplaySettingsSection、下記) ―― 「不参加を表示」ON/OFF + サブオプション
- *      「自分が主催の予定は残す」。カレンダー選択より前に置く(全カレンダー横断の表示設定のため、
- *      個別カレンダーの選択より上位の概念として扱う)
+ *      「自分が主催の予定は残す」+「終日の不在を終日欄に表示」(2026-07-28)。カレンダー選択より
+ *      前に置く(全カレンダー横断の表示設定のため、個別カレンダーの選択より上位の概念として扱う)
  *   3. カレンダー選択(上記、増分1からの既存部分)
  *   4. アカウントごとのタスクリスト選択(TaskListGroup、AccountSection 内)
  *   5. GitHub セクション(GitHubSection、body 最下部) ―― 接続状態表示 + 表示トグル +
@@ -161,6 +168,8 @@ export function CalendarPane({
   declinedVisibility,
   onToggleShowDeclined,
   onToggleKeepOrganizerDeclined,
+  oooAllDayPlacement,
+  onToggleOooAllDayPlacement,
   view,
   timelineStart,
   dayCount,
@@ -239,6 +248,8 @@ export function CalendarPane({
           declinedVisibility={declinedVisibility}
           onToggleShowDeclined={onToggleShowDeclined}
           onToggleKeepOrganizerDeclined={onToggleKeepOrganizerDeclined}
+          oooAllDayPlacement={oooAllDayPlacement}
+          onToggleOooAllDayPlacement={onToggleOooAllDayPlacement}
         />
 
         {accounts.length === 0 && (
@@ -295,6 +306,8 @@ interface DisplaySettingsSectionProps {
   declinedVisibility: DeclinedVisibilitySettings;
   onToggleShowDeclined: () => void;
   onToggleKeepOrganizerDeclined: () => void;
+  oooAllDayPlacement: OooAllDayPlacement;
+  onToggleOooAllDayPlacement: () => void;
 }
 
 /**
@@ -307,12 +320,29 @@ interface DisplaySettingsSectionProps {
  * (既定 ON)は「不参加の予定を表示」が OFF のときだけ意味を持つため、その場合のみ描画する
  * (TaskListGroup と同じ「見た目・操作感を CalendarGroup に揃える」流儀。カレンダーのような
  * backgroundColor は無いので枡は常に既定色 masu--kichi のまま)。
+ *
+ * 「終日の不在を終日欄に表示」チェック(既定 OFF = 現状維持、2026-07-28 ユーザー要望)も
+ * ここに置く。設定モーダル (SettingsModal) ではなくこの「表示」ブロックにした理由:
+ * この設定は「不参加の予定を表示」と全く同じ性格 ―― サーバーに送らないこの端末だけの
+ * 表示設定で、カレンダー画面を見ながら切り替えて結果を即座に確かめたい類のもの。
+ * 設定モーダルはアカウント連携・テーマ・MCP トークンといった「画面から離れて腰を据えて
+ * いじる設定」の置き場なので、見え方の微調整をそちらに混ぜない(見つけにくくもなる)。
+ *
+ * チェックボックス1つにした理由: 2択で、しかも「既定 = 現状維持 / チェックすると別の場所へ」
+ * という非対称な2択なので、ラジオ2行より「既定からの逸脱に印を付ける」チェックの方が
+ * 隣接する「不参加の予定を表示」と操作感が揃う(枡チェックは左ペイン全体の共通語彙でもある)。
+ * OFF のときの行き先(タイムライン)は aria-label で言葉にしてある(スクリーンリーダーでは
+ * 「終日欄に表示にする / タイムラインに表示にする」と次の状態が読み上げられ、
+ * 現在の状態は aria-pressed が担う ―― 既存の2つのチェックと全く同じ組み立て)。
  */
 function DisplaySettingsSection({
   declinedVisibility,
   onToggleShowDeclined,
   onToggleKeepOrganizerDeclined,
+  oooAllDayPlacement,
+  onToggleOooAllDayPlacement,
 }: DisplaySettingsSectionProps) {
+  const oooInAllDay = oooAllDayPlacement === "allday";
   return (
     <div className="calendar-pane-group">
       <h4 className="calendar-pane-group-title">表示</h4>
@@ -349,6 +379,24 @@ function DisplaySettingsSection({
             <span className="calendar-pane-cal-name">自分が主催の予定は残す</span>
           </li>
         )}
+        {/*
+         * 終日の不在の置き場所(2026-07-28)。OFF(既定)= タイムラインに全高ラインとして、
+         * ON = 終日欄(終日レーン)のチップとして描く。週/3日/1日表示にだけ効く設定で、
+         * 月表示は元からタイムラインを持たない(不在も通常チップとして並ぶ)ため影響しない
+         * ―― 詳細は layout/oooAllDayPlacement.ts と MonthView.tsx のコメント。
+         */}
+        <li className="calendar-pane-item">
+          <button
+            type="button"
+            className="calendar-pane-checkbox"
+            aria-pressed={oooInAllDay}
+            aria-label={`終日の不在を${oooInAllDay ? "タイムライン" : "終日欄"}に表示する`}
+            onClick={onToggleOooAllDayPlacement}
+          >
+            <span className={oooInAllDay ? "masu masu--kichi" : "masu masu--empty"} />
+          </button>
+          <span className="calendar-pane-cal-name">終日の不在を終日欄に表示</span>
+        </li>
       </ul>
     </div>
   );

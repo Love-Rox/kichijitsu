@@ -36,8 +36,20 @@ describe("buildBlockRuleUpsertRequest", () => {
 });
 
 describe("buildBlockRuleDeleteRequest", () => {
-  it("id をそのまま BlockRuleDeleteRequest に詰める", () => {
-    expect(buildBlockRuleDeleteRequest("rule-1")).toEqual({ id: "rule-1" });
+  it("id と「ブロック予定も消すか」をそのまま BlockRuleDeleteRequest に詰める", () => {
+    expect(buildBlockRuleDeleteRequest("rule-1", true)).toEqual({
+      id: "rule-1",
+      deleteMirrors: true,
+    });
+  });
+
+  it("チェックを外したときは deleteMirrors:false を明示して送る(省略しない)", () => {
+    // サーバー側の既定は「消さない」だが、UI からは必ず選んだ値を明示する
+    // (省略できると「チェックしたのに送られていない」取り違えが起きうるため)。
+    expect(buildBlockRuleDeleteRequest("rule-1", false)).toEqual({
+      id: "rule-1",
+      deleteMirrors: false,
+    });
   });
 });
 

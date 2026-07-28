@@ -18,8 +18,11 @@ import type { OccurrenceStore } from "../store/occurrenceStore";
 import type { TaskStore } from "../store/taskStore";
 import {
   buildEventCreateRequest,
+  buildPendingAllDayOccurrence,
   buildPendingOccurrence,
+  finalizeCreatedAllDayOccurrence,
   finalizeCreatedOccurrence,
+  type EventCreateDraft,
   type WriteTargetCandidate,
 } from "../sync/eventCreate";
 import {
@@ -65,13 +68,11 @@ export interface EventMutationsController {
   saveError: boolean;
   /** WeekGrid のドラッグ/リサイズ確定 (onPersist)。previous はロールバック用スナップショット */
   persist: (updated: Occurrence, previous: Occurrence | undefined) => void;
-  /** 空き領域クリック/ドラッグからの新規作成 (onCreateEvent) */
-  createEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  /**
+   * 空き領域クリック/ドラッグからの新規作成 (onCreateEvent)。draft は速い経路
+   * (タイトルだけ) も詳細フォーム (全項目) も同じ形 (2026-07-29 全項目入力)。
+   */
+  createEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /** 詳細ポップオーバーの削除ボタン (onDelete) */
   deleteOccurrence: (occurrence: Occurrence) => void;
   /** ドラッグ移動の確認待ち。null 以外なら MoveConfirmDialog を出す */
@@ -233,29 +234,80 @@ export function useEventMutations({
     [db, store, checkedFetch, timeZone, flashSaveError],
   );
 
-  // 新規予定の楽観的作成(フェーズ5)。DayColumn(空き領域クリック/ドラッグ)がタイトルを
-  // 確定した瞬間に呼ばれる。仮 id (local-pending-<uuid>) の occurrence を即座に
+  // 新規予定の楽観的作成(フェーズ5、2026-07-29 全項目入力に拡張)。DayColumn の
+  // 速い経路(ドラッグ→タイトル→Enter)と詳細フォーム(EventEditForm)の両方から、同じ
+  // draft の形で呼ばれる。仮 id (local-pending-<uuid>) の occurrence を即座に
   // store/IndexedDB へ入れて表示し、POST /api/event/create で Google へ書き込む。
   // 成功したら仮 occurrence を確定 id (`g:<accountId>:<calendarId>:<eventId>`) の
   // occurrence に差し替える — 以後 SSE/同期で同じ予定が届いても id が一致するため
   // 冪等に上書きされるだけで済み、重複表示は起きない(eventCreate.ts のコメント参照)。
   // 失敗時は仮 occurrence を削除してロールバックし、saveError を表示する。
+  //
+  // 終日 (draft.isAllDay) は入れ先のストアが occurrenceStore ではなく allDayStore
+  // (IndexedDB も occurrences ではなく allDayOccurrences) になる。楽観表示・確定差し替え・
+  // ロールバックの3箇所で同じ分岐が要るので、lane という小さな入れ物に**分岐を1箇所へ
+  // 閉じ込め**、下の run() は時刻/終日を意識しない形にしてある(saveEdit の終日⇔時刻の
+  // 入れ替えと同じ「ストアの選択だけが違う」という捉え方)。
   const createEvent = useCallback(
-    (startMs: number, endMs: number, title: string, target: WriteTargetCandidate) => {
+    (draft: EventCreateDraft, target: WriteTargetCandidate) => {
       if (!db) return;
-      const pending = buildPendingOccurrence({ title, startMs, endMs, target });
+      const database = db;
+      const lane = draft.isAllDay
+        ? (() => {
+            const pending = buildPendingAllDayOccurrence({ draft, target, timeZone });
+            return {
+              pendingId: pending.id,
+              show: () => allDayStore.update(pending),
+              save: () => putAllDayOccurrences(database, [pending]),
+              finalize: async (eventId: string) => {
+                const finalized = finalizeCreatedAllDayOccurrence(pending, target, eventId);
+                await deleteAllDayOccurrencesByIds(database, [pending.id]);
+                await putAllDayOccurrences(database, [finalized]);
+                await allDayStore.batch(() => {
+                  allDayStore.remove([pending.id]);
+                  allDayStore.update(finalized);
+                });
+              },
+              rollback: async () => {
+                await deleteAllDayOccurrencesByIds(database, [pending.id]);
+                allDayStore.remove([pending.id]);
+              },
+            };
+          })()
+        : (() => {
+            const pending = buildPendingOccurrence({ draft, target });
+            return {
+              pendingId: pending.id,
+              show: () => store.update(pending),
+              save: () => putOccurrence(database, pending),
+              finalize: async (eventId: string) => {
+                const finalized = finalizeCreatedOccurrence(pending, target, eventId);
+                await deleteOccurrencesByIds(database, [pending.id]);
+                await putOccurrence(database, finalized);
+                // remove→update の間の空フレームを1回の通知にまとめる(点滅防止、他の箇所と同じ流儀)
+                await store.batch(() => {
+                  store.remove([pending.id]);
+                  store.update(finalized);
+                });
+              },
+              rollback: async () => {
+                await deleteOccurrencesByIds(database, [pending.id]);
+                store.remove([pending.id]);
+              },
+            };
+          })();
+
       // 楽観的表示: 応答を待たずに即座に見た目へ反映する
-      store.update(pending);
+      lane.show();
       async function run() {
-        if (!db) return;
-        await putOccurrence(db, pending);
+        await lane.save();
 
         let ok = false;
         let eventId: string | undefined;
         try {
           const res = await checkedFetch(
             "/api/event/create",
-            jsonInit("POST", buildEventCreateRequest({ title, startMs, endMs, target, timeZone })),
+            jsonInit("POST", buildEventCreateRequest({ draft, target, timeZone })),
           );
           ok = res.ok;
           if (ok) {
@@ -263,7 +315,7 @@ export function useEventMutations({
             eventId = data.eventId;
           } else {
             console.error(
-              `kichijitsu: POST /api/event/create failed (${pending.id}): ${res.status}`,
+              `kichijitsu: POST /api/event/create failed (${lane.pendingId}): ${res.status}`,
             );
           }
         } catch (err) {
@@ -271,27 +323,19 @@ export function useEventMutations({
         }
 
         if (ok && eventId) {
-          const finalized = finalizeCreatedOccurrence(pending, target, eventId);
-          await deleteOccurrencesByIds(db, [pending.id]);
-          await putOccurrence(db, finalized);
-          // remove→update の間の空フレームを1回の通知にまとめる(点滅防止、他の箇所と同じ流儀)
-          await store.batch(() => {
-            store.remove([pending.id]);
-            store.update(finalized);
-          });
+          await lane.finalize(eventId);
           return;
         }
 
         // ロールバック: 仮 occurrence を削除
-        await deleteOccurrencesByIds(db, [pending.id]);
-        store.remove([pending.id]);
+        await lane.rollback();
         flashSaveError();
       }
       run().catch((err) => {
         console.error("kichijitsu: failed to persist new occurrence", err);
       });
     },
-    [db, store, checkedFetch, timeZone, flashSaveError],
+    [db, store, allDayStore, checkedFetch, timeZone, flashSaveError],
   );
 
   // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)

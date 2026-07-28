@@ -46,6 +46,11 @@ import {
 } from "./layout/paneMode";
 import { calendarKey } from "./layout/keys";
 import { readStored, writeStored } from "./layout/localStore";
+import {
+  getOooAllDayPlacement,
+  setOooAllDayPlacement as setOooAllDayPlacementPref,
+  type OooAllDayPlacement,
+} from "./layout/oooAllDayPlacement";
 import { timelineRangeMs } from "./layout/viewRange";
 import "./App.css";
 
@@ -160,6 +165,25 @@ function App() {
   // HourHeightControl)で済んでいるが、ここでも normalize を通して不正値が state に入らないようにする
   const handleHourHeightChange = useCallback((next: number) => {
     setHourHeight(normalizeHourHeight(next));
+  }, []);
+
+  // 終日の不在 (OOO) の置き場所(2026-07-28、ユーザー要望)。hourHeight と同じ流儀で
+  // 「この端末のローカル設定を useState + localStorage で持ち、WeekGrid へ props で配る」形。
+  // 読み書き・正規化は layout/oooAllDayPlacement.ts に閉じている(既定は現状維持の "timeline")。
+  // 月表示には効かない ―― タイムライン自体が無く、不在は元から通常チップとして並ぶため
+  // (MonthView.tsx の month-chip--ooo のコメント参照)。よって MonthView には渡さない。
+  const [oooAllDayPlacement, setOooAllDayPlacement] = useState<OooAllDayPlacement>(
+    getOooAllDayPlacement,
+  );
+
+  // 左ペイン「表示」のチェックから呼ばれる。保存も即時(保存ボタンは持たせない ――
+  // テーマ切替 setThemePref と同じ「選んだ瞬間に反映+保存」)
+  const handleToggleOooAllDayPlacement = useCallback(() => {
+    setOooAllDayPlacement((prev) => {
+      const next: OooAllDayPlacement = prev === "allday" ? "timeline" : "allday";
+      setOooAllDayPlacementPref(next);
+      return next;
+    });
   }, []);
 
   // GitHub 情報ペイン(GitHubPane、増分1)の配置モード(overlay/docked)。view と同じく
@@ -435,6 +459,7 @@ function App() {
   const {
     syncStatus,
     defaultWriteTarget,
+    writeTargetCandidates,
     runSync,
     syncCalendar,
     setDeviceId,
@@ -796,6 +821,8 @@ function App() {
             declinedVisibility={declinedVisibility}
             onToggleShowDeclined={handleToggleShowDeclined}
             onToggleKeepOrganizerDeclined={handleToggleKeepOrganizerDeclined}
+            oooAllDayPlacement={oooAllDayPlacement}
+            onToggleOooAllDayPlacement={handleToggleOooAllDayPlacement}
             githubLogin={me.github?.login ?? null}
             activityVisible={activityVisible}
             onToggleActivityVisible={handleToggleActivityVisible}
@@ -837,10 +864,12 @@ function App() {
               onRsvp={handleRsvp}
               onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
+              writeTargets={writeTargetCandidates}
               onCreateEvent={handleCreate}
               onToggleTask={handleToggleTask}
               hiddenTaskListKeys={hiddenTaskLists}
               declinedVisibility={declinedVisibility}
+              oooAllDayPlacement={oooAllDayPlacement}
               // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
               // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
               longPressCreate={isNarrow}
@@ -865,6 +894,7 @@ function App() {
               onRsvp={handleRsvp}
               onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
+              writeTargets={writeTargetCandidates}
               onCreateEvent={handleCreate}
               onNavigateToDay={handleNavigateToDay}
               declinedVisibility={declinedVisibility}

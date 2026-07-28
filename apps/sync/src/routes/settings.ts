@@ -51,8 +51,13 @@ import {
   collectReferencedAccountIds,
   isValidBlockRuleDeleteRequest,
   isValidBlockRuleUpsertRequest,
+  resolveDeleteMirrors,
+  shouldDiscardMirrorRows,
   type BlockRuleRow,
 } from "../core/block-rules";
+import { deleteRuleMirrors, type MirrorDeleteDeps } from "../core/block-orchestrate";
+import type { BlockMirrorRow } from "../core/block-reconcile";
+import { disconnectAccounts, type DisconnectDeps } from "../core/account-disconnect";
 import { generateMcpToken, hashMcpToken } from "../mcp-token";
 import { enableWatch, disableWatch } from "../watch-registration";
 
@@ -175,18 +180,32 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
   // 更新の場合、既存行の ooo_fallback を保持してレスポンスに反映するため取得しておく
   // (下の INSERT ... ON CONFLICT は ooo_fallback を SET しないため DB 上の値は変わらない —
   // 新規に既に記録されたフラグを更新の度に false へ巻き戻さないための意図的な仕様)。
+  // あわせて既存の target も読む — 変わっていれば block_mirrors の行を捨てる必要がある
+  // (shouldDiscardMirrorRows のコメント参照)。
   let existingOooFallback = false;
+  let discardMirrorRows = false;
   if (body.id) {
     const existing = await c.env.DB.prepare(
-      "SELECT profile_id, ooo_fallback FROM block_rules WHERE id = ?",
+      "SELECT profile_id, ooo_fallback, target_account_id, target_calendar_id FROM block_rules WHERE id = ?",
     )
       .bind(body.id)
-      .first<{ profile_id: string; ooo_fallback: number }>();
+      .first<{
+        profile_id: string;
+        ooo_fallback: number;
+        target_account_id: string;
+        target_calendar_id: string;
+      }>();
     if (!isAccountInProfile(existing, profileId)) {
       // 存在しない id と「他人のプロファイルの id」を区別せず 403 にする (他のエンドポイントと同じ方針)。
       return c.json<ApiError>({ error: "rule_not_found" }, 403);
     }
     existingOooFallback = existing?.ooo_fallback === 1;
+    discardMirrorRows = shouldDiscardMirrorRows(
+      existing
+        ? { accountId: existing.target_account_id, calendarId: existing.target_calendar_id }
+        : null,
+      body.target,
+    );
   }
 
   const ruleId = body.id ?? crypto.randomUUID();
@@ -216,6 +235,13 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
         "INSERT INTO block_rule_sources (rule_id, account_id, calendar_id) VALUES (?, ?, ?)",
       ).bind(row.rule_id, row.account_id, row.calendar_id),
     ),
+    // target が変わったら対応表を捨てる。古い target の event id を新しい target に対して
+    // patch/delete しにいって 404 になるのを防ぐ (shouldDiscardMirrorRows のコメント参照)。
+    // 古い target に残るミラー予定は消さない — 利用者が明示的に選んだときだけ Google 上の
+    // 予定を消す原則 (docs/blocking.md「後始末」)。
+    ...(discardMirrorRows
+      ? [c.env.DB.prepare("DELETE FROM block_mirrors WHERE rule_id = ?").bind(ruleId)]
+      : []),
   ]);
 
   return c.json<BlockRuleDTO>({
@@ -227,6 +253,10 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
   });
 });
 
+// deleteMirrors:true のときだけ、Google 側に作った「予定あり」のミラー予定も消す
+// (省略時は false = 消さない、理由は core/block-rules.ts の resolveDeleteMirrors)。
+// Google の削除は best-effort — 1件失敗しても残りを続け、ルール行の削除は必ず行う
+// (「予定が消せないせいでルールも消せない」状態に利用者を閉じ込めないため)。
 settingsRoutes.delete("/api/block-rules", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   let body: BlockRuleDeleteRequest;
@@ -239,11 +269,33 @@ settingsRoutes.delete("/api/block-rules", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const existing = await c.env.DB.prepare("SELECT profile_id FROM block_rules WHERE id = ?")
+  const existing = await c.env.DB.prepare(
+    "SELECT profile_id, target_account_id, target_calendar_id FROM block_rules WHERE id = ?",
+  )
     .bind(body.id)
-    .first<{ profile_id: string }>();
+    .first<{ profile_id: string; target_account_id: string; target_calendar_id: string }>();
   if (!isAccountInProfile(existing, profileId)) {
     return c.json<ApiError>({ error: "rule_not_found" }, 403);
+  }
+
+  if (existing && resolveDeleteMirrors(body)) {
+    // 失敗しても下の行削除には進む (best-effort)。Google の呼び出し全体が落ちても同様。
+    try {
+      const mirrors = await loadBlockMirrors(c.env, body.id);
+      const result = await deleteRuleMirrors(
+        body.id,
+        { accountId: existing.target_account_id, calendarId: existing.target_calendar_id },
+        mirrors,
+        buildMirrorDeleteDeps(c.env),
+      );
+      if (result.failed > 0) {
+        console.warn(
+          `block rule deletion: ${result.failed} of ${mirrors.length} mirror events could not be deleted for rule ${body.id}`,
+        );
+      }
+    } catch (err) {
+      console.warn(`block rule deletion: mirror cleanup failed for rule ${body.id}`, err);
+    }
   }
 
   await c.env.DB.batch([
@@ -360,10 +412,10 @@ settingsRoutes.post("/api/watch", requireAuth, async (c) => {
 });
 
 // 連携解除 (アカウント削除)。accountId 指定ならそのアカウントだけ、省略ならプロファイル内
-// 全アカウントを対象にする。対象ごとに: revoke → DO 状態クリア → D1 行削除、の順で実行
-// (行削除を先にやると、その後 refresh_token を読めず revoke できなくなる事故が起きるため、
-// 必ず revoke を最初に行う)。最後にプロファイルのアカウントが 0 件になった時だけ
-// セッション (sid cookie) も破棄する。
+// 全アカウントを対象にする。対象ごとに: watch stop → revoke → DO 状態クリア → D1 行削除、
+// の順で実行し、最後に解除された全アカウントを踏まえてブロックルールを掃除する
+// (順序の理由と best-effort の方針は core/account-disconnect.ts のコメント参照)。
+// 最後にプロファイルのアカウントが 0 件になった時だけセッション (sid cookie) も破棄する。
 settingsRoutes.delete("/api/account", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
@@ -393,9 +445,7 @@ settingsRoutes.delete("/api/account", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "account_not_found" }, 403);
   }
 
-  for (const accountId of targets) {
-    await disconnectAccount(c.env, accountId);
-  }
+  await disconnectAccounts(targets, buildDisconnectDeps(c.env, profileId));
 
   const remaining = profileAccounts.length - targets.length;
   if (shouldClearSessionAfterDisconnect(remaining)) {
@@ -414,45 +464,129 @@ settingsRoutes.delete("/api/account", requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
-/** 1 アカウント分の revoke → DO 状態クリア → D1 行削除。 */
-async function disconnectAccount(env: Env, accountId: string): Promise<void> {
-  const row = await env.DB.prepare("SELECT refresh_token FROM accounts WHERE id = ?")
-    .bind(accountId)
-    .first<{ refresh_token: string }>();
+/**
+ * DELETE /api/account の後始末に、この worker の D1 / Google / DO を割り当てる。
+ * 判断と順序 (watch stop → revoke → DO クリア → 行削除、最後にブロックルール掃除) は
+ * core/account-disconnect.ts 側にあり、ここは各操作の実装だけを持つ。
+ */
+function buildDisconnectDeps(env: Env, profileId: string): DisconnectDeps {
+  return {
+    listWatches: async (accountId) => {
+      const { results } = await env.DB.prepare(
+        "SELECT channel_id, calendar_id FROM watches WHERE account_id = ?",
+      )
+        .bind(accountId)
+        .all<{ channel_id: string; calendar_id: string }>();
+      return results.map((row) => ({ channelId: row.channel_id, calendarId: row.calendar_id }));
+    },
+    // POST /api/watch (enabled:false) と同じ実装を再利用する (channels.stop → watches 行削除、
+    // Google 側の停止に失敗してもローカル行は消す)。
+    stopWatch: (accountId, watch) => disableWatch(env, accountId, watch.calendarId),
+    revokeToken: async (accountId) => {
+      const row = await env.DB.prepare("SELECT refresh_token FROM accounts WHERE id = ?")
+        .bind(accountId)
+        .first<{ refresh_token: string }>();
+      if (!row) return;
 
-  if (row) {
-    let refreshToken: string | null = null;
-    try {
-      refreshToken = await decryptToken(env.TOKEN_ENC_KEY, row.refresh_token);
-    } catch (err) {
-      if (!(err instanceof InvalidCiphertextError)) throw err;
-      // 復号できない (旧平文行・改ざん等) トークンは revoke しようがない。「連携解除したい」
-      // というユーザーの意図に対し、これは削除を妨げる理由にはならないのでスキップする。
-      console.warn(
-        `account deletion: refresh_token for account ${accountId} could not be decrypted, skipping revoke`,
-      );
-    }
-    if (refreshToken) {
-      const revoked = await revokeToken(fetch, refreshToken);
-      if (!revoked) {
-        console.warn(`account deletion: failed to revoke Google token for account ${accountId}`);
+      let refreshToken: string | null = null;
+      try {
+        refreshToken = await decryptToken(env.TOKEN_ENC_KEY, row.refresh_token);
+      } catch (err) {
+        if (!(err instanceof InvalidCiphertextError)) throw err;
+        // 復号できない (旧平文行・改ざん等) トークンは revoke しようがない。「連携解除したい」
+        // というユーザーの意図に対し、これは削除を妨げる理由にはならないのでスキップする。
+        console.warn(
+          `account deletion: refresh_token for account ${accountId} could not be decrypted, skipping revoke`,
+        );
       }
-    }
-  }
+      if (refreshToken) {
+        const revoked = await revokeToken(fetch, refreshToken);
+        if (!revoked) {
+          console.warn(`account deletion: failed to revoke Google token for account ${accountId}`);
+        }
+      }
+    },
+    clearSyncState: async (accountId) => {
+      const stub = env.USER_SYNC.getByName(accountId);
+      const clearResult = await stub.clearSyncState();
+      if (!clearResult.ok) {
+        console.warn(
+          `account deletion: failed to clear DO sync state for account ${accountId}: ${clearResult.error}`,
+        );
+      }
+    },
+    deleteAccountRows: async (accountId) => {
+      // watches はここまでの stopWatch で消えているはずだが、stop 前に行取得が失敗した場合や
+      // 途中で増えた行が残らないよう、account_id 単位でも必ず消す (行が残ると Cron の
+      // renewWatch が存在しないアカウントの watch を延々と再登録しようとする)。
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM watches WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM account_visible_calendars WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM account_calendar_prefs WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(accountId),
+      ]);
+    },
+    loadBlockRules: async () => {
+      const rules = await loadBlockRules(env, profileId);
+      return rules.map((rule) => ({
+        id: rule.id,
+        targetAccountId: rule.target.accountId,
+        sources: rule.sources,
+      }));
+    },
+    applyBlockRuleCleanup: async (plan) => {
+      const statements = [
+        ...plan.ruleIdsToDelete.flatMap((ruleId) => [
+          env.DB.prepare("DELETE FROM block_rules WHERE id = ?").bind(ruleId),
+          env.DB.prepare("DELETE FROM block_rule_sources WHERE rule_id = ?").bind(ruleId),
+          // block_mirrors 行だけを消す (Google 側に作られたミラー予定は消さない) — DELETE
+          // /api/block-rules と同じ扱い。target の認可は既に revoke されている可能性が高く、
+          // ここから Google の予定を消すことは原理的にできない。
+          env.DB.prepare("DELETE FROM block_mirrors WHERE rule_id = ?").bind(ruleId),
+        ]),
+        ...plan.sourcesToDetach.map((source) =>
+          env.DB.prepare(
+            "DELETE FROM block_rule_sources WHERE rule_id = ? AND account_id = ? AND calendar_id = ?",
+          ).bind(source.ruleId, source.accountId, source.calendarId),
+        ),
+      ];
+      await env.DB.batch(statements);
+    },
+  };
+}
 
-  const stub = env.USER_SYNC.getByName(accountId);
-  const clearResult = await stub.clearSyncState();
-  if (!clearResult.ok) {
-    console.warn(
-      `account deletion: failed to clear DO sync state for account ${accountId}: ${clearResult.error}`,
-    );
-  }
+/** DELETE /api/block-rules (deleteMirrors:true) 用: そのルールが作った mirror の対応表を全件引く。 */
+async function loadBlockMirrors(env: Env, ruleId: string): Promise<BlockMirrorRow[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT rule_id, source_event_id, mirror_event_id, source_updated, created_at FROM block_mirrors WHERE rule_id = ?",
+  )
+    .bind(ruleId)
+    .all<BlockMirrorRow>();
+  return results;
+}
 
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM account_visible_calendars WHERE account_id = ?").bind(accountId),
-    env.DB.prepare("DELETE FROM account_calendar_prefs WHERE account_id = ?").bind(accountId),
-    env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(accountId),
-  ]);
+/**
+ * DELETE /api/block-rules (deleteMirrors:true) のミラー削除に、この worker の DO RPC を割り当てる。
+ * 削除の順序と best-effort の扱いは core/block-orchestrate.ts の deleteRuleMirrors 側にある
+ * (ProfileHubDO のリコンサイルと同じ実装を共有する)。
+ */
+function buildMirrorDeleteDeps(env: Env): MirrorDeleteDeps {
+  return {
+    // ProfileHubDO.deleteMirror と同じ RPC。target アカウントの UserSyncDO が
+    // access token の更新とリトライを持つ。
+    deleteMirror: async (targetAccountId, targetCalendarId, mirrorEventId) => {
+      const stub = env.USER_SYNC.getByName(targetAccountId);
+      const result = await stub.deleteEvent(targetAccountId, targetCalendarId, mirrorEventId);
+      if (!result.ok) {
+        throw new Error(
+          `deleteEvent failed for account=${targetAccountId} calendar=${targetCalendarId}: status=${result.status} ${result.error}`,
+        );
+      }
+    },
+    // この経路では対応表の行を1件ずつ消す必要が無い — 直後の batch が rule_id 単位で
+    // block_mirrors を丸ごと消す (ルール自体が無くなるので行を残す意味も無い)。
+    deleteMirrorRow: async () => {},
+  };
 }
 
 /**

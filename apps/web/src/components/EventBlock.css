@@ -651,6 +651,17 @@
   width: 320px;
 }
 
+/*
+ * 新規作成フォーム (2026-07-29 全項目入力)。編集と同じフォームに「カレンダー」欄が1つ増える
+ * ぶん .event-detail-popover の max-height: 420px に収まらず、確定ボタンが常に折り返しの
+ * 下に隠れてしまうので、作成のときだけ上限を上げる(画面が低いときは従来どおり内部スクロール)。
+ * この値は DayColumn.tsx の CREATE_POPOVER_MAX_HEIGHT_PX と揃える ―― 位置のクランプが
+ * 同じ高さを前提にしているため、ずれると画面外へはみ出す。
+ */
+.event-detail-popover--creating {
+  max-height: min(520px, calc(100vh - 16px));
+}
+
 .event-edit-form {
   display: flex;
   flex-direction: column;

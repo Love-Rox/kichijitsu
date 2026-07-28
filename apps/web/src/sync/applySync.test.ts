@@ -8,7 +8,7 @@ import type { KichijitsuDB } from "../db/database";
 import { applySyncResponse } from "./applySync";
 import { OccurrenceStore } from "../store/occurrenceStore";
 import { AllDayStore } from "../store/allDayStore";
-import type { Occurrence } from "../model/types";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 import type { EventSeries } from "../model/series";
 
 /**
@@ -52,6 +52,163 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+/**
+ * 差分同期 (isFullSync=false) での削除反映テスト (2026-07-28)。
+ *
+ * Google の差分同期が返す削除通知は `{ id, status: "cancelled" }` だけで start/end を
+ * 持たない。この形が IndexedDB と store の両方から実際にレコードを消すことを、
+ * mapGoogleEvents の単体テストとは別に end-to-end で担保する
+ * (mapGoogle 側で正しく分類しても applySync が消さなければ症状は直らないため)。
+ */
+function deletedEvent(id: string): GoogleEventDTO {
+  return { id, status: "cancelled" };
+}
+
+describe("applySyncResponse (差分同期) の削除反映", () => {
+  it("start/end を持たない削除通知で、単発 occurrence が IndexedDB と store から消える", async () => {
+    const db = await openTestDB();
+
+    const existing: Occurrence = {
+      id: "g:acc-1:cal-1:evt-gone",
+      seriesId: null,
+      title: "Google 側で削除された予定",
+      startMs: 0,
+      endMs: 1000,
+      color: "#000",
+      source: "google",
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    };
+    await db.put("occurrences", existing);
+
+    const store = new OccurrenceStore();
+    const allDayStore = new AllDayStore();
+    store.load([existing]);
+
+    const res: SyncResponse = { isFullSync: false, events: [deletedEvent("evt-gone")] };
+    await applySyncResponse(db, store, allDayStore, res, {
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    });
+
+    expect(await db.get("occurrences", existing.id)).toBeUndefined();
+    expect(store.get(existing.id)).toBeUndefined();
+  });
+
+  it("start/end を持たない削除通知で、終日 occurrence も消える (単発/終日の判別が付かないため両方消しに行く)", async () => {
+    const db = await openTestDB();
+
+    const existing: AllDayOccurrence = {
+      id: "g:acc-1:cal-1:wl-old",
+      seriesId: null,
+      title: "オフィス",
+      startDate: "2026-07-21",
+      endDate: "2026-07-21",
+      color: "#000",
+      source: "google",
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+      isWorkingLocation: true,
+    };
+    await db.put("allDayOccurrences", existing);
+
+    const store = new OccurrenceStore();
+    const allDayStore = new AllDayStore();
+    allDayStore.load([existing]);
+
+    const res: SyncResponse = { isFullSync: false, events: [deletedEvent("wl-old")] };
+    await applySyncResponse(db, store, allDayStore, res, {
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    });
+
+    expect(await db.get("allDayOccurrences", existing.id)).toBeUndefined();
+    expect(allDayStore.get(existing.id)).toBeUndefined();
+  });
+
+  it("削除された繰り返しの親は series・override・展開済み occurrence ごと消える", async () => {
+    const db = await openTestDB();
+
+    const seriesId = "g:acc-1:cal-1:series-gone";
+    await db.put("series", {
+      id: seriesId,
+      title: "終了した定例",
+      color: "#000",
+      source: "google",
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+      dtstartIso: "2026-07-01T10:00",
+      timeZone: "Asia/Tokyo",
+      durationMin: 60,
+      rrule: "FREQ=DAILY",
+      exdatesMs: [],
+    } satisfies EventSeries);
+    await db.put("overrides", {
+      id: `${seriesId}:1000`,
+      seriesId,
+      originalStartMs: 1000,
+      patch: null,
+    });
+    const expanded: Occurrence = {
+      id: `${seriesId}:2000`,
+      seriesId,
+      title: "終了した定例",
+      startMs: 2000,
+      endMs: 3000,
+      color: "#000",
+      source: "google",
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    };
+    await db.put("occurrences", expanded);
+
+    const store = new OccurrenceStore();
+    const allDayStore = new AllDayStore();
+    store.load([expanded]);
+
+    const res: SyncResponse = { isFullSync: false, events: [deletedEvent("series-gone")] };
+    await applySyncResponse(db, store, allDayStore, res, {
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    });
+
+    expect(await db.get("series", seriesId)).toBeUndefined();
+    expect(await db.getAll("overrides")).toHaveLength(0);
+    expect(await db.get("occurrences", expanded.id)).toBeUndefined();
+    expect(store.get(expanded.id)).toBeUndefined();
+  });
+
+  it("無関係な予定は削除通知の巻き添えにならない", async () => {
+    const db = await openTestDB();
+
+    const keep: Occurrence = {
+      id: "g:acc-1:cal-1:evt-keep",
+      seriesId: null,
+      title: "残る予定",
+      startMs: 0,
+      endMs: 1000,
+      color: "#000",
+      source: "google",
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    };
+    await db.put("occurrences", keep);
+
+    const store = new OccurrenceStore();
+    const allDayStore = new AllDayStore();
+    store.load([keep]);
+
+    const res: SyncResponse = { isFullSync: false, events: [deletedEvent("evt-gone")] };
+    await applySyncResponse(db, store, allDayStore, res, {
+      accountId: ACCOUNT_ID,
+      calendarId: CALENDAR_ID,
+    });
+
+    expect(await db.get("occurrences", keep.id)).toBeDefined();
+    expect(store.get(keep.id)).toBeDefined();
+  });
 });
 
 describe("applySyncResponse (isFullSync) のアトミック性", () => {

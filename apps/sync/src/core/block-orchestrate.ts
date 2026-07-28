@@ -198,19 +198,68 @@ async function reconcileRule(
     }
   }
 
-  for (const mirror of plan.toDelete) {
+  await applyMirrorDeletions(rule.id, rule.target, plan.toDelete, deps);
+}
+
+/** ミラー削除だけが要る経路 (ルール削除) 用に、ReconcileDeps から delete 系だけを切り出した部分集合。 */
+export type MirrorDeleteDeps = Pick<ReconcileDeps, "deleteMirror" | "deleteMirrorRow">;
+
+/** applyMirrorDeletions の結果。呼び出し元のログ用 (失敗しても例外は投げない)。 */
+export interface MirrorDeleteResult {
+  deleted: number;
+  failed: number;
+}
+
+/**
+ * 削除プラン (reconcileBlockRule の toDelete) を実行する。Google から mirror を消し、
+ * 成功して初めて対応表の行を消す (Google 削除が失敗した行を先に消すと、二度と辿れない
+ * 孤児予定になるため)。
+ *
+ * **best-effort**: 1件の失敗は握って残りを続ける — 1つの予定 (既に手で消された・権限が
+ * 変わった等) が原因で後始末全体が止まると、利用者が「削除できない」状態に閉じ込められる。
+ */
+async function applyMirrorDeletions(
+  ruleId: string,
+  target: { accountId: string; calendarId: string },
+  mirrors: BlockMirrorRow[],
+  deps: MirrorDeleteDeps,
+): Promise<MirrorDeleteResult> {
+  const result: MirrorDeleteResult = { deleted: 0, failed: 0 };
+  for (const mirror of mirrors) {
     try {
-      await deps.deleteMirror(
-        rule.target.accountId,
-        rule.target.calendarId,
-        mirror.mirror_event_id,
-      );
-      await deps.deleteMirrorRow(rule.id, mirror.source_event_id);
+      await deps.deleteMirror(target.accountId, target.calendarId, mirror.mirror_event_id);
+      await deps.deleteMirrorRow(ruleId, mirror.source_event_id);
+      result.deleted += 1;
     } catch (err) {
+      result.failed += 1;
+      // リコンサイル経由とルール削除経由の双方から呼ばれるので、ログの主語は操作名にする。
       console.error(
-        `reconcileSourceChange: delete mirror failed for rule=${rule.id} mirror=${mirror.mirror_event_id}`,
+        `delete mirror failed for rule=${ruleId} mirror=${mirror.mirror_event_id}`,
         err,
       );
     }
   }
+  return result;
+}
+
+/**
+ * ルール削除 (DELETE /api/block-rules で deleteMirrors:true) の後始末: そのルールが作った
+ * ミラー予定を Google から全部消す。
+ *
+ * 「source が1件も無くなった状態へのリコンサイル」と同じことなので、判断は既存の純関数
+ * reconcileBlockRule に空の source 集合を渡して得る (toDelete = 全 mirror)。実行も
+ * 通常のリコンサイルと同じ applyMirrorDeletions を通す — 削除の順序と best-effort の
+ * 扱いを1箇所に保つため。
+ *
+ * 例外は投げない。呼び出し元 (routes/settings.ts) は結果に関わらずルール行を消す:
+ * 「Google の予定が消せないせいでルールも消せない」状態を作らないため。
+ */
+export async function deleteRuleMirrors(
+  ruleId: string,
+  target: { accountId: string; calendarId: string },
+  mirrors: BlockMirrorRow[],
+  deps: MirrorDeleteDeps,
+): Promise<MirrorDeleteResult> {
+  const plan = reconcileBlockRule([], mirrors);
+  return applyMirrorDeletions(ruleId, target, plan.toDelete, deps);
 }

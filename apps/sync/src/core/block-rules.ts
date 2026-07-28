@@ -52,11 +52,56 @@ export function isValidBlockRuleUpsertRequest(body: unknown): body is BlockRuleU
   return candidate.sources.every((source) => isValidCalendarRef(source));
 }
 
-/** DELETE /api/block-rules のボディ検証。id は非空文字列。 */
+/**
+ * DELETE /api/block-rules のボディ検証。id は非空文字列、deleteMirrors は
+ * 無いか boolean (文字列 "true" 等の曖昧な指定は弾く — 破壊的操作の意思表示は
+ * 型で厳密に受け取る)。
+ */
 export function isValidBlockRuleDeleteRequest(body: unknown): body is BlockRuleDeleteRequest {
   if (!body || typeof body !== "object") return false;
   const candidate = body as Record<string, unknown>;
+  if (candidate.deleteMirrors !== undefined && typeof candidate.deleteMirrors !== "boolean") {
+    return false;
+  }
   return typeof candidate.id === "string" && candidate.id.length > 0;
+}
+
+/**
+ * DELETE /api/block-rules で「Google 側のミラー予定も消すか」を決める。
+ *
+ * **省略時は false (消さない)**。省略で届くリクエストは旧クライアント・MCP・手書きの
+ * curl であり、そこへ「頼んでいない削除」を黙って走らせないため — 削除は常に明示的な
+ * オプトインとして受け取る (shared の BlockRuleDeleteRequest.deleteMirrors のコメント参照)。
+ * 設定 UI 側は既定チェック済みのチェックボックスで常に true/false を明示して送るので、
+ * 「ルールを消したら効果も消える」という利用者の期待はクライアントの初期値で満たす。
+ */
+export function resolveDeleteMirrors(req: BlockRuleDeleteRequest): boolean {
+  return req.deleteMirrors === true;
+}
+
+/**
+ * POST /api/block-rules の更新経路で、既存の block_mirrors 行を捨てるべきかを判定する (純関数)。
+ *
+ * target (accountId または calendarId) が変わったら捨てる。対応表の行は「どの mirror event が
+ * どこにあるか」を持たず rule_id で引くだけなので、target を変えたまま行を残すと
+ * **古い target のカレンダーに作った event id を、新しい target のカレンダーに対して**
+ * patch/delete しにいって必ず 404 になる (リコンサイルはルール単位で失敗し、新 target には
+ * 何も作られないままになる)。行を捨てれば次のリコンサイルが新 target に作り直す。
+ *
+ * 古い target に残っているミラー予定そのものは**消さない** — 利用者が明示的に選んだときだけ
+ * Google 上の予定を消す、という原則 (docs/blocking.md「後始末」)。
+ *
+ * previous が null (新規作成) なら捨てる行がそもそも無いので false。
+ */
+export function shouldDiscardMirrorRows(
+  previousTarget: { accountId: string; calendarId: string } | null,
+  nextTarget: { accountId: string; calendarId: string },
+): boolean {
+  if (!previousTarget) return false;
+  return (
+    previousTarget.accountId !== nextTarget.accountId ||
+    previousTarget.calendarId !== nextTarget.calendarId
+  );
 }
 
 /**

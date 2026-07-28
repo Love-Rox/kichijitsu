@@ -15,7 +15,7 @@ import type { PlannedStore } from "../store/plannedStore";
 import { usePlannedBlocks } from "../store/plannedStore";
 import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
-import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { DroppedWorkItem } from "../sync/planned";
 import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
@@ -31,6 +31,7 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from "../layout/groupDuplicates";
+import type { OooAllDayPlacement } from "../layout/oooAllDayPlacement";
 import {
   allDayOooRailItems,
   splitOutOfOfficeAllDayGroups,
@@ -167,15 +168,13 @@ interface WeekGridProps {
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 終日レーンの詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
-  /** 新規予定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
+  /** 新規予定の既定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
   writeTarget: WriteTargetCandidate | null;
-  /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
-  onCreateEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  /** 詳細フォームの「カレンダー」欄で選べる書き込み先の全候補(2026-07-29 全項目入力、DayColumn 参照) */
+  writeTargets: readonly WriteTargetCandidate[];
+  /** 空き領域クリック/ドラッグで作成が確定したときに呼ばれる新規作成フック(フェーズ5、
+      2026-07-29 に draft 一式を渡す形へ拡張。速い経路も詳細フォームも同じ形) */
+  onCreateEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /** タスク行の枡チェックボックスのタップで呼ぶ(完了⇔未完了トグル、docs/google-tasks.md) */
   onToggleTask: (task: TaskItem) => void;
   /**
@@ -194,6 +193,13 @@ interface WeekGridProps {
    * (visibleCalendarKeys と同じ「occurrences を filter する時点で一度だけ効かせる」設計)。
    */
   declinedVisibility: DeclinedVisibilitySettings;
+  /**
+   * 終日の不在 (OOO) の置き場所 (2026-07-28、ユーザー要望)。"timeline" (既定) なら従来どおり
+   * 該当日の DayColumn へ全高ラインとして、"allday" なら終日レーンのチップとして描く。
+   * 状態の持ち主は App.tsx (hourHeight と同じ流儀で useState + localStorage 永続化)。
+   * 使うのは splitOutOfOfficeAllDayGroups への引き渡し1箇所だけ (layout/oooRail.ts)。
+   */
+  oooAllDayPlacement: OooAllDayPlacement;
   /**
    * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
    * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
@@ -290,10 +296,12 @@ export function WeekGrid({
   onRsvp,
   onAllDayRsvp,
   writeTarget,
+  writeTargets,
   onCreateEvent,
   onToggleTask,
   hiddenTaskListKeys,
   declinedVisibility,
+  oooAllDayPlacement,
   longPressCreate = false,
   onSwipeNavigate,
   hourHeight,
@@ -683,6 +691,9 @@ export function WeekGrid({
   // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで
   // barGroups(従来通り packDayBars → AllDayBar へ)と oooGroups(下記 allDayOooPanels へ)に
   // 振り分ける。
+  // 2026-07-28: この振り分けは左ペイン「表示」の設定で切り替わるようになった
+  // (oooAllDayPlacement)。"allday" のときは不在も barGroups に残り、他の終日予定と同じ
+  // packDayBars/AllDayBar 経路を通る(oooGroups は空になるので下記の全高ラインは出ない)。
   // 勤務場所(workingLocation)はここではもう分離しない(2026-07-22 終日レーンへ統合 ――
   // 従来は OOO と同じく専用レールへ全高帯として振り分けていたが、「他の終日予定と並べて
   // 見たい」というユーザー要望により、終日ぶんは barGroups に残したまま通常の
@@ -692,12 +703,13 @@ export function WeekGrid({
   const { groupedAllDayBarOccurrences, groupedAllDayOooOccurrences } = useMemo(() => {
     const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
       groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
+      oooAllDayPlacement,
     );
     return {
       groupedAllDayBarOccurrences: barGroups,
       groupedAllDayOooOccurrences: oooGroups,
     };
-  }, [visibleAllDayOccurrences]);
+  }, [visibleAllDayOccurrences, oooAllDayPlacement]);
 
   // パネルごとの行割り当て・3パネル共有の表示行数・「+N」への振り分けは
   // layout/allDayPanels.ts の純関数3段に委譲する(2026-07-26 リファクタ フェーズ3a ――
@@ -1069,6 +1081,7 @@ export function WeekGrid({
                       onRsvp={onRsvp}
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
+                      writeTargets={writeTargets}
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
                       activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}

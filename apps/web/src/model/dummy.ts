@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { Occurrence } from "./types";
+import type { AllDayOccurrence, Occurrence } from "./types";
 import type { EventSeries, InstanceOverride } from "./series";
 import { instanceId } from "./series";
 
@@ -138,6 +138,65 @@ export function generateDummyOverrides(series: EventSeries[]): InstanceOverride[
         startMs: originalStartMs + shiftMs,
         endMs: defaultEndMs + shiftMs,
       },
+    },
+  ];
+}
+
+/**
+ * 終日予定のダミー (2026-07-28)。
+ *
+ * 追加理由: 「終日の不在を終日欄に出すかタイムラインに載せるか」の設定
+ * (layout/oooAllDayPlacement.ts) を `?demo=1` で目視確認しようにも、従来のデモデータには
+ * 終日予定そのものが1件も無く、終日の不在に至っては当然存在しなかった。
+ *
+ * 他のダミーと違い IndexedDB には保存しない ―― 呼び出し側 (db/bootstrap.ts) が
+ * allDayStore へメモリ上で load するだけ(そのため cleanupDemoData の掃除対象にも
+ * ならず、実データ運用の環境に残骸が残る余地が無い)。
+ *
+ * 中身は「不在(終日・単日/複数日)」と「不在ではない通常の終日予定」を混ぜてある ――
+ * 設定を切り替えたときに、不在だけが終日レーンとタイムラインの間を行き来し、
+ * 通常の終日予定は動かないことを一目で確かめられるようにするため。
+ */
+export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): AllDayOccurrence[] {
+  const d = (offset: number) => baseDate.add({ days: offset }).toString();
+  return [
+    {
+      id: "dummy-allday-holiday",
+      seriesId: null,
+      title: "全社ミーティングデー",
+      startDate: d(0),
+      endDate: d(0),
+      color: "#10b981",
+      source: "local",
+    },
+    {
+      id: "dummy-allday-ooo-single",
+      seriesId: null,
+      title: "有給休暇",
+      startDate: d(1),
+      endDate: d(1),
+      color: "#ef4444",
+      source: "local",
+      isOutOfOffice: true,
+    },
+    {
+      id: "dummy-allday-offsite",
+      seriesId: null,
+      title: "オフサイト合宿",
+      startDate: d(2),
+      endDate: d(3),
+      color: "#3b82f6",
+      source: "local",
+    },
+    {
+      id: "dummy-allday-ooo-span",
+      seriesId: null,
+      title: "夏季休暇",
+      startDate: d(3),
+      endDate: d(4),
+      color: "#f59e0b",
+      source: "local",
+      isOutOfOffice: true,
     },
   ];
 }

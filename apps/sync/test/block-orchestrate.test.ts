@@ -1,6 +1,7 @@
 import type { GoogleEventDTO } from "@kichijitsu/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  deleteRuleMirrors,
   reconcileSourceChange,
   type ReconcileDeps,
   type ReconcileRule,
@@ -402,5 +403,196 @@ describe("reconcileSourceChange", () => {
       expect(createMirror).toHaveBeenCalledTimes(2);
       expect(deps.setRuleOooFallback).toHaveBeenCalledWith("rule-1", true);
     });
+  });
+});
+
+describe("deleteRuleMirrors", () => {
+  it("ルールが作った mirror を全件 Google から消す", async () => {
+    const mirrors = [
+      mirrorRow({ source_event_id: "ev-1", mirror_event_id: "mirror-1" }),
+      mirrorRow({ source_event_id: "ev-2", mirror_event_id: "mirror-2" }),
+    ];
+    const deps = makeDeps();
+
+    const result = await deleteRuleMirrors(
+      "rule-1",
+      { accountId: "tgt-acc", calendarId: "tgt-cal" },
+      mirrors,
+      deps,
+    );
+
+    expect(deps.deleteMirror).toHaveBeenCalledTimes(2);
+    expect(deps.deleteMirror).toHaveBeenNthCalledWith(1, "tgt-acc", "tgt-cal", "mirror-1");
+    expect(deps.deleteMirror).toHaveBeenNthCalledWith(2, "tgt-acc", "tgt-cal", "mirror-2");
+    expect(result).toEqual({ deleted: 2, failed: 0 });
+  });
+
+  it("mirror が1件も無ければ何もしない", async () => {
+    const deps = makeDeps();
+    const result = await deleteRuleMirrors(
+      "rule-1",
+      { accountId: "tgt-acc", calendarId: "tgt-cal" },
+      [],
+      deps,
+    );
+    expect(deps.deleteMirror).not.toHaveBeenCalled();
+    expect(result).toEqual({ deleted: 0, failed: 0 });
+  });
+
+  it("1件の削除が失敗しても残りを続ける (best-effort。例外は投げない)", async () => {
+    const mirrors = [
+      mirrorRow({ source_event_id: "ev-1", mirror_event_id: "mirror-1" }),
+      mirrorRow({ source_event_id: "ev-2", mirror_event_id: "mirror-2" }),
+      mirrorRow({ source_event_id: "ev-3", mirror_event_id: "mirror-3" }),
+    ];
+    const deps = makeDeps({
+      deleteMirror: vi.fn(async (_a: string, _c: string, mirrorEventId: string) => {
+        if (mirrorEventId === "mirror-2") throw new Error("410 Gone (手で消された)");
+      }),
+    });
+
+    const result = await deleteRuleMirrors(
+      "rule-1",
+      { accountId: "tgt-acc", calendarId: "tgt-cal" },
+      mirrors,
+      deps,
+    );
+
+    expect(deps.deleteMirror).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({ deleted: 2, failed: 1 });
+  });
+
+  it("Google の削除が失敗した行は対応表からも消さない (辿れない孤児を作らない)", async () => {
+    const deps = makeDeps({
+      deleteMirror: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+
+    await deleteRuleMirrors(
+      "rule-1",
+      { accountId: "tgt-acc", calendarId: "tgt-cal" },
+      [mirrorRow()],
+      deps,
+    );
+
+    expect(deps.deleteMirrorRow).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * target を変えたルールのリコンサイル。**block_mirrors の行を残したまま target を変えると
+ * 404 になる**という回帰 (routes/settings.ts の POST 経路で shouldDiscardMirrorRows が
+ * true のとき行を捨てることで直る) を、Google 側を模したフェイクで固定する。
+ */
+describe("target 変更後のリコンサイル (404 回帰)", () => {
+  /** (calendarId, eventId) の対応を持つフェイク Google。知らない組には 404 を投げる。 */
+  function makeFakeGoogle(existing: Record<string, string[]>) {
+    const calendars: Record<string, Set<string>> = {};
+    for (const [calendarId, eventIds] of Object.entries(existing)) {
+      calendars[calendarId] = new Set(eventIds);
+    }
+    let nextId = 0;
+    return {
+      calendars,
+      createMirror: vi.fn(async (_a: string, calendarId: string) => {
+        const id = `mirror-new-${++nextId}`;
+        (calendars[calendarId] ??= new Set()).add(id);
+        return { id, oooFallback: false };
+      }),
+      patchMirrorTime: vi.fn(async (_a: string, calendarId: string, eventId: string) => {
+        if (!calendars[calendarId]?.has(eventId)) {
+          throw new Error(`patchEventRaw failed for calendar=${calendarId}: status=404 notFound`);
+        }
+      }),
+      deleteMirror: vi.fn(async (_a: string, calendarId: string, eventId: string) => {
+        if (!calendars[calendarId]?.has(eventId)) {
+          throw new Error(`deleteEvent failed for calendar=${calendarId}: status=404 notFound`);
+        }
+        calendars[calendarId].delete(eventId);
+      }),
+    };
+  }
+
+  const RULE_AFTER_TARGET_CHANGE = makeRule({
+    target: { accountId: "tgt-acc", calendarId: "tgt-cal-new" },
+  });
+  /** 古い target (tgt-cal-old) に作られた mirror を指したままの対応表の行。 */
+  const STALE_MIRROR = mirrorRow({ source_event_id: "ev-1", mirror_event_id: "mirror-old" });
+
+  it("バグの再現: 古い mirror 行が残っていると新 target への patch が 404 になり、mirror が作られない", async () => {
+    const google = makeFakeGoogle({ "tgt-cal-old": ["mirror-old"] });
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [RULE_AFTER_TARGET_CHANGE]),
+      // source 側が更新された = toPatch に載る
+      listSourceEvents: vi.fn(async () => [timedEvent({ updated: "2026-07-26T00:00:00.000Z" })]),
+      loadMirrors: vi.fn(async () => [STALE_MIRROR]),
+      createMirror: google.createMirror,
+      patchMirrorTime: google.patchMirrorTime,
+      deleteMirror: google.deleteMirror,
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    // 新 target には何も作られないまま、存在しない event への patch が 404 で失敗し続ける。
+    expect(google.patchMirrorTime).toHaveBeenCalledWith(
+      "tgt-acc",
+      "tgt-cal-new",
+      "mirror-old",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(google.createMirror).not.toHaveBeenCalled();
+    expect(google.calendars["tgt-cal-new"]).toBeUndefined();
+    expect(deps.updateMirrorRow).not.toHaveBeenCalled();
+  });
+
+  it("修正後: target 変更で行を捨ててあれば、新 target に mirror が作り直され 404 が起きない", async () => {
+    const google = makeFakeGoogle({ "tgt-cal-old": ["mirror-old"] });
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [RULE_AFTER_TARGET_CHANGE]),
+      listSourceEvents: vi.fn(async () => [timedEvent({ updated: "2026-07-26T00:00:00.000Z" })]),
+      // POST /api/block-rules が shouldDiscardMirrorRows=true で行を消した後の状態。
+      loadMirrors: vi.fn(async () => []),
+      createMirror: google.createMirror,
+      patchMirrorTime: google.patchMirrorTime,
+      deleteMirror: google.deleteMirror,
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(google.patchMirrorTime).not.toHaveBeenCalled();
+    expect(google.deleteMirror).not.toHaveBeenCalled();
+    expect(google.createMirror).toHaveBeenCalledWith(
+      "tgt-acc",
+      "tgt-cal-new",
+      expect.objectContaining({ summary: "予定あり" }),
+    );
+    expect([...google.calendars["tgt-cal-new"]!]).toEqual(["mirror-new-1"]);
+    // 古い target のミラーはそのまま残る (消すのは利用者が明示的に選んだときだけ)。
+    expect([...google.calendars["tgt-cal-old"]!]).toEqual(["mirror-old"]);
+    expect(deps.saveMirrorRow).toHaveBeenCalledWith(
+      expect.objectContaining({ rule_id: "rule-1", mirror_event_id: "mirror-new-1" }),
+    );
+  });
+
+  it("バグの再現 (削除経路): 古い行が残っていると source 消滅時の delete も新 target に対して 404 になる", async () => {
+    const google = makeFakeGoogle({ "tgt-cal-old": ["mirror-old"] });
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [RULE_AFTER_TARGET_CHANGE]),
+      // source が消えた = toDelete に載る
+      listSourceEvents: vi.fn(async () => []),
+      loadMirrors: vi.fn(async () => [STALE_MIRROR]),
+      createMirror: google.createMirror,
+      patchMirrorTime: google.patchMirrorTime,
+      deleteMirror: google.deleteMirror,
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(google.deleteMirror).toHaveBeenCalledWith("tgt-acc", "tgt-cal-new", "mirror-old");
+    // 404 で失敗するので対応表の行も残り続ける (古い mirror は消えないまま)。
+    expect(deps.deleteMirrorRow).not.toHaveBeenCalled();
+    expect([...google.calendars["tgt-cal-old"]!]).toEqual(["mirror-old"]);
   });
 });

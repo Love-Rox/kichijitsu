@@ -11,9 +11,32 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 
+/**
+ * 書き込み先カレンダーの選択 (2026-07-29 全項目入力)。作成モードでのみ渡す ―― 既存予定の
+ * 編集で「別カレンダーへ移す」のは Google 上は move API が要る別操作なので、編集モードでは
+ * 意図的に出さない (渡さなければ従来どおり何も描画されない)。
+ */
+export interface EventEditCalendarChoice {
+  /**
+   * 選択肢。key は `${accountId}:${calendarId}` (sync/eventCreate.ts の writeTargetKey)。
+   * 色の丸は付けない ―― <option> の中身はブラウザ/OS 側の描画で任意の DOM を置けないため、
+   * カレンダー名だけで識別する。
+   */
+  options: readonly { key: string; label: string }[];
+  value: string;
+  onChange: (key: string) => void;
+}
+
 export interface EventEditFormProps {
   initialDraft: EventEditDraft;
   timeZone: string;
+  /**
+   * 作成モードか (2026-07-29 全項目入力)。**省略時は従来どおりの編集モード**で、
+   * ラベル・エラー文言・描画される項目のいずれも変わらない。作成モードでは
+   * ボタンとエラー文言が「作成」系になり、calendarChoice を渡せば書き込み先の選択も出る。
+   */
+  mode?: "edit" | "create";
+  calendarChoice?: EventEditCalendarChoice;
   /**
    * 終日トグルを出すか。繰り返し予定 (シリーズ由来、seriesId !== null) の1回分は
    * InstanceOverride が isAllDay の概念を持たない (v1 の終日繰り返し自体が未対応) ため、
@@ -32,10 +55,17 @@ export interface EventEditFormProps {
  * (App.tsx の handleEditSave が POST /api/event/patch を待ってからローカルへ反映する
  * 「保存ボタン方式」)なので、このコンポーネント自身は楽観的更新を行わず、
  * 保存中・失敗を自前の state で表示する。
+ *
+ * 2026-07-29「全項目入力」で、**新規作成でも同じフォームを使う**ようにした
+ * (DayColumn の作成ドラフト → 「詳細」)。作成側は onSave が楽観的作成を起動して即
+ * resolve する(= 実質同期的に閉じる)ので、上の「保存ボタン方式」の説明は編集モードの話。
+ * mode / calendarChoice を省略すれば描画も挙動も従来の編集モードのまま。
  */
 export function EventEditForm({
   initialDraft,
   timeZone,
+  mode = "edit",
+  calendarChoice,
   canToggleAllDay,
   onSave,
   onCancel,
@@ -44,6 +74,7 @@ export function EventEditForm({
   const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const isCreate = mode === "create";
   const validationError = validateEventEditDraft(draft);
 
   function handleToggleAllDay(nextIsAllDay: boolean) {
@@ -74,7 +105,11 @@ export function EventEditForm({
     onSave(draft)
       .catch((err) => {
         console.error("kichijitsu: event edit save failed", err);
-        setSaveError("保存できませんでした。もう一度お試しください");
+        setSaveError(
+          isCreate
+            ? "作成できませんでした。もう一度お試しください"
+            : "保存できませんでした。もう一度お試しください",
+        );
       })
       .finally(() => setSubmitting(false));
   }
@@ -183,6 +218,29 @@ export function EventEditForm({
         </div>
       )}
 
+      {/*
+       * 書き込み先カレンダー (2026-07-29 全項目入力)。作成モードで候補が渡されたときだけ出す。
+       * 選択肢が1つしかない (連携アカウント1つ・カレンダー1つ) 人には選ぶ意味が無いので出さない
+       * ―― 既定 (resolveDefaultWriteTarget) がそのまま使われる。
+       * 最後に置いてあるのは、既存の項目順 (編集モードの見た目) を1つも動かさないため。
+       */}
+      {calendarChoice && calendarChoice.options.length > 1 && (
+        <label className="event-edit-field">
+          <span className="event-edit-label">カレンダー</span>
+          <select
+            className="event-edit-input"
+            value={calendarChoice.value}
+            onChange={(e) => calendarChoice.onChange(e.target.value)}
+          >
+            {calendarChoice.options.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       {validationError && <p className="event-edit-error">{validationError}</p>}
       {saveError && <p className="event-edit-error">{saveError}</p>}
 
@@ -192,7 +250,13 @@ export function EventEditForm({
           className="event-edit-save-btn"
           disabled={submitting || validationError !== null}
         >
-          {submitting ? "保存中…" : "保存"}
+          {isCreate
+            ? submitting
+              ? "作成中…"
+              : "作成"
+            : submitting
+              ? "保存中…"
+              : "保存"}
         </button>
         <button
           type="button"

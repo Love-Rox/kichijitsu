@@ -5,6 +5,8 @@ import {
   collectReferencedAccountIds,
   isValidBlockRuleDeleteRequest,
   isValidBlockRuleUpsertRequest,
+  resolveDeleteMirrors,
+  shouldDiscardMirrorRows,
 } from "../src/core/block-rules";
 
 describe("isValidBlockRuleUpsertRequest", () => {
@@ -140,6 +142,48 @@ describe("isValidBlockRuleDeleteRequest", () => {
     expect(isValidBlockRuleDeleteRequest(null)).toBe(false);
     expect(isValidBlockRuleDeleteRequest("not-an-object")).toBe(false);
     expect(isValidBlockRuleDeleteRequest(undefined)).toBe(false);
+  });
+
+  it("accepts deleteMirrors as a boolean", () => {
+    expect(isValidBlockRuleDeleteRequest({ id: "rule-1", deleteMirrors: true })).toBe(true);
+    expect(isValidBlockRuleDeleteRequest({ id: "rule-1", deleteMirrors: false })).toBe(true);
+  });
+
+  it("rejects a non-boolean deleteMirrors (曖昧な指定で予定を消させない)", () => {
+    expect(isValidBlockRuleDeleteRequest({ id: "rule-1", deleteMirrors: "true" })).toBe(false);
+    expect(isValidBlockRuleDeleteRequest({ id: "rule-1", deleteMirrors: 1 })).toBe(false);
+    expect(isValidBlockRuleDeleteRequest({ id: "rule-1", deleteMirrors: null })).toBe(false);
+  });
+});
+
+describe("resolveDeleteMirrors", () => {
+  it("省略時は false — 旧クライアントや MCP からの削除で Google の予定を巻き添えにしない", () => {
+    expect(resolveDeleteMirrors({ id: "rule-1" })).toBe(false);
+  });
+
+  it("明示的な true のときだけ true", () => {
+    expect(resolveDeleteMirrors({ id: "rule-1", deleteMirrors: true })).toBe(true);
+    expect(resolveDeleteMirrors({ id: "rule-1", deleteMirrors: false })).toBe(false);
+  });
+});
+
+describe("shouldDiscardMirrorRows", () => {
+  const TARGET = { accountId: "acc-2", calendarId: "cal-b" };
+
+  it("target が変わらなければ捨てない (同じ mirror を使い続ける)", () => {
+    expect(shouldDiscardMirrorRows({ ...TARGET }, TARGET)).toBe(false);
+  });
+
+  it("target のカレンダーが変わったら捨てる", () => {
+    expect(shouldDiscardMirrorRows(TARGET, { accountId: "acc-2", calendarId: "cal-c" })).toBe(true);
+  });
+
+  it("target のアカウントが変わったら捨てる", () => {
+    expect(shouldDiscardMirrorRows(TARGET, { accountId: "acc-3", calendarId: "cal-b" })).toBe(true);
+  });
+
+  it("新規作成 (previous が null) では捨てる行が無いので false", () => {
+    expect(shouldDiscardMirrorRows(null, TARGET)).toBe(false);
   });
 });
 

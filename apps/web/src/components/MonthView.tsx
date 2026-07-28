@@ -8,7 +8,7 @@ import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
-import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import { calendarKeyOf } from "../layout/keys";
 import {
   draftFromAllDayOccurrence,
@@ -64,12 +64,8 @@ interface MonthViewProps {
    * 将来 month ビューでの作成/移動に対応するときのために props 形状だけ揃えてある。
    */
   writeTarget: WriteTargetCandidate | null;
-  onCreateEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  writeTargets: readonly WriteTargetCandidate[];
+  onCreateEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /** チップ以外のセル空き部分・「+N」クリックで呼ばれる: その日を含む週の week ビューへ切り替える */
   onNavigateToDay: (day: Temporal.PlainDate) => void;
 }
@@ -236,6 +232,13 @@ export function MonthView({
                       // 薄墨固定(CSS 側 .month-chip--ooo)にし、タイトル先頭に "×" を
                       // 付けて視覚的にも見分けられるようにする(要件: カードとしての
                       // 描画だけを変える。検索結果・詳細表示は従来どおり)
+                      //
+                      // 「終日の不在を終日欄に表示」設定 (2026-07-28、
+                      // layout/oooAllDayPlacement.ts) は月表示には効かない ―― 月セルには
+                      // タイムラインも終日レーンも無く、終日/時刻の区別なく1種類のチップが
+                      // 並ぶだけなので、「どちらに置くか」という選択自体が成立しない。
+                      // つまり月表示の不在は設定に関わらず常にこのチップで、
+                      // App.tsx も MonthView には oooAllDayPlacement を渡さない。
                       const isOoo = chip.group.primary.isOutOfOffice === true;
                       // 勤務場所の控えめ表示 (2026-07-22、ユーザー要望)。OOO と同じく専用の
                       // 配色分岐にする ―― 通常チップの色を殺して薄墨固定にし、先頭に PlaceIcon を

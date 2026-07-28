@@ -79,7 +79,7 @@ describe("splitOutOfOfficeGroups", () => {
 });
 
 describe("splitOutOfOfficeAllDayGroups", () => {
-  it("不在の終日 group を barGroups(AllDayBar 表示用)から除外し、oooGroups へ振り分ける", () => {
+  it("既定(引数省略)は timeline: 不在の終日 group を barGroups から除外し、oooGroups へ振り分ける", () => {
     const normal = allDayGroup(allDayOcc({ id: "normal-allday" }));
     const ooo = allDayGroup(allDayOcc({ id: "ooo-allday", isOutOfOffice: true }));
 
@@ -87,6 +87,40 @@ describe("splitOutOfOfficeAllDayGroups", () => {
 
     expect(barGroups).toEqual([normal]);
     expect(oooGroups).toEqual([ooo]);
+  });
+
+  it('placement="timeline" を明示しても既定と同じ振り分けになる', () => {
+    const normal = allDayGroup(allDayOcc({ id: "normal-allday" }));
+    const ooo = allDayGroup(allDayOcc({ id: "ooo-allday", isOutOfOffice: true }));
+
+    const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups([normal, ooo], "timeline");
+
+    expect(barGroups).toEqual([normal]);
+    expect(oooGroups).toEqual([ooo]);
+  });
+
+  it('placement="allday" のときは不在も barGroups に残す(AllDayBar のチップとして描く)', () => {
+    const normal = allDayGroup(allDayOcc({ id: "normal-allday" }));
+    const ooo = allDayGroup(allDayOcc({ id: "ooo-allday", isOutOfOffice: true }));
+
+    const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups([normal, ooo], "allday");
+
+    // 元の並び順のまま(終日レーンの行割り当て packDayBars は入力順に依存するため)
+    expect(barGroups).toEqual([normal, ooo]);
+    expect(oooGroups).toEqual([]);
+  });
+
+  it("どちらの設定でも1件も落とさない", () => {
+    const groups = [
+      allDayGroup(allDayOcc({ id: "a" })),
+      allDayGroup(allDayOcc({ id: "ooo", isOutOfOffice: true })),
+      allDayGroup(allDayOcc({ id: "b" })),
+    ];
+
+    for (const placement of ["timeline", "allday"] as const) {
+      const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(groups, placement);
+      expect(barGroups.length + oooGroups.length).toBe(groups.length);
+    }
   });
 });
 

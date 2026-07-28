@@ -147,6 +147,9 @@ async function applyFullSyncAtomic(
     // 2. mapGoogleEvents が返した新データを put/delete (削除と同一 tx なので、同じ id が
     //    両方に現れても上の delete の後に処理される = 最終的に残る)
     ...mapped.series.map((s) => seriesStore.put(s)),
+    // 全同期では上の stale 削除で対象カレンダーの series は既に全消しされているので
+    // 実質 no-op だが、mapped の削除リストを取りこぼさないよう対称に発行しておく
+    ...mapped.deletedSeriesIds.map((id) => seriesStore.delete(id)),
     ...mapped.overrides.map((o) => overridesStore.put(o)),
     ...mapped.singles.map((o) => occurrencesStore.put(o)),
     ...mapped.deletedSingleIds.map((id) => occurrencesStore.delete(id)),
@@ -159,6 +162,49 @@ async function applyFullSyncAtomic(
     deletedOccurrenceIds: [...new Set([...staleOccurrenceIds, ...mapped.deletedSingleIds])],
     deletedAllDayIds: [...new Set([...staleAllDayIds, ...mapped.deletedAllDayIds])],
   };
+}
+
+/**
+ * 差分同期で「繰り返しの親イベントが削除された」ときの後始末 (2026-07-28)。
+ *
+ * mapGoogleEvents.deletedSeriesIds には、cancelled になったイベントの id が
+ * 種別を問わず入る(削除通知は `{ id, status: "cancelled" }` だけで、それが
+ * 単発だったのか繰り返しの親だったのか判別できないため — mapGoogle.ts 参照)。
+ * そのため実際に series ストアに存在するものだけへ絞り込んでから消す。
+ * 通常の単発削除では空集合になり、重い occurrences の全件走査には入らない。
+ *
+ * series を消したら、そこから展開された occurrence と例外インスタンスの override も
+ * 一緒に消す必要がある: reexpandCurrentWindow (doReexpand) は「**現存する** series 由来の
+ * occurrence」しか削除対象にしないため、親を失った occurrence は残骸として残り続ける。
+ */
+async function deleteRemovedSeries(
+  db: IDBPDatabase<KichijitsuDB>,
+  store: OccurrenceStore,
+  candidateSeriesIds: string[],
+): Promise<void> {
+  if (candidateSeriesIds.length === 0) return;
+  const candidates = new Set(candidateSeriesIds);
+  const existingSeries = await getAllSeries(db);
+  const targets = new Set(existingSeries.filter((s) => candidates.has(s.id)).map((s) => s.id));
+  if (targets.size === 0) return;
+
+  const [existingOverrides, existingOccurrences] = await Promise.all([
+    getAllOverrides(db),
+    getAllOccurrences(db),
+  ]);
+  const orphanOverrideIds = existingOverrides
+    .filter((o) => targets.has(o.seriesId))
+    .map((o) => o.id);
+  const orphanOccurrenceIds = existingOccurrences
+    .filter((o) => o.seriesId !== null && targets.has(o.seriesId))
+    .map((o) => o.id);
+
+  await Promise.all([
+    deleteSeriesByIds(db, [...targets]),
+    deleteOverridesByIds(db, orphanOverrideIds),
+    deleteOccurrencesByIds(db, orphanOccurrenceIds),
+  ]);
+  store.remove(orphanOccurrenceIds);
 }
 
 /**
@@ -197,6 +243,10 @@ export async function applySyncResponse(
         allDayStore.remove(deletedAllDayIds);
         allDayStore.load(mapped.allDays);
       } else {
+        // 削除された series は put より先に処理する (同じ id が put/delete 両方に
+        // 現れることは無いはずだが、順序を固定しておけば取り違えようがない)
+        await deleteRemovedSeries(db, store, mapped.deletedSeriesIds);
+
         await putSeries(db, mapped.series);
         await Promise.all(mapped.overrides.map((o) => putOverride(db, o)));
         await putOccurrences(db, mapped.singles);
