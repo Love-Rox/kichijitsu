@@ -6,6 +6,7 @@ import type { AllDayOccurrence } from "../model/types";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHoverTooltip } from "../hooks/useHoverTooltip";
 import { formatAllDayDateRange } from "../layout/gridMetrics";
+import { isOutOfOffice } from "../layout/oooRail";
 import { isWorkingLocation } from "../layout/workingLocationRail";
 import { meetingLocationLabel } from "../layout/meetingLinks";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
@@ -69,6 +70,13 @@ export function AllDayBar({
   // isWorkingLocation は時刻予定側の layout/workingLocationRail.ts と共通)。
   const isWorkingLoc = isWorkingLocation(occurrence);
 
+  // 不在 (OOO、2026-07-28 「終日欄に出す」設定): 左ペイン「表示」で
+  // oooAllDayPlacement="allday" が選ばれている間だけ、終日の不在がこのコンポーネントに
+  // 届く(既定の "timeline" では WeekGrid が splitOutOfOfficeAllDayGroups で抜いてしまうので
+  // 常に false)。勤務場所を終日レーンへ統合したときと同じ形 ―― 振り分けは純関数側、
+  // 見た目の分岐はここで occurrence.isOutOfOffice を直接見る(判定関数は layout/oooRail.ts)。
+  const isOoo = isOutOfOffice(occurrence);
+
   // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。
   // 勤務場所は RailBand.tsx と同じ決定で location 補足行を出さない
   // (title 自体が場所を表す。例: 自宅/オフィス。location フィールドは通常使わない)。
@@ -99,13 +107,12 @@ export function AllDayBar({
   // event-group-dots(集約時の所属カレンダー色内訳)は勤務場所でも出しうるため常に計算しておく。
   const displayColor = resolveDisplayColor(occurrence, calendarLookup);
   // 参加ステータス表示 (RSVP、2026-07-22)。EventBlock/MonthView と対になる最小限の表現
-  // (要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。ここに渡る occurrence は
-  // WeekGrid 側で不在(OOO)分を既に分離済み(splitOutOfOfficeAllDayGroups)なので、isOutOfOffice
-  // との排他判定は不要(EventBlock/MonthView と違い isOoo チェックを持たない)。勤務場所は通常
-  // RSVP を持たないため isWorkingLoc と同時に立つことは実質無いが、念のため isWorkingLoc を
+  // (要件: declined の line-through+淡色、needsAction の輪郭表現のみ)。勤務場所・不在は通常
+  // attendees を持たないので同時に立つことは実質無いが、MonthView と同じくそちらの見た目を
   // 優先し(下記 style)、declined/needsAction の色上書きとは排他にしてある。
-  const isDeclined = occurrence.responseStatus === "declined";
-  const isNeedsAction = occurrence.responseStatus === "needsAction";
+  const rsvpStatus = isWorkingLoc || isOoo ? undefined : occurrence.responseStatus;
+  const isDeclined = rsvpStatus === "declined";
+  const isNeedsAction = rsvpStatus === "needsAction";
   const style: CSSProperties = {
     gridRow: row,
     gridColumn: `${colStart} / ${colEnd}`,
@@ -114,13 +121,21 @@ export function AllDayBar({
     // 敷く(時刻予定側の .day-workloc-band と同じ色)。inline style は座標系だけに留める。
     ...(isWorkingLoc
       ? {}
-      : isNeedsAction
-        ? ({ "--rsvp-color": displayColor } as CSSProperties)
-        : {
-            // 混合比はトークン (theme.css の --c-event-tint-allday、ダークで上がる)
-            backgroundColor: `color-mix(in srgb, ${displayColor} var(--c-event-tint-allday), var(--c-surface))`,
+      : isOoo
+        ? {
+            // 不在 (2026-07-28): タイムラインの全高ライン (.day-ooo-line) と地続きに見せるため、
+            // 他の終日バーのような薄い混色ではなくカレンダー色でベタ塗りする ―― 白い × が
+            // どの色の上でも読める、という点まで含めてレール側と同じ作りに揃えてある。
+            backgroundColor: displayColor,
             borderLeftColor: displayColor,
-          }),
+          }
+        : isNeedsAction
+          ? ({ "--rsvp-color": displayColor } as CSSProperties)
+          : {
+              // 混合比はトークン (theme.css の --c-event-tint-allday、ダークで上がる)
+              backgroundColor: `color-mix(in srgb, ${displayColor} var(--c-event-tint-allday), var(--c-surface))`,
+              borderLeftColor: displayColor,
+            }),
   };
 
   return (
@@ -129,6 +144,7 @@ export function AllDayBar({
         className={[
           "allday-bar",
           isWorkingLoc ? "allday-bar--working-location" : "",
+          isOoo ? "allday-bar--ooo" : "",
           isDeclined ? "allday-bar--declined" : "",
           isNeedsAction ? "allday-bar--needs-action" : "",
         ]
@@ -149,6 +165,14 @@ export function AllDayBar({
             height={WORKING_LOCATION_ICON_SIZE_PX}
             className="allday-bar-working-location-icon"
           />
+        )}
+        {isOoo && (
+          // 不在の印 (2026-07-28)。レール側 (.day-ooo-line::after) と同じ白い × グリフを、
+          // 横並びのバーではタイトルの前に置く(ランディング/ドキュメントの説明
+          // 「不在はカレンダー色 + 白い×」と地続きの意匠)。月表示チップの `× タイトル` とも揃う。
+          <span className="allday-bar-ooo-mark" aria-hidden="true">
+            ×
+          </span>
         )}
         <span className="allday-bar-title">{occurrence.title}</span>
         {showGroupDots && (
@@ -171,13 +195,20 @@ export function AllDayBar({
             onClose={() => setDetailPos(null)}
             timeZone={timeZone}
             editDraft={
-              isEditableEventSubject(occurrence)
+              // 不在 (2026-07-28): 詳細カードは表示のみにする ―― タイムライン側の不在
+              // (RailBand.tsx) が editDraft/rsvp を一切渡さないのと揃える。同じ予定が
+              // 置き場所の設定次第で編集できたりできなかったりする方が不自然なため
+              // (ドキュメント docs/calendar「不在」の節の説明とも一致させる)。
+              !isOoo && isEditableEventSubject(occurrence)
                 ? draftFromAllDayOccurrence(occurrence, timeZone)
                 : undefined
             }
             canToggleAllDay={occurrence.seriesId === null}
             onSaveEdit={(draft) => onSaveEdit(occurrence, draft)}
-            rsvpStatus={occurrence.responseStatus}
+            // 不在は出欠ボタンも出さない(上の editDraft と同じ理由)。勤務場所は従来どおり
+            // occurrence.responseStatus をそのまま渡す ―― 見た目の分岐(バー本体の色)と違い、
+            // 詳細カード側の挙動はここで変えない
+            rsvpStatus={isOoo ? undefined : occurrence.responseStatus}
             onRsvp={(status) => onRsvp(occurrence, status)}
           />,
           document.body,

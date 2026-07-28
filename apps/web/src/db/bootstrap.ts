@@ -2,6 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
 import { ensureExpanded } from "../expansion/ensureExpanded";
 import {
+  generateDummyAllDayOccurrences,
   generateDummyOccurrences,
   generateDummyOverrides,
   generateDummySeries,
@@ -185,7 +186,14 @@ export async function bootstrapDatabase({
   }
 
   // 終日予定 (フェーズ5): 展開ウィンドウの概念が無いため全件を丸ごとロードする
-  const allDays = await getAllAllDayOccurrences(database);
+  const storedAllDays = await getAllAllDayOccurrences(database);
+  // デモ終日予定 (2026-07-28、?demo=1 のときだけ): 「終日の不在をどこに描くか」の設定を
+  // 目視確認できるよう、終日の不在を含むダミーを混ぜる。上の series/occurrences と違い
+  // IndexedDB には書かず、このメモリ上のストアにだけ載せる ―― デモ用データが実データの
+  // データベースに残らないようにするため(cleanupDemoData の掃除対象にもならない)
+  const allDays = demoSeedEnabled
+    ? [...storedAllDays, ...generateDummyAllDayOccurrences(Temporal.Now.plainDateISO())]
+    : storedAllDays;
   // Google タスク (docs/google-tasks.md): 終日予定と同じく全件を丸ごとロードする
   const allTasks = await getAllTasks(database);
   // GitHub アイテム (docs/github-integration.md フェーズ①Part B): 同じく全件ロード。

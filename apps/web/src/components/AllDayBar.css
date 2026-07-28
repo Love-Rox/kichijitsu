@@ -76,6 +76,33 @@
   color: var(--c-ink);
 }
 
+/*
+ * 不在 (OOO) の終日バー (2026-07-28、ユーザー要望「終日の不在は終日表示にするか
+ * タイムラインに載せるか選べるようにしたい」)。左ペイン「表示」で「終日欄に表示」を
+ * 選んだときだけこのクラスが付く(既定では終日の不在はここまで届かない)。
+ *
+ * 意匠はタイムライン側の全高ライン (.day-ooo-line、DayColumn.css) と地続きにする ――
+ * カレンダー色のベタ塗り + 白い × という組み合わせをそのまま横倒しにしたもので、
+ * どちらの設定で見ても「不在はこの見た目」で通る(ランディング/ドキュメントの説明とも一致)。
+ * 塗り(カレンダー色)は AllDayBar.tsx が inline style で与えるため、ここでは文字色と
+ * 透過だけを決める。opacity 0.88 も .day-ooo-line と同じ値。
+ */
+.allday-bar--ooo {
+  color: var(--c-on-color);
+  opacity: 0.88;
+}
+
+.allday-bar--ooo:hover {
+  opacity: 1;
+}
+
+/* × グリフ (.day-ooo-line::after と同じ白・太字。SVG は使わずテキストのみ) */
+.allday-bar-ooo-mark {
+  flex: 0 0 auto;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* 3行を超えた分をまとめる「+N」表示。クリック詳細は無く、title 属性で内訳を列挙するのみ */
 .allday-overflow {
   box-sizing: border-box;

@@ -31,6 +31,7 @@ import {
   groupDuplicateOccurrences,
   type OccurrenceGroup,
 } from "../layout/groupDuplicates";
+import type { OooAllDayPlacement } from "../layout/oooAllDayPlacement";
 import {
   allDayOooRailItems,
   splitOutOfOfficeAllDayGroups,
@@ -195,6 +196,13 @@ interface WeekGridProps {
    */
   declinedVisibility: DeclinedVisibilitySettings;
   /**
+   * 終日の不在 (OOO) の置き場所 (2026-07-28、ユーザー要望)。"timeline" (既定) なら従来どおり
+   * 該当日の DayColumn へ全高ラインとして、"allday" なら終日レーンのチップとして描く。
+   * 状態の持ち主は App.tsx (hourHeight と同じ流儀で useState + localStorage 永続化)。
+   * 使うのは splitOutOfOfficeAllDayGroups への引き渡し1箇所だけ (layout/oooRail.ts)。
+   */
+  oooAllDayPlacement: OooAllDayPlacement;
+  /**
    * モバイル対応フェーズ2: true のとき、DayColumn の空き領域からの新規作成トリガーを
    * 即時クリックではなく長押し(~500ms)起点にする(スクロールとの競合を避けるため)。
    * 省略時は false(既存のデスクトップ向け即時クリック挙動を維持)
@@ -294,6 +302,7 @@ export function WeekGrid({
   onToggleTask,
   hiddenTaskListKeys,
   declinedVisibility,
+  oooAllDayPlacement,
   longPressCreate = false,
   onSwipeNavigate,
   hourHeight,
@@ -683,6 +692,9 @@ export function WeekGrid({
   // 該当日の DayColumn 側に「その日の全高ライン」として合流させる(要件)。ここで
   // barGroups(従来通り packDayBars → AllDayBar へ)と oooGroups(下記 allDayOooPanels へ)に
   // 振り分ける。
+  // 2026-07-28: この振り分けは左ペイン「表示」の設定で切り替わるようになった
+  // (oooAllDayPlacement)。"allday" のときは不在も barGroups に残り、他の終日予定と同じ
+  // packDayBars/AllDayBar 経路を通る(oooGroups は空になるので下記の全高ラインは出ない)。
   // 勤務場所(workingLocation)はここではもう分離しない(2026-07-22 終日レーンへ統合 ――
   // 従来は OOO と同じく専用レールへ全高帯として振り分けていたが、「他の終日予定と並べて
   // 見たい」というユーザー要望により、終日ぶんは barGroups に残したまま通常の
@@ -692,12 +704,13 @@ export function WeekGrid({
   const { groupedAllDayBarOccurrences, groupedAllDayOooOccurrences } = useMemo(() => {
     const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
       groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
+      oooAllDayPlacement,
     );
     return {
       groupedAllDayBarOccurrences: barGroups,
       groupedAllDayOooOccurrences: oooGroups,
     };
-  }, [visibleAllDayOccurrences]);
+  }, [visibleAllDayOccurrences, oooAllDayPlacement]);
 
   // パネルごとの行割り当て・3パネル共有の表示行数・「+N」への振り分けは
   // layout/allDayPanels.ts の純関数3段に委譲する(2026-07-26 リファクタ フェーズ3a ――
