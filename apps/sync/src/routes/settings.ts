@@ -53,6 +53,7 @@ import {
   isValidBlockRuleUpsertRequest,
   type BlockRuleRow,
 } from "../core/block-rules";
+import { disconnectAccounts, type DisconnectDeps } from "../core/account-disconnect";
 import { generateMcpToken, hashMcpToken } from "../mcp-token";
 import { enableWatch, disableWatch } from "../watch-registration";
 
@@ -360,10 +361,10 @@ settingsRoutes.post("/api/watch", requireAuth, async (c) => {
 });
 
 // 連携解除 (アカウント削除)。accountId 指定ならそのアカウントだけ、省略ならプロファイル内
-// 全アカウントを対象にする。対象ごとに: revoke → DO 状態クリア → D1 行削除、の順で実行
-// (行削除を先にやると、その後 refresh_token を読めず revoke できなくなる事故が起きるため、
-// 必ず revoke を最初に行う)。最後にプロファイルのアカウントが 0 件になった時だけ
-// セッション (sid cookie) も破棄する。
+// 全アカウントを対象にする。対象ごとに: watch stop → revoke → DO 状態クリア → D1 行削除、
+// の順で実行し、最後に解除された全アカウントを踏まえてブロックルールを掃除する
+// (順序の理由と best-effort の方針は core/account-disconnect.ts のコメント参照)。
+// 最後にプロファイルのアカウントが 0 件になった時だけセッション (sid cookie) も破棄する。
 settingsRoutes.delete("/api/account", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
@@ -393,9 +394,7 @@ settingsRoutes.delete("/api/account", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "account_not_found" }, 403);
   }
 
-  for (const accountId of targets) {
-    await disconnectAccount(c.env, accountId);
-  }
+  await disconnectAccounts(targets, buildDisconnectDeps(c.env, profileId));
 
   const remaining = profileAccounts.length - targets.length;
   if (shouldClearSessionAfterDisconnect(remaining)) {
@@ -414,45 +413,95 @@ settingsRoutes.delete("/api/account", requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
-/** 1 アカウント分の revoke → DO 状態クリア → D1 行削除。 */
-async function disconnectAccount(env: Env, accountId: string): Promise<void> {
-  const row = await env.DB.prepare("SELECT refresh_token FROM accounts WHERE id = ?")
-    .bind(accountId)
-    .first<{ refresh_token: string }>();
+/**
+ * DELETE /api/account の後始末に、この worker の D1 / Google / DO を割り当てる。
+ * 判断と順序 (watch stop → revoke → DO クリア → 行削除、最後にブロックルール掃除) は
+ * core/account-disconnect.ts 側にあり、ここは各操作の実装だけを持つ。
+ */
+function buildDisconnectDeps(env: Env, profileId: string): DisconnectDeps {
+  return {
+    listWatches: async (accountId) => {
+      const { results } = await env.DB.prepare(
+        "SELECT channel_id, calendar_id FROM watches WHERE account_id = ?",
+      )
+        .bind(accountId)
+        .all<{ channel_id: string; calendar_id: string }>();
+      return results.map((row) => ({ channelId: row.channel_id, calendarId: row.calendar_id }));
+    },
+    // POST /api/watch (enabled:false) と同じ実装を再利用する (channels.stop → watches 行削除、
+    // Google 側の停止に失敗してもローカル行は消す)。
+    stopWatch: (accountId, watch) => disableWatch(env, accountId, watch.calendarId),
+    revokeToken: async (accountId) => {
+      const row = await env.DB.prepare("SELECT refresh_token FROM accounts WHERE id = ?")
+        .bind(accountId)
+        .first<{ refresh_token: string }>();
+      if (!row) return;
 
-  if (row) {
-    let refreshToken: string | null = null;
-    try {
-      refreshToken = await decryptToken(env.TOKEN_ENC_KEY, row.refresh_token);
-    } catch (err) {
-      if (!(err instanceof InvalidCiphertextError)) throw err;
-      // 復号できない (旧平文行・改ざん等) トークンは revoke しようがない。「連携解除したい」
-      // というユーザーの意図に対し、これは削除を妨げる理由にはならないのでスキップする。
-      console.warn(
-        `account deletion: refresh_token for account ${accountId} could not be decrypted, skipping revoke`,
-      );
-    }
-    if (refreshToken) {
-      const revoked = await revokeToken(fetch, refreshToken);
-      if (!revoked) {
-        console.warn(`account deletion: failed to revoke Google token for account ${accountId}`);
+      let refreshToken: string | null = null;
+      try {
+        refreshToken = await decryptToken(env.TOKEN_ENC_KEY, row.refresh_token);
+      } catch (err) {
+        if (!(err instanceof InvalidCiphertextError)) throw err;
+        // 復号できない (旧平文行・改ざん等) トークンは revoke しようがない。「連携解除したい」
+        // というユーザーの意図に対し、これは削除を妨げる理由にはならないのでスキップする。
+        console.warn(
+          `account deletion: refresh_token for account ${accountId} could not be decrypted, skipping revoke`,
+        );
       }
-    }
-  }
-
-  const stub = env.USER_SYNC.getByName(accountId);
-  const clearResult = await stub.clearSyncState();
-  if (!clearResult.ok) {
-    console.warn(
-      `account deletion: failed to clear DO sync state for account ${accountId}: ${clearResult.error}`,
-    );
-  }
-
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM account_visible_calendars WHERE account_id = ?").bind(accountId),
-    env.DB.prepare("DELETE FROM account_calendar_prefs WHERE account_id = ?").bind(accountId),
-    env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(accountId),
-  ]);
+      if (refreshToken) {
+        const revoked = await revokeToken(fetch, refreshToken);
+        if (!revoked) {
+          console.warn(`account deletion: failed to revoke Google token for account ${accountId}`);
+        }
+      }
+    },
+    clearSyncState: async (accountId) => {
+      const stub = env.USER_SYNC.getByName(accountId);
+      const clearResult = await stub.clearSyncState();
+      if (!clearResult.ok) {
+        console.warn(
+          `account deletion: failed to clear DO sync state for account ${accountId}: ${clearResult.error}`,
+        );
+      }
+    },
+    deleteAccountRows: async (accountId) => {
+      // watches はここまでの stopWatch で消えているはずだが、stop 前に行取得が失敗した場合や
+      // 途中で増えた行が残らないよう、account_id 単位でも必ず消す (行が残ると Cron の
+      // renewWatch が存在しないアカウントの watch を延々と再登録しようとする)。
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM watches WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM account_visible_calendars WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM account_calendar_prefs WHERE account_id = ?").bind(accountId),
+        env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(accountId),
+      ]);
+    },
+    loadBlockRules: async () => {
+      const rules = await loadBlockRules(env, profileId);
+      return rules.map((rule) => ({
+        id: rule.id,
+        targetAccountId: rule.target.accountId,
+        sources: rule.sources,
+      }));
+    },
+    applyBlockRuleCleanup: async (plan) => {
+      const statements = [
+        ...plan.ruleIdsToDelete.flatMap((ruleId) => [
+          env.DB.prepare("DELETE FROM block_rules WHERE id = ?").bind(ruleId),
+          env.DB.prepare("DELETE FROM block_rule_sources WHERE rule_id = ?").bind(ruleId),
+          // block_mirrors 行だけを消す (Google 側に作られたミラー予定は消さない) — DELETE
+          // /api/block-rules と同じ扱い。target の認可は既に revoke されている可能性が高く、
+          // ここから Google の予定を消すことは原理的にできない。
+          env.DB.prepare("DELETE FROM block_mirrors WHERE rule_id = ?").bind(ruleId),
+        ]),
+        ...plan.sourcesToDetach.map((source) =>
+          env.DB.prepare(
+            "DELETE FROM block_rule_sources WHERE rule_id = ? AND account_id = ? AND calendar_id = ?",
+          ).bind(source.ruleId, source.accountId, source.calendarId),
+        ),
+      ];
+      await env.DB.batch(statements);
+    },
+  };
 }
 
 /**
