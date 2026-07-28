@@ -32,6 +32,14 @@ export interface MappedSync {
   /** 終日イベントが cancelled になった場合の AllDayOccurrence id */
   deletedAllDayIds: string[];
   /**
+   * 繰り返しの親イベントが cancelled になった場合の EventSeries id (2026-07-28)。
+   * 差分同期の削除通知は `{ id, status: "cancelled" }` だけで recurrence を持たないため、
+   * 「消えたのが単発か終日か繰り返しの親か」は mapGoogleEvents からは判別できない。
+   * deletedSingleIds/deletedAllDayIds と同じ id が入るのが通常で、実際に該当する
+   * ストアの delete だけが効き、残りは no-op になる。
+   */
+  deletedSeriesIds: string[];
+  /**
    * 終日の繰り返し(親 + その例外インスタンス)でスキップした件数。
    * 終日の繰り返し展開は初版未対応なため(通常の単発終日イベントは
    * allDays に変換されるので、この件数には含まれない)
@@ -436,6 +444,7 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
   const deletedSingleIds: string[] = [];
   const allDays: AllDayOccurrence[] = [];
   const deletedAllDayIds: string[] = [];
+  const deletedSeriesIds: string[] = [];
   let skippedAllDayRecurring = 0;
 
   for (const event of events) {
@@ -457,6 +466,54 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
         continue;
       }
 
+      // --- ここから下は start.date を持たないイベント ---
+
+      /**
+       * 削除の判定は start/end に依存する分岐より **前** に置くこと (2026-07-28 バグ修正)。
+       *
+       * 差分同期 (syncToken) では削除済みイベントが必ず結果に含まれるが、その中身は
+       * Google Calendar API の Event resource (status) が明記するとおり保証が薄い:
+       *   - "Deleted events are only guaranteed to have the id field populated."
+       *   - "Cancelled exceptions are only guaranteed to have values for the id,
+       *      recurringEventId and originalStartTime fields populated."
+       * つまり削除通知は実質 `{ id, status: "cancelled" }` だけで、**start も end も
+       * recurrence も持たない**。
+       * 以前はこの判定が「単発の start/end 必須チェック」の後にあったため、削除通知が
+       * その早期 continue に吸われて deletedSingleIds に入らず、Google 側やスマホで
+       * 消した予定がローカルに残り続けていた(勤務場所の変更は Google が
+       * 「古いのを cancelled にして新しいのを作る」形で送るため、変更前後の両方が
+       * 残って最も目立っていた)。
+       *
+       * 逆に、主催者本人のカレンダー上の cancelled は「復元できるように」summary や
+       * start を持ったまま届くこともある(同ドキュメント)。どちらの形でも同じ結論に
+       * なるよう、start の有無ではなく status だけで削除を判定する。
+       */
+      if (event.status === "cancelled") {
+        // 繰り返しインスタンスのキャンセルだけは「削除」ではなく patch:null の
+        // InstanceOverride になる (親シリーズは生きていて、その回だけ消える)。
+        // このペイロードには recurringEventId と originalStartTime が付く
+        if (event.recurringEventId) {
+          overrides.push(buildOverride(event, ctx));
+          continue;
+        }
+
+        /**
+         * 単発か終日かを判別する材料 (start) が無い。mapGoogleEvents は純関数で
+         * ストアを参照できないため、**両方のリストに id を入れる**。
+         * occurrences / allDayOccurrences は別ストアかつ id が同じ eventKey 規則なので、
+         * 「存在しない id を消す」側は IndexedDB の delete でも
+         * OccurrenceStore/AllDayStore.remove() でも no-op (applySync.ts 参照)。
+         * 取りこぼす方が害が大きいので、空振り前提で両方に入れるのが安全。
+         */
+        const key = eventKey(ctx, event.id);
+        deletedSingleIds.push(key);
+        deletedAllDayIds.push(key);
+        // 同じ理由で series 側にも入れる。繰り返しの親が削除された場合も
+        // `{ id, status: "cancelled" }` しか来ないため recurrence の有無では判別できない
+        deletedSeriesIds.push(key);
+        continue;
+      }
+
       if (event.recurrence && event.recurrence.length > 0) {
         const built = buildSeries(event, ctx);
         if (built) series.push(built);
@@ -471,10 +528,6 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
       // 単発
       if (!event.start?.dateTime || !event.end?.dateTime) {
         console.warn(`mapGoogleEvents: event ${event.id} has no usable start/end, skipping`, event);
-        continue;
-      }
-      if (event.status === "cancelled") {
-        deletedSingleIds.push(eventKey(ctx, event.id));
         continue;
       }
       singles.push(buildSingle(event, event.start.dateTime, event.end.dateTime, ctx));
@@ -496,6 +549,7 @@ export function mapGoogleEvents(events: GoogleEventDTO[], ctx: MapGoogleContext)
     deletedSingleIds,
     allDays,
     deletedAllDayIds,
+    deletedSeriesIds,
     skippedAllDayRecurring,
   };
 }
