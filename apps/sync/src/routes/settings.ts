@@ -51,8 +51,12 @@ import {
   collectReferencedAccountIds,
   isValidBlockRuleDeleteRequest,
   isValidBlockRuleUpsertRequest,
+  resolveDeleteMirrors,
+  shouldDiscardMirrorRows,
   type BlockRuleRow,
 } from "../core/block-rules";
+import { deleteRuleMirrors, type MirrorDeleteDeps } from "../core/block-orchestrate";
+import type { BlockMirrorRow } from "../core/block-reconcile";
 import { disconnectAccounts, type DisconnectDeps } from "../core/account-disconnect";
 import { generateMcpToken, hashMcpToken } from "../mcp-token";
 import { enableWatch, disableWatch } from "../watch-registration";
@@ -176,18 +180,32 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
   // 更新の場合、既存行の ooo_fallback を保持してレスポンスに反映するため取得しておく
   // (下の INSERT ... ON CONFLICT は ooo_fallback を SET しないため DB 上の値は変わらない —
   // 新規に既に記録されたフラグを更新の度に false へ巻き戻さないための意図的な仕様)。
+  // あわせて既存の target も読む — 変わっていれば block_mirrors の行を捨てる必要がある
+  // (shouldDiscardMirrorRows のコメント参照)。
   let existingOooFallback = false;
+  let discardMirrorRows = false;
   if (body.id) {
     const existing = await c.env.DB.prepare(
-      "SELECT profile_id, ooo_fallback FROM block_rules WHERE id = ?",
+      "SELECT profile_id, ooo_fallback, target_account_id, target_calendar_id FROM block_rules WHERE id = ?",
     )
       .bind(body.id)
-      .first<{ profile_id: string; ooo_fallback: number }>();
+      .first<{
+        profile_id: string;
+        ooo_fallback: number;
+        target_account_id: string;
+        target_calendar_id: string;
+      }>();
     if (!isAccountInProfile(existing, profileId)) {
       // 存在しない id と「他人のプロファイルの id」を区別せず 403 にする (他のエンドポイントと同じ方針)。
       return c.json<ApiError>({ error: "rule_not_found" }, 403);
     }
     existingOooFallback = existing?.ooo_fallback === 1;
+    discardMirrorRows = shouldDiscardMirrorRows(
+      existing
+        ? { accountId: existing.target_account_id, calendarId: existing.target_calendar_id }
+        : null,
+      body.target,
+    );
   }
 
   const ruleId = body.id ?? crypto.randomUUID();
@@ -217,6 +235,13 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
         "INSERT INTO block_rule_sources (rule_id, account_id, calendar_id) VALUES (?, ?, ?)",
       ).bind(row.rule_id, row.account_id, row.calendar_id),
     ),
+    // target が変わったら対応表を捨てる。古い target の event id を新しい target に対して
+    // patch/delete しにいって 404 になるのを防ぐ (shouldDiscardMirrorRows のコメント参照)。
+    // 古い target に残るミラー予定は消さない — 利用者が明示的に選んだときだけ Google 上の
+    // 予定を消す原則 (docs/blocking.md「後始末」)。
+    ...(discardMirrorRows
+      ? [c.env.DB.prepare("DELETE FROM block_mirrors WHERE rule_id = ?").bind(ruleId)]
+      : []),
   ]);
 
   return c.json<BlockRuleDTO>({
@@ -228,6 +253,10 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
   });
 });
 
+// deleteMirrors:true のときだけ、Google 側に作った「予定あり」のミラー予定も消す
+// (省略時は false = 消さない、理由は core/block-rules.ts の resolveDeleteMirrors)。
+// Google の削除は best-effort — 1件失敗しても残りを続け、ルール行の削除は必ず行う
+// (「予定が消せないせいでルールも消せない」状態に利用者を閉じ込めないため)。
 settingsRoutes.delete("/api/block-rules", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   let body: BlockRuleDeleteRequest;
@@ -240,11 +269,33 @@ settingsRoutes.delete("/api/block-rules", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const existing = await c.env.DB.prepare("SELECT profile_id FROM block_rules WHERE id = ?")
+  const existing = await c.env.DB.prepare(
+    "SELECT profile_id, target_account_id, target_calendar_id FROM block_rules WHERE id = ?",
+  )
     .bind(body.id)
-    .first<{ profile_id: string }>();
+    .first<{ profile_id: string; target_account_id: string; target_calendar_id: string }>();
   if (!isAccountInProfile(existing, profileId)) {
     return c.json<ApiError>({ error: "rule_not_found" }, 403);
+  }
+
+  if (existing && resolveDeleteMirrors(body)) {
+    // 失敗しても下の行削除には進む (best-effort)。Google の呼び出し全体が落ちても同様。
+    try {
+      const mirrors = await loadBlockMirrors(c.env, body.id);
+      const result = await deleteRuleMirrors(
+        body.id,
+        { accountId: existing.target_account_id, calendarId: existing.target_calendar_id },
+        mirrors,
+        buildMirrorDeleteDeps(c.env),
+      );
+      if (result.failed > 0) {
+        console.warn(
+          `block rule deletion: ${result.failed} of ${mirrors.length} mirror events could not be deleted for rule ${body.id}`,
+        );
+      }
+    } catch (err) {
+      console.warn(`block rule deletion: mirror cleanup failed for rule ${body.id}`, err);
+    }
   }
 
   await c.env.DB.batch([
@@ -501,6 +552,40 @@ function buildDisconnectDeps(env: Env, profileId: string): DisconnectDeps {
       ];
       await env.DB.batch(statements);
     },
+  };
+}
+
+/** DELETE /api/block-rules (deleteMirrors:true) 用: そのルールが作った mirror の対応表を全件引く。 */
+async function loadBlockMirrors(env: Env, ruleId: string): Promise<BlockMirrorRow[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT rule_id, source_event_id, mirror_event_id, source_updated, created_at FROM block_mirrors WHERE rule_id = ?",
+  )
+    .bind(ruleId)
+    .all<BlockMirrorRow>();
+  return results;
+}
+
+/**
+ * DELETE /api/block-rules (deleteMirrors:true) のミラー削除に、この worker の DO RPC を割り当てる。
+ * 削除の順序と best-effort の扱いは core/block-orchestrate.ts の deleteRuleMirrors 側にある
+ * (ProfileHubDO のリコンサイルと同じ実装を共有する)。
+ */
+function buildMirrorDeleteDeps(env: Env): MirrorDeleteDeps {
+  return {
+    // ProfileHubDO.deleteMirror と同じ RPC。target アカウントの UserSyncDO が
+    // access token の更新とリトライを持つ。
+    deleteMirror: async (targetAccountId, targetCalendarId, mirrorEventId) => {
+      const stub = env.USER_SYNC.getByName(targetAccountId);
+      const result = await stub.deleteEvent(targetAccountId, targetCalendarId, mirrorEventId);
+      if (!result.ok) {
+        throw new Error(
+          `deleteEvent failed for account=${targetAccountId} calendar=${targetCalendarId}: status=${result.status} ${result.error}`,
+        );
+      }
+    },
+    // この経路では対応表の行を1件ずつ消す必要が無い — 直後の batch が rule_id 単位で
+    // block_mirrors を丸ごと消す (ルール自体が無くなるので行を残す意味も無い)。
+    deleteMirrorRow: async () => {},
   };
 }
 

@@ -18,7 +18,8 @@ export interface BlockRulesOverlayProps {
   rules: BlockRuleDTO[];
   /** 成功で解決/失敗で reject する。エラー表示はこのコンポーネントが持つ */
   onCreate: (req: BlockRuleUpsertRequest) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  /** deleteMirrors = 確認 UI のチェックボックスの値(作成済みのブロック予定も消すか) */
+  onDelete: (id: string, deleteMirrors: boolean) => Promise<void>;
   onClose: () => void;
 }
 
@@ -75,13 +76,10 @@ export function BlockRulesOverlay({
 interface RuleListProps {
   rules: BlockRuleDTO[];
   calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
-  onDelete: (id: string) => Promise<void>;
+  onDelete: (id: string, deleteMirrors: boolean) => Promise<void>;
 }
 
 function RuleList({ rules, calendarsByAccount, onDelete }: RuleListProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [errorId, setErrorId] = useState<string | null>(null);
-
   if (rules.length === 0) {
     return <p className="block-rules-empty">まだブロックルールはありません</p>;
   }
@@ -113,29 +111,110 @@ function RuleList({ rules, calendarsByAccount, onDelete }: RuleListProps) {
                 不在に非対応のため「予定あり」で作成しています
               </span>
             )}
-            <button
-              type="button"
-              className="block-rules-rule-delete"
-              aria-label={`${info.sourceNames.join("、")}から${info.targetName}へのルールを削除`}
-              disabled={deletingId === rule.id}
-              onClick={() => {
-                setDeletingId(rule.id);
-                setErrorId(null);
-                onDelete(rule.id)
-                  .catch((err) => {
-                    console.error("kichijitsu: block rule delete failed", err);
-                    setErrorId(rule.id);
-                  })
-                  .finally(() => setDeletingId(null));
-              }}
-            >
-              ×
-            </button>
-            {errorId === rule.id && <span className="block-rules-error">削除に失敗しました</span>}
+            <RuleDeleteControl
+              ruleId={rule.id}
+              label={`${info.sourceNames.join("、")}から${info.targetName}へのルール`}
+              targetName={info.targetName}
+              onDelete={onDelete}
+            />
           </li>
         );
       })}
     </ul>
+  );
+}
+
+type RuleDeleteState = "idle" | "confirming" | "deleting" | "error";
+
+/**
+ * ルール1件ぶんの削除導線。window.confirm を使わないインライン2段階確認
+ * (SettingsModal の AccountDisconnectControl / EventDetailCard の削除と同じ流儀) に、
+ * 「作成済みのブロック予定も削除する」チェックボックスを足したもの。
+ *
+ * チェックボックスの**既定は on**: ルールを消したら効果も消えるのが素直で、かつ利用者の
+ * 目の前にあるので外せる。外した場合はコピー先に作られた「予定あり」がそのまま残る
+ * (サーバー側の既定は逆に「消さない」―― 省略で届くリクエストに黙って削除を走らせない
+ * ため。sync/blockRules.ts の buildBlockRuleDeleteRequest 参照)。
+ *
+ * 状態は行ごとのローカル state として持つ (他の行の確認表示に影響しない)。
+ */
+function RuleDeleteControl({
+  ruleId,
+  label,
+  targetName,
+  onDelete,
+}: {
+  ruleId: string;
+  /** 読み上げ用のルールの説明 (「〜から〜へのルール」) */
+  label: string;
+  targetName: string;
+  onDelete: (id: string, deleteMirrors: boolean) => Promise<void>;
+}) {
+  const [state, setState] = useState<RuleDeleteState>("idle");
+  const [deleteMirrors, setDeleteMirrors] = useState(true);
+
+  if (state === "confirming" || state === "deleting") {
+    const checkboxId = `block-rules-delete-mirrors-${ruleId}`;
+    return (
+      <span className="block-rules-rule-confirm">
+        <span className="block-rules-confirm-question">{label}を削除しますか？</span>
+        <label className="block-rules-confirm-check" htmlFor={checkboxId}>
+          <input
+            id={checkboxId}
+            type="checkbox"
+            checked={deleteMirrors}
+            disabled={state === "deleting"}
+            onChange={(e) => setDeleteMirrors(e.target.checked)}
+          />
+          作成済みのブロック予定も削除する
+        </label>
+        <span className="block-rules-confirm-note">
+          {deleteMirrors
+            ? `${targetName}に作った「予定あり」を Google カレンダーから削除します`
+            : `${targetName}に作った「予定あり」は Google カレンダーに残ります`}
+        </span>
+        <span className="block-rules-confirm-actions">
+          <button
+            type="button"
+            className="block-rules-text-btn"
+            disabled={state === "deleting"}
+            onClick={() => {
+              setState("deleting");
+              onDelete(ruleId, deleteMirrors).catch((err) => {
+                console.error("kichijitsu: block rule delete failed", err);
+                setState("error");
+              });
+              // 成功時は呼び出し元 (useBlockRules) が一覧から本行ごと除去するので
+              // ここでの idle 復帰は不要
+            }}
+          >
+            {state === "deleting" ? "削除中…" : "削除する"}
+          </button>
+          <button
+            type="button"
+            className="block-rules-text-btn"
+            disabled={state === "deleting"}
+            onClick={() => setState("idle")}
+          >
+            やめる
+          </button>
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="block-rules-rule-delete"
+        aria-label={`${label}を削除`}
+        onClick={() => setState("confirming")}
+      >
+        ×
+      </button>
+      {state === "error" && <span className="block-rules-error">削除に失敗しました</span>}
+    </>
   );
 }
 

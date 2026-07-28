@@ -126,3 +126,45 @@
   未実装。個人 Gmail アカウント等で Google が `eventType: 'outOfOffice'` を拒否した場合、
   `insertEventWithRetry` は `GoogleApiError` を投げ、呼び出し元が `console.error` で
   流すだけになる（busy への自動差し替えはしない）。
+
+## ミラー予定の後始末（2026-07-28）
+
+ルールが無くなっても、Google 側に作った mirror 予定（`kichijitsuMirror=1` 付きの
+「予定あり」）は残り続ける、という問題への対応。
+
+**原則: Google 上の予定を消すのは、利用者が明示的に選んだときだけ。**
+
+| 経路 | Google の mirror 予定 | `block_mirrors` の行 |
+| --- | --- | --- |
+| ルール削除 `DELETE /api/block-rules` | `deleteMirrors:true` のときだけ削除（UI の確認は**既定チェック済み**） | 常に削除 |
+| target 変更 `POST /api/block-rules` | **残す**（古い target の予定は孤児になる） | target が変わったら削除 |
+| 連携解除 `DELETE /api/account` | **残す**（選ぶ機会が無いため。target の認可も既に revoke 済みで消せない） | ルールごと削除 |
+
+### ルール削除
+
+- リクエストは `BlockRuleDeleteRequest { id, deleteMirrors?: boolean }`。
+  **省略時は `false`（消さない）** — 省略で届くのは旧クライアント・MCP・手書きの curl であり、
+  そこへ「頼んでいない削除」を黙って走らせないため。判定は `core/block-rules.ts` の
+  `resolveDeleteMirrors`（純関数）。
+  UI 側は逆に既定チェック済みで、常に `true`/`false` を明示して送る
+  （`apps/web/src/sync/blockRules.ts` の `buildBlockRuleDeleteRequest` は第2引数必須）。
+- 削除の実体は `core/block-orchestrate.ts` の `deleteRuleMirrors`。
+  「source が1件も無い状態へのリコンサイル」と同じなので、判断は既存の純関数
+  `reconcileBlockRule([], mirrors)` の `toDelete` を使い、実行も通常のリコンサイルと同じ
+  `applyMirrorDeletions` を通す（削除順序と best-effort の扱いを1箇所に保つ）。
+- **best-effort**: 1件失敗しても残りを続け、失敗しても例外は投げない。ルール行の削除は必ず行う
+  （「Google の予定が消せないせいでルールも消せない」状態に閉じ込めないため）。
+  Google の削除に失敗した行だけは対応表から消さない（辿れない孤児を作らないため）。
+
+### target 変更時の対応表の整理（404 バグの修正）
+
+`block_mirrors` は `rule_id` で引くだけで「どのカレンダーの event か」を持たないため、
+target を変えたまま行を残すと、**古い target に作った event id を新しい target に対して
+patch/delete しにいって必ず 404 になる**（リコンサイルはルール単位で失敗し、新 target には
+何も作られない）。POST の更新経路で `shouldDiscardMirrorRows`（`core/block-rules.ts` の純関数）が
+true なら `block_mirrors` の行を捨てる。行が無くなれば次のリコンサイルが新 target に作り直す。
+古い target に残った予定は消さない（上記の原則）。
+
+回帰テスト: `test/block-rules-route.test.ts`（更新の batch に `DELETE FROM block_mirrors` が
+含まれるか）と `test/block-orchestrate.test.ts` の「target 変更後のリコンサイル (404 回帰)」
+（フェイク Google が未知の (calendar, event) に 404 を投げる）。

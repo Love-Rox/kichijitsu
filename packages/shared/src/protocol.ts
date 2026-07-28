@@ -604,6 +604,16 @@ export interface BlockRuleUpsertRequest {
 /** DELETE /api/block-rules body */
 export interface BlockRuleDeleteRequest {
   id: string;
+  /**
+   * true = このルールが Google カレンダーに作った「予定あり」のミラー予定も削除する。
+   *
+   * **省略時は false**(対応表の行だけ消し、Google 側の予定は残す)。既定を「消さない」に
+   * するのは、省略で届くリクエスト = 旧クライアント・MCP・手書きの curl であり、そこへ
+   * 「頼んでいない削除」を黙って走らせないため。破壊的操作は常に明示的なオプトインで行う。
+   * 削除 UI は既定チェック済みのチェックボックスで常に true/false を明示して送る
+   * (利用者の目の前で選べる場面と、選ぶ機会が無い場面とで既定を変えている)。
+   */
+  deleteMirrors?: boolean;
 }
 
 /**

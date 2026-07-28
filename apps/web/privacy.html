@@ -218,7 +218,8 @@
       <p>
         なお、カレンダーブロック機能が Google
         カレンダー上に作成した「予定あり」等のブロック予定は、解除後もそのカレンダーに残ります（サーバー側の対応表は削除されるため、アプリからは操作できなくなります）。不要な場合は
-        Google カレンダー側で削除してください。
+        Google カレンダー側で削除してください。ブロック予定を Google
+        カレンダーから消せるのは、アプリ内でブロックのルールを削除するときに「作成済みのブロック予定も削除する」を選んだ場合だけです（連携解除やルールの書き込み先の変更では、作成済みのブロック予定は削除しません）。
       </p>
 
       <h2>セキュリティ</h2>
@@ -326,7 +327,10 @@
           Note that busy/out-of-office blocks the blocking feature already created in Google
           Calendar remain in that calendar after disconnecting (the server-side mapping is deleted,
           so the app can no longer manage them). Delete them in Google Calendar if you no longer
-          want them.
+          want them. The only case where the app deletes those blocks from Google Calendar is when
+          you delete a blocking rule in the app and leave "delete the blocks already created"
+          checked; disconnecting an account, or changing a rule's destination calendar, never
+          deletes blocks that were already created.
         </p>
         <p><!--KJ:OPERATOR_LINE_EN--></p>
         <p><!--KJ:CONTACT_LINE_EN--></p>

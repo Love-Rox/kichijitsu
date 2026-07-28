@@ -33,8 +33,12 @@ export interface BlockRulesController {
   blockRules: BlockRuleDTO[];
   /** BlockRulesOverlay の作成フォームから呼ぶ。失敗時は throw する */
   createBlockRule: (req: BlockRuleUpsertRequest) => Promise<void>;
-  /** BlockRulesOverlay の一覧の削除ボタンから呼ぶ。失敗時は throw する */
-  deleteBlockRule: (id: string) => Promise<void>;
+  /**
+   * BlockRulesOverlay の一覧の削除ボタンから呼ぶ。失敗時は throw する。
+   * deleteMirrors = 作成済みのミラー予定 (Google の「予定あり」) も削除するか
+   * (確認 UI のチェックボックスの値をそのまま渡す)
+   */
+  deleteBlockRule: (id: string, deleteMirrors: boolean) => Promise<void>;
 }
 
 /**
@@ -91,10 +95,15 @@ export function useBlockRules({
   );
 
   // BlockRulesOverlay のルール一覧の削除ボタンから呼ぶ。204 で成功、失敗時は throw して
-  // オーバーレイ側にエラー表示を委ねる(行ごとの確認 UI は持たない、削除は即時実行)
+  // オーバーレイ側にエラー表示を委ねる(行ごとの確認 UI とチェックボックスはオーバーレイ側が持ち、
+  // ここはその選択値をそのままサーバーへ渡すだけ)
   const deleteBlockRule = useCallback(
-    async (id: string) => {
-      await deleteJson(checkedFetch, "/api/block-rules", buildBlockRuleDeleteRequest(id));
+    async (id: string, deleteMirrors: boolean) => {
+      await deleteJson(
+        checkedFetch,
+        "/api/block-rules",
+        buildBlockRuleDeleteRequest(id, deleteMirrors),
+      );
       setBlockRules((prev) => prev.filter((r) => r.id !== id));
     },
     [checkedFetch],
