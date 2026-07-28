@@ -459,6 +459,7 @@ function App() {
   const {
     syncStatus,
     defaultWriteTarget,
+    writeTargetCandidates,
     runSync,
     syncCalendar,
     setDeviceId,
@@ -863,6 +864,7 @@ function App() {
               onRsvp={handleRsvp}
               onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
+              writeTargets={writeTargetCandidates}
               onCreateEvent={handleCreate}
               onToggleTask={handleToggleTask}
               hiddenTaskListKeys={hiddenTaskLists}
@@ -892,6 +894,7 @@ function App() {
               onRsvp={handleRsvp}
               onAllDayRsvp={handleRsvp}
               writeTarget={defaultWriteTarget}
+              writeTargets={writeTargetCandidates}
               onCreateEvent={handleCreate}
               onNavigateToDay={handleNavigateToDay}
               declinedVisibility={declinedVisibility}

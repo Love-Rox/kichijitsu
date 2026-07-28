@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, PlannedBlock } from "../model/types";
-import type { WriteTargetCandidate } from "../sync/eventCreate";
+import {
+  buildCreateDraft,
+  findWriteTarget,
+  writeTargetKey,
+  type EventCreateDraft,
+  type WriteTargetCandidate,
+} from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
@@ -37,7 +44,10 @@ import { resolveDisplayColor } from "../layout/eventColors";
 import { snapStartMs, SNAP_MS } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHourHeight } from "../hooks/useHourHeight";
+import { calendarKey } from "../layout/keys";
 import { EventBlock, type CalendarInfo } from "./EventBlock";
+import { clampPopoverPosition } from "./eventPopoverShared";
+import { EventEditForm } from "./EventEditForm";
 import { RailBand } from "./RailBand";
 import { PlannedBlockCard } from "./PlannedBlock";
 import "./DayColumn.css";
@@ -53,6 +63,14 @@ const CREATE_CLICK_THRESHOLD_PX = 4;
  */
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_CANCEL_PX = 10;
+/**
+ * 「詳細を入力」で開く作成フォームのポップオーバーの想定サイズ (2026-07-29 全項目入力)。
+ * EventBlock.css の .event-detail-popover--editing の width と
+ * .event-detail-popover--creating の max-height に合わせてある
+ * ―― 位置のクランプ (clampPopoverPosition) がこのサイズを前提に画面内へ収めるので、
+ * CSS とずれるとスマホ幅で画面外へはみ出す。
+ */
+const CREATE_POPOVER_SIZE_PX = { width: 320, maxHeight: 520 };
 
 interface CreateDragState {
   pointerId: number;
@@ -75,10 +93,16 @@ interface LongPressPendingState {
   columnEl: HTMLDivElement;
 }
 
-/** pointerup で確定した、タイトル入力待ちの新規予定の時間帯 */
+/**
+ * pointerup で確定した、タイトル入力待ちの新規予定の時間帯。
+ * anchorX/anchorY は指を離した位置 (viewport 座標) で、「詳細を入力」で開くフォームの
+ * ポップオーバー位置に使う (2026-07-29 全項目入力、EventBlock の詳細ポップオーバーと同じ流儀)。
+ */
 interface DraftRange {
   startMs: number;
   endMs: number;
+  anchorX: number;
+  anchorY: number;
 }
 
 interface DayColumnProps {
@@ -98,14 +122,16 @@ interface DayColumnProps {
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   calendarLookup: Map<string, CalendarInfo>;
-  /** 新規予定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
+  /** 新規予定の既定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
   writeTarget: WriteTargetCandidate | null;
-  onCreateEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  /**
+   * 書き込み先として選べる全カレンダー(表示中のもの、2026-07-29 全項目入力)。
+   * 詳細フォームの「カレンダー」欄の選択肢になる。2件以上あるときだけ欄が出る
+   * (EventEditForm 側の判定)。速い経路 (ドラッグ→タイトル→Enter) は常に writeTarget を使う。
+   */
+  writeTargets: readonly WriteTargetCandidate[];
+  /** 作成の確定。draft は速い経路(タイトルのみ)も詳細フォーム(全項目)も同じ形 */
+  onCreateEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /**
    * モバイル対応フェーズ2: true のとき、空き領域からの新規作成トリガーを即時クリックではなく
    * 長押し(LONG_PRESS_MS)起点にする(タッチのネイティブ縦スクロールと競合しないようにするため)。
@@ -216,6 +242,7 @@ export function DayColumn({
   onRsvp,
   calendarLookup,
   writeTarget,
+  writeTargets,
   onCreateEvent,
   longPressCreate = false,
   activityClusters,
@@ -240,8 +267,16 @@ export function DayColumn({
   const longPressTimerRef = useRef<number | undefined>(undefined);
   const [draft, setDraft] = useState<DraftRange | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  /**
+   * 「詳細を入力」で全項目フォームへ広げたか (2026-07-29 全項目入力)。true の間は
+   * インラインのタイトル入力を畳んで、代わりにポップオーバー (EventEditForm) を出す。
+   */
+  const [draftDetail, setDraftDetail] = useState(false);
+  /** 詳細フォームで選択中の書き込み先 (writeTargetKey)。詳細を開くたびに既定へ戻す */
+  const [draftTargetKey, setDraftTargetKey] = useState("");
   const draftRef = useRef<HTMLDivElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
+  const draftDetailRef = useRef<HTMLDivElement>(null);
 
   const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs;
   const nowTop = msToTopPx(nowMs, dayStartMs, hourHeight);
@@ -331,9 +366,17 @@ export function DayColumn({
   function cancelDraft() {
     setDraft(null);
     setDraftTitle("");
+    setDraftDetail(false);
   }
 
-  useCloseOnOutsideOrEscape(draft !== null, draftRef, cancelDraft);
+  // 詳細フォームを開いている間はこちらを止める ―― インラインのタイトル入力は
+  // アンマウントされていて draftRef.current が null になり、あらゆるクリックが
+  // 「外側」判定になってドラフトごと消えてしまうため (フォーム側は自前の
+  // バックドロップと Escape で閉じる、下の描画部分参照)
+  useCloseOnOutsideOrEscape(draft !== null && !draftDetail, draftRef, cancelDraft);
+  // 詳細フォーム側の外側クリック/Escape。EventBlock が詳細ポップオーバーに対して
+  // 張っているのと同じ組み合わせ(透明バックドロップ + このフック)
+  useCloseOnOutsideOrEscape(draftDetail, draftDetailRef, cancelDraft);
 
   // アンマウント時に長押しタイマーが残らないようにする(pointerup/cancel を取りこぼした場合の保険)
   useEffect(() => {
@@ -478,8 +521,14 @@ export function DayColumn({
 
     // moved かどうかに関わらず pendingStartMs/pendingEndMs は常に妥当な範囲を保持している
     // (moved===false のときは初期値 = anchor + デフォルト1時間のまま)
-    setDraft({ startMs: ds.pendingStartMs, endMs: ds.pendingEndMs });
+    setDraft({
+      startMs: ds.pendingStartMs,
+      endMs: ds.pendingEndMs,
+      anchorX: e.clientX,
+      anchorY: e.clientY,
+    });
     setDraftTitle("");
+    setDraftDetail(false);
     // 次の描画でマウントされる input に自動でフォーカスする
     requestAnimationFrame(() => draftInputRef.current?.focus());
   }
@@ -525,13 +574,46 @@ export function DayColumn({
     createDragRef.current = null;
   }
 
+  /**
+   * 速い経路の確定 (ドラッグ → タイトル → Enter)。2026-07-29 の全項目入力でも
+   * **この経路は一切変えていない** ―― 変わったのは onCreateEvent に渡す形が
+   * (startMs, endMs, title) から draft オブジェクトになった点だけ。
+   */
   function confirmDraft() {
     const title = draftTitle.trim();
     if (draft && writeTarget && title.length > 0) {
-      onCreateEvent(draft.startMs, draft.endMs, title, writeTarget);
+      onCreateEvent(buildCreateDraft(draft.startMs, draft.endMs, title), writeTarget);
     }
     cancelDraft();
   }
+
+  /**
+   * 「詳細を入力」(2026-07-29 全項目入力)。インライン入力に打ちかけたタイトルを
+   * 引き継いだまま、同じ時間帯を初期値にして全項目フォーム (EventEditForm) を開く。
+   * 書き込み先は既定 (writeTarget) を初期選択にする。
+   */
+  function openDraftDetail() {
+    if (!writeTarget) return;
+    setDraftTargetKey(writeTargetKey(writeTarget));
+    setDraftDetail(true);
+  }
+
+  /** 詳細フォームの「作成」。楽観的作成なので await せず、そのまま閉じる(削除導線と同じ流儀) */
+  function submitDraftDetail(formDraft: EventEditDraft): Promise<void> {
+    const target = findWriteTarget(writeTargets, draftTargetKey) ?? writeTarget;
+    if (target) onCreateEvent(formDraft, target);
+    cancelDraft();
+    return Promise.resolve();
+  }
+
+  /** 詳細フォームの「カレンダー」欄の選択肢。表示名は calendarLookup から引く */
+  const writeTargetOptions = writeTargets.map((target) => {
+    const key = writeTargetKey(target);
+    return {
+      key,
+      label: calendarLookup.get(calendarKey(target.accountId, target.calendarId))?.summary ?? key,
+    };
+  });
 
   /**
    * 作業キュー(GitHubPane、旧 WorkQueueDrawer)からのドロップ受け入れ(docs/github-integration.md
@@ -766,7 +848,7 @@ export function DayColumn({
           })}
         </div>
       )}
-      {draft && (
+      {draft && !draftDetail && (
         <div
           ref={draftRef}
           className="day-column-create-draft"
@@ -785,15 +867,87 @@ export function DayColumn({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                confirmDraft();
+                // Shift+Enter は「詳細を入力」と同じ(下のボタンのキーボード版)。
+                // 素の Enter は従来どおりその場で作成する速い経路
+                if (e.shiftKey) openDraftDetail();
+                else confirmDraft();
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 cancelDraft();
               }
             }}
           />
+          {/*
+           * 「詳細を入力」への広げ口 (2026-07-29 全項目入力)。速い経路 (打って Enter) を
+           * 邪魔しないよう、入力欄の右端に小さく置くだけにしてある。Tab で辿り着けるし、
+           * 入力欄からは Shift+Enter でも開ける (title 属性で案内)。
+           */}
+          <button
+            type="button"
+            className="day-column-create-detail-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={openDraftDetail}
+            title="詳細を入力 (Shift+Enter)"
+          >
+            詳細
+          </button>
         </div>
       )}
+      {/*
+       * 全項目フォーム (2026-07-29)。予定編集と同じ EventEditForm を、同じ
+       * .event-detail-popover--editing の見た目で出す ―― 「編集ではできるのに作成では
+       * 入れられない」非対称を消すのが目的なので、フォーム自体は共有する。
+       * 位置決め・バックドロップ・portal は EventDetailCard と同じ流儀
+       * (.week-grid-days-strip の transform が position:fixed の基準になってしまうため
+       * document.body へ portal する)。
+       */}
+      {draft &&
+        draftDetail &&
+        writeTarget &&
+        createPortal(
+          <>
+            <div
+              className="event-detail-backdrop"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                cancelDraft();
+              }}
+            />
+            <div
+              ref={draftDetailRef}
+              className="event-detail-popover event-detail-popover--editing event-detail-popover--creating"
+              style={clampPopoverPosition(draft.anchorX, draft.anchorY, CREATE_POPOVER_SIZE_PX)}
+              role="dialog"
+              aria-label="予定を作成"
+            >
+              <button
+                type="button"
+                className="event-detail-close"
+                onClick={cancelDraft}
+                aria-label="閉じる"
+              >
+                ×
+              </button>
+              <div className="event-detail-title">予定を作成</div>
+              <EventEditForm
+                initialDraft={buildCreateDraft(draft.startMs, draft.endMs, draftTitle)}
+                timeZone={timeZone}
+                mode="create"
+                calendarChoice={{
+                  options: writeTargetOptions,
+                  value: draftTargetKey,
+                  onChange: setDraftTargetKey,
+                }}
+                // 新規作成は必ず単発予定なので、終日トグルは常に出せる
+                // (シリーズ由来の1回分だけが対象外、EventEditForm.tsx のコメント参照)
+                canToggleAllDay
+                onSave={submitDraftDetail}
+                onCancel={cancelDraft}
+              />
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -209,6 +209,10 @@ export class UserSyncDO extends DurableObject<Env> {
    * (webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する設計
    * (create-event.ts のコメント参照)。403/412/5xx 等は runRpc が GoogleApiError として
    * 拾い、実 status のまま RpcResult に載せる。route 側でこれを見て 409 等にマップする。
+   *
+   * fields は patchEvent と同じく 7 番目の optional 引数にまとめてある (2026-07-29 全項目入力)
+   * — 既存呼び出し元 (MCP の create_event が6引数で呼ぶ) を壊さないため。location/description/
+   * isAllDay の扱いは google/create-event.ts のコメント参照 (指定したフィールドだけ送る)。
    */
   async createEvent(
     accountId: string,
@@ -217,6 +221,11 @@ export class UserSyncDO extends DurableObject<Env> {
     startMs: number,
     endMs: number,
     timeZone: string,
+    fields?: {
+      location?: string;
+      description?: string;
+      isAllDay?: boolean;
+    },
   ): Promise<RpcResult<string>> {
     return runRpc(() =>
       createEventWithRetry(this.buildEventWriteDeps(accountId), {
@@ -225,6 +234,7 @@ export class UserSyncDO extends DurableObject<Env> {
         startMs,
         endMs,
         timeZone,
+        ...fields,
       }),
     );
   }

@@ -71,6 +71,12 @@ export interface CalendarSyncController {
    * クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
    */
   defaultWriteTarget: WriteTargetCandidate | null;
+  /**
+   * 書き込み先として選べる全候補 (2026-07-29 全項目入力)。defaultWriteTarget と同じ
+   * selectedTargets() 由来 ―― 新規作成の詳細フォームで「どのカレンダーに作るか」を
+   * 利用者に選ばせるために、既定1件だけでなく一覧も出す。
+   */
+  writeTargetCandidates: readonly WriteTargetCandidate[];
   /** ツールバーの「同期」ボタン。選択中カレンダー + 取得済みタスクリストを並行同期する */
   runSync: () => Promise<void>;
   /**
@@ -271,9 +277,10 @@ export function useCalendarSync({
   // 新規予定 (フェーズ5) のデフォルトの書き込み先: 選択中カレンダーのうち primary が
   // あればそれ、無ければ先頭 (resolveDefaultWriteTarget、規則は eventCreate.ts 参照)。
   // null なら空き領域クリック/ドラッグでの新規作成自体を無効化する (WeekGrid/DayColumn 側)
+  const writeTargetCandidates = useMemo(() => selectedTargets(), [selectedTargets]);
   const defaultWriteTarget = useMemo(
-    () => resolveDefaultWriteTarget(selectedTargets()),
-    [selectedTargets],
+    () => resolveDefaultWriteTarget(writeTargetCandidates),
+    [writeTargetCandidates],
   );
 
   // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペア +
@@ -431,6 +438,7 @@ export function useCalendarSync({
   return {
     syncStatus,
     defaultWriteTarget,
+    writeTargetCandidates,
     runSync,
     syncCalendar,
     setDeviceId,

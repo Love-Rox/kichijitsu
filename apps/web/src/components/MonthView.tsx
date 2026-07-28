@@ -8,7 +8,7 @@ import type { OccurrenceStore } from "../store/occurrenceStore";
 import { useOccurrences } from "../store/occurrenceStore";
 import type { AllDayStore } from "../store/allDayStore";
 import { useAllDayOccurrences } from "../store/allDayStore";
-import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import { calendarKeyOf } from "../layout/keys";
 import {
   draftFromAllDayOccurrence,
@@ -64,12 +64,8 @@ interface MonthViewProps {
    * 将来 month ビューでの作成/移動に対応するときのために props 形状だけ揃えてある。
    */
   writeTarget: WriteTargetCandidate | null;
-  onCreateEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  writeTargets: readonly WriteTargetCandidate[];
+  onCreateEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /** チップ以外のセル空き部分・「+N」クリックで呼ばれる: その日を含む週の week ビューへ切り替える */
   onNavigateToDay: (day: Temporal.PlainDate) => void;
 }

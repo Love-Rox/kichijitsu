@@ -85,14 +85,24 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
 }
 
-export function clampPopoverPosition(x: number, y: number): { left: number; top: number } {
-  const maxLeft = Math.max(
-    DETAIL_POPOVER_MARGIN,
-    window.innerWidth - DETAIL_POPOVER_WIDTH - DETAIL_POPOVER_MARGIN,
-  );
+/**
+ * @param size このポップオーバーの想定サイズ。既定は詳細カードの概算値
+ *   (DETAIL_POPOVER_WIDTH / DETAIL_POPOVER_MAX_HEIGHT)。新規作成フォーム
+ *   (.event-detail-popover--creating、2026-07-29) だけは幅 320px・項目が1つ多くて背も高いので、
+ *   その CSS の width / max-height と揃えた値を呼び出し側 (DayColumn.tsx) が渡す
+ *   ―― ここと CSS がずれると画面外へはみ出す (スマホ幅で顕著)。
+ */
+export function clampPopoverPosition(
+  x: number,
+  y: number,
+  size?: { width: number; maxHeight: number },
+): { left: number; top: number } {
+  const width = size?.width ?? DETAIL_POPOVER_WIDTH;
+  const maxHeight = size?.maxHeight ?? DETAIL_POPOVER_MAX_HEIGHT;
+  const maxLeft = Math.max(DETAIL_POPOVER_MARGIN, window.innerWidth - width - DETAIL_POPOVER_MARGIN);
   const maxTop = Math.max(
     DETAIL_POPOVER_MARGIN,
-    window.innerHeight - DETAIL_POPOVER_MAX_HEIGHT - DETAIL_POPOVER_MARGIN,
+    window.innerHeight - maxHeight - DETAIL_POPOVER_MARGIN,
   );
   return {
     left: clamp(x, DETAIL_POPOVER_MARGIN, maxLeft),

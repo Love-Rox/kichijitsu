@@ -15,7 +15,7 @@ import type { PlannedStore } from "../store/plannedStore";
 import { usePlannedBlocks } from "../store/plannedStore";
 import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
-import type { WriteTargetCandidate } from "../sync/eventCreate";
+import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { DroppedWorkItem } from "../sync/planned";
 import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
@@ -168,15 +168,13 @@ interface WeekGridProps {
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 終日レーンの詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
-  /** 新規予定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
+  /** 新規予定の既定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
   writeTarget: WriteTargetCandidate | null;
-  /** 空き領域クリック/ドラッグでタイトル確定時に呼ばれる新規作成フック(フェーズ5) */
-  onCreateEvent: (
-    startMs: number,
-    endMs: number,
-    title: string,
-    target: WriteTargetCandidate,
-  ) => void;
+  /** 詳細フォームの「カレンダー」欄で選べる書き込み先の全候補(2026-07-29 全項目入力、DayColumn 参照) */
+  writeTargets: readonly WriteTargetCandidate[];
+  /** 空き領域クリック/ドラッグで作成が確定したときに呼ばれる新規作成フック(フェーズ5、
+      2026-07-29 に draft 一式を渡す形へ拡張。速い経路も詳細フォームも同じ形) */
+  onCreateEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
   /** タスク行の枡チェックボックスのタップで呼ぶ(完了⇔未完了トグル、docs/google-tasks.md) */
   onToggleTask: (task: TaskItem) => void;
   /**
@@ -298,6 +296,7 @@ export function WeekGrid({
   onRsvp,
   onAllDayRsvp,
   writeTarget,
+  writeTargets,
   onCreateEvent,
   onToggleTask,
   hiddenTaskListKeys,
@@ -1082,6 +1081,7 @@ export function WeekGrid({
                       onRsvp={onRsvp}
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
+                      writeTargets={writeTargets}
                       onCreateEvent={onCreateEvent}
                       longPressCreate={longPressCreate}
                       activityClusters={activityPanels[panelIndex].dayClusters[dayIndex]}

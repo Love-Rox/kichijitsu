@@ -23,6 +23,7 @@ import type {
 import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
 import { isAccountInProfile } from "../accounts";
+import { isValidEventCreateRequest } from "../core/create-event";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-protocol";
@@ -178,26 +179,26 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
   return c.json<EventRsvpResponse>({ ok: true });
 });
 
-// 新規予定を Google へ作成する (フェーズ5)。エラーの一律 409 マッピング方針は /api/event/patch
-// と同じ (コメント参照)。成功時は eventId のみ返す — UI が楽観的 occurrence の id を確定 id に
-// 差し替えるためであり、それ以外の作成結果 (実際の start/end 等) を正本として返すことはしない。
-// 正本は次の同期 (webhook/ポーリング → SSE 'changed' → クライアントの /api/sync) で還流する。
+// 新規予定を Google へ作成する (フェーズ5、2026-07-29 全項目入力に拡張)。エラーの一律 409
+// マッピング方針は /api/event/patch と同じ (コメント参照)。成功時は eventId のみ返す — UI が
+// 楽観的 occurrence の id を確定 id に差し替えるためであり、それ以外の作成結果 (実際の start/end 等)
+// を正本として返すことはしない。正本は次の同期 (webhook/ポーリング → SSE 'changed' →
+// クライアントの /api/sync) で還流する。
+//
+// ボディ検証は core/create-event.ts の isValidEventCreateRequest (純関数・テストあり) に
+// 出してある — /api/event/patch のようなインラインの条件式に location/description/isAllDay の
+// 型と長さ、開始<終了 の整合まで足すと読めなくなるため (block-rules の
+// isValidBlockRuleUpsertRequest と同じ流儀)。location/description/isAllDay は optional なので
+// 未指定の旧クライアント (タイトルと時間帯だけ送るリクエスト) もそのまま通る (後方互換)。
 eventRoutes.post("/api/event/create", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: EventCreateRequest;
+  let body: unknown;
   try {
     body = await c.req.json<EventCreateRequest>();
   } catch {
     return c.json<ApiError>({ error: "invalid_json" }, 400);
   }
-  if (
-    !body?.accountId ||
-    !body?.calendarId ||
-    !body?.title ||
-    typeof body.startMs !== "number" ||
-    typeof body.endMs !== "number" ||
-    !body?.timeZone
-  ) {
+  if (!isValidEventCreateRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
@@ -216,6 +217,11 @@ eventRoutes.post("/api/event/create", requireAuth, async (c) => {
     body.startMs,
     body.endMs,
     body.timeZone,
+    {
+      location: body.location,
+      description: body.description,
+      isAllDay: body.isAllDay,
+    },
   );
   if (!result.ok) {
     console.warn(

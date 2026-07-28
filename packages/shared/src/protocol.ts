@@ -492,17 +492,38 @@ export interface EventRsvpResponse {
 }
 
 /**
- * POST /api/event/create — 新規予定を Google に作成 (フェーズ5)。
+ * POST /api/event/create — 新規予定を Google に作成 (フェーズ5、2026-07-29 全項目入力に拡張)。
  * 作成結果の正本は次の同期 (SSE changed → /api/sync) で還流するが、UI の
- * 楽観的表示のため作成された eventId を即時に返す。終日予定は未対応 (時刻予定のみ)。
+ * 楽観的表示のため作成された eventId を即時に返す。
+ *
+ * location/description/isAllDay は optional な拡張 — 未指定の旧クライアント
+ * (タイトルと時間帯だけ送るリクエスト) もそのまま動く (後方互換)。EventPatchRequest と違い
+ * **空文字は送らない想定**: 作成には「クリアすべき既存値」が無いので、空欄はキー自体を
+ * 省略して Google のデフォルト (場所/説明なし) に任せる (web の buildEventCreateRequest 参照)。
+ * 空文字が届いた場合も Google 上は未設定と同じ扱いになるため、サーバーは弾かない。
  */
 export interface EventCreateRequest {
   accountId: string;
   calendarId: string;
   title: string;
+  /** 終日予定 (isAllDay: true) では「開始日のローカル 0:00」を渡す */
   startMs: number;
+  /**
+   * 終日予定 (isAllDay: true) では「終了日 (inclusive) の翌日のローカル 0:00」= 排他的な終了。
+   * Google の end.date と同じ規約 (EventPatchRequest / google/patch-event.ts の toDateOnly と同じ)。
+   */
   endMs: number;
+  /** クライアントの IANA タイムゾーン (dateTime と併記。isAllDay の date 変換にも使う) */
   timeZone: string;
+  /** 場所。未指定なら設定しない。 */
+  location?: string;
+  /** 説明。未指定なら設定しない。 */
+  description?: string;
+  /**
+   * true なら終日予定として start/end を Google の `date` (YYYY-MM-DD) 形式で送る
+   * (startMs/endMs を timeZone で日付に変換する)。false/未指定は `dateTime` (時刻予定)。
+   */
+  isAllDay?: boolean;
 }
 
 export interface EventCreateResponse {

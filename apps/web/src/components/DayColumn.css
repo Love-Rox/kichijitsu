@@ -22,7 +22,9 @@
   z-index: 400;
 }
 
-/* pointerup で確定した後のタイトル入力。ghost と同じ座標系(top/height は React state から) */
+/* pointerup で確定した後のタイトル入力。ghost と同じ座標系(top/height は React state から)。
+   2026-07-29「全項目入力」で右端に「詳細」ボタンを併置したため横並びの行にした。
+   短いドラッグ(15分など)でもボタンが潰れないよう min-height を持たせている。 */
 .day-column-create-draft {
   position: absolute;
   left: 3px;
@@ -34,16 +36,39 @@
   z-index: 600;
   padding: 2px 4px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
 }
 
 .day-column-create-input {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
   font: inherit;
   font-size: 12px;
   color: var(--c-ui-ink-strong);
+}
+
+/* 「詳細を入力」への広げ口。速い経路(打って Enter)の邪魔をしないよう控えめな文字ボタンにする */
+.day-column-create-detail-btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--c-accent);
+  cursor: pointer;
+}
+
+.day-column-create-detail-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
 }
 
 /* 予定タイムブロック (PlannedBlock.tsx) を載せる独立レイヤ。カード側のスタイルと設計意図は
