@@ -49,6 +49,12 @@ export interface SettingsModalProps {
   onCreateMcpToken?: (label: string | undefined) => Promise<McpTokenCreateResponse>;
   /** 行ごとの「失効」確定で呼ぶ。成功すれば解決、失敗すれば reject する */
   onDeleteMcpToken?: (id: string) => Promise<void>;
+  /**
+   * 「再同期」(全件取り直し、2026-07-29) の確定で呼ぶ。全同期が終わるまで解決せず、
+   * 1つでも失敗すれば reject する(hooks/useCalendarSync.ts の runFullResync)。
+   * undefined なら再同期の導線を出さない(他の任意セクションと同じ流儀)
+   */
+  onResync?: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -83,6 +89,7 @@ export function SettingsModal({
   mcpTokens,
   onCreateMcpToken,
   onDeleteMcpToken,
+  onResync,
   onClose,
 }: SettingsModalProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -260,18 +267,125 @@ export function SettingsModal({
         </p>
 
         {/*
+         * デスクトップ版だけの一言 (2026-07-29、ユーザー要望)。デスクトップ版はリモート URL を
+         * 読み込む方式 (apps/desktop/src-tauri/src/lib.rs 冒頭) なので、web を再デプロイしても
+         * webview を読み直すまで反映されない ―― 上のビルド情報を見て「古い」と気づいた人が
+         * 次に何をすればよいかが分かるよう、ビルド情報のすぐ下に置く。ブラウザ/PWA には
+         * 出さない(そちらは通常のリロードで済み、⌘R もトレイも文脈が違うため)。
+         */}
+        {isTauri() && (
+          <p className="settings-build-hint">
+            最新にするには ⌘R(またはトレイの「再読み込み」)で読み直してください。
+          </p>
+        )}
+
+        {/*
          * キャッシュ削除 (ユーザー要望、2026-07-26)。上のビルド情報で「古いビルドを
          * 見ている」と気づいた人がその場で直せるよう、すぐ下に脱出口を置く。
          */}
         <CacheClearControl />
+
+        {/*
+         * 再同期 (ユーザー要望、2026-07-29)。キャッシュ削除と並ぶ「困ったときの脱出口」で、
+         * 住み分けは 表示が古い → キャッシュ削除 (表示用ファイルの入れ替え) /
+         * 予定の中身がおかしい → 再同期 (予定データの取り直し)。並べて置くことで
+         * 説明文どうしを読み比べて選べるようにしている。
+         */}
+        {onResync && <ResyncControl onResync={onResync} />}
       </div>
     </div>
   );
 }
 
-type DisconnectRowState = "idle" | "confirming" | "disconnecting" | "error";
+type ConfirmActionState = "idle" | "confirming" | "running" | "done" | "error";
 
-type CacheClearState = "idle" | "confirming" | "clearing" | "error";
+/**
+ * インライン2段階確認の共通コンポーネント (2026-07-29)。
+ *
+ * 連携解除 (アカウント/GitHub)・MCP トークン失効・キャッシュ削除は、state マシンも JSX 構造も
+ * 完全に同一で、違うのは**ラベルと確定時の処理だけ**だった。5つ目 (再同期) を足すにあたって
+ * ここに畳んだ ―― コピーが増えるほど「どれかだけ確認を飛ばす/disabled が抜ける」といった
+ * ズレが入り込む余地が増えるため。DOM (span のクラス名と要素の並び) は畳む前と1文字も
+ * 変えていないので、既存4つの見た目・挙動はそのまま。
+ *
+ * 成功後の振る舞いは呼び出し元によって違うので successLabel で切り替える:
+ * - 未指定 (連携解除・失効・キャッシュ削除): 成功しても "running" のまま。呼び出し元 (App.tsx)
+ *   が行ごと消す、あるいは window.location.reload() が走るため、idle に戻す意味が無い。
+ * - 指定あり (再同期): この行は成功後も画面に残るので、完了を伝える表示に落ち着かせる。
+ */
+function ConfirmActionControl({
+  triggerLabel,
+  question,
+  confirmLabel,
+  errorLabel,
+  successLabel,
+  logLabel,
+  onConfirm,
+}: {
+  /** 平常時に出す文字ボタンのラベル (例: 「連携解除」) */
+  triggerLabel: string;
+  /** 確認段階の問いかけ (例: 「連携解除しますか？」) */
+  question: string;
+  /** 確認段階の実行ボタンのラベル (例: 「解除する」) */
+  confirmLabel: string;
+  /** 失敗時に出す短いラベル (例: 「解除失敗」) */
+  errorLabel: string;
+  /** 指定すると成功時にこのラベルを出して確認 UI を閉じる (省略時は成功後も実行中のまま) */
+  successLabel?: string;
+  /** console.error に出す識別子 (例: "account disconnect") */
+  logLabel: string;
+  onConfirm: () => Promise<unknown>;
+}) {
+  const [state, setState] = useState<ConfirmActionState>("idle");
+
+  if (state === "confirming" || state === "running") {
+    return (
+      <span className="settings-modal-disconnect-confirm">
+        {question}
+        <button
+          type="button"
+          className="settings-modal-text-btn"
+          disabled={state === "running"}
+          onClick={() => {
+            setState("running");
+            onConfirm()
+              .then(() => {
+                if (successLabel !== undefined) setState("done");
+              })
+              .catch((err: unknown) => {
+                console.error(`kichijitsu: ${logLabel} failed`, err);
+                setState("error");
+              });
+          }}
+        >
+          {confirmLabel}
+        </button>
+        <button
+          type="button"
+          className="settings-modal-text-btn"
+          disabled={state === "running"}
+          onClick={() => setState("idle")}
+        >
+          やめる
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="settings-modal-disconnect-row">
+      <button
+        type="button"
+        className="settings-modal-text-btn"
+        onClick={() => setState("confirming")}
+      >
+        {triggerLabel}
+      </button>
+      {state === "error" && <span className="settings-modal-error">{errorLabel}</span>}
+      {state === "done" && <span className="settings-modal-done">{successLabel}</span>}
+    </span>
+  );
+}
 
 /**
  * 「キャッシュを削除して再読み込み」導線 (ユーザー要望、2026-07-26)。
@@ -281,83 +395,75 @@ type CacheClearState = "idle" | "confirming" | "clearing" | "error";
  * 「再読み込み」(apps/desktop/src-tauri/src/lib.rs の RELOAD_JS) と同じ操作を
  * ユーザー自身が実行できるようにするのがこのボタン。
  *
- * 破壊的操作なので、AccountDisconnectControl / GitHubDisconnectControl /
- * McpTokenDeleteControl と同じインライン2段階確認 (window.confirm は使わない) に揃える。
- * 何が消えて何が消えないかは誤解されやすいため、確認前から説明文を常時出しておく。
+ * 破壊的操作なので、他の脱出口と同じインライン2段階確認 (ConfirmActionControl、
+ * window.confirm は使わない) に揃える。何が消えて何が消えないかは誤解されやすいため、
+ * 確認前から説明文を常時出しておく。
  */
 function CacheClearControl() {
-  const [state, setState] = useState<CacheClearState>("idle");
-
-  // JSX に日本語を直接改行して書くと折り返し位置に半角スペースが入るため、
-  // 説明文は文字列連結で組んでから埋め込む。
-  const desc = (
-    <p className="settings-modal-section-desc">
-      {"表示が古いままのときに使います。消えるのは画面を組み立てるファイルのキャッシュだけで、" +
-        "カレンダーの予定データ・連携アカウント・設定は消えません。"}
-    </p>
-  );
-
-  if (state === "confirming" || state === "clearing") {
-    return (
-      <div className="settings-modal-cache">
-        {desc}
-        <span className="settings-modal-disconnect-confirm">
-          削除して再読み込みしますか？
-          <button
-            type="button"
-            className="settings-modal-text-btn"
-            disabled={state === "clearing"}
-            onClick={() => {
-              setState("clearing");
-              clearAppCaches()
-                .then((keys) => {
-                  // 削除したキー名はサポート時の手がかりとして残す(表示はしない)
-                  console.info("kichijitsu: cleared app caches", keys);
-                  // リロードで Service Worker が最新アセットを取り直し、キャッシュを埋め直す
-                  window.location.reload();
-                })
-                .catch((err: unknown) => {
-                  console.error("kichijitsu: clearing app caches failed", err);
-                  setState("error");
-                });
-            }}
-          >
-            削除する
-          </button>
-          <button
-            type="button"
-            className="settings-modal-text-btn"
-            disabled={state === "clearing"}
-            onClick={() => setState("idle")}
-          >
-            やめる
-          </button>
-        </span>
-      </div>
-    );
-  }
-
   return (
     <div className="settings-modal-cache">
-      {desc}
-      <span className="settings-modal-disconnect-row">
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          onClick={() => setState("confirming")}
-        >
-          キャッシュを削除して再読み込み
-        </button>
-        {state === "error" && <span className="settings-modal-error">削除失敗</span>}
-      </span>
+      {/* JSX に日本語を直接改行して書くと折り返し位置に半角スペースが入るため、
+          説明文は文字列連結で組んでから埋め込む。 */}
+      <p className="settings-modal-section-desc">
+        {"表示が古いままのときに使います。消えるのは画面を組み立てるファイルのキャッシュだけで、" +
+          "カレンダーの予定データ・連携アカウント・設定は消えません。"}
+      </p>
+      <ConfirmActionControl
+        triggerLabel="キャッシュを削除して再読み込み"
+        question="削除して再読み込みしますか？"
+        confirmLabel="削除する"
+        errorLabel="削除失敗"
+        logLabel="clearing app caches"
+        // successLabel なし: 成功したら window.location.reload() で画面ごと作り直されるため
+        onConfirm={() =>
+          clearAppCaches().then((keys) => {
+            // 削除したキー名はサポート時の手がかりとして残す(表示はしない)
+            console.info("kichijitsu: cleared app caches", keys);
+            // リロードで Service Worker が最新アセットを取り直し、キャッシュを埋め直す
+            window.location.reload();
+          })
+        }
+      />
     </div>
   );
 }
 
 /**
- * アカウント1件ぶんの「連携解除」導線。window.confirm を使わないインライン2段階確認を、
+ * 「再同期」導線 (ユーザー要望、2026-07-29)。キャッシュ削除の隣に置く姉妹の脱出口で、
+ * 住み分けは「表示が古い → キャッシュ削除 / 予定の中身がおかしい → 再同期」。
+ *
+ * 効く理由: アプリ外 (Google カレンダー本体や他の端末) で消された予定の削除通知を一度でも
+ * 取りこぼすと、Google の syncToken は先へ進んでしまい同じ通知は二度と来ないため、増分同期
+ * (ツールバーの「同期」) では残骸を掃除できない。全同期の応答だけが
+ * applyFullSyncAtomic (sync/applySync.ts) によるローカル複製の総入れ替えを起こす。
+ *
+ * 破棄と再取得を分けず1操作にしてあるのは、押した後にもう一度「同期」を押させないため
+ * (hooks/useCalendarSync.ts の runFullResync が全同期まで走り切る)。
+ */
+function ResyncControl({ onResync }: { onResync: () => Promise<void> }) {
+  return (
+    <div className="settings-modal-cache">
+      <p className="settings-modal-section-desc">
+        {"予定の中身がおかしいときに使います。表示中のカレンダーの予定を Google から全件取り直すため、" +
+          "通信量と時間がかかります。作業実績・連携アカウント・設定は消えません。"}
+      </p>
+      <ConfirmActionControl
+        triggerLabel="予定を再同期"
+        question="予定を全件取り直しますか？"
+        confirmLabel="再同期する"
+        errorLabel="再同期失敗"
+        successLabel="再同期しました"
+        logLabel="full resync"
+        onConfirm={onResync}
+      />
+    </div>
+  );
+}
+
+/**
+ * アカウント1件ぶんの「連携解除」導線。インライン2段階確認 (ConfirmActionControl) を、
  * 行ごとに独立したローカル state として持つ(アカウントが複数あっても他の行に影響しない)。
- * 旧 CalendarSettingsPanel.tsx の AccountDisconnectControl から無変更で移植。
+ * 成功時に idle へ戻さないのは、呼び出し元 (App.tsx) が accounts から本行ごと除去するため。
  */
 function AccountDisconnectControl({
   accountId,
@@ -366,51 +472,15 @@ function AccountDisconnectControl({
   accountId: string;
   onDisconnect: (accountId: string) => Promise<void>;
 }) {
-  const [state, setState] = useState<DisconnectRowState>("idle");
-
-  if (state === "confirming" || state === "disconnecting") {
-    return (
-      <span className="settings-modal-disconnect-confirm">
-        連携解除しますか？
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => {
-            setState("disconnecting");
-            onDisconnect(accountId).catch((err) => {
-              console.error("kichijitsu: account disconnect failed", err);
-              setState("error");
-            });
-            // 成功時は呼び出し元 (App.tsx) が accounts から本行ごと除去するので
-            // ここでの idle 復帰は不要
-          }}
-        >
-          解除する
-        </button>
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => setState("idle")}
-        >
-          やめる
-        </button>
-      </span>
-    );
-  }
-
   return (
-    <span className="settings-modal-disconnect-row">
-      <button
-        type="button"
-        className="settings-modal-text-btn"
-        onClick={() => setState("confirming")}
-      >
-        連携解除
-      </button>
-      {state === "error" && <span className="settings-modal-error">解除失敗</span>}
-    </span>
+    <ConfirmActionControl
+      triggerLabel="連携解除"
+      question="連携解除しますか？"
+      confirmLabel="解除する"
+      errorLabel="解除失敗"
+      logLabel="account disconnect"
+      onConfirm={() => onDisconnect(accountId)}
+    />
   );
 }
 
@@ -419,51 +489,15 @@ function AccountDisconnectControl({
  * こちらは対象を1つに固定できる(GitHub 連携はプロファイルにつき高々1件)ため accountId を取らない。
  */
 function GitHubDisconnectControl({ onDisconnect }: { onDisconnect: () => Promise<void> }) {
-  const [state, setState] = useState<DisconnectRowState>("idle");
-
-  if (state === "confirming" || state === "disconnecting") {
-    return (
-      <span className="settings-modal-disconnect-confirm">
-        連携解除しますか？
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => {
-            setState("disconnecting");
-            onDisconnect().catch((err) => {
-              console.error("kichijitsu: GitHub disconnect failed", err);
-              setState("error");
-            });
-            // 成功時は呼び出し元 (App.tsx) が githubLogin を null に戻すので
-            // ここでの idle 復帰は不要 (AccountDisconnectControl と同じ流儀)
-          }}
-        >
-          解除する
-        </button>
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => setState("idle")}
-        >
-          やめる
-        </button>
-      </span>
-    );
-  }
-
   return (
-    <span className="settings-modal-disconnect-row">
-      <button
-        type="button"
-        className="settings-modal-text-btn"
-        onClick={() => setState("confirming")}
-      >
-        連携解除
-      </button>
-      {state === "error" && <span className="settings-modal-error">解除失敗</span>}
-    </span>
+    <ConfirmActionControl
+      triggerLabel="連携解除"
+      question="連携解除しますか？"
+      confirmLabel="解除する"
+      errorLabel="解除失敗"
+      logLabel="GitHub disconnect"
+      onConfirm={onDisconnect}
+    />
   );
 }
 
@@ -613,7 +647,8 @@ function McpTokensSection({
 
 /**
  * トークン1件の「失効」導線。AccountDisconnectControl/GitHubDisconnectControl と
- * 全く同じインライン2段階確認を、対象トークン id だけ差し替えて使う。
+ * 全く同じインライン2段階確認 (ConfirmActionControl) を、対象トークン id だけ差し替えて使う。
+ * 成功時は呼び出し元 (App.tsx) が mcpTokens から本行ごと除去する。
  */
 function McpTokenDeleteControl({
   tokenId,
@@ -622,50 +657,15 @@ function McpTokenDeleteControl({
   tokenId: string;
   onDelete: (id: string) => Promise<void>;
 }) {
-  const [state, setState] = useState<DisconnectRowState>("idle");
-
-  if (state === "confirming" || state === "disconnecting") {
-    return (
-      <span className="settings-modal-disconnect-confirm">
-        失効しますか？
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => {
-            setState("disconnecting");
-            onDelete(tokenId).catch((err) => {
-              console.error("kichijitsu: MCP token delete failed", err);
-              setState("error");
-            });
-            // 成功時は呼び出し元 (App.tsx) が mcpTokens から本行ごと除去する
-          }}
-        >
-          失効する
-        </button>
-        <button
-          type="button"
-          className="settings-modal-text-btn"
-          disabled={state === "disconnecting"}
-          onClick={() => setState("idle")}
-        >
-          やめる
-        </button>
-      </span>
-    );
-  }
-
   return (
-    <span className="settings-modal-disconnect-row">
-      <button
-        type="button"
-        className="settings-modal-text-btn"
-        onClick={() => setState("confirming")}
-      >
-        失効
-      </button>
-      {state === "error" && <span className="settings-modal-error">失効失敗</span>}
-    </span>
+    <ConfirmActionControl
+      triggerLabel="失効"
+      question="失効しますか？"
+      confirmLabel="失効する"
+      errorLabel="失効失敗"
+      logLabel="MCP token delete"
+      onConfirm={() => onDelete(tokenId)}
+    />
   );
 }
 

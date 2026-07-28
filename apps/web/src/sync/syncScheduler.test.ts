@@ -60,6 +60,45 @@ describe("createSyncScheduler", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
+  // 「再同期」(設定モーダル、hooks/useCalendarSync.ts の runFullResync) が、たまたま
+  // 走行中だった通常同期に合流したせいで増分同期に格下げされないことを固定する。
+  it("trailing rerun は最後に要求された run で実行される(通常同期の走行中に来た全同期を落とさない)", async () => {
+    const scheduler = createSyncScheduler();
+    const d1 = deferred();
+    const normalSync = vi.fn(() => d1.promise);
+    const fullSync = vi.fn(() => Promise.resolve());
+
+    const p1 = scheduler.schedule("acc:cal", normalSync);
+    void scheduler.schedule("acc:cal", fullSync); // 走行中に全同期を要求
+
+    expect(fullSync).not.toHaveBeenCalled();
+
+    d1.resolve();
+    await p1;
+
+    // trailing rerun は「初回と同じ通常同期」ではなく、後から来た全同期のほう
+    expect(normalSync).toHaveBeenCalledTimes(1);
+    expect(fullSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("走行中に複数の run が要求されたら trailing rerun は最後の1つだけ", async () => {
+    const scheduler = createSyncScheduler();
+    const d1 = deferred();
+    const first = vi.fn(() => d1.promise);
+    const second = vi.fn(() => Promise.resolve());
+    const third = vi.fn(() => Promise.resolve());
+
+    const p1 = scheduler.schedule("acc:cal", first);
+    void scheduler.schedule("acc:cal", second);
+    void scheduler.schedule("acc:cal", third);
+
+    d1.resolve();
+    await p1;
+
+    expect(second).not.toHaveBeenCalled();
+    expect(third).toHaveBeenCalledTimes(1);
+  });
+
   it("エラー時もロックが解放され、次の schedule は新規に実行される", async () => {
     const scheduler = createSyncScheduler();
     const run1 = vi.fn().mockRejectedValueOnce(new Error("boom"));
