@@ -6,6 +6,7 @@ import {
   generateDummyOccurrences,
   generateDummyOverrides,
   generateDummySeries,
+  generateDummyTimedOooOccurrences,
   generateDummyWorkingLocationOccurrences,
 } from "../model/dummy";
 import type { Occurrence } from "../model/types";
@@ -176,6 +177,10 @@ export async function bootstrapDatabase({
       const singles = [
         ...generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone),
         ...generateDummyWorkingLocationOccurrences(Temporal.Now.plainDateISO(), timeZone),
+        // 時刻付きの不在 (2026-07-29「1日を丸ごと覆う不在」)。実データと同じ形
+        // (dateTime で 0:00–24:00 / 複数日 / 丸ごとではないもの)を混ぜて、
+        // 「終日の不在を終日欄に表示」の設定のオン/オフを目視で確かめられるようにする
+        ...generateDummyTimedOooOccurrences(Temporal.Now.plainDateISO(), timeZone),
       ];
       await putSeries(database, series);
       await Promise.all(overrides.map((o) => putOverride(database, o)));

@@ -80,6 +80,14 @@ export function AllDayBar({
   // 届く(既定の "timeline" では WeekGrid が splitOutOfOfficeAllDayGroups で抜いてしまうので
   // 常に false)。勤務場所を終日レーンへ統合したときと同じ形 ―― 振り分けは純関数側、
   // 見た目の分岐はここで occurrence.isOutOfOffice を直接見る(判定関数は layout/oooRail.ts)。
+  //
+  // 2026-07-29「1日を丸ごと覆う不在」: ここへ届く不在には、元が時刻付き (`dateTime`) で
+  // 1日を丸ごと覆っていたものを終日予定の形へ射影したぶんも混ざる
+  // (layout/oooDayCoverage.ts の dayCoveringOooAllDayGroups)。射影の時点で startDate/endDate
+  // だけを持つ普通の AllDayOccurrence になっているため、**このコンポーネントは元が時刻付き
+  // だったかを知らないし、知る必要も無い**(それが合併型ではなく射影を選んだ理由)。
+  // 下の editDraft/rsvp を不在では出さない判断のおかげで、射影で捨てた時刻が Google へ
+  // 書き戻される経路も存在しない。
   const isOoo = isOutOfOffice(occurrence);
 
   // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。

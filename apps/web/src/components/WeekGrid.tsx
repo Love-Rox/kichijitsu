@@ -32,6 +32,7 @@ import {
   type OccurrenceGroup,
 } from "../layout/groupDuplicates";
 import type { OooAllDayPlacement } from "../layout/oooAllDayPlacement";
+import { dayCoveringOooAllDayGroups, splitDayCoveringOooGroups } from "../layout/oooDayCoverage";
 import {
   allDayOooRailItems,
   splitOutOfOfficeAllDayGroups,
@@ -260,7 +261,13 @@ interface WeekPanelData {
   dayData: {
     day: Temporal.PlainDate;
     positioned: ReturnType<typeof packColumns<OccurrenceGroup>>;
-    /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
+    /**
+     * この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照)。
+     *
+     * 2026-07-29: 設定が "allday" のとき、**その日を丸ごと覆う** 不在はここから外れて終日レーンへ
+     * 回る(layout/oooDayCoverage.ts)。丸ごとではない不在(9:00–18:00 等)や、一部の日だけを
+     * 覆う不在の「丸ごとでない日」は従来どおりここに残る。
+     */
     oooItems: OooRailItem[];
     /**
      * この日ぶんの勤務場所レール項目のうち **時刻付きのぶんだけ**。OOO と同じく
@@ -660,7 +667,18 @@ export function WeekGrid({
             (g) => g.primary.startMs,
             (g) => g.primary.endMs,
           );
-          const oooItems = timedOooRailItems(oooGroups, dayStarts[i], dayEnds[i]);
+          // 「1日を丸ごと覆う不在」を終日欄へ回す設定 (2026-07-29、layout/oooDayCoverage.ts):
+          // その日を丸ごと覆う不在だけをレールから外す。既定の "timeline" では1件も動かない。
+          // 終日欄側のバーはこの日別ループではなく dayCoveringOooBarGroups(下記)で作る ――
+          // 上の日別フィルタは「開始時刻がその日に入る予定」しか拾わないので、ここで集めると
+          // 複数日を覆う不在の2日目以降が落ちてしまうため。
+          const { railGroups: oooRailGroups } = splitDayCoveringOooGroups(
+            oooGroups,
+            day,
+            timeZone,
+            oooAllDayPlacement,
+          );
+          const oooItems = timedOooRailItems(oooRailGroups, dayStarts[i], dayEnds[i]);
           const timedWorkingLocationItems = timedWorkingLocationRailItems(
             workingLocationGroups,
             dayStarts[i],
@@ -670,7 +688,25 @@ export function WeekGrid({
         });
         return { panelStart, days, dayStarts, dayEnds, dayData };
       }),
-    [panelStarts, dayCount, groupedOccurrences, timeZone],
+    [panelStarts, dayCount, groupedOccurrences, timeZone, oooAllDayPlacement],
+  );
+
+  /**
+   * 時刻付き (`dateTime`) の不在のうち「1日を丸ごと覆う」ものを、終日レーンのバーとして
+   * 描けるよう終日予定の形へ射影したもの(2026-07-29、利用者報告「終日の不在もチェック
+   * ボックスのオンオフを問わず表示形式が変わりません」)。
+   *
+   * 2026-07-28 の設定は splitOutOfOfficeAllDayGroups ―― `start.date` を持つ本物の終日予定
+   * だけ ―― に効いていたが、実データの不在はすべて時刻付きで1日を丸ごと覆う形だったため、
+   * 対象が1件も無く切り替えても何も起きなかった。利用者から見た「終日の不在」は内部表現に
+   * 依らず「1日を丸ごと覆う不在」なので、判定をそちらへ広げる(layout/oooDayCoverage.ts)。
+   *
+   * 日別に絞り込む前の groupedOccurrences 全体を渡すこと(複数日をまたぐ1本のバーにするため)。
+   * 既定の "timeline" では常に空配列になり、終日レーンの中身は 2026-07-28 以前と1件も変わらない。
+   */
+  const dayCoveringOooBarGroups = useMemo(
+    () => dayCoveringOooAllDayGroups(groupedOccurrences, timeZone, oooAllDayPlacement),
+    [groupedOccurrences, timeZone, oooAllDayPlacement],
   );
 
   /**
@@ -718,6 +754,9 @@ export function WeekGrid({
   // 2026-07-28: この振り分けは左ペイン「表示」の設定で切り替わるようになった
   // (oooAllDayPlacement)。"allday" のときは不在も barGroups に残り、他の終日予定と同じ
   // packDayBars/AllDayBar 経路を通る(oooGroups は空になるので下記の全高ラインは出ない)。
+  // 2026-07-29: その設定は `start.date` を持つ本物の終日予定にしか効いておらず、実データの
+  // 「1日を丸ごと覆う時刻付きの不在」が対象外で切り替えても何も起きなかった。時刻付きぶんは
+  // dayCoveringOooBarGroups(上記)で終日予定の形へ射影し、ここの結果に連結する。
   // 勤務場所(workingLocation)は 2026-07-29「1日の区間として描く」で日ごとの振り分けに
   // なった。2026-07-22〜2026-07-29 は終日ぶんを無条件に barGroups へ残していたが、その形だと
   // 「同じ日に終日と時刻付きが両方ある」日で終日チップと時刻付き帯が独立に並び、利用者から
@@ -743,11 +782,19 @@ export function WeekGrid({
       datesWithTimedWorkingLocation,
     );
     return {
-      groupedAllDayBarOccurrences: chipGroups,
+      // 時刻付きの「1日を丸ごと覆う不在」の射影(dayCoveringOooBarGroups)は最後に足す ――
+      // 終日レーンの行割り当て (packDayBars) は入力順で決まるので、既存の終日予定の行を
+      // 押しのけない位置に置く。"timeline" のときは空配列なので連結しても何も変わらない。
+      groupedAllDayBarOccurrences: [...chipGroups, ...dayCoveringOooBarGroups],
       groupedAllDayOooOccurrences: oooGroups,
       workingLocationSegmentGroups: segmentGroups,
     };
-  }, [visibleAllDayOccurrences, oooAllDayPlacement, datesWithTimedWorkingLocation]);
+  }, [
+    visibleAllDayOccurrences,
+    oooAllDayPlacement,
+    datesWithTimedWorkingLocation,
+    dayCoveringOooBarGroups,
+  ]);
 
   /**
    * 日ごとの勤務場所の区間列(2026-07-29「1日の区間として描く」)。
