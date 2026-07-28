@@ -6,6 +6,8 @@ import {
   generateDummyOccurrences,
   generateDummyOverrides,
   generateDummySeries,
+  generateDummyTimedOooOccurrences,
+  generateDummyWorkingLocationOccurrences,
 } from "../model/dummy";
 import type { Occurrence } from "../model/types";
 import type { AllDayStore } from "../store/allDayStore";
@@ -168,7 +170,18 @@ export async function bootstrapDatabase({
     if (existingSeriesCount === 0) {
       const series = generateDummySeries(timeZone);
       const overrides = generateDummyOverrides(series);
-      const singles = generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone);
+      // 時刻付きの勤務場所 (2026-07-29「1日の区間として描く」) は、終日の勤務場所と
+      // 組み合わさったときの畳み方を目視確認するためのもの。ランダム生成の単発予定と違い
+      // 日付・時刻を固定してあるので、そのまま連結する(id はどちらも "dummy-" 始まりで、
+      // ?demo=1 を外した次回起動時に cleanupDemoData がまとめて掃除する)
+      const singles = [
+        ...generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone),
+        ...generateDummyWorkingLocationOccurrences(Temporal.Now.plainDateISO(), timeZone),
+        // 時刻付きの不在 (2026-07-29「1日を丸ごと覆う不在」)。実データと同じ形
+        // (dateTime で 0:00–24:00 / 複数日 / 丸ごとではないもの)を混ぜて、
+        // 「終日の不在を終日欄に表示」の設定のオン/オフを目視で確かめられるようにする
+        ...generateDummyTimedOooOccurrences(Temporal.Now.plainDateISO(), timeZone),
+      ];
       await putSeries(database, series);
       await Promise.all(overrides.map((o) => putOverride(database, o)));
       await putOccurrences(database, singles);

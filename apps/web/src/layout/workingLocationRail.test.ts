@@ -1,8 +1,11 @@
+import { Temporal } from "@js-temporal/polyfill";
 import { describe, expect, it } from "vite-plus/test";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
-import type { OccurrenceGroup } from "./groupDuplicates";
+import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
 import {
+  allDayWorkingLocationRailItems,
   isWorkingLocation,
+  splitWorkingLocationAllDayGroups,
   splitWorkingLocationGroups,
   timedWorkingLocationRailItems,
 } from "./workingLocationRail";
@@ -38,6 +41,10 @@ function allDayOcc(overrides: Partial<AllDayOccurrence> = {}): AllDayOccurrence 
 }
 
 function group(primary: Occurrence): OccurrenceGroup {
+  return { primary, members: [primary] };
+}
+
+function allDayGroup(primary: AllDayOccurrence): AllDayOccurrenceGroup {
   return { primary, members: [primary] };
 }
 
@@ -156,14 +163,106 @@ describe("timedWorkingLocationRailItems", () => {
   });
 });
 
-describe("終日の勤務場所はレールを経由しない(2026-07-22 終日レーンへ統合)", () => {
-  it("このファイルは終日専用の split/rail 関数を持たない ―― timedWorkingLocationRailItems/splitWorkingLocationGroups は OccurrenceGroup[](時刻予定)のみを受け取る型なので、AllDayOccurrenceGroup を渡すコードは型検査で弾かれる", () => {
-    // 実行時アサーションではなくコンパイル時の保証だが、意図を明示するためテストとして残す。
-    // 終日の勤務場所は WeekGrid.tsx が barGroups から分離しなくなり、他の終日予定と同じ
-    // 経路(packDayBars → AllDayBar)を通る。AllDayBar.tsx は isWorkingLocation(occurrence)
-    // (上の describe で固定した挙動)だけを見て `.allday-bar--working-location` の見た目に
-    // 分岐させる ―― この層に「終日用のレール項目」という概念自体がもう存在しない。
-    const wl = allDayOcc({ id: "wl-allday", isWorkingLocation: true });
-    expect(isWorkingLocation(wl)).toBe(true);
+describe("splitWorkingLocationAllDayGroups (2026-07-29「1日の区間として描く」)", () => {
+  const wlGroup = (overrides: Partial<AllDayOccurrence> = {}) =>
+    allDayGroup(allDayOcc({ isWorkingLocation: true, ...overrides }));
+
+  it("時刻付きの勤務場所が無い日の終日ぶんは barGroups に残る(従来どおり終日レーンのチップ、既存利用者の見え方を変えない)", () => {
+    const g = wlGroup({ id: "wl-allday", startDate: "2026-07-20", endDate: "2026-07-20" });
+    const { barGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
+      [g],
+      new Set(["2026-07-24"]), // 別の日にしか時刻付きが無い
+    );
+    expect(barGroups).toEqual([g]);
+    expect(segmentGroups).toEqual([]);
+  });
+
+  it("時刻付きの勤務場所がある日の終日ぶんは segmentGroups へ回る(チップとして二重に出さない)", () => {
+    const g = wlGroup({ id: "wl-allday", startDate: "2026-07-24", endDate: "2026-07-24" });
+    const { barGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
+      [g],
+      new Set(["2026-07-24"]),
+    );
+    expect(barGroups).toEqual([]);
+    expect(segmentGroups).toEqual([g]);
+  });
+
+  it("勤務場所でない終日予定は、その日に時刻付きの勤務場所があっても barGroups のまま(祝日・不在等を巻き込まない)", () => {
+    const holiday = allDayGroup(allDayOcc({ id: "holiday", title: "海の日" }));
+    const ooo = allDayGroup(allDayOcc({ id: "ooo", title: "有給休暇", isOutOfOffice: true }));
+    const { barGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
+      [holiday, ooo],
+      new Set(["2026-07-20"]),
+    );
+    expect(barGroups).toEqual([holiday, ooo]);
+    expect(segmentGroups).toEqual([]);
+  });
+
+  it("複数日にまたがる終日の勤務場所は、掛かる日のどれか1日でも時刻付きがあれば全体が segmentGroups へ回る", () => {
+    // 終日バーは複数日を1本の CSS grid 要素でまたぐので「途中の1日だけチップを消す」ことが
+    // できない。なお公式ガイドは終日の勤務場所が複数日にまたがれないと明記しているので、
+    // この形は実データではまず現れない(想定外入力への保険)。
+    const g = wlGroup({ id: "wl-span", startDate: "2026-07-20", endDate: "2026-07-24" });
+    expect(splitWorkingLocationAllDayGroups([g], new Set(["2026-07-22"])).segmentGroups).toEqual([
+      g,
+    ]);
+    // 掛かる日に1日も無ければ従来どおりチップ
+    expect(splitWorkingLocationAllDayGroups([g], new Set(["2026-07-25"])).barGroups).toEqual([g]);
+  });
+
+  it("時刻付きの勤務場所が1つも無ければ全件 barGroups(この変更が既定の見え方に触れないことの確認)", () => {
+    const a = wlGroup({ id: "wl-a" });
+    const b = allDayGroup(allDayOcc({ id: "holiday" }));
+    const { barGroups, segmentGroups } = splitWorkingLocationAllDayGroups([a, b], new Set());
+    expect(barGroups).toEqual([a, b]);
+    expect(segmentGroups).toEqual([]);
+  });
+});
+
+describe("allDayWorkingLocationRailItems (2026-07-29「1日の区間として描く」)", () => {
+  const day = (iso: string) => Temporal.PlainDate.from(iso);
+
+  it("その日を含む終日の勤務場所を全日 [0, 1440] の「地」にする", () => {
+    const g = allDayGroup(
+      allDayOcc({
+        id: "wl-allday",
+        isWorkingLocation: true,
+        startDate: "2026-07-24",
+        endDate: "2026-07-24",
+      }),
+    );
+    const items = allDayWorkingLocationRailItems([g], day("2026-07-24"));
+    expect(items).toEqual([
+      {
+        id: "wl-allday",
+        subject: g.primary,
+        groupMembers: g.members,
+        startMinutes: 0,
+        endMinutes: 24 * 60,
+      },
+    ]);
+  });
+
+  it("その日を含まない終日の勤務場所は落とす", () => {
+    const g = allDayGroup(
+      allDayOcc({ isWorkingLocation: true, startDate: "2026-07-24", endDate: "2026-07-24" }),
+    );
+    expect(allDayWorkingLocationRailItems([g], day("2026-07-25"))).toEqual([]);
+    expect(allDayWorkingLocationRailItems([g], day("2026-07-23"))).toEqual([]);
+  });
+
+  it("複数日にまたがる終日の勤務場所は、掛かる各日で地になる(両端 inclusive)", () => {
+    const g = allDayGroup(
+      allDayOcc({
+        id: "wl-span",
+        isWorkingLocation: true,
+        startDate: "2026-07-20",
+        endDate: "2026-07-22",
+      }),
+    );
+    for (const iso of ["2026-07-20", "2026-07-21", "2026-07-22"]) {
+      expect(allDayWorkingLocationRailItems([g], day(iso))).toHaveLength(1);
+    }
+    expect(allDayWorkingLocationRailItems([g], day("2026-07-23"))).toEqual([]);
   });
 });

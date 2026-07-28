@@ -63,11 +63,16 @@ export function AllDayBar({
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
 
-  // 勤務場所(workingLocation、2026-07-22 終日レーンへ統合): WeekGrid 側はもう終日の
-  // 勤務場所を barGroups から分離しない(layout/workingLocationRail.ts 参照)ため、この
-  // コンポーネントにも occurrence.isWorkingLocation===true な occurrence が普通に渡ってくる。
-  // ツールチップ/style/JSX の各所で isWorkingLoc を見て見た目だけ分岐させる(判定関数
-  // isWorkingLocation は時刻予定側の layout/workingLocationRail.ts と共通)。
+  // 勤務場所(workingLocation、2026-07-22 終日レーンへ統合): WeekGrid 側が終日の勤務場所を
+  // barGroups に残すため、このコンポーネントにも occurrence.isWorkingLocation===true な
+  // occurrence が渡ってくる。ツールチップ/style/JSX の各所で isWorkingLoc を見て見た目だけ
+  // 分岐させる(判定関数 isWorkingLocation は時刻予定側の layout/workingLocationRail.ts と共通)。
+  //
+  // 2026-07-29「1日の区間として描く」: ここへ届くのは **その日に時刻付きの勤務場所が1件も
+  // 無い場合だけ** になった(splitWorkingLocationAllDayGroups が振り分ける)。時刻付きがある日は
+  // 終日ぶんも「その日の既定の場所」としてタイムライン側の区間に畳まれる ―― 従来はチップと帯が
+  // 独立に並び「勤務地の変更前と変更後の両方が残っている」ように見えていた。このコンポーネント
+  // 自体の分岐は一切変えていない(時刻付きが無い日の見え方は据え置き)。
   const isWorkingLoc = isWorkingLocation(occurrence);
 
   // 不在 (OOO、2026-07-28 「終日欄に出す」設定): 左ペイン「表示」で
@@ -75,6 +80,14 @@ export function AllDayBar({
   // 届く(既定の "timeline" では WeekGrid が splitOutOfOfficeAllDayGroups で抜いてしまうので
   // 常に false)。勤務場所を終日レーンへ統合したときと同じ形 ―― 振り分けは純関数側、
   // 見た目の分岐はここで occurrence.isOutOfOffice を直接見る(判定関数は layout/oooRail.ts)。
+  //
+  // 2026-07-29「1日を丸ごと覆う不在」: ここへ届く不在には、元が時刻付き (`dateTime`) で
+  // 1日を丸ごと覆っていたものを終日予定の形へ射影したぶんも混ざる
+  // (layout/oooDayCoverage.ts の dayCoveringOooAllDayGroups)。射影の時点で startDate/endDate
+  // だけを持つ普通の AllDayOccurrence になっているため、**このコンポーネントは元が時刻付き
+  // だったかを知らないし、知る必要も無い**(それが合併型ではなく射影を選んだ理由)。
+  // 下の editDraft/rsvp を不在では出さない判断のおかげで、射影で捨てた時刻が Google へ
+  // 書き戻される経路も存在しない。
   const isOoo = isOutOfOffice(occurrence);
 
   // ホバーツールチップ(hooks/useHoverTooltip.ts に共通化、2026-07-25)。

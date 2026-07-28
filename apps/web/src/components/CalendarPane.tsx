@@ -384,6 +384,11 @@ function DisplaySettingsSection({
          * ON = 終日欄(終日レーン)のチップとして描く。週/3日/1日表示にだけ効く設定で、
          * 月表示は元からタイムラインを持たない(不在も通常チップとして並ぶ)ため影響しない
          * ―― 詳細は layout/oooAllDayPlacement.ts と MonthView.tsx のコメント。
+         *
+         * 2026-07-29: ここでいう「終日の不在」は **1日を丸ごと覆う不在** のこと。Google の
+         * 内部表現が `date`(本物の終日)か `dateTime`(0:00–24:00 の時刻付き)かは問わない
+         * ―― 利用者にはその区別が見えないため(layout/oooDayCoverage.ts)。ラベル自体は
+         * 変えていない(利用者の語彙のままが分かりやすい)。
          */}
         <li className="calendar-pane-item">
           <button

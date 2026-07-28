@@ -44,8 +44,9 @@ interface RailBandCommonProps {
 /**
  * variant と item は必ず対応する(不在レールには OooRailItem、勤務場所レールには
  * WorkingLocationRailItem しか渡せない)ことを型で保証する判別可能ユニオン。
- * WorkingLocationRailItem は subject が Occurrence 限定なので、勤務場所では
- * 終日予定の分岐が起こり得ないことも型から読める(layout/workingLocationRail.ts 参照)。
+ * どちらの subject も時刻予定 (Occurrence) と終日予定 (AllDayOccurrence) の合併型
+ * (勤務場所は 2026-07-29「1日の区間として描く」で、終日ぶんが「その日の既定の場所=地」の
+ * 区間としてこのレールへ戻ってきた。layout/workingLocationRail.ts 参照)。
  */
 export type RailBandProps = RailBandCommonProps &
   (
@@ -80,10 +81,12 @@ export type RailBandProps = RailBandCommonProps &
  *   「地図で開く」リンクも付けない ―― 勤務場所の title は住所とは限らず、Google マップ検索に
  *   投げても正しい結果にならないことがあるため。
  *
- * OOO の item.subject は時刻予定 (Occurrence) と終日予定 (AllDayOccurrence) のどちらもありうる
- * (終日の不在は WeekGrid.tsx 側で「その日の全高ライン」として時刻予定と同じ配列に合流させてから
- * 渡ってくる)。ラベル整形だけ isTimedSubject で分岐する ―― 勤務場所は Occurrence 限定なので
- * この分岐は常に時刻側に落ちる(型で保証済み、分岐を variant ごとに書き分ける必要は無い)。
+ * item.subject は時刻予定 (Occurrence) と終日予定 (AllDayOccurrence) のどちらもありうる。
+ * 不在は「終日の不在を全高ラインとして時刻予定と同じ配列に合流させたもの」、勤務場所は
+ * 「終日の勤務場所を地として1日ぶんの区間に畳んだもの」がそれぞれ終日側の由来
+ * (どちらも合流は WeekGrid.tsx 側で済ませてある)。ラベル整形だけ isTimedSubject で分岐し、
+ * 終日由来なら元の終日予定の日付範囲を出す ―― 区間は切り出した断片だが、詳細で示すべきは
+ * 「その区間の根拠になっている予定そのもの」なので、断片の時刻ではなく元の範囲を見せる。
  *
  * ホバーのツールチップ・クリック/タップの詳細ポップオーバーは EventBlock/AllDayBar と全く同じ
  * 機構(hooks/useHoverTooltip.ts + eventPopoverShared.ts の共有ツールチップ DOM ノード、
