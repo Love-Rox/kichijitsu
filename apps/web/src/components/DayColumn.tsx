@@ -170,16 +170,23 @@ interface DayColumnProps {
    */
   oooItems: OooRailItem[];
   /**
-   * 勤務場所(workingLocation)レール(帯表示、時刻予定専用)。この日ぶんの時刻予定の
-   * 勤務場所アイテム(WeekGrid 側で isWorkingLocation===true な occurrence を packColumns の
-   * 入力から除外して集めたもの、layout/workingLocationRail.ts 参照)。OOO と同じく
-   * packColumns の入力からは除外する ―― カードとしては描画せず、このレールの帯だけで表す。
+   * 勤務場所(workingLocation)レール。この日ぶんを「重なりの無い区間の列」へ畳んだ結果
+   * (2026-07-29「1日の区間として描く」、layout/workingLocationSegments.ts の
+   * foldWorkingLocationDay)。OOO と同じく packColumns の入力からは除外する ―― カードとしては
+   * 描画せず、このレールの帯だけで表す。
+   *
+   * 区間の中身は「終日の勤務場所 = その日の既定の場所(地)」と「時刻付きの勤務場所 = その範囲の
+   * 上書き」を畳んだもので、subject は時刻予定・終日予定のどちらもありうる(RailBand.tsx が
+   * subject の形で表示を分岐する)。ただし終日ぶんが混ざるのは **その日に時刻付きが1件以上
+   * ある場合だけ** ―― 時刻付きが無い日の終日ぶんは従来どおり終日レーンのチップとして出る
+   * (振り分けは WeekGrid 側の splitWorkingLocationAllDayGroups、詳細は
+   * layout/workingLocationRail.ts 冒頭コメント)。
+   *
    * `.day-rail`(OOO の時刻ぶんと同じ x=0 起点の列を共有する。時間が重なる帯どうしだけ
    * layout/railStack.ts の列パッキングで列を分けて横に並べる。2026-07-22 横ずれ解消
    * リファクタ以前は「OOO がある日は常にバー1本ぶん内側へずらす」固定オフセットだったが、
    * 同時刻(特に長さ0)の帯が横にずれて見える不具合があったため撤去した)に描画する。
-   * 終日の勤務場所はこのレールに出さない(2026-07-22 終日レーンへ統合 ―― AllDayBar 側の
-   * 通常フローで他の終日予定と並べて表示する。詳細は layout/workingLocationRail.ts 冒頭コメント)。
+   * 区間どうしは定義上重ならないので、勤務場所だけの日は必ず1列に収まる。
    */
   workingLocationItems: WorkingLocationRailItem[];
   /**
@@ -301,6 +308,8 @@ export function DayColumn({
 
   // 2026-07-22 横ずれ解消リファクタ: OOO(時刻ぶん)と勤務場所を1本のレール(同じ x=0 起点の
   // 列)に統合し、時間が重なる帯どうしだけを列パッキング(layout/railStack.ts、
+  // 勤務場所側は 2026-07-29 以降「1日ぶんを畳んだ区間列」なので、勤務場所どうしは定義上
+  // 重ならない。列が増えるのは時刻の OOO と時間帯がぶつかったときだけ。
   // packColumns.ts の貪欲 first-fit を流用)で列分けして横に並べる。重ならない帯(接触含む)は
   // 全て列0(left: 0)に本来の時刻位置のまま乗るので縦に並ぶ。
   // 並び順は OOO → 勤務場所の順で配列を組み立てる ―― 同時刻タイ(例: 終了==開始が同時刻の

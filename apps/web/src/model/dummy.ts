@@ -156,10 +156,29 @@ export function generateDummyOverrides(series: EventSeries[]): InstanceOverride[
  * 中身は「不在(終日・単日/複数日)」と「不在ではない通常の終日予定」を混ぜてある ――
  * 設定を切り替えたときに、不在だけが終日レーンとタイムラインの間を行き来し、
  * 通常の終日予定は動かないことを一目で確かめられるようにするため。
+ *
+ * 2026-07-29「1日の区間として描く」で終日の勤務場所も追加した。日オフセットと意図の対応は
+ * generateDummyWorkingLocationOccurrences(下記)のコメントに一覧してある ―― 終日ぶんと
+ * 時刻付きぶんが別関数に分かれてしまうため、対応表は片方に集約した。
  */
 export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): AllDayOccurrence[] {
   const d = (offset: number) => baseDate.add({ days: offset }).toString();
+  /** 終日の勤務場所1件。色は使われない(CSS 側で薄墨固定)が型に必要なので中間色を置く */
+  const workingLocation = (id: string, title: string, offset: number): AllDayOccurrence => ({
+    id,
+    seriesId: null,
+    title,
+    startDate: d(offset),
+    endDate: d(offset), // 公式ガイドどおり終日の勤務場所は1日を超えない
+    color: "#6b7280",
+    source: "local",
+    isWorkingLocation: true,
+  });
   return [
+    workingLocation("dummy-allday-wl-home-m2", "自宅", -2),
+    workingLocation("dummy-allday-wl-office-m1", "オフィス", -1),
+    workingLocation("dummy-allday-wl-home-0", "自宅", 0),
+    workingLocation("dummy-allday-wl-home-2", "自宅", 2),
     {
       id: "dummy-allday-holiday",
       seriesId: null,
@@ -198,6 +217,67 @@ export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): Al
       source: "local",
       isOutOfOffice: true,
     },
+  ];
+}
+
+/**
+ * 時刻付きの勤務場所のダミー (2026-07-29「1日の区間として描く」、?demo=1 のときだけ)。
+ *
+ * 追加理由: 修正前は「同じ日に終日と時刻付きの勤務場所が両方ある」形をデモデータで再現できず、
+ * 二重表示もその解消も実ブラウザで確かめられなかった。実データ(2026-07 の勤務場所)で
+ * 確認できた形をそのまま写してある。
+ *
+ * baseDate からの日オフセットと、その日で確かめたいこと(終日ぶんは
+ * generateDummyAllDayOccurrences 側にある):
+ *
+ *   -2  終日=自宅   + 時刻付き=オフィス 13:30–20:00
+ *       → 地が前後に残って3区間に割れる(実データ 2026-07-24 の形)
+ *   -1  終日=オフィス + 時刻付き=自宅 9:30–13:00
+ *       → 既定と上書きが逆でも同じように畳まれる(実データ 2026-07-14 の形)
+ *   +0  終日=自宅 のみ
+ *       → **時刻付きが無い日は従来どおり終日レーンのチップ**(見え方の据え置き確認)
+ *   +2  終日=自宅 + 時刻付き2件(オフィス 9:00–12:00 / カフェ 15:00–17:00)
+ *       → 地が細切れになり、時刻付きが複数あっても全て残る
+ *
+ * 日の選び方: 終日の不在のダミー(+1 の「有給休暇」、+3〜+4 の「夏季休暇」)と重ならない日に
+ * 寄せてある。終日の不在は日列レールに常に列0・全高で描かれる(列パッキングの対象外)ので、
+ * 同じ日に勤務場所の区間を置くと重なって両方読めなくなり、確認の役に立たないため。
+ * 「時刻付きだけがあり終日は無い日」はこの表に入れていない ―― それは今回の変更前から
+ * ずっと出ていた形(時刻付きの帯そのもの)で、回帰の心配が無いうえ、区間への畳み込みは
+ * layout/workingLocationSegments.test.ts が網羅している。
+ *
+ * 他のダミー単発予定と同じく id を "dummy-" で始めてあるので、?demo=1 を外した次回起動時に
+ * cleanupDemoData (db/database.ts) がまとめて掃除する。
+ */
+export function generateDummyWorkingLocationOccurrences(
+  baseDate: Temporal.PlainDate,
+  timeZone: string,
+): Occurrence[] {
+  /** 時刻付きの勤務場所1件。色は使われない(CSS 側で薄墨固定)が型に必要なので中間色を置く */
+  const workingLocation = (
+    id: string,
+    title: string,
+    offset: number,
+    startHm: string,
+    endHm: string,
+  ): Occurrence => {
+    const date = baseDate.add({ days: offset }).toString();
+    return {
+      id,
+      seriesId: null,
+      title,
+      startMs: localIsoToEpochMs(`${date}T${startHm}`, timeZone),
+      endMs: localIsoToEpochMs(`${date}T${endHm}`, timeZone),
+      color: "#6b7280",
+      source: "local",
+      isWorkingLocation: true,
+    };
+  };
+  return [
+    workingLocation("dummy-wl-office-m2", "オフィス", -2, "13:30", "20:00"),
+    workingLocation("dummy-wl-home-m1", "自宅", -1, "09:30", "13:00"),
+    workingLocation("dummy-wl-office-2", "オフィス", 2, "09:00", "12:00"),
+    workingLocation("dummy-wl-cafe-2", "カフェ", 2, "15:00", "17:00"),
   ];
 }
 

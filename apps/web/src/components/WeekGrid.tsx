@@ -40,10 +40,13 @@ import {
   type OooRailItem,
 } from "../layout/oooRail";
 import {
+  allDayWorkingLocationRailItems,
+  splitWorkingLocationAllDayGroups,
   splitWorkingLocationGroups,
   timedWorkingLocationRailItems,
   type WorkingLocationRailItem,
 } from "../layout/workingLocationRail";
+import { foldWorkingLocationDay } from "../layout/workingLocationSegments";
 import {
   accumulateWheelZoom,
   clampHourHeight,
@@ -260,12 +263,15 @@ interface WeekPanelData {
     /** この日ぶんの不在(時刻予定側)。packColumns の入力からは除外済み(oooRail.ts 参照) */
     oooItems: OooRailItem[];
     /**
-     * この日ぶんの勤務場所レール項目(帯表示、時刻予定専用。2026-07-22 終日レーンへ統合 ――
-     * 終日の勤務場所はもうここに含まれない、AllDayBar 側の通常フローで表示される)。
-     * OOO と同じく packColumns の入力(cardGroups)から除外済み
-     * (layout/workingLocationRail.ts 参照)。
+     * この日ぶんの勤務場所レール項目のうち **時刻付きのぶんだけ**。OOO と同じく
+     * packColumns の入力(cardGroups)から除外済み(layout/workingLocationRail.ts 参照)。
+     *
+     * 終日ぶん(地)はここには入らない ―― 終日予定は別のデータソース(AllDayStore)から
+     * 来るうえ、「その日に時刻付きがあるか」を先に知らないと行き先(終日レーンのチップか
+     * レールの地か)が決められないため。両者の合流と区間への畳み込みは、この memo より
+     * 後段の workingLocationSegmentPanels で行う(2026-07-29「1日の区間として描く」)。
      */
-    workingLocationItems: WorkingLocationRailItem[];
+    timedWorkingLocationItems: WorkingLocationRailItem[];
   }[];
 }
 
@@ -655,17 +661,35 @@ export function WeekGrid({
             (g) => g.primary.endMs,
           );
           const oooItems = timedOooRailItems(oooGroups, dayStarts[i], dayEnds[i]);
-          const workingLocationItems = timedWorkingLocationRailItems(
+          const timedWorkingLocationItems = timedWorkingLocationRailItems(
             workingLocationGroups,
             dayStarts[i],
             dayEnds[i],
           );
-          return { day, positioned, oooItems, workingLocationItems };
+          return { day, positioned, oooItems, timedWorkingLocationItems };
         });
         return { panelStart, days, dayStarts, dayEnds, dayData };
       }),
     [panelStarts, dayCount, groupedOccurrences, timeZone],
   );
+
+  /**
+   * 表示中の3パネルのうち「時刻付きの勤務場所が1件以上ある日」の集合("YYYY-MM-DD")。
+   * 2026-07-29「1日の区間として描く」: 終日の勤務場所を終日レーンのチップとして出すか、
+   * レールの区間の地にするかの振り分け(splitWorkingLocationAllDayGroups)に使う。
+   *
+   * 日の境界はタイムゾーン依存なので、日割りを既に持っている weekPanels から数える ――
+   * 終日予定側 (AllDayStore) は日付文字列しか持たず、自前では判定できない。
+   */
+  const datesWithTimedWorkingLocation = useMemo(() => {
+    const dates = new Set<string>();
+    for (const panel of weekPanels) {
+      for (const d of panel.dayData) {
+        if (d.timedWorkingLocationItems.length > 0) dates.add(d.day.toString());
+      }
+    }
+    return dates;
+  }, [weekPanels]);
 
   // ---- 終日レーン (フェーズ5) ----
   // 展開ウィンドウの概念が無い終日予定は、表示中3パネルぶんの日付範囲 [fromDate, toDate]
@@ -694,22 +718,55 @@ export function WeekGrid({
   // 2026-07-28: この振り分けは左ペイン「表示」の設定で切り替わるようになった
   // (oooAllDayPlacement)。"allday" のときは不在も barGroups に残り、他の終日予定と同じ
   // packDayBars/AllDayBar 経路を通る(oooGroups は空になるので下記の全高ラインは出ない)。
-  // 勤務場所(workingLocation)はここではもう分離しない(2026-07-22 終日レーンへ統合 ――
-  // 従来は OOO と同じく専用レールへ全高帯として振り分けていたが、「他の終日予定と並べて
-  // 見たい」というユーザー要望により、終日ぶんは barGroups に残したまま通常の
-  // packDayBars/AllDayBar 経路に流すよう変更した。見た目の分岐(薄墨枡色+地図ピン)は
-  // AllDayBar.tsx が occurrence.isWorkingLocation を直接見て行う
-  // (layout/workingLocationRail.ts の isWorkingLocation を再利用、時刻予定側の判定関数と共通)。
-  const { groupedAllDayBarOccurrences, groupedAllDayOooOccurrences } = useMemo(() => {
+  // 勤務場所(workingLocation)は 2026-07-29「1日の区間として描く」で日ごとの振り分けに
+  // なった。2026-07-22〜2026-07-29 は終日ぶんを無条件に barGroups へ残していたが、その形だと
+  // 「同じ日に終日と時刻付きが両方ある」日で終日チップと時刻付き帯が独立に並び、利用者から
+  // 「勤務地の変更前と変更後の両方が残っている」ように見えていた(今回の修正の直接の原因)。
+  // - 時刻付きが1件も無い日 … 従来どおり barGroups に残す(packDayBars/AllDayBar のチップ)。
+  //   見た目の分岐(薄墨枡色+地図ピン)は AllDayBar.tsx が occurrence.isWorkingLocation を
+  //   直接見て行う。**既存利用者の見え方を変えないため据え置き。**
+  // - 時刻付きがある日 … workingLocationSegmentGroups へ回し、時刻付きと合わせて区間へ畳む
+  //   (下記 workingLocationSegmentPanels)。この日は終日チップを出さない。
+  // 不在 (OOO) の振り分けを先に通してから勤務場所を分ける ―― eventType は排他なので順序に
+  // 意味は無いが、時刻予定側 (weekPanels) の「OOO を先に処理する」流儀にそのまま揃えてある。
+  const {
+    groupedAllDayBarOccurrences,
+    groupedAllDayOooOccurrences,
+    workingLocationSegmentGroups,
+  } = useMemo(() => {
     const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
       groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
       oooAllDayPlacement,
     );
+    const { barGroups: chipGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
+      barGroups,
+      datesWithTimedWorkingLocation,
+    );
     return {
-      groupedAllDayBarOccurrences: barGroups,
+      groupedAllDayBarOccurrences: chipGroups,
       groupedAllDayOooOccurrences: oooGroups,
+      workingLocationSegmentGroups: segmentGroups,
     };
-  }, [visibleAllDayOccurrences, oooAllDayPlacement]);
+  }, [visibleAllDayOccurrences, oooAllDayPlacement, datesWithTimedWorkingLocation]);
+
+  /**
+   * 日ごとの勤務場所の区間列(2026-07-29「1日の区間として描く」)。
+   * 終日ぶん(地)と時刻付きぶん(上書き)をここで初めて合流させ、
+   * foldWorkingLocationDay で重なりの無い区間へ畳む。weekPanels と同じ panelStarts 由来なので
+   * index が揃う(allDayOooPanels / activityPanels と同じ流儀)。
+   */
+  const workingLocationSegmentPanels = useMemo(
+    () =>
+      weekPanels.map(({ dayData }) =>
+        dayData.map(({ day, timedWorkingLocationItems }) =>
+          foldWorkingLocationDay(
+            allDayWorkingLocationRailItems(workingLocationSegmentGroups, day),
+            timedWorkingLocationItems,
+          ),
+        ),
+      ),
+    [weekPanels, workingLocationSegmentGroups],
+  );
 
   // パネルごとの行割り当て・3パネル共有の表示行数・「+N」への振り分けは
   // layout/allDayPanels.ts の純関数3段に委譲する(2026-07-26 リファクタ フェーズ3a ――
@@ -1064,7 +1121,7 @@ export function WeekGrid({
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayData.map(({ day, positioned, oooItems, workingLocationItems }, dayIndex) => (
+                  {dayData.map(({ day, positioned, oooItems }, dayIndex) => (
                     <DayColumn
                       key={day.toString()}
                       dayIndex={dayIndex}
@@ -1089,10 +1146,10 @@ export function WeekGrid({
                       // 終日側(allDayOooPanels、同じ panelStarts 由来で index が揃う)を
                       // ここで初めてマージする(両者は独立したデータソースのため)
                       oooItems={[...oooItems, ...allDayOooPanels[panelIndex].dayItems[dayIndex]]}
-                      // 勤務場所レールは時刻予定側のみ(2026-07-22 終日レーンへ統合 ――
-                      // 終日ぶんはもう別途マージしない。上記 workingLocationItems は
-                      // weekPanels の dayData 由来で、この日にすでに絞り込み済み)
-                      workingLocationItems={workingLocationItems}
+                      // 勤務場所レールは「1日ぶんを畳んだ区間列」(2026-07-29)。終日(地)と
+                      // 時刻付き(上書き)は workingLocationSegmentPanels の中で既に合流・
+                      // 畳み込み済みで、互いに重ならないことが保証されている
+                      workingLocationItems={workingLocationSegmentPanels[panelIndex][dayIndex]}
                       ciClusters={ciPanels[panelIndex].dayClusters[dayIndex]}
                       plannedBlocks={plannedPanels[panelIndex].dayBlocks[dayIndex]}
                       onDropWorkItem={onDropWorkItem}
