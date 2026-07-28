@@ -461,6 +461,7 @@ function App() {
     defaultWriteTarget,
     writeTargetCandidates,
     runSync,
+    runFullResync,
     syncCalendar,
     setDeviceId,
     forgetAutoSyncedTaskLists,
@@ -977,6 +978,7 @@ function App() {
         mcpTokens={mcpTokens}
         handleCreateMcpToken={handleCreateMcpToken}
         handleDeleteMcpToken={handleDeleteMcpToken}
+        runFullResync={runFullResync}
         blockOverlayOpen={blockOverlayOpen}
         calendarsByAccount={calendarsByAccount}
         blockRules={blockRules}

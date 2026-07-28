@@ -33,6 +33,7 @@ export interface AppOverlaysProps {
   mcpTokens: ComponentProps<typeof SettingsModal>["mcpTokens"];
   handleCreateMcpToken: ComponentProps<typeof SettingsModal>["onCreateMcpToken"];
   handleDeleteMcpToken: ComponentProps<typeof SettingsModal>["onDeleteMcpToken"];
+  runFullResync: ComponentProps<typeof SettingsModal>["onResync"];
   blockOverlayOpen: boolean;
   calendarsByAccount: GoogleAccountsController["calendarsByAccount"];
   blockRules: ComponentProps<typeof BlockRulesOverlay>["rules"];
@@ -70,6 +71,7 @@ export function AppOverlays({
   mcpTokens,
   handleCreateMcpToken,
   handleDeleteMcpToken,
+  runFullResync,
   blockOverlayOpen,
   calendarsByAccount,
   blockRules,
@@ -130,6 +132,7 @@ export function AppOverlays({
           mcpTokens={mcpTokens}
           onCreateMcpToken={handleCreateMcpToken}
           onDeleteMcpToken={handleDeleteMcpToken}
+          onResync={runFullResync}
           onClose={() => setPanelOpen(false)}
         />
       )}

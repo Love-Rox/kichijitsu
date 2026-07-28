@@ -40,7 +40,8 @@ import { useServerEvents } from "./useServerEvents";
  *    同一 (accountId, calendarId) の多重実行は syncSchedulerRef で直列化する。
  *  - **1タスクリストの同期** (syncTaskList = POST /api/tasks/sync、docs/google-tasks.md)。
  *  - **一巡同期** (runSync = 選択中カレンダー + 取得済みタスクリストを並行、手動「同期」ボタンと
- *    起動時の自動同期)と、**同期バックフィル** (runSyncBackfillIfNeeded、forceFull で全同期)。
+ *    起動時の自動同期)と、**同期バックフィル** (runSyncBackfillIfNeeded、forceFull で全同期)、
+ *    および**再同期** (runFullResync = 設定モーダルの脱出口。runSync と同じ対象を forceFull で回す)。
  *  - **SSE** (useServerEvents) の hello / changed 配線、および起動時1回の自動同期 effect、
  *    タスクリストが新たに見つかったときの1回だけの自動同期 effect。
  *  - **新規予定の既定の書き込み先** (defaultWriteTarget)。selectedTargets から導くため同居させた。
@@ -79,6 +80,13 @@ export interface CalendarSyncController {
   writeTargetCandidates: readonly WriteTargetCandidate[];
   /** ツールバーの「同期」ボタン。選択中カレンダー + 取得済みタスクリストを並行同期する */
   runSync: () => Promise<void>;
+  /**
+   * 設定モーダルの「再同期」(2026-07-29、ユーザー要望)。runSync と同じ対象を、
+   * カレンダーだけ forceFull で回す全件取り直し。失敗したら reject する
+   * (呼び出し元の2段階確認 UI が「失敗」を出す) ―― runSync が握りつぶすのと違うのは、
+   * 利用者が明示的に押した操作で、結果を伝えないと押し直す判断ができないため
+   */
+  runFullResync: () => Promise<void>;
   /**
    * 1カレンダーの同期(直列化つき)。App.tsx のグルーが「カレンダーを新規選択した直後の
    * 即時同期」で呼ぶ。runSync / SSE / バックフィルからも同じ経路を通る
@@ -306,6 +314,41 @@ export function useCalendarSync({
     setSyncStatus(hadError ? "error" : "idle");
   }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
 
+  // 設定モーダルの「再同期」(2026-07-29、ユーザー要望)。runSync の全同期版で、
+  // 対象の作り方も適用経路も runSync と同一 ―― 違いはカレンダーに forceFull: true を渡す点だけ。
+  //
+  // なぜ「サーバーの syncToken を捨てるエンドポイント」を新設しないのか: POST /api/sync の
+  // forceFull (2026-07-22、同期バックフィル用) が既に「保存済み syncToken を読まずに全同期する」
+  // そのものだから (apps/sync の core/sync-token-store.ts の wrapGetSyncTokenForForceFull)。
+  // 全同期の応答は isFullSync: true で返り、applySyncResponse → applyFullSyncAtomic が
+  // その (accountId, calendarId) のローカル複製を単一トランザクションで置き換えるので、
+  // アプリ外で削除されたのに残ってしまった予定 (削除通知を取りこぼした残骸) もここで消える。
+  //
+  // 例外を握りつぶさず投げ直すのは runSync との意図的な差: 利用者が明示的に押した操作なので、
+  // 「終わった/失敗した」を UI (SettingsModal の2段階確認) に伝えないと押し直す判断ができない。
+  const runFullResync = useCallback(async () => {
+    if (!db) return;
+    const targets = selectedTargets();
+    const taskTargets = selectedTaskListTargets();
+    if (targets.length === 0 && taskTargets.length === 0) return;
+
+    setSyncStatus("syncing");
+    // タスクは syncToken を持たず毎回そのタスクリストの全件で置き換わる (applyTasksSync.ts) ので、
+    // forceFull 相当の区別は不要 ―― 通常の syncTaskList をそのまま混ぜれば全件取り直しになる
+    const results = await Promise.allSettled([
+      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
+      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
+    ]);
+    const failures = results.filter((result) => result.status === "rejected");
+    for (const failure of failures) {
+      console.error("kichijitsu: full resync failed", failure.reason);
+    }
+    setSyncStatus(failures.length > 0 ? "error" : "idle");
+    if (failures.length > 0) {
+      throw new Error(`full resync failed (${failures.length}/${results.length})`);
+    }
+  }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
+
   // 同期バックフィル (2026-07-22、旧 runOooBackfillIfNeeded の一般化。db/database.ts の
   // CURRENT_SYNC_BACKFILL_VERSION コメント参照)。起動時の自動同期 (runSync、下の useEffect) が
   // 終わった直後に1回だけ呼ぶ: runSync 自体を forceFull にはしない(手動「同期」ボタンや
@@ -440,6 +483,7 @@ export function useCalendarSync({
     defaultWriteTarget,
     writeTargetCandidates,
     runSync,
+    runFullResync,
     syncCalendar,
     setDeviceId,
     forgetAutoSyncedTaskLists,
