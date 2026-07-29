@@ -300,6 +300,19 @@
   z-index: 1000 !important;
 }
 
+/*
+ * Option(Alt)+ドラッグでの複製中(2026-07-29、ユーザー要望)。
+ * 新しい意匠は作らず、既存のドラッグ表示 (.event--dragging) に破線の輪郭を1本足すだけ
+ * ―― 「今掴んでいるのは元の予定ではなく、これから作られる複製(まだ存在しない予定)だ」
+ * ことを示す。破線は新規作成ドラッグのゴースト (.day-column-create-ghost) と同じ語彙で、
+ * 色は既存トークン --c-accent(朱)。輪郭は outline なのでカードの寸法・
+ * 中身のレイアウトを一切動かさない(移動ドラッグの見え方は従来のまま)。
+ */
+.event.event--dragging.event--duplicating {
+  outline: 1.5px dashed var(--c-accent);
+  outline-offset: 1px;
+}
+
 .event-resize-handle {
   position: absolute;
   left: 0;
@@ -326,6 +339,21 @@
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(var(--c-shadow-hard-rgb), 0.25);
   white-space: nowrap;
+}
+
+/*
+ * 複製ドラッグ中のバッジ(2026-07-29)。時刻の前に「+」を1文字足すだけで
+ * 「この時間帯に予定が1つ増える」ことを示す ―― バッジそのものの体裁(地色・角丸・影)は
+ * 移動ドラッグと共通のまま変えない。テキストは EventBlock.tsx が時刻範囲だけを書き込み、
+ * この印は CSS 側で付ける(表示上の飾りなので DOM のテキストには混ぜない)。
+ */
+.drag-badge--duplicate::before {
+  content: "+";
+  margin-right: 4px;
+  font-weight: 700;
+  /* 地は濃色の --c-badge-fill なので、色は他の文字と同じ --c-on-color に揃える
+     ―― ここに朱 (--c-accent) を置くとライトの濃い地の上で沈んで読めない */
+  color: var(--c-on-color);
 }
 
 /*

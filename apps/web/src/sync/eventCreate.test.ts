@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   buildCreateDraft,
+  buildDuplicateDraft,
   buildEventCreateRequest,
   buildPendingAllDayOccurrence,
   buildPendingOccurrence,
   buildPendingOccurrenceId,
+  canDuplicateOccurrence,
+  duplicateWriteTarget,
   findWriteTarget,
   finalizeCreatedAllDayOccurrence,
   finalizeCreatedOccurrence,
@@ -15,6 +18,7 @@ import {
   type WriteTargetCandidate,
 } from "./eventCreate";
 import { validateEventEditDraft } from "./eventEdit";
+import type { Occurrence } from "../model/types";
 
 const TZ = "Asia/Tokyo";
 
@@ -318,5 +322,83 @@ describe("finalizeCreatedAllDayOccurrence", () => {
     expect(finalized.startDate).toBe("2026-07-20");
     expect(finalized.endDate).toBe("2026-07-20");
     expect(finalized.color).toBe("#22c55e");
+  });
+});
+
+// ---- Option(Alt)+ドラッグでの複製 (2026-07-29) ----
+
+const SOURCE: Occurrence = {
+  id: "g:acc-1:cal-1:evt-1",
+  seriesId: null,
+  title: "定例",
+  startMs: Date.UTC(2026, 6, 20, 1, 0),
+  endMs: Date.UTC(2026, 6, 20, 2, 0),
+  color: "#3b82f6",
+  hasCustomColor: false,
+  source: "google",
+  accountId: "acc-1",
+  calendarId: "cal-1",
+  location: "会議室A",
+  description: "議事メモ",
+};
+
+describe("duplicateWriteTarget / canDuplicateOccurrence", () => {
+  it("元の予定と同じカレンダーを書き込み先にする", () => {
+    expect(duplicateWriteTarget(SOURCE)).toEqual({
+      accountId: "acc-1",
+      calendarId: "cal-1",
+      defaultColor: "#3b82f6",
+    });
+    expect(canDuplicateOccurrence(SOURCE)).toBe(true);
+  });
+
+  it("ミラー / Busy プレースホルダ / 非 Google は複製できない(複製ドラッグを始めない)", () => {
+    expect(canDuplicateOccurrence({ ...SOURCE, isMirror: true })).toBe(false);
+    expect(canDuplicateOccurrence({ ...SOURCE, title: "予定あり" })).toBe(false);
+    expect(canDuplicateOccurrence({ ...SOURCE, source: "local" })).toBe(false);
+  });
+
+  it("accountId / calendarId が無ければ書き込み先を特定できないので複製できない", () => {
+    expect(duplicateWriteTarget({ ...SOURCE, calendarId: undefined })).toBeNull();
+    expect(duplicateWriteTarget({ ...SOURCE, accountId: undefined })).toBeNull();
+  });
+});
+
+describe("buildDuplicateDraft", () => {
+  it("タイトル/場所/説明を引き継ぎ、時刻だけドロップ先に差し替える", () => {
+    const startMs = Date.UTC(2026, 6, 21, 4, 0);
+    const endMs = startMs + 60 * 60_000;
+    expect(buildDuplicateDraft(SOURCE, startMs, endMs)).toEqual({
+      title: "定例",
+      location: "会議室A",
+      description: "議事メモ",
+      isAllDay: false,
+      startMs,
+      endMs,
+    });
+  });
+
+  it("場所/説明が無い予定でも空文字で埋まる(EventCreateRequest ではキー自体が落ちる)", () => {
+    const bare = { ...SOURCE, location: undefined, description: undefined };
+    const d = buildDuplicateDraft(bare, 0, 60_000);
+    expect(d.location).toBe("");
+    expect(d.description).toBe("");
+    const req = buildEventCreateRequest({
+      draft: d,
+      target: duplicateWriteTarget(bare)!,
+      timeZone: TZ,
+    });
+    expect("location" in req).toBe(false);
+    expect("description" in req).toBe(false);
+  });
+
+  it("シリーズ由来の1回分を複製すると、単発の新しい予定になる(seriesId を持ち込まない)", () => {
+    const instance: Occurrence = { ...SOURCE, seriesId: "series-1", originalStartMs: SOURCE.startMs };
+    const target = duplicateWriteTarget(instance)!;
+    const pending = buildPendingOccurrence({
+      draft: buildDuplicateDraft(instance, 0, 60_000),
+      target,
+    });
+    expect(pending.seriesId).toBeNull();
   });
 });

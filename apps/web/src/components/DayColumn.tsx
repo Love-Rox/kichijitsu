@@ -116,6 +116,8 @@ interface DayColumnProps {
   weekDayStarts: readonly number[];
   /** kind (フェーズ2、2026-07-22): EventBlockProps.onCommit と同じ("move"/"resize") */
   onCommit: (updated: Occurrence, kind: "move" | "resize") => void;
+  /** Option(Alt)+ドラッグでの複製 (EventBlockProps.onDuplicate、2026-07-29) */
+  onDuplicate: (source: Occurrence, startMs: number, endMs: number) => void;
   onDelete: (occurrence: Occurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
@@ -244,6 +246,7 @@ export function DayColumn({
   timeZone,
   weekDayStarts,
   onCommit,
+  onDuplicate,
   onDelete,
   onSaveEdit,
   onRsvp,
@@ -701,6 +704,7 @@ export function DayColumn({
             dayStartMs={dayStartMs}
             weekDayStarts={weekDayStarts}
             onCommit={onCommit}
+            onDuplicate={onDuplicate}
             onDelete={onDelete}
             onSaveEdit={onSaveEdit}
             onRsvp={onRsvp}

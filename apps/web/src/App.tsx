@@ -562,6 +562,7 @@ function App() {
     saveError,
     persist: handlePersist,
     createEvent: handleCreate,
+    duplicateEvent: handleDuplicate,
     deleteOccurrence: handleDeleteOccurrence,
     moveConfirm,
     requestMoveConfirm: handleRequestMoveConfirm,
@@ -857,6 +858,9 @@ function App() {
               timeZone={timeZone}
               onPersist={handlePersist}
               onRequestMoveConfirm={handleRequestMoveConfirm}
+              // Option(Alt)+ドラッグでの複製 (2026-07-29)。移動 (onPersist) と違い
+              // 元の予定は変わらないので、新規作成と同じ経路へ直行する
+              onDuplicate={handleDuplicate}
               visibleCalendarKeys={visibleCalendarKeys}
               calendarLookup={calendarLookup}
               onDelete={handleDeleteOccurrence}

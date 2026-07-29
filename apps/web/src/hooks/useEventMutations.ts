@@ -17,9 +17,11 @@ import type { AllDayStore } from "../store/allDayStore";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import type { TaskStore } from "../store/taskStore";
 import {
+  buildDuplicateDraft,
   buildEventCreateRequest,
   buildPendingAllDayOccurrence,
   buildPendingOccurrence,
+  duplicateWriteTarget,
   finalizeCreatedAllDayOccurrence,
   finalizeCreatedOccurrence,
   type EventCreateDraft,
@@ -44,6 +46,8 @@ import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
  *  1. **ドラッグ/リサイズの確定** (persist): 楽観的更新済みの store に合わせて IndexedDB を
  *     書き、Google へ POST /api/event/patch。失敗でロールバック。
  *  2. **新規作成** (createEvent): 仮 id で楽観表示 → POST /api/event/create → 確定 id へ差し替え。
+ *     Option(Alt)+ドラッグの**複製** (duplicateEvent、2026-07-29) もこの経路に相乗りする
+ *     ―― 複製元の内容を draft に写して createEvent を呼ぶだけの薄い包み。
  *  3. **削除** (deleteOccurrence): 楽観的に消す → POST /api/event/delete → 失敗で復元。
  *  4. **編集フォーム保存** (saveEdit) と **RSVP** (rsvp): 「保存ボタン方式」なので楽観更新はせず、
  *     成功して初めて store/IndexedDB へ反映する(= ロールバック経路が無い)。
@@ -73,6 +77,11 @@ export interface EventMutationsController {
    * (タイトルだけ) も詳細フォーム (全項目) も同じ形 (2026-07-29 全項目入力)。
    */
   createEvent: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
+  /**
+   * Option(Alt)+ドラッグでの複製 (onDuplicate、2026-07-29)。元の予定はそのまま残し、
+   * ドロップ先の時間帯へ同じ内容の**新しい予定**を作る ―― 中身は createEvent そのもの。
+   */
+  duplicateEvent: (source: Occurrence, startMs: number, endMs: number) => void;
   /** 詳細ポップオーバーの削除ボタン (onDelete) */
   deleteOccurrence: (occurrence: Occurrence) => void;
   /** ドラッグ移動の確認待ち。null 以外なら MoveConfirmDialog を出す */
@@ -336,6 +345,28 @@ export function useEventMutations({
       });
     },
     [db, store, allDayStore, checkedFetch, timeZone, flashSaveError],
+  );
+
+  // Option(Alt)+ドラッグでの複製(2026-07-29、ユーザー要望)。
+  // **新しい作成経路は作らず**、複製元 + ドロップ先の時間帯を sync/eventCreate.ts の純関数で
+  // draft + 書き込み先に落として、そのまま上の createEvent に流すだけ ―― 楽観表示(仮 id →
+  // POST → 確定 id)もロールバックも既存の仕組みをそのまま使える。
+  //
+  // 移動 (persist) と違い、元の予定には一切触れない(store.update も patch もしない)ので
+  // 移動確認ダイアログ (MoveConfirmDialog) は挟まない ―― あのダイアログは「うっかり掴んで
+  // 予定の時刻を変えてしまった」を取り消すためのもので、元が変わらない複製では意味が無い
+  // (増えた予定が不要なら、その予定を削除すればよい)。
+  //
+  // duplicateWriteTarget が null(ミラー・Busy・非 Google 等)なら何もしない。通常は
+  // EventBlock 側が canDuplicateOccurrence で複製ドラッグ自体を始めないため到達しないが、
+  // 呼び出し経路が増えたときのための保険として同じ判定をここにも置く。
+  const duplicateEvent = useCallback(
+    (source: Occurrence, startMs: number, endMs: number) => {
+      const target = duplicateWriteTarget(source);
+      if (!target) return;
+      createEvent(buildDuplicateDraft(source, startMs, endMs), target);
+    },
+    [createEvent],
   );
 
   // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
@@ -604,6 +635,7 @@ export function useEventMutations({
     saveError,
     persist,
     createEvent,
+    duplicateEvent,
     deleteOccurrence,
     moveConfirm,
     requestMoveConfirm,
