@@ -180,8 +180,13 @@ export class UserSyncDO extends DurableObject<Env> {
     accountId: string,
     calendarId: string,
     eventId: string,
-    startMs: number,
-    endMs: number,
+    /**
+     * 変更後の時間帯。**両方 undefined なら Google 側の時刻に触らない**
+     * (2026-07-30、繰り返し予定の適用範囲 — google/patch-event.ts のコメント参照)。
+     * 引数の位置は変えていないので、既存の呼び出し元 (MCP の update_event) はそのまま。
+     */
+    startMs: number | undefined,
+    endMs: number | undefined,
     timeZone: string,
     fields?: {
       summary?: string;

@@ -1,8 +1,13 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { EventPatchRequest } from "@kichijitsu/shared";
+import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence, OccurrenceSource } from "../model/types";
 import { isBusyPlaceholder } from "../layout/gridMetrics";
-import { rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
+import {
+  buildScopedEventPatchRequest,
+  DEFAULT_RECURRENCE_SCOPE,
+  type RecurrenceScope,
+} from "./recurrenceScope";
 
 /**
  * 予定の編集フォーム(フェーズ2、2026-07-22)に関する純関数群。詳細ポップオーバー
@@ -92,41 +97,51 @@ export function isEditableEventSubject(subject: {
 }
 
 /**
- * draft から POST /api/event/patch の body を組み立てる。eventId の組み立て規則は
- * sync/eventPatch.ts の buildEventPatchRequest と全く同じ (rawGoogleEventId /
- * seriesInstanceEventId を再利用)。isEditableEventSubject が false な相手には呼ばない前提だが、
- * 念のため source/accountId/calendarId のガードは buildEventPatchRequest と同様に持つ。
+ * 編集フォームを開いたときの subject の時間帯 (= 変更前)。「すべての予定」に写す差分は
+ * draft との差で決まる (sync/recurrenceScope.ts の seriesShiftFor 参照) ため、
+ * 終日 (AllDayOccurrence) も含めて epoch ms の形に揃えて取り出す。
+ * 終日予定はシリーズ由来になり得ない (展開結果は常に時刻予定) ので、実際に使われるのは
+ * 時刻予定の枝だけだが、呼び出し側で分岐を書かなくて済むよう両方扱う。
+ */
+export function subjectTimeRange(
+  subject: Occurrence | AllDayOccurrence,
+  timeZone: string,
+): { startMs: number; endMs: number } {
+  if ("startMs" in subject) return { startMs: subject.startMs, endMs: subject.endMs };
+  const { startMs, endMs } = draftFromAllDayOccurrence(subject, timeZone);
+  return { startMs, endMs };
+}
+
+/**
+ * draft から POST /api/event/patch の body を組み立てる。宛先 (どの event id を、どの時刻で
+ * patch するか) は sync/recurrenceScope.ts の buildScopedEventPatchRequest に一本化してあり、
+ * ドラッグ確定 (useEventMutations の persist) と同じ判断を通る
+ * (2026-07-30、繰り返し予定の適用範囲)。scope を省略すれば従来どおり「この予定のみ」。
+ * isEditableEventSubject が false な相手には呼ばない前提だが、source/accountId/calendarId の
+ * ガードは buildScopedEventPatchRequest 側が持つ。
  */
 export function buildEventEditPatchRequest(
   subject: Occurrence | AllDayOccurrence,
   draft: EventEditDraft,
   timeZone: string,
+  scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE,
+  /** scope==='all' のときだけ必要な、ローカルの series レコード */
+  series?: EventSeries | null,
 ): EventPatchRequest | null {
-  if (subject.source !== "google" || !subject.accountId || !subject.calendarId) {
-    return null;
-  }
-  try {
-    const originalStartMs = "originalStartMs" in subject ? subject.originalStartMs : undefined;
-    const eventId =
-      subject.seriesId && originalStartMs !== undefined
-        ? seriesInstanceEventId(subject.seriesId, originalStartMs)
-        : rawGoogleEventId(subject.id);
-    return {
-      accountId: subject.accountId,
-      calendarId: subject.calendarId,
-      eventId,
-      startMs: draft.startMs,
-      endMs: draft.endMs,
-      timeZone,
+  return buildScopedEventPatchRequest({
+    subject,
+    scope,
+    series,
+    previous: subjectTimeRange(subject, timeZone),
+    next: { startMs: draft.startMs, endMs: draft.endMs },
+    timeZone,
+    fields: {
       summary: draft.title,
       location: draft.location,
       description: draft.description,
       isAllDay: draft.isAllDay,
-    };
-  } catch (err) {
-    console.error("kichijitsu: failed to build edit EventPatchRequest", err);
-    return null;
-  }
+    },
+  });
 }
 
 /** original (Occurrence/AllDayOccurrence どちらでも) + draft(時刻予定側) → 更新後の Occurrence */

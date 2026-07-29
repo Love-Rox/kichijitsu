@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-validate-gh-path"
+description = "Enables the validate_gh_path command without any pre-configured scope."
+commands.allow = ["validate_gh_path"]
+
+[[permission]]
+identifier = "deny-validate-gh-path"
+description = "Denies the validate_gh_path command without any pre-configured scope."
+commands.deny = ["validate_gh_path"]

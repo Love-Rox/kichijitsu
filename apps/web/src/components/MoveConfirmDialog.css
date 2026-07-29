@@ -60,6 +60,50 @@
   font-weight: 600;
 }
 
+/*
+ * 繰り返し予定の適用範囲 (2026-07-30)。繰り返しでない予定では描画されないので、
+ * 従来の見た目 (見出し + 時刻 + ボタン) は1pxも動かない。
+ * fieldset/legend の既定の枠・余白は打ち消して、他の項目と同じ間隔に揃える。
+ */
+.move-confirm-scope {
+  border: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.move-confirm-scope-legend {
+  padding: 0;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-ink-sub);
+}
+
+.move-confirm-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.move-confirm-scope-option input {
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+/* 選択肢が「この予定のみ」1つきりのときの説明。ラジオの代わりに理由を書く */
+.move-confirm-note {
+  margin: 0 0 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--c-ink-mute);
+}
+
 .move-confirm-actions {
   display: flex;
   align-items: center;

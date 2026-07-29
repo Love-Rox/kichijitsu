@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { patchEventTime, toDateOnly, toRfc3339Utc } from "../src/google/patch-event";
-import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../src/core/patch-event";
+import {
+  isValidEventPatchRequest,
+  patchEventTimeWithRetry,
+  type PatchEventCoreDeps,
+} from "../src/core/patch-event";
 
 const PARAMS = {
   calendarId: "primary",
@@ -213,5 +217,98 @@ describe("patchEventTimeWithRetry", () => {
     await expect(patchEventTimeWithRetry(deps, PARAMS)).rejects.toThrow(/401/);
     expect(forceRefreshAccessToken).toHaveBeenCalledOnce();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * 繰り返し予定の適用範囲 (2026-07-30)。「すべての予定」で内容だけを変える場合、親
+ * (シリーズ) の start は DTSTART そのものなので、時刻を送らない経路が要る。
+ */
+describe("patchEventTime — 時刻を送らない (startMs/endMs 未指定)", () => {
+  it("start/end のキー自体を body に含めない (Google 側の時刻を保つ)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await patchEventTime(fetchImpl, "access-token", {
+      calendarId: "primary",
+      eventId: "series-1",
+      timeZone: "Asia/Tokyo",
+      summary: "新しいタイトル",
+    });
+
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toEqual({ summary: "新しいタイトル" });
+    expect("start" in body).toBe(false);
+    expect("end" in body).toBe(false);
+  });
+});
+
+describe("isValidEventPatchRequest", () => {
+  const VALID = {
+    accountId: "acc-1",
+    calendarId: "cal-1",
+    eventId: "evt-1",
+    startMs: 1_700_000_000_000,
+    endMs: 1_700_003_600_000,
+    timeZone: "Asia/Tokyo",
+  };
+
+  it("時刻つきの通常のリクエストを通す", () => {
+    expect(isValidEventPatchRequest(VALID)).toBe(true);
+  });
+
+  it("startMs/endMs を両方省略したリクエストを通す (時刻に触らない)", () => {
+    const { startMs: _s, endMs: _e, ...noTimes } = VALID;
+    expect(isValidEventPatchRequest({ ...noTimes, summary: "タイトルだけ" })).toBe(true);
+  });
+
+  it("startMs だけ / endMs だけの片側指定は弾く (開始だけ動く予定を作らない)", () => {
+    const { startMs: _s, endMs: _e, ...noTimes } = VALID;
+    expect(isValidEventPatchRequest({ ...noTimes, startMs: VALID.startMs })).toBe(false);
+    expect(isValidEventPatchRequest({ ...noTimes, endMs: VALID.endMs })).toBe(false);
+  });
+
+  it("開始 >= 終了 は弾く", () => {
+    expect(isValidEventPatchRequest({ ...VALID, endMs: VALID.startMs })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, endMs: VALID.startMs - 1 })).toBe(false);
+  });
+
+  it("数値でない/有限でない時刻は弾く", () => {
+    expect(isValidEventPatchRequest({ ...VALID, startMs: "1700000000000" })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, startMs: Number.NaN })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, endMs: Number.POSITIVE_INFINITY })).toBe(false);
+  });
+
+  it("accountId/calendarId/eventId/timeZone の欠落・空文字を弾く", () => {
+    for (const key of ["accountId", "calendarId", "eventId", "timeZone"] as const) {
+      expect(isValidEventPatchRequest({ ...VALID, [key]: undefined })).toBe(false);
+      expect(isValidEventPatchRequest({ ...VALID, [key]: "" })).toBe(false);
+      expect(isValidEventPatchRequest({ ...VALID, [key]: 123 })).toBe(false);
+    }
+  });
+
+  it("summary/location/description は空文字 (クリア) を許し、文字列以外を弾く", () => {
+    expect(isValidEventPatchRequest({ ...VALID, location: "", description: "" })).toBe(true);
+    expect(isValidEventPatchRequest({ ...VALID, summary: 1 })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, location: {} })).toBe(false);
+  });
+
+  it("長すぎる summary/location/description を弾く", () => {
+    expect(isValidEventPatchRequest({ ...VALID, summary: "あ".repeat(1025) })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, location: "あ".repeat(1025) })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, description: "あ".repeat(8193) })).toBe(false);
+  });
+
+  it("isAllDay は boolean 以外を弾く (文字列 \"true\" 等の曖昧な指定)", () => {
+    expect(isValidEventPatchRequest({ ...VALID, isAllDay: true })).toBe(true);
+    expect(isValidEventPatchRequest({ ...VALID, isAllDay: "true" })).toBe(false);
+  });
+
+  it("オブジェクトでないボディを弾く", () => {
+    expect(isValidEventPatchRequest(null)).toBe(false);
+    expect(isValidEventPatchRequest("x")).toBe(false);
+    expect(isValidEventPatchRequest([])).toBe(false);
   });
 });

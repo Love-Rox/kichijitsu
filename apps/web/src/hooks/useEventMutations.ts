@@ -6,12 +6,15 @@ import {
   deleteOccurrencesByIds,
   deleteOverridesByIds,
   getOverride,
+  getSeries,
   putAllDayOccurrences,
   putOccurrence,
   putOverride,
+  putSeries,
   putTask,
   type KichijitsuDB,
 } from "../db/database";
+import { reexpandCurrentWindow } from "../expansion/ensureExpanded";
 import type { AllDayOccurrence, Occurrence, TaskItem } from "../model/types";
 import type { AllDayStore } from "../store/allDayStore";
 import type { OccurrenceStore } from "../store/occurrenceStore";
@@ -31,13 +34,23 @@ import {
   applyDraftToAllDayOccurrence,
   applyDraftToOccurrence,
   buildEventEditPatchRequest,
+  subjectTimeRange,
   type EventEditDraft,
 } from "../sync/eventEdit";
-import { buildEventDeleteRequest, buildEventPatchRequest } from "../sync/eventPatch";
+import { buildEventDeleteRequest } from "../sync/eventPatch";
 import { buildEventRsvpRequest, RsvpNotAttendeeError } from "../sync/eventRsvp";
 import { jsonInit, sendJson, type CheckedFetch } from "../sync/httpJson";
 import { buildTaskPatchRequest } from "../sync/mapTasks";
 import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
+import {
+  applyScopeAllToSeries,
+  availableRecurrenceScopes,
+  buildScopedEventPatchRequest,
+  DEFAULT_RECURRENCE_SCOPE,
+  EditScopeCancelledError,
+  isSeriesInstance,
+  type RecurrenceScope,
+} from "../sync/recurrenceScope";
 
 /**
  * 予定・タスクの「変更系」をまとめたフック(リファクタリング フェーズ2 ④、2026-07-25)。
@@ -61,6 +74,15 @@ import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
  *  - **override の patch マージ**は sync/overridePatch.ts の純関数 (resolveOverrideRef /
  *    mergeOverridePatch) に出してテストで固めた ―― 既存 patch を丸ごと置き換えると
  *    conferenceUrl 等が消える実バグを踏んだ箇所なので、判定と合成だけは型と単体テストで守る。
+ *  - **繰り返し予定の適用範囲** (2026-07-30、「この予定のみ / すべての予定」)。1 と 4 の
+ *    両方に乗る横断的な関心事で、**どの event id をどの時刻で patch するか**の判断は
+ *    まるごと sync/recurrenceScope.ts の純関数に出してある(そちらのモジュール冒頭に、
+ *    Google Calendar API 側の事情と「これ以降」を提供しない理由を書いた)。このフックが
+ *    持つのは「どちらに書くか」の配線だけ:
+ *      - **この予定のみ** = 従来どおり InstanceOverride + インスタンス ID への patch。
+ *      - **すべての予定** = series レコードを書き換えて reexpandCurrentWindow で再展開し、
+ *        親 (シリーズ) の event id へ patch。楽観表示・ロールバックとも series 1件の
+ *        入れ替えで完結するので、occurrence を1件ずつ巻き戻す必要がない。
  *
  * 呼び出し位置の制約: このフックが登録する effect は saveErrorTimeoutRef の
  * アンマウント時クリアだけ(依存 [] )なので、App.tsx 内での呼び出し位置は移設前に
@@ -70,8 +92,15 @@ import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
 export interface EventMutationsController {
   /** ロールバックした旨のフラッシュ表示 (ツールバーの「保存失敗（元に戻しました）」) */
   saveError: boolean;
-  /** WeekGrid のドラッグ/リサイズ確定 (onPersist)。previous はロールバック用スナップショット */
-  persist: (updated: Occurrence, previous: Occurrence | undefined) => void;
+  /**
+   * WeekGrid のドラッグ/リサイズ確定 (onPersist)。previous はロールバック用スナップショット。
+   * scope は繰り返し予定の適用範囲 (2026-07-30) — 省略時は従来どおり「この予定のみ」。
+   */
+  persist: (
+    updated: Occurrence,
+    previous: Occurrence | undefined,
+    scope?: RecurrenceScope,
+  ) => void;
   /**
    * 空き領域クリック/ドラッグからの新規作成 (onCreateEvent)。draft は速い経路
    * (タイトルだけ) も詳細フォーム (全項目) も同じ形 (2026-07-29 全項目入力)。
@@ -84,14 +113,31 @@ export interface EventMutationsController {
   duplicateEvent: (source: Occurrence, startMs: number, endMs: number) => void;
   /** 詳細ポップオーバーの削除ボタン (onDelete) */
   deleteOccurrence: (occurrence: Occurrence) => void;
-  /** ドラッグ移動の確認待ち。null 以外なら MoveConfirmDialog を出す */
-  moveConfirm: { updated: Occurrence; previous: Occurrence } | null;
+  /**
+   * ドラッグ移動の確認待ち。null 以外なら MoveConfirmDialog を出す。
+   * scopes は繰り返し予定の適用範囲の選択肢 (2026-07-30) — **空配列なら繰り返しでない
+   * 予定**で、ダイアログは 2026-07-30 以前と同じ「移動しますか?」だけになる。
+   */
+  moveConfirm: {
+    updated: Occurrence;
+    previous: Occurrence;
+    scopes: readonly RecurrenceScope[];
+  } | null;
   /** WeekGrid.handleCommit が kind==='move' で時刻が変わったときだけ呼ぶ (onRequestMoveConfirm) */
   requestMoveConfirm: (updated: Occurrence, previous: Occurrence) => void;
-  /** ダイアログ「移動する」。persist に流す */
-  confirmMove: () => void;
+  /** ダイアログ「移動する」。選ばれた適用範囲つきで persist に流す */
+  confirmMove: (scope: RecurrenceScope) => void;
   /** ダイアログ「キャンセル」。store だけ previous に戻す(IndexedDB/Google は未書き込み) */
   cancelMove: () => void;
+  /**
+   * 編集フォームの保存で「どの予定に適用するか」を訊いている状態 (2026-07-30)。
+   * null 以外なら MoveConfirmDialog を適用範囲モードで出す。**繰り返しでない予定では
+   * 常に null** のままで、問いかけは一切増えない。
+   */
+  editScopeConfirm: { title: string; scopes: readonly RecurrenceScope[] } | null;
+  /** 適用範囲ダイアログの決定 / キャンセル (saveEdit の await を解く) */
+  confirmEditScope: (scope: RecurrenceScope) => void;
+  cancelEditScope: () => void;
   /** 編集フォームの保存 (onSaveEdit / onSaveAllDayEdit)。失敗は throw して呼び出し側に委ねる */
   saveEdit: (original: Occurrence | AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
   /** 参加ステータス変更 (onRsvp / onAllDayRsvp)。422 は RsvpNotAttendeeError を throw する */
@@ -137,7 +183,21 @@ export function useEventMutations({
   const [moveConfirm, setMoveConfirm] = useState<{
     updated: Occurrence;
     previous: Occurrence;
+    scopes: readonly RecurrenceScope[];
   } | null>(null);
+  /**
+   * 編集フォーム保存時の適用範囲の問いかけ (2026-07-30)。saveEdit が繰り返し予定を
+   * 相手にしたときだけ立ち、ダイアログの決定/キャンセルで resolve する Promise を
+   * ref に預けておく ―― saveEdit は「保存ボタン方式」で await できるので、
+   * EventEditForm 側に新しい配線を足さずに問いかけを挟める。
+   */
+  const [editScopeConfirm, setEditScopeConfirm] = useState<{
+    title: string;
+    scopes: readonly RecurrenceScope[];
+  } | null>(null);
+  const editScopeResolveRef = useRef<((scope: RecurrenceScope | null) => void) | undefined>(
+    undefined,
+  );
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
   const flashSaveError = useCallback(() => {
@@ -158,6 +218,42 @@ export function useEventMutations({
     };
   }, []);
 
+  /**
+   * 適用範囲つきの POST /api/event/patch (2026-07-30)。宛先の決定は
+   * sync/recurrenceScope.ts の buildScopedEventPatchRequest に任せ、ここは送信と
+   * ログだけを持つ。成功したら true。
+   *
+   * ドラッグ確定 (persist) の「この予定のみ」「すべて」の2経路が共通で通る。
+   * 編集フォーム (saveEdit) は失敗を throw して呼び出し側に返す約束なので通らない。
+   */
+  const postScopedPatch = useCallback(
+    async (
+      args: Omit<Parameters<typeof buildScopedEventPatchRequest>[0], "timeZone">,
+    ): Promise<boolean> => {
+      const patchReq = buildScopedEventPatchRequest({ ...args, timeZone });
+      if (!patchReq) {
+        console.error(
+          "kichijitsu: could not build EventPatchRequest, skipping write-back",
+          args.subject.id,
+        );
+        return false;
+      }
+      try {
+        const res = await checkedFetch("/api/event/patch", jsonInit("POST", patchReq));
+        if (!res.ok) {
+          console.error(
+            `kichijitsu: POST /api/event/patch failed (${args.subject.id}): ${res.status}`,
+          );
+        }
+        return res.ok;
+      } catch (err) {
+        console.error("kichijitsu: POST /api/event/patch failed", err);
+        return false;
+      }
+    },
+    [checkedFetch, timeZone],
+  );
+
   // ドラッグ確定時の永続化(フェーズ5)。store.update は WeekGrid 側で既に同期的に
   // 呼ばれている(楽観的更新)。ここでは IndexedDB への書き込みに加えて、
   // source==='google' な occurrence は POST /api/event/patch で Google へも書き戻す。
@@ -168,8 +264,58 @@ export function useEventMutations({
   // (protocol.ts の EventPatchRequest コメント参照)。自分自身が書いた変更が
   // 同じ id へそのまま上書きされるだけなので、冪等であり特別な処理は不要。
   const persist = useCallback(
-    (updated: Occurrence, previous: Occurrence | undefined) => {
+    (
+      updated: Occurrence,
+      previous: Occurrence | undefined,
+      scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE,
+    ) => {
       if (!db) return;
+
+      // ---- 「すべての予定」に適用する経路 (2026-07-30) ----
+      // この予定のみ (override を書く) とは書き込み対象がまるごと違うので、経路を分ける。
+      // 楽観表示は **series レコードを書き換えて再展開する** だけで済ませる ―― 展開済み
+      // occurrence 全体が一貫して動き、ロールバックも「変更前の series を書き戻して
+      // もう一度再展開」で完結する(occurrence を1件ずつ巻き戻す必要がない)。
+      // ローカルのみのシリーズ (source!=='google') でも、この局所更新だけで正しく完了する。
+      if (scope === "all" && previous && updated.seriesId) {
+        const seriesId = updated.seriesId;
+        async function runAll() {
+          if (!db) return;
+          const series = await getSeries(db, seriesId);
+          if (!series) {
+            // availableRecurrenceScopes が series 不在時に "all" を出さないので通常は来ない
+            console.error("kichijitsu: series not found for scope=all", seriesId);
+            return;
+          }
+          const nextSeries = applyScopeAllToSeries({
+            series,
+            previous: { startMs: previous!.startMs, endMs: previous!.endMs },
+            next: { startMs: updated.startMs, endMs: updated.endMs },
+          });
+          await putSeries(db, nextSeries);
+          await reexpandCurrentWindow(db, store);
+
+          if (updated.source !== "google") return;
+          const ok = await postScopedPatch({
+            subject: updated,
+            scope: "all",
+            series,
+            previous: { startMs: previous!.startMs, endMs: previous!.endMs },
+            next: { startMs: updated.startMs, endMs: updated.endMs },
+          });
+          if (ok) return;
+
+          // ロールバック: 変更前の series を書き戻して再展開する
+          await putSeries(db, series);
+          await reexpandCurrentWindow(db, store);
+          flashSaveError();
+        }
+        runAll().catch((err) => {
+          console.error("kichijitsu: failed to persist series update", err);
+        });
+        return;
+      }
+
       async function run() {
         if (!db) return;
 
@@ -199,26 +345,11 @@ export function useEventMutations({
         // ローカルのみの occurrence はここまで(Google への書き戻し対象外)
         if (updated.source !== "google") return;
 
-        const patchReq = buildEventPatchRequest(updated, timeZone);
-        let ok = false;
-        if (patchReq) {
-          try {
-            const res = await checkedFetch("/api/event/patch", jsonInit("POST", patchReq));
-            ok = res.ok;
-            if (!ok) {
-              console.error(
-                `kichijitsu: POST /api/event/patch failed (${updated.id}): ${res.status}`,
-              );
-            }
-          } catch (err) {
-            console.error("kichijitsu: POST /api/event/patch failed", err);
-          }
-        } else {
-          console.error(
-            "kichijitsu: could not build EventPatchRequest, skipping write-back",
-            updated.id,
-          );
-        }
+        const ok = await postScopedPatch({
+          subject: updated,
+          scope: "this",
+          next: { startMs: updated.startMs, endMs: updated.endMs },
+        });
 
         if (ok) return;
 
@@ -240,7 +371,7 @@ export function useEventMutations({
         console.error("kichijitsu: failed to persist occurrence update", err);
       });
     },
-    [db, store, checkedFetch, timeZone, flashSaveError],
+    [db, store, postScopedPatch, flashSaveError],
   );
 
   // 新規予定の楽観的作成(フェーズ5、2026-07-29 全項目入力に拡張)。DayColumn の
@@ -443,20 +574,61 @@ export function useEventMutations({
   // 状態を表す moveConfirm state に previous/updated を保持し、確認結果に応じて
   // persist を呼ぶ(移動する)か、store だけ previous に戻す(キャンセル)かを行う。
 
-  const requestMoveConfirm = useCallback((updated: Occurrence, previous: Occurrence) => {
-    setMoveConfirm({ updated, previous });
-  }, []);
+  // 適用範囲の選択肢 (2026-07-30) を出すために、シリーズ由来なら series レコードを
+  // IndexedDB から引いてからダイアログを開く ―― 親の DTSTART が分からないと
+  // 「すべて」を安全に提示できない (sync/recurrenceScope.ts の canApplyScopeAll)。
+  // 繰り返しでない予定では DB を引かずに即座に開く (従来と同じタイミング)。
+  const requestMoveConfirm = useCallback(
+    (updated: Occurrence, previous: Occurrence) => {
+      if (!db || !isSeriesInstance(updated)) {
+        setMoveConfirm({ updated, previous, scopes: [] });
+        return;
+      }
+      const seriesId = updated.seriesId!;
+      getSeries(db, seriesId)
+        .then((series) => {
+          setMoveConfirm({
+            updated,
+            previous,
+            scopes: availableRecurrenceScopes({
+              subject: updated,
+              series,
+              previous: { startMs: previous.startMs, endMs: previous.endMs },
+              next: { startMs: updated.startMs, endMs: updated.endMs },
+            }),
+          });
+        })
+        .catch((err) => {
+          // series が引けなくても移動そのものは従来どおりできる (「この予定のみ」)
+          console.error("kichijitsu: failed to load series for move confirm", err);
+          setMoveConfirm({ updated, previous, scopes: ["this"] });
+        });
+    },
+    [db],
+  );
 
-  const confirmMove = useCallback(() => {
-    if (!moveConfirm) return;
-    persist(moveConfirm.updated, moveConfirm.previous);
-    setMoveConfirm(null);
-  }, [moveConfirm, persist]);
+  const confirmMove = useCallback(
+    (scope: RecurrenceScope) => {
+      if (!moveConfirm) return;
+      persist(moveConfirm.updated, moveConfirm.previous, scope);
+      setMoveConfirm(null);
+    },
+    [moveConfirm, persist],
+  );
 
   const cancelMove = useCallback(() => {
     if (moveConfirm) store.update(moveConfirm.previous);
     setMoveConfirm(null);
   }, [moveConfirm, store]);
+
+  // ---- 編集フォーム保存時の適用範囲の問いかけ (2026-07-30) ----
+  // ダイアログの決定/キャンセルを、saveEdit が await している Promise の resolve に流す。
+  const confirmEditScope = useCallback((scope: RecurrenceScope) => {
+    editScopeResolveRef.current?.(scope);
+  }, []);
+  const cancelEditScope = useCallback(() => {
+    editScopeResolveRef.current?.(null);
+  }, []);
 
   // ---- 予定の編集フォーム (フェーズ2、2026-07-22) ----
   // 「保存ボタン方式」(ユーザー決定): ドラッグ確定 (persist) と違い楽観的更新は行わない
@@ -471,7 +643,36 @@ export function useEventMutations({
   const saveEdit = useCallback(
     async (original: Occurrence | AllDayOccurrence, draft: EventEditDraft): Promise<void> => {
       if (!db) throw new Error("database not ready");
-      const patchReq = buildEventEditPatchRequest(original, draft, timeZone);
+
+      // ---- 適用範囲の問いかけ (2026-07-30) ----
+      // **繰り返しでない予定では scopes が空配列**になり、ここは丸ごと素通りする
+      // (問いかけも series の読み出しも増えない = 従来と全く同じ経路)。
+      const previousRange = subjectTimeRange(original, timeZone);
+      const nextRange = { startMs: draft.startMs, endMs: draft.endMs };
+      const series = isSeriesInstance(original)
+        ? ((await getSeries(db, original.seriesId!)) ?? null)
+        : null;
+      const scopes = availableRecurrenceScopes({
+        subject: original,
+        series,
+        previous: previousRange,
+        next: nextRange,
+      });
+      let scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE;
+      if (scopes.length > 0) {
+        // 選択肢が「この予定のみ」1つきりでも問いかけは出す ―― 繰り返し予定を編集して
+        // いるのに、それが1回分だけに効くことを黙っているのが元々の問題だったため。
+        const chosen = await new Promise<RecurrenceScope | null>((resolve) => {
+          editScopeResolveRef.current = resolve;
+          setEditScopeConfirm({ title: draft.title || original.title, scopes });
+        });
+        editScopeResolveRef.current = undefined;
+        setEditScopeConfirm(null);
+        if (chosen === null) throw new EditScopeCancelledError();
+        scope = chosen;
+      }
+
+      const patchReq = buildEventEditPatchRequest(original, draft, timeZone, scope, series);
       if (!patchReq) {
         throw new Error("kichijitsu: could not build edit EventPatchRequest");
       }
@@ -480,6 +681,29 @@ export function useEventMutations({
       const res = await sendJson(checkedFetch, "POST", "/api/event/patch", patchReq);
       if (!res.ok) {
         throw new Error(`kichijitsu: POST /api/event/patch (edit) failed: ${res.status}`);
+      }
+
+      // ---- 「すべての予定」に適用した場合 (2026-07-30) ----
+      // 反映先は override ではなく series レコードそのもの。書き換えて再展開すれば、
+      // 展開済み occurrence 全体にタイトル/場所/説明と時刻の変更が一貫して行き渡る
+      // (persist の scope==='all' と同じ考え方)。ここまで来ている = Google への書き戻しは
+      // 成功済みなので、ロールバック経路は要らない (編集フォームは「保存ボタン方式」)。
+      if (scope === "all" && series) {
+        await putSeries(
+          db,
+          applyScopeAllToSeries({
+            series,
+            previous: previousRange,
+            next: nextRange,
+            fields: {
+              title: draft.title,
+              location: draft.location,
+              description: draft.description,
+            },
+          }),
+        );
+        await reexpandCurrentWindow(db, store);
+        return;
       }
 
       const wasAllDay = !("startMs" in original);
@@ -641,6 +865,9 @@ export function useEventMutations({
     requestMoveConfirm,
     confirmMove,
     cancelMove,
+    editScopeConfirm,
+    confirmEditScope,
+    cancelEditScope,
     saveEdit,
     rsvp,
     toggleTask,

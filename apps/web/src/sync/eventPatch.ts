@@ -41,34 +41,29 @@ export function seriesInstanceEventId(seriesId: string, originalStartMs: number)
 }
 
 /**
- * occurrence から POST /api/event/patch の body を組み立てる。
+ * occurrence から POST /api/event/patch の body を組み立てる部分のうち、**適用範囲に依らない
+ * 部分**。宛先 (どの event id を、どの時刻で patch するか) の判断は sync/recurrenceScope.ts の
+ * resolveScopedPatchTarget が持ち、この関数はそこから呼ばれる
+ * (2026-07-30、繰り返し予定の適用範囲。逆向きに import しないのは循環参照を避けるため)。
+ *
  * source !== 'google' や accountId/calendarId 欠落 (本来あり得ないが型上は optional) の場合は null。
- * id のパースに失敗した場合も null (呼び出し側で warn する)。
  */
-export function buildEventPatchRequest(
-  occurrence: Occurrence,
+export function eventPatchRequestFor(
+  subject: { source: string; accountId?: string; calendarId?: string },
+  target: { eventId: string; startMs?: number; endMs?: number },
   timeZone: string,
 ): EventPatchRequest | null {
-  if (occurrence.source !== "google" || !occurrence.accountId || !occurrence.calendarId) {
+  if (subject.source !== "google" || !subject.accountId || !subject.calendarId) {
     return null;
   }
-  try {
-    const eventId =
-      occurrence.seriesId && occurrence.originalStartMs !== undefined
-        ? seriesInstanceEventId(occurrence.seriesId, occurrence.originalStartMs)
-        : rawGoogleEventId(occurrence.id);
-    return {
-      accountId: occurrence.accountId,
-      calendarId: occurrence.calendarId,
-      eventId,
-      startMs: occurrence.startMs,
-      endMs: occurrence.endMs,
-      timeZone,
-    };
-  } catch (err) {
-    console.error("kichijitsu: failed to build EventPatchRequest", err);
-    return null;
-  }
+  return {
+    accountId: subject.accountId,
+    calendarId: subject.calendarId,
+    eventId: target.eventId,
+    startMs: target.startMs,
+    endMs: target.endMs,
+    timeZone,
+  };
 }
 
 /**

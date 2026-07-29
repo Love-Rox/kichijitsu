@@ -120,6 +120,102 @@ export function setGhPathOverride(path: string): void {
   else removeStored(GH_PATH_STORAGE_KEY);
 }
 
+/** gh パス上書きの検証結果。不正なら理由をそのまま画面に出せる日本語で持つ。 */
+export type GhPathValidation = { ok: true } | { ok: false; message: string };
+
+/**
+ * gh パス上書きの「形」だけを見る**純関数**(2026-07-30)。
+ *
+ * # なぜ要るか
+ * この規則は元々デスクトップ側 (`apps/desktop/src-tauri/src/lib.rs` の `select_gh_binary`) の
+ * **実行時**にしか無く、設定画面では誤ったパスでも保存できてしまっていた。結果、失敗は
+ * 「GitHub の予定・実績が出ない」という分かりにくい形で後から現れた。保存時に弾くための検証。
+ *
+ * # 正はどちらか
+ * 規則の正は Rust 側 (`validate_gh_override_shape`)。保存時の判定も本来はそちらへ
+ * `validate_gh_path` コマンドで問い合わせる (`validateGhPathViaShell`) ―― 存在確認や実行ビットの
+ * 確認はブラウザ側からは原理的にできないし、規則の写しを増やしたくないため。
+ * ここにある写しは **(a) その場で理由を返すための即時判定** と **(b) `validate_gh_path` を
+ * 持たない旧デスクトップシェル向けの保険** のためだけにある。文言も Rust 側と同じにしてあるので、
+ * どちらが答えても利用者に見える結果は変わらない。
+ *
+ * # 規則 (Rust 側のコメントも参照)
+ * 1. ファイル名が `gh`(Windows は `gh.exe`)―― 任意のバイナリを実行させないためのセキュリティ制約。
+ * 2. 絶対パス ―― 相対パスは GUI 起動プロセスの cwd 次第になり「保存はできるが効かない」ため。
+ *
+ * 空文字列(空白のみを含む)は「上書き解除 = 自動検出に戻す」なので ok。
+ */
+export function validateGhPathOverride(raw: string): GhPathValidation {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: true };
+
+  // Rust の Path::file_name に合わせ、末尾の区切りは無視してから最後のセグメントを取る
+  // (`/opt/homebrew/bin/gh/` の file_name は "gh")。区切りは POSIX/Windows 両方見る。
+  const withoutTrailingSeparators = trimmed.replace(/[/\\]+$/, "");
+  const name = withoutTrailingSeparators.split(/[/\\]/).pop() ?? "";
+  if (name !== "gh" && name !== "gh.exe") {
+    return {
+      ok: false,
+      message: `gh という名前の実行ファイル(Windows は gh.exe)を指定してください: ${trimmed}`,
+    };
+  }
+
+  // 絶対パスの判定は OS ごとに形が違う: POSIX の `/…`、Windows のドライブレター `C:\…` と
+  // UNC `\\server\share\…`。デスクトップ版が動くのはこの3種のいずれかなので、これで足りる。
+  const isAbsolute =
+    trimmed.startsWith("/") || trimmed.startsWith("\\\\") || /^[A-Za-z]:[/\\]/.test(trimmed);
+  if (!isAbsolute) {
+    return {
+      ok: false,
+      message: `gh のパスは絶対パスで指定してください(例: /opt/homebrew/bin/gh): ${trimmed}`,
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * デスクトップシェル (Rust) に gh パス上書きの検証を依頼する。問題なければ null、
+ * 駄目なら理由の文字列を返す。
+ *
+ * 判定は Rust の `select_gh_binary` そのもの ―― つまり**実行時とまったく同じ規則**で、
+ * さらに存在確認・実行ビット確認(ブラウザからはできない)まで含む。
+ *
+ * invoke が reject するのは「シェルに訊けなかった」場合 ―― `validate_gh_path` を持たない
+ * 旧デスクトップシェル、ACL 不許可など。そのときは null(=判定なし)を返し、純関数
+ * `validateGhPathOverride` の結果だけで保存の可否を決める。不正なパスは実行時に
+ * `gh_api` 側が拒否するので、防御が緩むわけではない。
+ * (`validate_gh_path` が「不正」を Err ではなく戻り値で返すのはこの区別のため。)
+ */
+export async function validateGhPathViaShell(raw: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  try {
+    const result = await tauriInvoke("validate_gh_path", { ghPath: raw });
+    return typeof result === "string" ? result : null;
+  } catch (err) {
+    console.warn("kichijitsu: validate_gh_path invoke failed", err);
+    return null;
+  }
+}
+
+/**
+ * 設定画面の「gh のパス」を検証してから保存する。保存できたら null、拒否したら理由を返す。
+ *
+ * 検証を保存の手前に置くのがこの関数の役目 ―― 呼び出し側 (SettingsModal) には
+ * 「保存を頼む/返ってきた理由を出す」だけを残し、規則の適用位置がコンポーネントに散らばらない
+ * ようにしている。空文字は検証を素通りして上書き解除になる(既存の挙動)。
+ */
+export async function saveGhPathOverride(raw: string): Promise<string | null> {
+  const shape = validateGhPathOverride(raw);
+  if (!shape.ok) return shape.message;
+
+  const shellError = await validateGhPathViaShell(raw);
+  if (shellError) return shellError;
+
+  setGhPathOverride(raw);
+  return null;
+}
+
 /**
  * `gh_api` command 呼び出しの共通ラッパー。設定の gh パス上書き(getGhPathOverride)があれば
  * `ghPath`(Tauri v2 が Rust の `gh_path: Option<String>` にマップ)を添えて渡す。空なら付けない
