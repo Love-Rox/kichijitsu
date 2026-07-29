@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { filterLocationSuggestions } from "../layout/locationSuggestions";
+import { useLocationCandidates } from "../hooks/useLocationSuggestions";
 import {
   dateValueToExclusiveEndMs,
   dateValueToMs,
@@ -77,6 +79,30 @@ export function EventEditForm({
   const isCreate = mode === "create";
   const validationError = validateEventEditDraft(draft);
 
+  /*
+   * 場所の入力補完 (2026-07-29)。候補は過去の予定の location から作る
+   * (layout/locationSuggestions.ts、外部の場所検索は使わない)。
+   *
+   * 数えるのは**このフォームを開いた1回だけ**: getCandidates は context 越しに来る安定した
+   * 関数なので、useMemo の依存はマウント中ずっと変わらない。入力のたびに走るのは
+   * filterLocationSuggestions(候補プールの絞り込み、高々200件の走査)だけ。
+   *
+   * 見せ方は ManualWorkLogForm の org/repo 手入力フォールバックと同じ <datalist> ―― 候補の
+   * 表示・キーボード選択・IME との同居をすべてブラウザに任せられ、新しい意匠も増えない。
+   */
+  const getLocationCandidates = useLocationCandidates();
+  const locationCandidates = useMemo(
+    () => getLocationCandidates?.() ?? [],
+    [getLocationCandidates],
+  );
+  const locationSuggestions = useMemo(
+    () => filterLocationSuggestions(locationCandidates, draft.location),
+    [locationCandidates, draft.location],
+  );
+  // useId の生成値には id 属性で扱いにくい記号が含まれるため英数字だけに落とす。
+  // フォームが同時に複数開いても datalist の id がぶつからないようにするのが目的
+  const locationListId = `event-edit-location-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+
   function handleToggleAllDay(nextIsAllDay: boolean) {
     setDraft((prev) => {
       if (nextIsAllDay === prev.isAllDay) return prev;
@@ -140,9 +166,19 @@ export function EventEditForm({
         <input
           type="text"
           className="event-edit-input"
+          // 候補が1件も無いときは datalist 自体を出さず、list も付けない
+          // (空のドロップダウンや宙に浮いた参照を作らないため)
+          list={locationSuggestions.length > 0 ? locationListId : undefined}
           value={draft.location}
           onChange={(e) => setDraft({ ...draft, location: e.target.value })}
         />
+        {locationSuggestions.length > 0 && (
+          <datalist id={locationListId}>
+            {locationSuggestions.map((suggestion) => (
+              <option key={suggestion} value={suggestion} />
+            ))}
+          </datalist>
+        )}
       </label>
 
       <label className="event-edit-field">

@@ -19,6 +19,10 @@ import { useEventMutations } from "./hooks/useEventMutations";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
+import {
+  LocationCandidatesContext,
+  useLocationCandidateSource,
+} from "./hooks/useLocationSuggestions";
 import { useMasuVisible } from "./hooks/useMasuVisible";
 import { useMcpTokens } from "./hooks/useMcpTokens";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -211,6 +215,11 @@ function App() {
 
   const store = useMemo(() => new OccurrenceStore(), []);
   const allDayStore = useMemo(() => new AllDayStore(), []);
+  // 「場所」欄の入力補完 (2026-07-29)。過去の予定の location から候補を作る関数を
+  // context で配るだけ ―― 実際に数えるのはフォームが開いた瞬間の1回だけで、ここでは
+  // ストアを購読しない (App 全体が同期のたびに再レンダーされるのを避けるため。
+  // hooks/useLocationSuggestions.ts のコメント参照)
+  const locationCandidates = useLocationCandidateSource(store, allDayStore);
   // Google タスク (docs/google-tasks.md) の読み口。AllDayStore と対になる別ストア
   const taskStore = useMemo(() => new TaskStore(), []);
   // GitHub 連携 (docs/github-integration.md フェーズ①Part B) の読み口。未連携時も
@@ -766,246 +775,250 @@ function App() {
   }, []);
 
   return (
-    <div className="app">
-      <AppToolbar
-        view={view}
-        isNarrow={isNarrow}
-        goToPrev={goToPrev}
-        goToNext={goToNext}
-        goToToday={goToToday}
-        switchView={switchView}
-        openSearch={openSearch}
-        hourHeight={hourHeight}
-        handleHourHeightChange={handleHourHeightChange}
-        monthCursor={monthCursor}
-        timelineStart={timelineStart}
-        offline={offline}
-        me={me}
-        panelOpen={panelOpen}
-        setPanelOpen={setPanelOpen}
-        runSync={runSync}
-        syncStatus={syncStatus}
-        syncIndicator={syncIndicator}
-        saveError={saveError}
-        leftPaneOpen={leftPaneOpen}
-        toggleLeftPane={toggleLeftPane}
-        paneOpen={paneOpen}
-        toggleGitHubPane={toggleGitHubPane}
-        runningTimeEntries={runningTimeEntries}
-        timerNowMs={timerNowMs}
-        onStopTimer={onStopTimer}
-        setHelpOpen={setHelpOpen}
-      />
-      <main className="app-main">
-        {/*
-         * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。増分3で
-         * オーバーレイ方式を廃止し常に docked になったが、.app-main の直接の子に置いて
-         * .app-main-calendar と左右に並べる構造自体は変わらないため、DOM 順序としては
-         * こちらを先に置く(flex row のグリッド側が縮む向きは変わらないが、視覚的な
-         * 左右関係を DOM 順にも合わせておく)。
-         */}
-        {leftPaneOpen && me.accounts.length > 0 && (
-          <CalendarPane
-            onClose={() => setLeftPaneOpen(false)}
-            accounts={me.accounts}
-            calendarsByAccount={calendarsByAccount}
-            visibleCalendars={visibleCalendars}
-            onToggleCalendar={handleToggleCalendar}
-            view={view}
-            timelineStart={timelineStart}
-            dayCount={dayCount}
-            monthCursor={monthCursor}
-            timeZone={timeZone}
-            onNavigateDate={handleMiniMonthNavigate}
-            taskListsByAccount={taskListsByAccount}
-            hiddenTaskListKeys={hiddenTaskLists}
-            onToggleTaskList={handleToggleTaskList}
-            declinedVisibility={declinedVisibility}
-            onToggleShowDeclined={handleToggleShowDeclined}
-            onToggleKeepOrganizerDeclined={handleToggleKeepOrganizerDeclined}
-            oooAllDayPlacement={oooAllDayPlacement}
-            onToggleOooAllDayPlacement={handleToggleOooAllDayPlacement}
-            githubLogin={me.github?.login ?? null}
-            activityVisible={activityVisible}
-            onToggleActivityVisible={handleToggleActivityVisible}
-            ciVisible={ciVisible}
-            onToggleCiVisible={handleToggleCiVisible}
-            githubPaneOpen={paneOpen}
-            onToggleGitHubPane={toggleGitHubPane}
-            githubQueueCount={githubQueue.length}
-            reportOpen={reportOpen}
-            onToggleReport={() => setReportOpen((v) => !v)}
-          />
-        )}
-        <div className="app-main-calendar">
-          {view !== "month" ? (
-            <WeekGrid
-              store={store}
-              allDayStore={allDayStore}
-              taskStore={taskStore}
-              githubStore={githubStore}
-              githubActivity={activityVisible ? githubActivity : []}
-              githubCiRuns={ciVisible ? githubCiRuns : []}
-              plannedStore={plannedStore}
-              onDropWorkItem={onDropWorkItem}
-              onMovePlannedBlock={onMovePlannedBlock}
-              onDeletePlannedBlock={onDeletePlannedBlock}
-              timeEntryStore={timeEntryStore}
-              onStartTimer={onStartTimer}
-              onStopTimer={onStopTimer}
-              weekStart={timelineStart}
+    // 場所の入力補完の供給元 (2026-07-29)。EventEditForm は予定の描画まわりの奥
+    // (EventDetailCard / DayColumn の作成ドラフト) に出るため、props を通さず context で渡す
+    <LocationCandidatesContext value={locationCandidates}>
+      <div className="app">
+        <AppToolbar
+          view={view}
+          isNarrow={isNarrow}
+          goToPrev={goToPrev}
+          goToNext={goToNext}
+          goToToday={goToToday}
+          switchView={switchView}
+          openSearch={openSearch}
+          hourHeight={hourHeight}
+          handleHourHeightChange={handleHourHeightChange}
+          monthCursor={monthCursor}
+          timelineStart={timelineStart}
+          offline={offline}
+          me={me}
+          panelOpen={panelOpen}
+          setPanelOpen={setPanelOpen}
+          runSync={runSync}
+          syncStatus={syncStatus}
+          syncIndicator={syncIndicator}
+          saveError={saveError}
+          leftPaneOpen={leftPaneOpen}
+          toggleLeftPane={toggleLeftPane}
+          paneOpen={paneOpen}
+          toggleGitHubPane={toggleGitHubPane}
+          runningTimeEntries={runningTimeEntries}
+          timerNowMs={timerNowMs}
+          onStopTimer={onStopTimer}
+          setHelpOpen={setHelpOpen}
+        />
+        <main className="app-main">
+          {/*
+           * 左ペイン「カレンダー」(CalendarPane、カレンダーナビゲーション増分1)。増分3で
+           * オーバーレイ方式を廃止し常に docked になったが、.app-main の直接の子に置いて
+           * .app-main-calendar と左右に並べる構造自体は変わらないため、DOM 順序としては
+           * こちらを先に置く(flex row のグリッド側が縮む向きは変わらないが、視覚的な
+           * 左右関係を DOM 順にも合わせておく)。
+           */}
+          {leftPaneOpen && me.accounts.length > 0 && (
+            <CalendarPane
+              onClose={() => setLeftPaneOpen(false)}
+              accounts={me.accounts}
+              calendarsByAccount={calendarsByAccount}
+              visibleCalendars={visibleCalendars}
+              onToggleCalendar={handleToggleCalendar}
+              view={view}
+              timelineStart={timelineStart}
               dayCount={dayCount}
-              timeZone={timeZone}
-              onPersist={handlePersist}
-              onRequestMoveConfirm={handleRequestMoveConfirm}
-              // Option(Alt)+ドラッグでの複製 (2026-07-29)。移動 (onPersist) と違い
-              // 元の予定は変わらないので、新規作成と同じ経路へ直行する
-              onDuplicate={handleDuplicate}
-              visibleCalendarKeys={visibleCalendarKeys}
-              calendarLookup={calendarLookup}
-              onDelete={handleDeleteOccurrence}
-              onSaveEdit={handleEditSave}
-              onSaveAllDayEdit={handleEditSave}
-              onRsvp={handleRsvp}
-              onAllDayRsvp={handleRsvp}
-              writeTarget={defaultWriteTarget}
-              writeTargets={writeTargetCandidates}
-              onCreateEvent={handleCreate}
-              onToggleTask={handleToggleTask}
-              hiddenTaskListKeys={hiddenTaskLists}
-              declinedVisibility={declinedVisibility}
-              oooAllDayPlacement={oooAllDayPlacement}
-              // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
-              // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
-              longPressCreate={isNarrow}
-              // スマホでのスワイプ日付移動(同フェーズ増分、2026-07-22)。WeekGrid.tsx 側で
-              // longPressCreate(=isNarrow)かつ非アニメーション中のときだけ実際に有効化される
-              onSwipeNavigate={handleSwipeNavigate}
-              // 時間軸ズーム(2026-07-25)。WeekGrid が --hour-height と context の出口になる
-              hourHeight={hourHeight}
-              onHourHeightChange={handleHourHeightChange}
-            />
-          ) : (
-            <MonthView
-              store={store}
-              allDayStore={allDayStore}
               monthCursor={monthCursor}
               timeZone={timeZone}
-              visibleCalendarKeys={visibleCalendarKeys}
-              calendarLookup={calendarLookup}
-              onDelete={handleDeleteOccurrence}
-              onSaveEdit={handleEditSave}
-              onSaveAllDayEdit={handleEditSave}
-              onRsvp={handleRsvp}
-              onAllDayRsvp={handleRsvp}
-              writeTarget={defaultWriteTarget}
-              writeTargets={writeTargetCandidates}
-              onCreateEvent={handleCreate}
-              onNavigateToDay={handleNavigateToDay}
+              onNavigateDate={handleMiniMonthNavigate}
+              taskListsByAccount={taskListsByAccount}
+              hiddenTaskListKeys={hiddenTaskLists}
+              onToggleTaskList={handleToggleTaskList}
               declinedVisibility={declinedVisibility}
+              onToggleShowDeclined={handleToggleShowDeclined}
+              onToggleKeepOrganizerDeclined={handleToggleKeepOrganizerDeclined}
+              oooAllDayPlacement={oooAllDayPlacement}
+              onToggleOooAllDayPlacement={handleToggleOooAllDayPlacement}
+              githubLogin={me.github?.login ?? null}
+              activityVisible={activityVisible}
+              onToggleActivityVisible={handleToggleActivityVisible}
+              ciVisible={ciVisible}
+              onToggleCiVisible={handleToggleCiVisible}
+              githubPaneOpen={paneOpen}
+              onToggleGitHubPane={toggleGitHubPane}
+              githubQueueCount={githubQueue.length}
+              reportOpen={reportOpen}
+              onToggleReport={() => setReportOpen((v) => !v)}
             />
           )}
-          {moveConfirm && (
-            <MoveConfirmDialog
-              title={moveConfirm.updated.title}
-              previous={moveConfirm.previous}
-              updated={moveConfirm.updated}
+          <div className="app-main-calendar">
+            {view !== "month" ? (
+              <WeekGrid
+                store={store}
+                allDayStore={allDayStore}
+                taskStore={taskStore}
+                githubStore={githubStore}
+                githubActivity={activityVisible ? githubActivity : []}
+                githubCiRuns={ciVisible ? githubCiRuns : []}
+                plannedStore={plannedStore}
+                onDropWorkItem={onDropWorkItem}
+                onMovePlannedBlock={onMovePlannedBlock}
+                onDeletePlannedBlock={onDeletePlannedBlock}
+                timeEntryStore={timeEntryStore}
+                onStartTimer={onStartTimer}
+                onStopTimer={onStopTimer}
+                weekStart={timelineStart}
+                dayCount={dayCount}
+                timeZone={timeZone}
+                onPersist={handlePersist}
+                onRequestMoveConfirm={handleRequestMoveConfirm}
+                // Option(Alt)+ドラッグでの複製 (2026-07-29)。移動 (onPersist) と違い
+                // 元の予定は変わらないので、新規作成と同じ経路へ直行する
+                onDuplicate={handleDuplicate}
+                visibleCalendarKeys={visibleCalendarKeys}
+                calendarLookup={calendarLookup}
+                onDelete={handleDeleteOccurrence}
+                onSaveEdit={handleEditSave}
+                onSaveAllDayEdit={handleEditSave}
+                onRsvp={handleRsvp}
+                onAllDayRsvp={handleRsvp}
+                writeTarget={defaultWriteTarget}
+                writeTargets={writeTargetCandidates}
+                onCreateEvent={handleCreate}
+                onToggleTask={handleToggleTask}
+                hiddenTaskListKeys={hiddenTaskLists}
+                declinedVisibility={declinedVisibility}
+                oooAllDayPlacement={oooAllDayPlacement}
+                // モバイル対応フェーズ2: 狭幅では空き領域からの新規作成を長押し起点にする
+                // (縦スクロールとの競合を避けるため。DayColumn.tsx 参照)
+                longPressCreate={isNarrow}
+                // スマホでのスワイプ日付移動(同フェーズ増分、2026-07-22)。WeekGrid.tsx 側で
+                // longPressCreate(=isNarrow)かつ非アニメーション中のときだけ実際に有効化される
+                onSwipeNavigate={handleSwipeNavigate}
+                // 時間軸ズーム(2026-07-25)。WeekGrid が --hour-height と context の出口になる
+                hourHeight={hourHeight}
+                onHourHeightChange={handleHourHeightChange}
+              />
+            ) : (
+              <MonthView
+                store={store}
+                allDayStore={allDayStore}
+                monthCursor={monthCursor}
+                timeZone={timeZone}
+                visibleCalendarKeys={visibleCalendarKeys}
+                calendarLookup={calendarLookup}
+                onDelete={handleDeleteOccurrence}
+                onSaveEdit={handleEditSave}
+                onSaveAllDayEdit={handleEditSave}
+                onRsvp={handleRsvp}
+                onAllDayRsvp={handleRsvp}
+                writeTarget={defaultWriteTarget}
+                writeTargets={writeTargetCandidates}
+                onCreateEvent={handleCreate}
+                onNavigateToDay={handleNavigateToDay}
+                declinedVisibility={declinedVisibility}
+              />
+            )}
+            {moveConfirm && (
+              <MoveConfirmDialog
+                title={moveConfirm.updated.title}
+                previous={moveConfirm.previous}
+                updated={moveConfirm.updated}
+                timeZone={timeZone}
+                onConfirm={handleConfirmMove}
+                onCancel={handleCancelMove}
+              />
+            )}
+            {initIndicator.visible && (
+              <div
+                className={
+                  initIndicator.fading ? "init-overlay masu-indicator--fading" : "init-overlay"
+                }
+              >
+                <MasuIndicator size="md" />
+              </div>
+            )}
+          </div>
+          {/*
+           * GitHub 情報ペイン(GitHubPane、増分1)。overlay モードは position: fixed の backdrop で
+           * グリッド上に被さるため、マウント位置自体は .app-main 内のどこでもよい(flex レイアウトの
+           * 影響を受けない)。docked モードは逆に .app-main-calendar と並ぶ通常の flex アイテムとして
+           * 振る舞う必要があるため、旧 WorkQueueDrawer のように </main> の外側に別マウントするのではなく
+           * ここ(.app-main の直接の子)に1箇所だけ置く。
+           */}
+          {paneOpen && me.github && (
+            <GitHubPane
+              mode={resolvedPaneMode}
+              onModeChange={setPaneMode}
+              onClose={() => setPaneOpen(false)}
+              disableModeToggle={isNarrow}
+              items={githubQueue}
+              loading={queueLoading}
+              authExpired={queueAuthExpired}
+              onRefresh={fetchGithubQueue}
+              onReconnect={() => {
+                window.location.href = "/auth/github/login";
+              }}
+              onDragStart={() => setPaneOpen(false)}
+              // 実績(実行中タイマー・手動記録・履歴・詳細レポート導線)。旧 WorkLogModal へ
+              // 渡していたものをそのままペインへ配線し直した(2026-07-25)。needsActualsData に
+              // paneOpen 経路があるので、開いた時点で reportWorkLogs は取得済み(取得前でも
+              // 空配列で描画でき、取得完了で履歴が埋まる)。
+              workLogs={reportWorkLogs}
+              plannedBlocks={reportPlannedBlocks}
+              timeEntries={reportTimeEntries}
+              nowMs={timerNowMs}
+              onStartTimer={onStartTimer}
+              onStopTimer={onStopTimer}
               timeZone={timeZone}
-              onConfirm={handleConfirmMove}
-              onCancel={handleCancelMove}
+              onCreateWorkLog={handleCreateWorkLog}
+              onUpdateWorkLog={handleUpdateWorkLog}
+              onDeleteWorkLog={handleDeleteWorkLog}
+              fetchRepos={fetchReposForPane}
+              fetchRepoIssues={fetchRepoIssuesForPane}
+              // 詳細レポートはモーダルのまま維持。ペインは開いたままでよい(docked なら併存、
+              // overlay でもモーダルが上に載るだけ)。
+              onOpenReport={() => setReportOpen(true)}
             />
           )}
-          {initIndicator.visible && (
-            <div
-              className={
-                initIndicator.fading ? "init-overlay masu-indicator--fading" : "init-overlay"
-              }
-            >
-              <MasuIndicator size="md" />
-            </div>
-          )}
-        </div>
-        {/*
-         * GitHub 情報ペイン(GitHubPane、増分1)。overlay モードは position: fixed の backdrop で
-         * グリッド上に被さるため、マウント位置自体は .app-main 内のどこでもよい(flex レイアウトの
-         * 影響を受けない)。docked モードは逆に .app-main-calendar と並ぶ通常の flex アイテムとして
-         * 振る舞う必要があるため、旧 WorkQueueDrawer のように </main> の外側に別マウントするのではなく
-         * ここ(.app-main の直接の子)に1箇所だけ置く。
-         */}
-        {paneOpen && me.github && (
-          <GitHubPane
-            mode={resolvedPaneMode}
-            onModeChange={setPaneMode}
-            onClose={() => setPaneOpen(false)}
-            disableModeToggle={isNarrow}
-            items={githubQueue}
-            loading={queueLoading}
-            authExpired={queueAuthExpired}
-            onRefresh={fetchGithubQueue}
-            onReconnect={() => {
-              window.location.href = "/auth/github/login";
-            }}
-            onDragStart={() => setPaneOpen(false)}
-            // 実績(実行中タイマー・手動記録・履歴・詳細レポート導線)。旧 WorkLogModal へ
-            // 渡していたものをそのままペインへ配線し直した(2026-07-25)。needsActualsData に
-            // paneOpen 経路があるので、開いた時点で reportWorkLogs は取得済み(取得前でも
-            // 空配列で描画でき、取得完了で履歴が埋まる)。
-            workLogs={reportWorkLogs}
-            plannedBlocks={reportPlannedBlocks}
-            timeEntries={reportTimeEntries}
-            nowMs={timerNowMs}
-            onStartTimer={onStartTimer}
-            onStopTimer={onStopTimer}
-            timeZone={timeZone}
-            onCreateWorkLog={handleCreateWorkLog}
-            onUpdateWorkLog={handleUpdateWorkLog}
-            onDeleteWorkLog={handleDeleteWorkLog}
-            fetchRepos={fetchReposForPane}
-            fetchRepoIssues={fetchRepoIssuesForPane}
-            // 詳細レポートはモーダルのまま維持。ペインは開いたままでよい(docked なら併存、
-            // overlay でもモーダルが上に載るだけ)。
-            onOpenReport={() => setReportOpen(true)}
-          />
-        )}
-      </main>
-      <AppOverlays
-        me={me}
-        helpOpen={helpOpen}
-        setHelpOpen={setHelpOpen}
-        panelOpen={panelOpen}
-        setPanelOpen={setPanelOpen}
-        handleDisconnectAccount={handleDisconnectAccount}
-        tasksScopeMissingAccounts={tasksScopeMissingAccounts}
-        setBlockOverlayOpen={setBlockOverlayOpen}
-        githubAuthExpired={githubAuthExpired}
-        handleDisconnectGitHub={handleDisconnectGitHub}
-        mcpTokens={mcpTokens}
-        handleCreateMcpToken={handleCreateMcpToken}
-        handleDeleteMcpToken={handleDeleteMcpToken}
-        runFullResync={runFullResync}
-        blockOverlayOpen={blockOverlayOpen}
-        calendarsByAccount={calendarsByAccount}
-        blockRules={blockRules}
-        handleCreateBlockRule={handleCreateBlockRule}
-        handleDeleteBlockRule={handleDeleteBlockRule}
-        searchOpen={searchOpen}
-        setSearchOpen={setSearchOpen}
-        db={db}
-        timeZone={timeZone}
-        visibleCalendarKeys={visibleCalendarKeys}
-        calendarLookup={calendarLookup}
-        handleSearchJump={handleSearchJump}
-        reportOpen={reportOpen}
-        setReportOpen={setReportOpen}
-        reportPlannedBlocks={reportPlannedBlocks}
-        reportTimeEntries={reportTimeEntries}
-        reportWorkLogs={reportWorkLogs}
-        timerNowMs={timerNowMs}
-        prCommitEstimates={prCommitEstimates}
-        prCommitEstimatesLoading={prCommitEstimatesLoading}
-        reportHookActualByLinkedItem={reportHookActualByLinkedItem}
-      />
-    </div>
+        </main>
+        <AppOverlays
+          me={me}
+          helpOpen={helpOpen}
+          setHelpOpen={setHelpOpen}
+          panelOpen={panelOpen}
+          setPanelOpen={setPanelOpen}
+          handleDisconnectAccount={handleDisconnectAccount}
+          tasksScopeMissingAccounts={tasksScopeMissingAccounts}
+          setBlockOverlayOpen={setBlockOverlayOpen}
+          githubAuthExpired={githubAuthExpired}
+          handleDisconnectGitHub={handleDisconnectGitHub}
+          mcpTokens={mcpTokens}
+          handleCreateMcpToken={handleCreateMcpToken}
+          handleDeleteMcpToken={handleDeleteMcpToken}
+          runFullResync={runFullResync}
+          blockOverlayOpen={blockOverlayOpen}
+          calendarsByAccount={calendarsByAccount}
+          blockRules={blockRules}
+          handleCreateBlockRule={handleCreateBlockRule}
+          handleDeleteBlockRule={handleDeleteBlockRule}
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
+          db={db}
+          timeZone={timeZone}
+          visibleCalendarKeys={visibleCalendarKeys}
+          calendarLookup={calendarLookup}
+          handleSearchJump={handleSearchJump}
+          reportOpen={reportOpen}
+          setReportOpen={setReportOpen}
+          reportPlannedBlocks={reportPlannedBlocks}
+          reportTimeEntries={reportTimeEntries}
+          reportWorkLogs={reportWorkLogs}
+          timerNowMs={timerNowMs}
+          prCommitEstimates={prCommitEstimates}
+          prCommitEstimatesLoading={prCommitEstimatesLoading}
+          reportHookActualByLinkedItem={reportHookActualByLinkedItem}
+        />
+      </div>
+    </LocationCandidatesContext>
   );
 }
 
