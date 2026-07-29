@@ -1,7 +1,12 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { EventCreateRequest } from "@kichijitsu/shared";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
-import { msExclusiveToDateValue, msToDateValue, type EventEditDraft } from "./eventEdit";
+import {
+  isEditableEventSubject,
+  msExclusiveToDateValue,
+  msToDateValue,
+  type EventEditDraft,
+} from "./eventEdit";
 
 /**
  * 新規予定の作成 (フェーズ5、2026-07-29 全項目入力に拡張) に関する純関数群。空き領域
@@ -73,6 +78,71 @@ export function buildCreateDraft(
   title = "",
 ): EventCreateDraft {
   return { title, location: "", description: "", isAllDay: false, startMs, endMs };
+}
+
+// ---- Option(Alt)+ドラッグでの複製 (2026-07-29、ユーザー要望) ----
+// 複製は「元の予定と同じ内容で、ドロップ先の時刻に**新しい予定を作る**」操作なので、
+// 専用の作成経路は作らず、ここの draft + WriteTargetCandidate に落として既存の
+// createEvent (hooks/useEventMutations.ts) にそのまま乗せる。
+// 「押し始めに Option を押していたか」という判定側は layout/dragDuplicate.ts にある。
+
+/**
+ * 複製の書き込み先を決める。**元の予定と同じカレンダー**に作る ―― 複製は「この予定をもう一度」
+ * という操作なので、既定の書き込み先(resolveDefaultWriteTarget)へ勝手に飛ばすと、
+ * 見た目の色も所属も変わってしまい「同じものが増えた」ようには見えないため。
+ *
+ * 複製できない相手では null を返し、呼び出し側は**複製ドラッグを始めない**(従来どおりの移動に
+ * なる)。対象は isEditableEventSubject と同じ ―― source==='google' でない(まだ作成中の仮
+ * occurrence やローカル予定)/ カレンダーブロックの自動生成ミラー / Busy「予定あり」
+ * プレースホルダ。加えて accountId・calendarId が無いものも除く(書き込み先を特定できない)。
+ * 他人のカレンダーの予定は accountId/calendarId としてはそのカレンダーを指すため、複製は
+ * 「そのカレンダーへの書き込み」として試行され、権限が無ければサーバー側で失敗して
+ * ロールバックされる(createEvent の既存経路)―― クライアント側に書き込み権限の情報が
+ * 無いため、ここで先回りして弾くことはできない。
+ *
+ * defaultColor に元の色を渡しているのは楽観表示(仮 occurrence)の初期色のためだけ。
+ * 確定後は hasCustomColor:false のまま calendarLookup のカレンダー色が再解決される
+ * (buildPendingOccurrence / finalizeCreatedOccurrence のコメント参照)―― Google の作成 API
+ * には色の指定が無いので、元が個別色だった場合の複製はカレンダー既定色になる。
+ */
+export function duplicateWriteTarget(source: Occurrence): WriteTargetCandidate | null {
+  if (!isEditableEventSubject(source)) return null;
+  if (!source.accountId || !source.calendarId) return null;
+  return {
+    accountId: source.accountId,
+    calendarId: source.calendarId,
+    defaultColor: source.color,
+  };
+}
+
+/** その予定を Option+ドラッグで複製できるか(layout/dragDuplicate.ts の canDuplicate に渡す) */
+export function canDuplicateOccurrence(source: Occurrence): boolean {
+  return duplicateWriteTarget(source) !== null;
+}
+
+/**
+ * 複製元の予定とドロップ先の時間帯から、作成用 draft を作る。
+ *
+ * 引き継ぐのは **タイトル / 場所 / 説明** の3つ(EventCreateRequest に渡せる項目のうち、
+ * 予定の「内容」と言えるもの全て)。isAllDay は常に false ―― 終日予定は週グリッドの
+ * 時刻レーンではなく AllDayBar に描かれ、このドラッグ経路自体に乗らないため。
+ * 参加者は Occurrence が概念として持っていないので引き継ぎようがない(引き継がない、が仕様)。
+ * 会議リンク (conferenceUrl) も引き継がない ―― 同じ Meet/Zoom の URL を持つ別予定を作ると
+ * 元の会議に相乗りする形になり、複製の意図(独立した予定を1つ増やす)とずれるため。
+ */
+export function buildDuplicateDraft(
+  source: Occurrence,
+  startMs: number,
+  endMs: number,
+): EventCreateDraft {
+  return {
+    title: source.title,
+    location: source.location ?? "",
+    description: source.description ?? "",
+    isAllDay: false,
+    startMs,
+    endMs,
+  };
 }
 
 /**

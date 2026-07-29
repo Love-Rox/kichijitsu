@@ -26,6 +26,55 @@ const TITLES = [
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
 
+/**
+ * 単発ダミーの「場所」プール (2026-07-29、場所の入力補完)。
+ *
+ * 入力補完 (layout/locationSuggestions.ts) を `?demo=1` で目視確認するには、実データと同じ
+ * 「散らかり方」が要る ―― 出現回数の偏り・表記揺れ・URL・場所なしが混ざっていない限り、
+ * 並び順も名寄せも除外も画面上では確かめようがない。そこで**重みは要素の重複で表現**して
+ * ある (一様乱数で引くので、多く並べたものほど多く出る):
+ *
+ *   - undefined を多めに: **場所を入れない従来の使い方**が主流のまま(見え方の据え置き確認)。
+ *   - 「会議室A」を最多に: 使用回数順で先頭に来ることを確かめる。
+ *   - 「会議室Ａ」(全角) / 「会議室 A」(空白入り) を少数: 名寄せされて1件に畳まれ、
+ *     表示は多数決で半角の「会議室A」になることを確かめる。
+ *   - 「Room A」/「room a」: 大文字小文字の名寄せ。
+ *   - Slack ハドル / Zoom / Meet の URL、説明付きの URL: **候補に出ないこと**を確かめる
+ *     (実データにある形をそのまま写してある)。
+ *   - 日本語の長い住所・施設名: 部分一致(「治療院」と打って当たる)の確認用。
+ */
+const LOCATIONS: (string | undefined)[] = [
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  "会議室A",
+  "会議室A",
+  "会議室A",
+  "会議室A",
+  "会議室A",
+  "会議室Ａ",
+  "会議室 A",
+  "本社 12F 会議室B",
+  "本社 12F 会議室B",
+  "本社 12F 会議室B",
+  "西ヶ原四丁目治療院",
+  "西ヶ原四丁目治療院",
+  "東京都北区西ヶ原4-51-3 サンプルビル 3F",
+  "ドトールコーヒーショップ 西ヶ原店",
+  "Room A",
+  "room a",
+  "https://app.slack.com/huddle/T25JPTN0M/CGDR6P8KW",
+  "https://app.slack.com/huddle/T25JPTN0M/CGDR6P8KW",
+  "https://zoom.us/j/1234567890",
+  "https://meet.google.com/abc-defg-hij",
+  "オンライン https://zoom.us/j/9876543210",
+];
+
 /** ISO ローカル日時文字列 + タイムゾーンを epoch ms に変換する小さなヘルパー */
 function localIsoToEpochMs(iso: string, timeZone: string): number {
   return Temporal.PlainDateTime.from(iso).toZonedDateTime(timeZone).epochMilliseconds;
@@ -187,6 +236,9 @@ export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): Al
       endDate: d(0),
       color: "#10b981",
       source: "local",
+      // 場所の入力補完 (2026-07-29) が終日予定も供給元にしていることの確認用。
+      // 単発ダミー側にある「本社 12F 会議室B」と同じ場所なので、回数が合算される
+      location: "本社 12F 会議室B",
     },
     {
       id: "dummy-allday-ooo-single",
@@ -206,6 +258,8 @@ export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): Al
       endDate: d(3),
       color: "#3b82f6",
       source: "local",
+      // 終日予定にしか出てこない場所(1回だけ使われた場所が候補の末尾に来ることの確認用)
+      location: "熱海リゾートホテル 大会議室",
     },
     {
       id: "dummy-allday-ooo-span",
@@ -369,6 +423,10 @@ export function generateDummyOccurrences(
         plainTime: new Temporal.PlainTime(startHour, startMin),
       });
       const startMs = zdt.epochMilliseconds;
+      // 場所は「入っていない予定」も多数含むプールから引く(LOCATIONS のコメント参照)。
+      // undefined のときはキー自体を生やさない ―― 実データでも location は任意項目で、
+      // 場所を入れない従来の使い方をそのまま再現するため
+      const location = LOCATIONS[Math.floor(rand() * LOCATIONS.length)];
       out.push({
         id: `dummy-${d}-${i}`,
         seriesId: null,
@@ -377,6 +435,7 @@ export function generateDummyOccurrences(
         endMs: startMs + durationMin * 60_000,
         color: COLORS[Math.floor(rand() * COLORS.length)],
         source: "local",
+        ...(location === undefined ? {} : { location }),
       });
     }
   }

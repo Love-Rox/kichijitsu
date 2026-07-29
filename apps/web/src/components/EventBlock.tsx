@@ -27,6 +27,12 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import { canDuplicateOccurrence } from "../sync/eventCreate";
+import {
+  isSnapDisabledDuringDrag,
+  resolveDragIntent,
+  type DragIntent,
+} from "../layout/dragDuplicate";
 import {
   detectMeetingProvider,
   meetingLocationLabel,
@@ -103,6 +109,14 @@ interface EventBlockProps {
    * "move" のときだけ確認ダイアログを挟む(リサイズは現状どおり即確定、ユーザー決定)。
    */
   onCommit: (updated: Occurrence, kind: "move" | "resize") => void;
+  /**
+   * Option(Alt)+ドラッグでの複製の確定 (2026-07-29、ユーザー要望)。onCommit と違い
+   * **元の予定は一切変えず**、ドロップ先の時間帯に同じ内容の新しい予定を作る
+   * (App → useEventMutations.duplicateEvent → createEvent)。
+   * 複製に入るかどうかの判定は layout/dragDuplicate.ts、複製できる相手かは
+   * sync/eventCreate.ts の canDuplicateOccurrence。
+   */
+  onDuplicate: (source: Occurrence, startMs: number, endMs: number) => void;
   /** `${accountId}:${calendarId}` → カレンダー名/色。詳細ポップオーバーの「どのカレンダーか」表示用 */
   calendarLookup: Map<string, CalendarInfo>;
   /**
@@ -136,6 +150,12 @@ interface EventBlockProps {
 
 interface DragState {
   kind: "move" | "resize";
+  /**
+   * このドラッグが「移動」か「複製」か(2026-07-29)。**pointerdown で1度だけ決めて
+   * ここに固定する** ―― 途中で Option を離しても複製のままにするため(理由は
+   * layout/dragDuplicate.ts のヘッダコメント)。kind==="resize" では複製が無いので常に "move"。
+   */
+  intent: DragIntent;
   pointerId: number;
   moved: boolean;
   startClientX: number;
@@ -191,6 +211,7 @@ export function EventBlock({
   dayStartMs,
   weekDayStarts,
   onCommit,
+  onDuplicate,
   calendarLookup,
   onDelete,
   onSaveEdit,
@@ -237,9 +258,14 @@ export function EventBlock({
     if (e.key === "Escape") cancelDrag();
   }).current;
 
-  function createBadge(): HTMLDivElement {
+  /**
+   * ドラッグ中に指先へ追従する時刻バッジ。複製ドラッグ (2026-07-29) では
+   * 修飾クラスを1つ足すだけにしてある ―― CSS 側 (.drag-badge--duplicate) が
+   * 先頭に「+」を出す。新しい意匠は足さず、既存のバッジの見せ方の差分で済ませる方針。
+   */
+  function createBadge(intent: DragIntent): HTMLDivElement {
     const badge = document.createElement("div");
-    badge.className = "drag-badge";
+    badge.className = intent === "duplicate" ? "drag-badge drag-badge--duplicate" : "drag-badge";
     return badge;
   }
 
@@ -253,7 +279,7 @@ export function EventBlock({
     } catch {
       /* すでに解放済みなら無視 */
     }
-    el.classList.remove("event--dragging");
+    el.classList.remove("event--dragging", "event--duplicating");
     el.style.transform = "";
     if (ds.kind === "resize") {
       el.style.height = `${ds.originalHeightPx}px`;
@@ -294,9 +320,20 @@ export function EventBlock({
       kind === "move"
         ? pxToMinutes(e.clientY - gridRect.top, hourHeight) - pxToMinutes(top, hourHeight)
         : 0;
+    // 複製 (2026-07-29) は移動ドラッグにだけある。リサイズは複製の意味が無いので
+    // Option は従来どおりスナップ解除のまま(intent は常に "move")。
+    const intent =
+      kind === "move"
+        ? resolveDragIntent({
+            pointerType: e.pointerType,
+            altKey: e.altKey,
+            canDuplicate: canDuplicateOccurrence(occurrence),
+          })
+        : "move";
 
     dragRef.current = {
       kind,
+      intent,
       pointerId: e.pointerId,
       moved: false,
       startClientX: e.clientX,
@@ -313,7 +350,7 @@ export function EventBlock({
       dayStartMs,
       pendingStartMs: occurrence.startMs,
       pendingEndMs: occurrence.endMs,
-      badgeEl: createBadge(),
+      badgeEl: createBadge(intent),
     };
     window.addEventListener("keydown", handleKeyDown);
   }
@@ -369,6 +406,9 @@ export function EventBlock({
     if (!ds.moved && Math.hypot(dx, dy) >= CLICK_THRESHOLD_PX) {
       ds.moved = true;
       el.classList.add("event--dragging");
+      // 複製中の印(2026-07-29): 既存のドラッグ表示 (.event--dragging) に破線の輪郭を
+      // 足すだけ。「掴んでいるのは元の予定ではなく、これから作られる複製だ」を示す
+      if (ds.intent === "duplicate") el.classList.add("event--duplicating");
       document.body.appendChild(ds.badgeEl);
     }
     if (!ds.moved) return;
@@ -385,7 +425,9 @@ export function EventBlock({
       const rawStartMs = targetDayStartMs + rawStartMinutes * 60_000;
       const snappedStart = snapStartMs(rawStartMs, {
         originalStartMs: ds.originalStartMs,
-        disableSnap: e.altKey,
+        // 「押し始めなら複製 / 途中なら スナップ解除」の振り分け(layout/dragDuplicate.ts)。
+        // 複製ドラッグ中は押しっぱなしの Option をスナップ解除に流さない
+        disableSnap: isSnapDisabledDuringDrag({ intent: ds.intent, altKey: e.altKey }),
       });
       const durationMs = ds.originalEndMs - ds.originalStartMs;
       const snappedEnd = snappedStart + durationMs;
@@ -457,10 +499,14 @@ export function EventBlock({
       return;
     }
 
-    el.classList.remove("event--dragging");
+    el.classList.remove("event--dragging", "event--duplicating");
     el.style.transform = "";
 
-    if (ds.kind === "move") {
+    if (ds.intent === "duplicate") {
+      // 複製 (2026-07-29): 元の予定には触らない。transform を戻した時点でカードは
+      // 元の位置に戻り、ドロップ先には新しい予定が(楽観表示で即座に)現れる。
+      onDuplicate(occurrence, ds.pendingStartMs, ds.pendingEndMs);
+    } else if (ds.kind === "move") {
       onCommit({ ...occurrence, startMs: ds.pendingStartMs, endMs: ds.pendingEndMs }, "move");
     } else {
       onCommit({ ...occurrence, endMs: ds.pendingEndMs }, "resize");

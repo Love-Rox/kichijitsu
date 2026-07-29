@@ -155,6 +155,13 @@ interface WeekGridProps {
    */
   onRequestMoveConfirm: (updated: Occurrence, previous: Occurrence) => void;
   /**
+   * Option(Alt)+ドラッグでの複製 (2026-07-29、ユーザー要望)。EventBlock → DayColumn から
+   * そのまま素通しするだけで、WeekGrid 側では何も判断しない ―― 複製は元の予定を変えないので
+   * handleCommit のような store の楽観更新も、移動確認ダイアログも通らない
+   * (App.tsx の useEventMutations.duplicateEvent が新規作成として処理する)。
+   */
+  onDuplicate: (source: Occurrence, startMs: number, endMs: number) => void;
+  /**
    * 選択中カレンダーの `${accountId}:${calendarId}` キー集合(マルチアカウント対応 2026-07-19)。
    * source==='google' な occurrence だけをこれでフィルタする。ローカル/未設定 source
    * (source !== 'google') は選択状態に関係なく常に表示する。
@@ -301,6 +308,7 @@ export function WeekGrid({
   timeZone,
   onPersist,
   onRequestMoveConfirm,
+  onDuplicate,
   visibleCalendarKeys,
   calendarLookup,
   onDelete,
@@ -1180,6 +1188,7 @@ export function WeekGrid({
                       timeZone={timeZone}
                       weekDayStarts={dayStarts}
                       onCommit={handleCommit}
+                      onDuplicate={onDuplicate}
                       onDelete={onDelete}
                       onSaveEdit={onSaveEdit}
                       onRsvp={onRsvp}
