@@ -24,6 +24,7 @@ import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
 import { isAccountInProfile } from "../accounts";
 import { isValidEventCreateRequest } from "../core/create-event";
+import { isValidEventPatchRequest } from "../core/patch-event";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-protocol";
@@ -69,28 +70,26 @@ eventRoutes.post("/api/sync", requireAuth, async (c) => {
 // マップする: クライアントはこれを「反映できなかった」信号としてローカルの
 // 楽観更新をロールバックすればよく、理由ごとの分岐を必要としない。
 // summary/location/description/isAllDay は optional — 未指定の旧クライアント (時刻のみ
-// 送るリクエスト) もそのまま動く (後方互換)。指定された場合のみ型チェックする
-// (undefined を許容しつつ、指定した値の型は誤りを弾く)。
+// 送るリクエスト) もそのまま動く (後方互換)。
+//
+// ボディ検証は core/patch-event.ts の isValidEventPatchRequest (純関数・テストあり) に
+// 出してある (2026-07-30、/api/event/create と同じ流儀) — startMs/endMs が optional に
+// なり「両方指定 or 両方省略」の組み合わせ判定が要るようになったため。片方だけ届いた
+// リクエストは 400 に落とす (そのまま流すと開始だけ動いて終了が据え置かれる、を参照)。
+//
+// 繰り返し予定の適用範囲 (この予定のみ / すべての予定) は eventId と時刻に解決済みの
+// 形で届く — 「すべて」なら eventId が親 (シリーズ) の event id になり、内容だけの変更
+// なら startMs/endMs が省略される。サーバーは範囲そのものを知らない (web/src/sync/
+// recurrenceScope.ts 参照)。
 eventRoutes.post("/api/event/patch", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: EventPatchRequest;
+  let body: unknown;
   try {
     body = await c.req.json<EventPatchRequest>();
   } catch {
     return c.json<ApiError>({ error: "invalid_json" }, 400);
   }
-  if (
-    !body?.accountId ||
-    !body?.calendarId ||
-    !body?.eventId ||
-    typeof body.startMs !== "number" ||
-    typeof body.endMs !== "number" ||
-    !body?.timeZone ||
-    (body.summary !== undefined && typeof body.summary !== "string") ||
-    (body.location !== undefined && typeof body.location !== "string") ||
-    (body.description !== undefined && typeof body.description !== "string") ||
-    (body.isAllDay !== undefined && typeof body.isAllDay !== "boolean")
-  ) {
+  if (!isValidEventPatchRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 

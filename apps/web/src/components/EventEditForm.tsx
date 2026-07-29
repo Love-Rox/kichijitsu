@@ -12,6 +12,7 @@ import {
   validateEventEditDraft,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import { EditScopeCancelledError } from "../sync/recurrenceScope";
 
 /**
  * 書き込み先カレンダーの選択 (2026-07-29 全項目入力)。作成モードでのみ渡す ―― 既存予定の
@@ -130,6 +131,10 @@ export function EventEditForm({
     setSaveError(null);
     onSave(draft)
       .catch((err) => {
+        // 適用範囲の問いかけ (繰り返し予定、2026-07-30) をキャンセルしたときは、
+        // 失敗ではないのでエラー文言を出さずフォームを開いたままにする
+        // ―― 「保存できませんでした」と出すと、自分でキャンセルしたのに失敗したように見える
+        if (err instanceof EditScopeCancelledError) return;
         console.error("kichijitsu: event edit save failed", err);
         setSaveError(
           isCreate

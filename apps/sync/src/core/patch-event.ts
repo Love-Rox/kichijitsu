@@ -1,5 +1,69 @@
+import type { EventPatchRequest } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { patchEventTime, type PatchEventTimeParams } from "../google/patch-event";
+
+/**
+ * POST /api/event/patch のボディ検証で使う上限。core/create-event.ts の同名定数と同じ根拠
+ * (description は Google Calendar API の上限 8192、summary/location は UI の1行入力として
+ * 現実的な 1024 で切る)。
+ */
+const MAX_SUMMARY_LENGTH = 1024;
+const MAX_LOCATION_LENGTH = 1024;
+const MAX_DESCRIPTION_LENGTH = 8192;
+
+/** 非空文字列か (core/create-event.ts の同名関数と同じ) */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** 未指定 (undefined) か、maxLength 以内の文字列か */
+function isOptionalBoundedString(value: unknown, maxLength: number): boolean {
+  return value === undefined || (typeof value === "string" && value.length <= maxLength);
+}
+
+/**
+ * POST /api/event/patch のボディ検証 (2026-07-30)。それまでルートにインラインで書かれていた
+ * 条件式を、core/create-event.ts の isValidEventCreateRequest と同じ「型ガード付き純関数」に
+ * 出したもの ―― **startMs/endMs が optional になった**ことで検査が「両方指定 or 両方省略」の
+ * 組み合わせ判定を含むようになり、インラインでは読めなくなったため。
+ *
+ * なぜ組み合わせを弾くのか: 片方だけ届いたリクエストをそのまま Google に流すと、
+ * `start` だけ・`end` だけを持つ PATCH になる。events.patch は指定したフィールドだけを
+ * マージするので、**開始だけが動いて終了が据え置かれた予定** (長さがめちゃくちゃになった
+ * 予定、あるいは終了 < 開始で Google に 400 で弾かれる予定) が出来上がる。ここで 400 に
+ * 落として、意味の分かるエラーをクライアントへ返す。
+ *
+ * 検査するもの:
+ *  - accountId / calendarId / eventId / timeZone: 非空文字列
+ *  - startMs / endMs: **両方 undefined** (時刻を触らない) か、**両方が有限の数値で開始 < 終了**
+ *  - summary / location / description: 未指定か長さ上限内の文字列 (空文字は「クリア」なので許す)
+ *  - isAllDay: 未指定か boolean (文字列 "true" 等の曖昧な指定は弾く)
+ */
+export function isValidEventPatchRequest(body: unknown): body is EventPatchRequest {
+  if (!body || typeof body !== "object") return false;
+  const candidate = body as Record<string, unknown>;
+
+  if (!isNonEmptyString(candidate.accountId)) return false;
+  if (!isNonEmptyString(candidate.calendarId)) return false;
+  if (!isNonEmptyString(candidate.eventId)) return false;
+  if (!isNonEmptyString(candidate.timeZone)) return false;
+
+  const hasStart = candidate.startMs !== undefined;
+  const hasEnd = candidate.endMs !== undefined;
+  if (hasStart !== hasEnd) return false;
+  if (hasStart) {
+    if (typeof candidate.startMs !== "number" || !Number.isFinite(candidate.startMs)) return false;
+    if (typeof candidate.endMs !== "number" || !Number.isFinite(candidate.endMs)) return false;
+    if (candidate.endMs <= candidate.startMs) return false;
+  }
+
+  if (!isOptionalBoundedString(candidate.summary, MAX_SUMMARY_LENGTH)) return false;
+  if (!isOptionalBoundedString(candidate.location, MAX_LOCATION_LENGTH)) return false;
+  if (!isOptionalBoundedString(candidate.description, MAX_DESCRIPTION_LENGTH)) return false;
+  if (candidate.isAllDay !== undefined && typeof candidate.isAllDay !== "boolean") return false;
+
+  return true;
+}
 
 /**
  * UserSyncDO.patchEvent が実装すべき依存先。sync.ts の SyncCoreDeps と同じ考え方で、

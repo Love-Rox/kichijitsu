@@ -430,19 +430,33 @@ export type ServerEvent =
  * マージ更新し、未指定のフィールドは既存値を保持する) にそのまま渡す薄いプロキシであり、
  * 結果の正本は返さない — 次の同期 (SSE changed → /api/sync) で還流する。
  *
- * startMs/endMs/timeZone は元々のフェーズ5 (時刻のみ書き換え) からの必須フィールドで、
- * 後方互換のためそのまま残す。summary/location/description/isAllDay は編集フォームの
+ * timeZone は元々のフェーズ5 (時刻のみ書き換え) からの必須フィールド。
+ * summary/location/description/isAllDay は編集フォームの
  * 保存時に全項目を送る想定の optional 拡張 — 未指定のキーは PATCH body に含めない
  * (google/patch-event.ts が JSON.stringify の undefined 省略を利用してそのまま Google に渡す)
  * ので、Google 側で既存値が保持される。空文字は「クリア」の意図として明示的に送る
  * (例: location: "" で場所を消せる)。
+ *
+ * **繰り返し予定の適用範囲 (2026-07-30)**: 「すべての予定」を選んだときは、この eventId に
+ * 親 (シリーズ) の event id が入る。適用範囲そのものはクライアント側で eventId と時刻に
+ * 解決してから送るため、サーバーには渡らない (web/src/sync/recurrenceScope.ts 参照)。
  */
 export interface EventPatchRequest {
   accountId: string;
   calendarId: string;
   eventId: string;
-  startMs: number;
-  endMs: number;
+  /**
+   * 変更後の時間帯 (epoch ms)。**startMs と endMs は「両方指定」か「両方省略」のどちらか**で、
+   * 省略した場合は PATCH body に start/end を含めない = Google 側の時刻をそのまま保つ
+   * (2026-07-30、繰り返し予定の適用範囲)。
+   *
+   * なぜ省略できる必要があるか: 繰り返し予定の内容 (タイトル等) だけを「すべての予定」に
+   * 適用するとき、親イベントの start は DTSTART そのもの ―― 何も動かさないつもりでも時刻を
+   * 送れば、ローカルに持っている分精度の値で DTSTART を書き直してしまう。時刻を触らない
+   * 変更では**送らない**のが唯一安全な選択肢になる。
+   */
+  startMs?: number;
+  endMs?: number;
   /** クライアントの IANA タイムゾーン (Google へ dateTime と共に渡す。isAllDay の date 変換にも使う) */
   timeZone: string;
   /** 指定時のみ更新 (未指定は既存値を保持)。空文字は「クリア」。 */

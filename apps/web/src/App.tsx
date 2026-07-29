@@ -577,6 +577,9 @@ function App() {
     requestMoveConfirm: handleRequestMoveConfirm,
     confirmMove: handleConfirmMove,
     cancelMove: handleCancelMove,
+    editScopeConfirm,
+    confirmEditScope: handleConfirmEditScope,
+    cancelEditScope: handleCancelEditScope,
     saveEdit: handleEditSave,
     rsvp: handleRsvp,
     toggleTask: handleToggleTask,
@@ -923,8 +926,24 @@ function App() {
                 previous={moveConfirm.previous}
                 updated={moveConfirm.updated}
                 timeZone={timeZone}
+                scopes={moveConfirm.scopes}
                 onConfirm={handleConfirmMove}
                 onCancel={handleCancelMove}
+              />
+            )}
+            {/*
+             * 編集フォーム保存時の適用範囲の確認 (2026-07-30)。繰り返し予定を編集したときだけ
+             * 立つ state で、移動確認と同じダイアログを purpose="edit" で使い回す。
+             * 同時に開くことは無い (どちらもモーダルで、開いている間は背後を操作できない)。
+             */}
+            {editScopeConfirm && (
+              <MoveConfirmDialog
+                title={editScopeConfirm.title}
+                timeZone={timeZone}
+                purpose="edit"
+                scopes={editScopeConfirm.scopes}
+                onConfirm={handleConfirmEditScope}
+                onCancel={handleCancelEditScope}
               />
             )}
             {initIndicator.visible && (

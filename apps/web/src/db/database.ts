@@ -230,6 +230,18 @@ export async function getAllSeries(db: IDBPDatabase<KichijitsuDB>): Promise<Even
   return db.getAll("series");
 }
 
+/**
+ * 単一 series の取得 (2026-07-30、繰り返し予定の適用範囲)。「すべての予定」に適用するには
+ * 親の DTSTART が要る ―― getAllSeries を引くには重すぎる用途なので、id 直引きを用意する
+ * (getOverride と同じ流儀)。
+ */
+export async function getSeries(
+  db: IDBPDatabase<KichijitsuDB>,
+  id: string,
+): Promise<EventSeries | undefined> {
+  return db.get("series", id);
+}
+
 export async function putSeries(
   db: IDBPDatabase<KichijitsuDB>,
   series: EventSeries | EventSeries[],

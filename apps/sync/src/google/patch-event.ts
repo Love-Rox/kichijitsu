@@ -3,8 +3,14 @@ const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 export interface PatchEventTimeParams {
   calendarId: string;
   eventId: string;
-  startMs: number;
-  endMs: number;
+  /**
+   * 変更後の時間帯。**両方 undefined なら start/end を PATCH body に含めない**
+   * (2026-07-30、繰り返し予定の適用範囲) ―― Google 側の時刻はそのまま保たれる。
+   * 繰り返し予定の親を「内容だけ」書き換えるときに、DTSTART を無用に書き直さないため。
+   * 片方だけ指定するのは呼び出し側のバグ (ルートの isValidEventPatchRequest が弾く)。
+   */
+  startMs?: number;
+  endMs?: number;
   /** クライアントの IANA タイムゾーン。dateTime と併記して Google に渡す (isAllDay の date 変換にも使う)。 */
   timeZone: string;
   /**
@@ -57,6 +63,12 @@ export function toDateOnly(ms: number, timeZone: string): string {
  * 利用している。空文字は「クリア」なので undefined と区別してそのまま送る)。
  * 呼び出し元 (core/patch-event.ts) が status を見て 401 リトライ判定とエラー変換を
  * 行うため、ここでは response をそのまま返し throw しない (fetchEventsPage と同じ層分担)。
+ *
+ * startMs/endMs が未指定なら start/end のキー自体を組み立てない (undefined を渡して
+ * JSON.stringify に省略させる) ―― summary 等と同じ流儀で「時刻には触らない」を表現する。
+ * 時刻を送る場合は必ず timeZone を併記する: Google Calendar API は**繰り返し予定では
+ * start/end の timeZone を必須**としており (展開に使うため)、親イベントを patch する
+ * 「すべての予定」経路ではこれが効いてくる。
  */
 export async function patchEventTime(
   fetchFn: typeof fetch,
@@ -64,12 +76,19 @@ export async function patchEventTime(
   params: PatchEventTimeParams,
 ): Promise<Response> {
   const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`;
-  const start = params.isAllDay
-    ? { date: toDateOnly(params.startMs, params.timeZone) }
-    : { dateTime: toRfc3339Utc(params.startMs), timeZone: params.timeZone };
-  const end = params.isAllDay
-    ? { date: toDateOnly(params.endMs, params.timeZone) }
-    : { dateTime: toRfc3339Utc(params.endMs), timeZone: params.timeZone };
+  const { startMs, endMs } = params;
+  const start =
+    startMs === undefined
+      ? undefined
+      : params.isAllDay
+        ? { date: toDateOnly(startMs, params.timeZone) }
+        : { dateTime: toRfc3339Utc(startMs), timeZone: params.timeZone };
+  const end =
+    endMs === undefined
+      ? undefined
+      : params.isAllDay
+        ? { date: toDateOnly(endMs, params.timeZone) }
+        : { dateTime: toRfc3339Utc(endMs), timeZone: params.timeZone };
   return fetchFn(url, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },

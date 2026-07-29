@@ -3,7 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { Occurrence } from "../model/types";
 import {
   buildEventDeleteRequest,
-  buildEventPatchRequest,
+  eventPatchRequestFor,
   rawGoogleEventId,
   seriesInstanceEventId,
   utcBasicFromEpochMs,
@@ -80,54 +80,44 @@ describe("seriesInstanceEventId", () => {
   });
 });
 
-describe("buildEventPatchRequest", () => {
-  it("単発の google occurrence から EventPatchRequest を組み立てる", () => {
-    const occ = baseOccurrence();
-    const req = buildEventPatchRequest(occ, "Asia/Tokyo");
-    expect(req).toEqual({
+describe("eventPatchRequestFor", () => {
+  it("google occurrence + 宛先から EventPatchRequest を組み立てる", () => {
+    expect(
+      eventPatchRequestFor(
+        baseOccurrence(),
+        { eventId: "evt-1", startMs: 1, endMs: 2 },
+        "Asia/Tokyo",
+      ),
+    ).toEqual({
       accountId: "acc-1",
       calendarId: "cal-1",
       eventId: "evt-1",
-      startMs: occ.startMs,
-      endMs: occ.endMs,
+      startMs: 1,
+      endMs: 2,
       timeZone: "Asia/Tokyo",
     });
   });
 
-  it("シリーズ由来の occurrence はインスタンス ID を組み立てる", () => {
-    const originalStartMs = zms("2026-07-20T10:00:00", "Asia/Tokyo");
-    const occ = baseOccurrence({
-      id: `g:acc-1:cal-1:series-evt:${originalStartMs}`,
-      seriesId: "g:acc-1:cal-1:series-evt",
-      originalStartMs,
-      // ドラッグで動かした後の新しい時刻
-      startMs: zms("2026-07-20T14:00", "Asia/Tokyo"),
-      endMs: zms("2026-07-20T15:00", "Asia/Tokyo"),
-    });
-    const req = buildEventPatchRequest(occ, "Asia/Tokyo");
-    expect(req).toEqual({
-      accountId: "acc-1",
-      calendarId: "cal-1",
-      eventId: "series-evt_20260720T010000Z",
-      startMs: occ.startMs,
-      endMs: occ.endMs,
-      timeZone: "Asia/Tokyo",
-    });
+  it("時刻の無い宛先 (内容だけの変更) は startMs/endMs が undefined のまま", () => {
+    const req = eventPatchRequestFor(baseOccurrence(), { eventId: "series-1" }, "Asia/Tokyo");
+    expect(req?.startMs).toBeUndefined();
+    expect(req?.endMs).toBeUndefined();
   });
 
   it('source !== "google" なら null', () => {
-    const occ = baseOccurrence({ source: "local" });
-    expect(buildEventPatchRequest(occ, "Asia/Tokyo")).toBeNull();
+    expect(
+      eventPatchRequestFor(baseOccurrence({ source: "local" }), { eventId: "evt-1" }, "Asia/Tokyo"),
+    ).toBeNull();
   });
 
   it("accountId または calendarId が欠けていれば null", () => {
-    const occ = baseOccurrence({ accountId: undefined });
-    expect(buildEventPatchRequest(occ, "Asia/Tokyo")).toBeNull();
-  });
-
-  it("id のパースに失敗したら null (console.error はするが throw しない)", () => {
-    const occ = baseOccurrence({ id: "not-a-google-id" });
-    expect(buildEventPatchRequest(occ, "Asia/Tokyo")).toBeNull();
+    expect(
+      eventPatchRequestFor(
+        baseOccurrence({ accountId: undefined }),
+        { eventId: "evt-1" },
+        "Asia/Tokyo",
+      ),
+    ).toBeNull();
   });
 });
 
