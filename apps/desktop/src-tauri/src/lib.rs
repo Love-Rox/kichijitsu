@@ -159,34 +159,121 @@ fn augmented_path() -> String {
     }
 }
 
+/// gh パス上書きの **形だけ** を見る純関数(ファイルシステムには触れない)。
+///
+/// # なぜ純関数として切り出したか (2026-07-30)
+/// 元々この規則は `select_gh_binary` の中に直書きされ、`gh_api` の**実行時**にしか
+/// 適用されていなかった。そのため設定画面で誤ったパスを保存しても保存自体は成功し、
+/// 後になって「GitHub の予定・実績が取れない」という分かりにくい形でしか現れなかった。
+/// 保存時にも**まったく同じ規則**で弾けるよう、fs に依存しない部分をここへ出して
+/// `select_gh_binary`(実行時) と `validate_gh_path` コマンド(保存時) の双方から呼ぶ。
+/// 規則の実体が1か所しか無いので、二重に書いてズレることが原理的に起きない。
+///
+/// web 側 (`apps/web/src/sync/githubProvider.ts` の `validateGhPathOverride`) にも同じ規則の
+/// 写しがあるが、そちらは**旧デスクトップシェル(このコマンドを持たないビルド)向けの
+/// 保険と即時フィードバック**であって正ではない。正はここ。
+///
+/// # 規則
+/// 1. **ファイル名が `gh`(Windows は `gh.exe`)であること** ―― セキュリティ上の制約。
+///    フロントは本番サイト(リモート URL)を読む薄いガワで、その localStorage は XSS で
+///    書き換えられうる(このファイル冒頭・`gh_api` のコメントの脅威モデル)。上書きパスを
+///    そのまま spawn すると「gh 以外の任意のバイナリを選ばせる」余地になり、endpoint の
+///    ホワイトリストで守っている「XSS でも任意コマンドは実行させない」境界が崩れる。
+///    ディレクトリの自由指定は許すが、実行されるバイナリ名は gh に固定する。
+/// 2. **絶対パスであること** ―― 相対パス(`bin/gh`、`../gh`、区切りを含まない裸の `gh`)は
+///    プロセスの cwd を基準に解決されるが、Dock/Finder 起動のアプリの cwd は `/` などで
+///    ユーザーの想像と一致しない。「保存はできるが効かない」の典型なので形の時点で断る
+///    (ついでに `..` によるディレクトリ遡上も意味を失う)。
+///
+/// 空文字列は呼び出し側で「上書き解除(自動検出に戻す)」として扱うため、ここには渡らない。
+fn validate_gh_override_shape(trimmed: &str) -> Result<(), String> {
+    let path = std::path::Path::new(trimmed);
+    let name = path.file_name().and_then(|n| n.to_str());
+    if name != Some("gh") && name != Some("gh.exe") {
+        return Err(format!(
+            "gh という名前の実行ファイル(Windows は gh.exe)を指定してください: {trimmed}"
+        ));
+    }
+    if !path.is_absolute() {
+        return Err(format!(
+            "gh のパスは絶対パスで指定してください(例: /opt/homebrew/bin/gh): {trimmed}"
+        ));
+    }
+    Ok(())
+}
+
+/// 上書きパスが**実体として使えるか**を見る(fs に触れる部分)。
+/// 形の検証 (`validate_gh_override_shape`) を通った後に呼ぶ。
+///
+/// 名前が gh でも実体が無ければ利用者にとっては同じ「効かない」なので、存在と実行可能性まで
+/// 見る。逆に存在チェックは名前の制約の代わりにはならない(存在する任意のバイナリを
+/// 選べてしまう)ので、**両方**必要。
+fn validate_gh_override_file(path: &std::path::Path) -> Result<(), String> {
+    let meta = std::fs::metadata(path)
+        .map_err(|_| format!("指定した gh のパスが存在しません: {}", path.display()))?;
+    if !meta.is_file() {
+        return Err(format!(
+            "指定した gh のパスがファイルではありません: {}",
+            path.display()
+        ));
+    }
+    // 実行ビットの確認は unix のみ。Windows には対応する概念が無いので存在確認までで留める。
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return Err(format!(
+                "指定した gh のパスは実行可能なファイルではありません: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// 使用する gh バイナリを決める。設定画面(web 側 localStorage)で明示パスが指定されていれば
 /// (`gh_path`、Tauri のみ表示の「gh のパス」入力)それを検証して使い、空/未指定なら
 /// `resolve_gh_path()` の自動検出にフォールバックする。
 ///
-/// **セキュリティ**: フロントは本番サイト(リモート URL)を読む薄いガワで、その localStorage は
-/// XSS で書き換えられうる(このファイル冒頭・gh_api のコメントの脅威モデル)。上書きパスをそのまま
-/// spawn すると「gh 以外の任意のバイナリを選ばせる」余地になり、endpoint のホワイトリストで守っている
-/// 「XSS でも任意コマンドは実行させない」境界が崩れる。そこで上書きは **ファイル名が正しく gh** の
-/// ものだけ許可する(basename が `gh`、Windows は `gh.exe`)。ディレクトリの自由指定は許すが、
-/// 実行されるバイナリ名は gh に固定する。指定が gh 以外/実在しない場合は明示エラーで返す。
+/// **実行時にも検証を残す理由**: 保存時 (`validate_gh_path` コマンド) だけで弾くと、
+/// localStorage を直接書き換えられた場合(= 上記の XSS 脅威モデル)に素通りしてしまう。
+/// **保存時は使い勝手のため、実行時は防御のため**という二重化であり、実行時の拒否は
+/// 保存時チェックを足しても外せない。規則の実体は `validate_gh_override_shape` /
+/// `validate_gh_override_file` の1組だけなので、二重化してもズレは生じない。
 fn select_gh_binary(override_path: Option<String>) -> Result<std::path::PathBuf, String> {
     if let Some(p) = override_path {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
+            validate_gh_override_shape(trimmed)?;
             let path = std::path::PathBuf::from(trimmed);
-            let name = path.file_name().and_then(|n| n.to_str());
-            if name != Some("gh") && name != Some("gh.exe") {
-                return Err(format!(
-                    "gh のパスは末尾が gh(または gh.exe)である必要があります: {trimmed}"
-                ));
-            }
-            if !path.exists() {
-                return Err(format!("指定した gh のパスが存在しません: {trimmed}"));
-            }
+            validate_gh_override_file(&path)?;
             return Ok(path);
         }
     }
     Ok(resolve_gh_path())
+}
+
+/// 設定画面の「gh のパス」を**保存する前に**検証する。問題なければ `None`、駄目なら
+/// 理由の文字列を返す(`Err` ではなく戻り値にしているのは下記の理由)。
+///
+/// # なぜ command を足したか
+/// 検証規則を web 側にも書き写すと必ずズレる。`select_gh_binary` をそのまま呼ぶ command を
+/// 1つ生やせば、保存時のチェックが実行時とまったく同じコードを通る ―― 規則の写しが増えない。
+/// 加えて、存在/実行可能性の確認はブラウザ側からは原理的にできず、ここでしかできない。
+///
+/// # なぜ `Result` の `Err` ではなく `Option<String>` か
+/// invoke の失敗(このコマンドを持たない旧シェル、ACL 不許可など)と「シェルが答えた結果として
+/// 不正」を web 側が区別できるようにするため。前者は reject、後者は resolve で返る。
+/// 区別できないと、旧シェルで保存しようとしたときに検証エラーとして誤表示されてしまう。
+///
+/// 空文字列は「上書き解除」なので `None`(問題なし)。
+///
+/// 注: `gh_api` と同じくリモートコンテンツから invoke されるため capabilities/remote.json 側の
+/// 明示許可が必要 (`allow-validate-gh-path`)。副作用は無く、パスの存在を答えるのは
+/// ファイル名が gh のパスに限られる(形の検証が先に走るため)。
+#[tauri::command]
+fn validate_gh_path(gh_path: String) -> Option<String> {
+    select_gh_binary(Some(gh_path)).err()
 }
 
 /// `gh api <endpoint>` を実行し stdout(GitHub REST の生 JSON 文字列)を返す。
@@ -198,6 +285,8 @@ fn select_gh_binary(override_path: Option<String>) -> Result<std::path::PathBuf,
 /// - **パス解決**: `gh_path`(設定画面での上書き、任意)があればそれを、無ければ
 ///   `resolve_gh_path()` で実体を解決し(`select_gh_binary`)、`augmented_path()` で子プロセスの
 ///   PATH も補う(macOS の Dock 起動で Homebrew の gh が見つからない問題への対処)。
+///   上書きパスの検証は設定画面の保存時にも走る(`validate_gh_path`)が、ここでの検証は
+///   外せない ―― 保存時は使い勝手のため、実行時は防御のため(`select_gh_binary` のコメント参照)。
 /// - **ホワイトリスト**: プロセス起動前に `is_allowed_gh_endpoint` で `endpoint` の
 ///   形状を検査する。web 側がリモート URL 経由で XSS を受けても、任意の GitHub
 ///   API を叩けないようにするための境界(ファイル先頭コメント・
@@ -358,7 +447,11 @@ pub fn run() {
         // 呼び出しが別途必要(on_window_event の CloseRequested 分岐と
         // on_menu_event の "quit" 分岐のコメント参照)。
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![gh_api, app_version])
+        .invoke_handler(tauri::generate_handler![
+            gh_api,
+            app_version,
+            validate_gh_path
+        ])
         .setup(|app| {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
@@ -626,20 +719,64 @@ mod tests {
         ));
     }
 
-    // --- 8. select_gh_binary: 上書きパスは basename が gh のものだけ許可 ---
+    // --- 8. validate_gh_override_shape: 形の規則(名前が gh / 絶対パス) ---
+    //
+    // この境界表は web 側の写し (apps/web/src/sync/githubProvider.ts の
+    // validateGhPathOverride、テストは githubProvider.test.ts) と**同じ並び**で保つ。
+    // 規則の正はこちら側なので、食い違ったら web 側を直す。
+
+    #[test]
+    fn shape_accepts_absolute_path_named_gh() {
+        assert!(validate_gh_override_shape("/opt/homebrew/bin/gh").is_ok());
+        assert!(validate_gh_override_shape("/usr/local/bin/gh").is_ok());
+        // Windows 実行ファイル名。POSIX 上でも「名前」の判定としては通す
+        // (絶対パス判定は OS 依存なので、ここでは POSIX 形の絶対パスで確かめる)。
+        assert!(validate_gh_override_shape("/opt/homebrew/bin/gh.exe").is_ok());
+    }
+
+    #[test]
+    fn shape_rejects_non_gh_file_name() {
+        // XSS で localStorage を書き換えられても、gh 以外の任意バイナリは選ばせない。
+        let err = validate_gh_override_shape("/tmp/evil").unwrap_err();
+        assert!(err.contains("gh という名前"), "got: {err}");
+        assert!(validate_gh_override_shape("/usr/bin/gh2").is_err());
+        assert!(validate_gh_override_shape("/usr/bin/git").is_err());
+        // ディレクトリを指す末尾スラッシュは file_name が "bin" になるので拒否。
+        assert!(validate_gh_override_shape("/opt/homebrew/bin/").is_err());
+    }
+
+    #[test]
+    fn shape_ignores_trailing_slash_after_gh() {
+        // Path::file_name は末尾スラッシュを無視して "gh" を返すため、形としては通る。
+        // 実体がディレクトリだった場合は validate_gh_override_file が
+        // 「ファイルではありません」で弾く(形と実体で役割を分けている)。
+        assert!(validate_gh_override_shape("/opt/homebrew/bin/gh/").is_ok());
+    }
+
+    #[test]
+    fn shape_rejects_relative_paths() {
+        // 区切りを含まない裸の gh・相対パス・.. 入りは、GUI 起動プロセスの cwd 次第に
+        // なってしまうため形の時点で断る。
+        for p in ["gh", "bin/gh", "./gh", "../gh", "../../opt/homebrew/bin/gh"] {
+            let err = validate_gh_override_shape(p).unwrap_err();
+            assert!(err.contains("絶対パス"), "{p}: {err}");
+        }
+        // 絶対パスであれば .. を含んでいても通す(正規化した先が gh である保証は
+        // validate_gh_override_file の存在確認が担う)。
+        assert!(validate_gh_override_shape("/opt/homebrew/bin/../bin/gh").is_ok());
+    }
+
+    // --- 9. select_gh_binary: 形 + 実体の検証を通しで ---
 
     #[test]
     fn select_gh_binary_rejects_non_gh_basename() {
-        // XSS で localStorage を書き換えられても、gh 以外の任意バイナリは選ばせない。
         let err = select_gh_binary(Some("/tmp/evil".to_string())).unwrap_err();
-        assert!(err.contains("末尾が gh"), "got: {err}");
-        // ディレクトリ末尾(スラッシュ)も basename が gh ではないので拒否。
-        assert!(select_gh_binary(Some("/opt/homebrew/bin/".to_string())).is_err());
+        assert!(err.contains("gh という名前"), "got: {err}");
     }
 
     #[test]
     fn select_gh_binary_rejects_missing_gh_path() {
-        // basename は gh だが実在しないパスは「存在しません」で明示エラー。
+        // 名前は gh だが実在しないパスは「存在しません」で明示エラー。
         let err = select_gh_binary(Some("/no/such/dir/gh".to_string())).unwrap_err();
         assert!(err.contains("存在しません"), "got: {err}");
     }
@@ -650,5 +787,62 @@ mod tests {
         assert!(select_gh_binary(None).is_ok());
         assert!(select_gh_binary(Some("".to_string())).is_ok());
         assert!(select_gh_binary(Some("   ".to_string())).is_ok());
+    }
+
+    // --- 10. validate_gh_path コマンド: 保存時の検証が実行時と同じ判定を返す ---
+
+    #[test]
+    fn validate_gh_path_returns_none_for_empty_and_message_for_invalid() {
+        // 空 = 上書き解除なので問題なし。
+        assert_eq!(validate_gh_path(String::new()), None);
+        assert_eq!(validate_gh_path("  ".to_string()), None);
+        // 不正なパスは理由の文字列で返る(reject ではなく戻り値。コマンドのコメント参照)。
+        let msg = validate_gh_path("/usr/bin/git".to_string()).expect("拒否されるはず");
+        assert!(msg.contains("gh という名前"), "got: {msg}");
+        // 保存時と実行時が同じ判定であること = 同じ関数を通っていることの確認。
+        for p in ["/usr/bin/git", "gh", "/no/such/dir/gh"] {
+            assert_eq!(
+                validate_gh_path(p.to_string()),
+                select_gh_binary(Some(p.to_string())).err(),
+                "{p}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_gh_path_accepts_real_executable_named_gh() {
+        // 実体の検証(存在 + 実行ビット)が「本物」を通すことを、テスト用に作った
+        // 実行可能ファイルで確かめる。gh CLI が入っていない CI でも成立させたいので
+        // 一時ディレクトリに自前で置く。
+        let dir = std::env::temp_dir().join(format!("kichijitsu-gh-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("gh");
+        std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = bin.to_string_lossy().to_string();
+        assert_eq!(validate_gh_path(path.clone()), None);
+        assert_eq!(select_gh_binary(Some(path)).unwrap(), bin);
+
+        // 実行ビットが無ければ「実行可能なファイルではありません」で弾く(unix のみ)。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let msg = validate_gh_path(bin.to_string_lossy().to_string()).expect("拒否されるはず");
+            assert!(msg.contains("実行可能"), "got: {msg}");
+        }
+
+        // ディレクトリを gh という名前で作った場合は「ファイルではありません」。
+        let dir_named_gh = dir.join("sub").join("gh");
+        std::fs::create_dir_all(&dir_named_gh).unwrap();
+        let msg =
+            validate_gh_path(dir_named_gh.to_string_lossy().to_string()).expect("拒否されるはず");
+        assert!(msg.contains("ファイルではありません"), "got: {msg}");
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

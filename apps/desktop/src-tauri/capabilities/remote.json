@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/remote-schema.json",
   "identifier": "remote-gh",
-  "description": "リモート URL (kichijitsu.love-rox.cc) の webview に gh_api/app_version コマンドの呼び出しを許可する。Tauri v2 はリモートコンテンツからのカスタムコマンド invoke を remote capability 無しでは ACL で全拒否するため、これが無いと gh 連携やビルド番号表示(ユーザー要望、2026-07-22、apps/web/src/version.ts の getDesktopVersion)が動かない。許可は allow-gh-api/allow-app-version のみに絞り (core:default 等は付けない)、gh api のエンドポイントも lib.rs の is_allowed_gh_endpoint で読み取り系に制限済み。app_version は引数を取らず Cargo.toml のバージョン文字列を返すだけなので追加のホワイトリストは不要。",
+  "description": "リモート URL (kichijitsu.love-rox.cc) の webview に gh_api/app_version/validate_gh_path コマンドの呼び出しを許可する。Tauri v2 はリモートコンテンツからのカスタムコマンド invoke を remote capability 無しでは ACL で全拒否するため、これが無いと gh 連携やビルド番号表示(ユーザー要望、2026-07-22、apps/web/src/version.ts の getDesktopVersion)が動かない。許可は allow-gh-api/allow-app-version/allow-validate-gh-path のみに絞り (core:default 等は付けない)、gh api のエンドポイントも lib.rs の is_allowed_gh_endpoint で読み取り系に制限済み。app_version は引数を取らず Cargo.toml のバージョン文字列を返すだけなので追加のホワイトリストは不要。validate_gh_path は設定画面の「gh のパス」を保存前に検証するだけで副作用が無く (2026-07-30)、パスの存在を答えるのもファイル名が gh の絶対パスに限られる (lib.rs の validate_gh_override_shape が先に走る)。",
   "windows": ["main"],
   "remote": { "urls": ["https://kichijitsu.love-rox.cc"] },
-  "permissions": ["allow-gh-api", "allow-app-version"]
+  "permissions": ["allow-gh-api", "allow-app-version", "allow-validate-gh-path"]
 }

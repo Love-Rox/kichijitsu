@@ -7,6 +7,7 @@ import {
   mapGhRepoItemsToDTO,
   mapGhSearchToWorkItems,
   mapGhWorkflowRunsToCi,
+  validateGhPathOverride,
   type GhRawCommit,
   type GhRawIssue,
   type GhRawMilestone,
@@ -423,5 +424,53 @@ describe("classifyGitHubResponse", () => {
     // 3xx(fetch が追従しないリダイレクト等)も「一時的な失敗」側に寄せる
     expect(classifyGitHubResponse(302)).toBe("transient");
     expect(classifyGitHubResponse(199)).toBe("transient");
+  });
+});
+
+/**
+ * gh パス上書きの形の検証。
+ *
+ * この境界表はデスクトップ側 (apps/desktop/src-tauri/src/lib.rs の
+ * validate_gh_override_shape のテスト) と**同じ並び**で保つ。規則の正は Rust 側で、
+ * ここはその写し(即時フィードバック + 旧シェル向けの保険)なので、食い違ったらこちらを直す。
+ */
+describe("validateGhPathOverride", () => {
+  it("gh という名前の絶対パスは通す", () => {
+    expect(validateGhPathOverride("/opt/homebrew/bin/gh")).toEqual({ ok: true });
+    expect(validateGhPathOverride("/usr/local/bin/gh")).toEqual({ ok: true });
+    // Windows 実行ファイル名も名前としては正しい
+    expect(validateGhPathOverride("/opt/homebrew/bin/gh.exe")).toEqual({ ok: true });
+    expect(validateGhPathOverride("C:\\Program Files\\GitHub CLI\\gh.exe")).toEqual({ ok: true });
+    // 前後の空白は無視する(getGhPathOverride/setGhPathOverride と同じ流儀)
+    expect(validateGhPathOverride("  /opt/homebrew/bin/gh  ")).toEqual({ ok: true });
+  });
+
+  it("空文字・空白のみは上書き解除なので通す", () => {
+    expect(validateGhPathOverride("")).toEqual({ ok: true });
+    expect(validateGhPathOverride("   ")).toEqual({ ok: true });
+  });
+
+  it("ファイル名が gh でなければ、名前が理由だと分かる文言で拒否する", () => {
+    for (const path of ["/usr/bin/gh2", "/usr/bin/git", "/tmp/evil", "/opt/homebrew/bin/"]) {
+      const result = validateGhPathOverride(path);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain("gh という名前");
+    }
+  });
+
+  it("末尾スラッシュは無視して gh を見る(Rust の Path::file_name と同じ)", () => {
+    expect(validateGhPathOverride("/opt/homebrew/bin/gh/")).toEqual({ ok: true });
+  });
+
+  it("相対パス(裸の gh・.. 入りを含む)は絶対パスが理由だと分かる文言で拒否する", () => {
+    for (const path of ["gh", "bin/gh", "./gh", "../gh", "../../opt/homebrew/bin/gh"]) {
+      const result = validateGhPathOverride(path);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain("絶対パス");
+    }
+  });
+
+  it("絶対パスなら .. を含んでいても形としては通す(実体の確認はデスクトップ側)", () => {
+    expect(validateGhPathOverride("/opt/homebrew/bin/../bin/gh")).toEqual({ ok: true });
   });
 });
