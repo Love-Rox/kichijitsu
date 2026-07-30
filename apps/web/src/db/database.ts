@@ -156,6 +156,11 @@ const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
  *       サーバー (apps/sync の deriveConferenceUrl) が新たに DTO へ載せるようにしたフィールド。
  *       世代4までに同期済みの occurrence/series には当然まだ乗っていないため、forceFull 同期で
  *       行き渡らせる(世代2・3と全く同じ「クライアント側の新フィールド追加」パターン)。
+ *   6 = attendees (参加者の表示、2026-07-30)。サーバー (apps/sync の deriveAttendeeList) が
+ *       これまで捨てていた event.attendees[] を DTO へ載せるようにし、mapGoogle.ts が
+ *       occurrence/series/override へ写すようにしたフィールド。世代5までに同期済みの
+ *       予定には当然まだ乗っていないため、forceFull 同期で行き渡らせる
+ *       (世代2・3・5と全く同じ「新フィールド追加」パターン)。
  */
 const META_OOO_BACKFILL_DONE_KEY = "oooBackfillDone"; // 旧キー。getSyncBackfillVersion の移行判定でのみ読む
 const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
@@ -166,7 +171,7 @@ const META_SYNC_BACKFILL_VERSION_KEY = "syncBackfillVersion";
  * 再同期を強制して OOO / RSVP(仮・不参加)/ 勤務場所のフィールドを確実に反映させる。
  * (フィールド追加ではなく「取りこぼしの是正」目的の世代上げ)
  */
-export const CURRENT_SYNC_BACKFILL_VERSION = 5;
+export const CURRENT_SYNC_BACKFILL_VERSION = 6;
 
 let dbPromise: Promise<IDBPDatabase<KichijitsuDB>> | undefined;
 

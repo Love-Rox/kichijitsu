@@ -405,6 +405,101 @@ describe("expandSeries", () => {
     });
   });
 
+  describe("attendees の伝播 (参加者の表示、2026-07-30)", () => {
+    const SERIES_GUESTS = [
+      { email: "boss@example.com", organizer: true, responseStatus: "accepted" as const },
+      { email: "me@example.com", self: true, responseStatus: "accepted" as const },
+    ];
+
+    it("series.attendees を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({ attendees: SERIES_GUESTS, rrule: "FREQ=DAILY;COUNT=2" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.attendees).toEqual(SERIES_GUESTS);
+      }
+    });
+
+    it("series に attendees が無ければ occurrence 側もキーを持たない", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0]).not.toHaveProperty("attendees");
+    });
+
+    it("override.patch.attendees があればシリーズ側より優先し、無ければフォールバックする", () => {
+      const series = baseSeries({ attendees: SERIES_GUESTS, rrule: "FREQ=DAILY;COUNT=2" });
+      const instanceGuests = [
+        { email: "boss@example.com", organizer: true, responseStatus: "accepted" as const },
+      ];
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { attendees: instanceGuests },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.attendees).toEqual(SERIES_GUESTS);
+      expect(patched!.attendees).toEqual(instanceGuests);
+    });
+
+    it("attendeesOmitted は attendees を採った側から一緒に取る (食い違わせない)", () => {
+      // シリーズ側は打ち切られているが、例外インスタンス側は全員そろっている形。
+      // フラグだけシリーズから漏れてくると「2人しかいないのに 2人以上」と出てしまう。
+      const series = baseSeries({
+        attendees: SERIES_GUESTS,
+        attendeesOmitted: true,
+        rrule: "FREQ=DAILY;COUNT=2",
+      });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { attendees: [{ email: "solo@example.com" }] },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.attendeesOmitted).toBe(true);
+      expect(patched).not.toHaveProperty("attendeesOmitted");
+    });
+  });
+
   it("FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)", () => {
     // 2026-01-05 は月曜
     const series = baseSeries({

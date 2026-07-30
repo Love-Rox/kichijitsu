@@ -1,9 +1,15 @@
 import { useState } from "react";
 import type { Ref } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import type { OccurrenceLink } from "../model/types";
+import type { EventAttendee, OccurrenceLink } from "../model/types";
 import { calendarKey } from "../layout/keys";
 import { resolveEventDetailMeetingView } from "../layout/eventDetailView";
+import {
+  buildGuestListView,
+  GUEST_PREVIEW_COUNT,
+  GUEST_STATUS_LABEL,
+  type GuestListView,
+} from "../layout/guestList";
 import { clampPopoverPosition, stripHtmlToPlainText } from "./eventPopoverShared";
 import { RsvpNotAttendeeError } from "../sync/eventRsvp";
 import type { EventEditDraft } from "../sync/eventEdit";
@@ -47,6 +53,14 @@ export interface EventDetailSubject {
    * 参加リンクの解決は resolveMeetingUrl(conferenceUrl, location) を通す。
    */
   conferenceUrl?: string;
+  /**
+   * Occurrence.attendees / AllDayOccurrence.attendees と同じ意味(参加者の表示、2026-07-30)。
+   * 値があれば「ゲスト」欄を出す(下の GuestSection)。並び替え・会議室の分離・人数の
+   * 数え方は layout/guestList.ts の純関数が決める。
+   */
+  attendees?: EventAttendee[];
+  /** Occurrence.attendeesOmitted と同じ意味(一覧が全員ぶんではない、2026-07-30)。 */
+  attendeesOmitted?: boolean;
 }
 
 export interface EventDetailCardProps {
@@ -122,6 +136,9 @@ export function EventDetailCard({
   // 「会議 / 場所」行の出し分け(2026-07-25、Slack ハドル・Meet 等)。判定は純関数へ切り出し
   // 済み(layout/eventDetailView.ts、テストあり) ―― ここでは結果を並べるだけ。
   const meeting = resolveEventDetailMeetingView(subject);
+  // ゲスト欄 (参加者の表示、2026-07-30)。整形は純関数へ切り出し済み (layout/guestList.ts、
+  // テストあり) ―― ここでは結果を並べるだけ。参加者のいない予定は null が返り、欄ごと出ない。
+  const guestList = buildGuestListView(subject.attendees, subject.attendeesOmitted);
   const memberCalendars = groupMembers
     .map((m) => {
       const info =
@@ -256,6 +273,13 @@ export function EventDetailCard({
             Google で開く
           </a>
         )}
+        {/*
+         * ゲスト (参加者) 欄 (2026-07-30)。表示のみ ―― 参加者の追加/削除はこの版では入れて
+         * いない(理由は apps/site/docs/calendar/index.html の「ゲスト」節と作業報告参照)。
+         * 場所・説明の後、カレンダー所属の前に置く: 参加者は予定の中身であって、
+         * 「どのカレンダーにあるか」は予定の入れ物の話なので、中身を先に読ませる。
+         */}
+        {guestList && <GuestSection view={guestList} />}
         {memberCalendars.length > 0 && (
           <div className="event-detail-calendar-list">
             {memberCalendars.map((info) => (
@@ -292,6 +316,79 @@ export function EventDetailCard({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * ゲスト (参加者) 欄 (2026-07-30)。**表示のみ**。
+ *
+ * 見た目は既存の意匠に寄せてある ―― 見出しの体裁はカレンダー所属の列
+ * (.event-detail-calendar-list) と同じ「上に区切り線を引いた小さな塊」、行の文字色は
+ * 場所・説明と同じ薄墨。新しい色は一切足していない: 応答状態は**語彙と形**で表す
+ * (参加/未定/不参加/未返信 の文言 + 不参加の打ち消し線 + 未返信/未定の淡さ)。
+ * これは予定カード側の描き分け(未返信=輪郭だけ、不参加=打ち消し線、未定=淡い)と
+ * 同じ読み方なので、利用者が新しい対応表を覚える必要が無い。
+ *
+ * **人数が多いときに詳細カードが破綻しない**ようにするのがこの欄の一番の設計点:
+ *   - 畳んだ状態では先頭 GUEST_PREVIEW_COUNT 人だけ。残りは「他 N 人を表示」の中。
+ *   - 開いても一覧自体に max-height を持たせて中でスクロールさせる(CSS 側)。
+ *     ポップオーバー全体 (max-height 420px) を参加者だけで埋めてしまうと、その下の
+ *     カレンダー所属・出欠ボタン・編集/削除に届かなくなるため。
+ */
+function GuestSection({ view }: { view: GuestListView }) {
+  const [expanded, setExpanded] = useState(false);
+  const hiddenCount = view.guests.length - GUEST_PREVIEW_COUNT;
+  const shown = expanded ? view.guests : view.guests.slice(0, GUEST_PREVIEW_COUNT);
+
+  return (
+    <div className="event-detail-guests">
+      <div className="event-detail-guests-head">
+        <span className="event-detail-guests-count">{view.countLabel}</span>
+        {view.summaryLabel && (
+          <span className="event-detail-guests-summary">{view.summaryLabel}</span>
+        )}
+      </div>
+      {/*
+       * 会議室・機材 (resource) は人ではないので一覧に混ぜず、場所行と同じピンアイコンで
+       * 1行にまとめる(押さえてある部屋が分かればよく、部屋ごとの「応答状態」に意味は無い)。
+       */}
+      {view.rooms.length > 0 && (
+        <div className="event-detail-guests-rooms">
+          <PlaceIcon width={12} height={12} />
+          {view.rooms.join("、")}
+        </div>
+      )}
+      {shown.length > 0 && (
+        <ul className={expanded ? "event-detail-guest-list is-expanded" : "event-detail-guest-list"}>
+          {shown.map((guest) => (
+            <li key={guest.key} className={`event-detail-guest is-${guest.responseStatus}`}>
+              <span className="event-detail-guest-who">
+                <span className="event-detail-guest-name">
+                  {guest.label}
+                  {guest.note && <span className="event-detail-guest-note">{guest.note}</span>}
+                </span>
+                {guest.subLabel && (
+                  <span className="event-detail-guest-mail">{guest.subLabel}</span>
+                )}
+              </span>
+              <span className="event-detail-guest-status">
+                {GUEST_STATUS_LABEL[guest.responseStatus]}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="event-detail-text-btn event-detail-guests-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "折りたたむ" : `他 ${hiddenCount} 人を表示`}
+        </button>
+      )}
+    </div>
   );
 }
 

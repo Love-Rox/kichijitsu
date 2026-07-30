@@ -5,6 +5,39 @@
  * ローカルはレプリカ、サーバーはトークンと sync 状態のみ)。
  */
 
+/**
+ * 予定の参加者 (ゲスト) 1件 (参加者の表示、2026-07-30)。Google Calendar API の
+ * `event.attendees[]` から、**画面に出すのに要る分だけ**を写した最小形。
+ *
+ * 落としているフィールド (意図的): `comment` / `additionalGuests` / `id` / `optional` /
+ * `responseStatus` 以外の書き込み系。参加者は1予定に数十人入りうるうえ、その全部が
+ * 端末の IndexedDB に載る (サーバーはイベント本体を保存しない設計なので、レプリカ側の
+ * サイズがそのままコストになる) ため、「誰が・どう返事したか」を読むのに要らない値は
+ * 最初から運ばない。書き戻し (RSVP) 側は attendees 配列を丸ごと read-modify-write する
+ * (core/rsvp-event.ts) ので、この DTO が欠けても書き込みの正しさには影響しない。
+ *
+ * email/displayName の有無は Google の仕様どおり両方 optional として扱う ―― 表示名は
+ * 連絡先に無い相手だと付かず、email も (resource など) 常にあるとは限らない。
+ * 表示ラベルの決定はクライアント側の純関数 (web の layout/guestList.ts) が行う。
+ */
+export interface EventAttendeeDTO {
+  /** attendee.email。同一性の判定と、表示名が無いときの表示に使う。 */
+  email?: string;
+  /** attendee.displayName。Google 側に登録が無ければ付いてこない。 */
+  displayName?: string;
+  /** attendee.responseStatus。Google が返す4値のうち union に合うものだけを通す。 */
+  responseStatus?: RsvpResponseStatus;
+  /** attendee.self === true のときだけ立てる (自分の行)。 */
+  self?: true;
+  /** attendee.organizer === true のときだけ立てる (主催者の行)。 */
+  organizer?: true;
+  /**
+   * attendee.resource === true のときだけ立てる。**会議室や機材であって人ではない**ので、
+   * 表示側は人数にも出欠の集計にも含めない (web の layout/guestList.ts 参照)。
+   */
+  resource?: true;
+}
+
 /** Google Calendar API の event リソースから必要な部分だけを写した DTO */
 export interface GoogleEventDTO {
   id: string;
@@ -78,6 +111,24 @@ export interface GoogleEventDTO {
    * 参加リンクは出せないケースとして扱うこと。
    */
   conferenceUrl?: string;
+  /**
+   * 参加者 (ゲスト) の一覧 (2026-07-30)。attendees が無い予定 (自分だけの予定・招待者が
+   * いない予定) はキー自体を持たない。
+   *
+   * selfResponseStatus/isOrganizer は同じ attendees から導いた**派生値**で、こちらは
+   * 一覧そのもの。派生値を残してあるのは、attendees を捨てていた時代のクライアント
+   * (と、この配列が打ち切られたケース) でも自分の RSVP だけは必ず読めるようにするため。
+   *
+   * **件数の上限あり**: apps/sync の MAX_DTO_ATTENDEES 件までしか載せない。超えた場合は
+   * attendeesOmitted が true になる (下記)。
+   */
+  attendees?: EventAttendeeDTO[];
+  /**
+   * attendees が全員ぶんではないことを示す (2026-07-30)。Google 自身が返す同名フィールド
+   * (maxAttendees を指定したときに立つ) と、kichijitsu 側の打ち切り (MAX_DTO_ATTENDEES) の
+   * どちらでも true になる。表示側は人数を断定せず「〜人以上」と出すこと。
+   */
+  attendeesOmitted?: true;
 }
 
 /** 連携済みの Google アカウント1件。id は Google の sub */

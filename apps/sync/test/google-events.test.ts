@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  deriveAttendeeList,
+  MAX_DTO_ATTENDEES,
   deriveConferenceUrl,
   deriveHasConference,
   deriveIsOrganizer,
@@ -246,8 +248,12 @@ describe("toGoogleEventDTO: RSVP 表示フィールドの配線 (2026-07-22)", (
     expect(dto.hasConference).toBe(true);
     // 参加 URL (2026-07-25): hangoutLink だけの形でも conferenceUrl に載る
     expect(dto.conferenceUrl).toBe("https://meet.google.com/abc-defg-hij");
-    // raw な attendees/organizer/conferenceData/hangoutLink は DTO に残らない(リーン維持)
-    expect(dto).not.toHaveProperty("attendees");
+    // attendees は 2026-07-30 から DTO に載る(参加者の表示)。ただし**生のまま**ではなく
+    // deriveAttendeeList が画面に出す分だけへ絞った形 ―― 詳細は deriveAttendeeList の describe
+    expect(dto.attendees).toEqual([
+      { email: "me@example.com", responseStatus: "tentative", self: true },
+    ]);
+    // raw な organizer/conferenceData/hangoutLink は DTO に残らない(リーン維持)
     expect(dto).not.toHaveProperty("organizer");
     expect(dto).not.toHaveProperty("conferenceData");
     expect(dto).not.toHaveProperty("hangoutLink");
@@ -290,5 +296,183 @@ describe("toGoogleEventDTO: RSVP 表示フィールドの配線 (2026-07-22)", (
 
     expect(dto.hasConference).toBe(true);
     expect(dto.conferenceUrl).toBeUndefined();
+  });
+});
+
+/**
+ * 参加者一覧 (2026-07-30)。attendees は「そのまま通す」のではなく、画面に出す分だけへ
+ * 絞ってから件数上限で切り詰める ―― 境界 (0人 / 自分だけ / 会議室 / displayName 無し /
+ * 応答状態の全種類 / 数十人) をここで固定する。
+ */
+describe("deriveAttendeeList", () => {
+  it("attendees が無い予定はキー自体を持たない", () => {
+    expect(deriveAttendeeList({ id: "e", status: "confirmed" })).toEqual({});
+  });
+
+  it("attendees が空配列でもキー自体を持たない", () => {
+    expect(deriveAttendeeList({ id: "e", status: "confirmed", attendees: [] })).toEqual({});
+  });
+
+  it("自分だけの1人でもそのまま載せる (RSVP の派生値とは別に一覧も要る)", () => {
+    expect(
+      deriveAttendeeList({
+        id: "e",
+        status: "confirmed",
+        attendees: [{ email: "me@example.com", self: true, organizer: true, responseStatus: "accepted" }],
+      }),
+    ).toEqual({
+      attendees: [
+        { email: "me@example.com", responseStatus: "accepted", self: true, organizer: true },
+      ],
+    });
+  });
+
+  it("画面に出さないフィールド (comment/optional/id/additionalGuests) は落とす", () => {
+    const { attendees } = deriveAttendeeList({
+      id: "e",
+      status: "confirmed",
+      attendees: [
+        {
+          email: "a@example.com",
+          displayName: "あさひ",
+          responseStatus: "tentative",
+          // 型には無いが Google は返してくる。写さないことを固定する
+          ...({ comment: "遅れます", optional: true, id: "profile-1", additionalGuests: 2 } as object),
+        },
+      ],
+    });
+    expect(attendees).toEqual([
+      { email: "a@example.com", displayName: "あさひ", responseStatus: "tentative" },
+    ]);
+  });
+
+  it("displayName が無い参加者は email だけで通す", () => {
+    const { attendees } = deriveAttendeeList({
+      id: "e",
+      status: "confirmed",
+      attendees: [{ email: "nobody@example.com", responseStatus: "needsAction" }],
+    });
+    expect(attendees).toEqual([{ email: "nobody@example.com", responseStatus: "needsAction" }]);
+  });
+
+  it("会議室 (resource) も一覧には載せる (人かどうかの判別は表示側の仕事)", () => {
+    const { attendees } = deriveAttendeeList({
+      id: "e",
+      status: "confirmed",
+      attendees: [
+        { email: "me@example.com", self: true, responseStatus: "accepted" },
+        { email: "room-a@resource.calendar.google.com", displayName: "会議室A", resource: true },
+      ],
+    });
+    expect(attendees).toEqual([
+      { email: "me@example.com", responseStatus: "accepted", self: true },
+      {
+        email: "room-a@resource.calendar.google.com",
+        displayName: "会議室A",
+        resource: true,
+      },
+    ]);
+  });
+
+  it("応答状態の4値すべてを通し、union に無い値だけを落とす", () => {
+    const { attendees } = deriveAttendeeList({
+      id: "e",
+      status: "confirmed",
+      attendees: [
+        { email: "a@example.com", responseStatus: "accepted" },
+        { email: "b@example.com", responseStatus: "declined" },
+        { email: "c@example.com", responseStatus: "tentative" },
+        { email: "d@example.com", responseStatus: "needsAction" },
+        { email: "e@example.com", responseStatus: "somethingNew" },
+      ],
+    });
+    expect(attendees?.map((a) => a.responseStatus)).toEqual([
+      "accepted",
+      "declined",
+      "tentative",
+      "needsAction",
+      undefined,
+    ]);
+  });
+
+  it("email も displayName も無い行は落とし、attendeesOmitted を立てる", () => {
+    expect(
+      deriveAttendeeList({
+        id: "e",
+        status: "confirmed",
+        attendees: [{ email: "a@example.com" }, { responseStatus: "accepted" }],
+      }),
+    ).toEqual({ attendees: [{ email: "a@example.com" }], attendeesOmitted: true });
+  });
+
+  it("全員が出しようのない行なら、空配列ではなくキー自体を持たない", () => {
+    expect(
+      deriveAttendeeList({ id: "e", status: "confirmed", attendees: [{ responseStatus: "accepted" }] }),
+    ).toEqual({});
+  });
+
+  it("Google 自身が attendeesOmitted を立ててきたらそのまま伝える", () => {
+    const result = deriveAttendeeList({
+      id: "e",
+      status: "confirmed",
+      attendeesOmitted: true,
+      attendees: [{ email: "me@example.com", self: true }],
+    });
+    expect(result.attendeesOmitted).toBe(true);
+  });
+
+  it("上限ちょうど (50人) は切り詰めず、順序も変えない", () => {
+    const raw = Array.from({ length: MAX_DTO_ATTENDEES }, (_, i) => ({
+      email: `p${i}@example.com`,
+    }));
+    const result = deriveAttendeeList({ id: "e", status: "confirmed", attendees: raw });
+    expect(result.attendees).toHaveLength(MAX_DTO_ATTENDEES);
+    expect(result.attendees?.[0]?.email).toBe("p0@example.com");
+    expect(result.attendeesOmitted).toBeUndefined();
+  });
+
+  it("数十人を超えたら上限まで切り詰め、attendeesOmitted を立てる", () => {
+    const raw = Array.from({ length: MAX_DTO_ATTENDEES + 30 }, (_, i) => ({
+      email: `p${i}@example.com`,
+    }));
+    const result = deriveAttendeeList({ id: "e", status: "confirmed", attendees: raw });
+    expect(result.attendees).toHaveLength(MAX_DTO_ATTENDEES);
+    expect(result.attendeesOmitted).toBe(true);
+  });
+
+  it("切り詰めるときも自分と主催者は必ず残す (末尾にいても消さない)", () => {
+    const raw = [
+      ...Array.from({ length: MAX_DTO_ATTENDEES + 10 }, (_, i) => ({ email: `p${i}@example.com` })),
+      { email: "boss@example.com", organizer: true, responseStatus: "accepted" },
+      { email: "me@example.com", self: true, responseStatus: "needsAction" },
+    ];
+    const result = deriveAttendeeList({ id: "e", status: "confirmed", attendees: raw });
+    expect(result.attendees).toHaveLength(MAX_DTO_ATTENDEES);
+    expect(result.attendees?.[0]).toEqual({
+      email: "boss@example.com",
+      responseStatus: "accepted",
+      organizer: true,
+    });
+    expect(result.attendees?.[1]).toEqual({
+      email: "me@example.com",
+      responseStatus: "needsAction",
+      self: true,
+    });
+    expect(result.attendeesOmitted).toBe(true);
+  });
+
+  it("toGoogleEventDTO 経由でも attendees が載る (派生値の selfResponseStatus と両立する)", () => {
+    const dto = toGoogleEventDTO({
+      id: "e",
+      status: "confirmed",
+      organizer: { self: false },
+      attendees: [
+        { email: "boss@example.com", displayName: "上司", organizer: true, responseStatus: "accepted" },
+        { email: "me@example.com", self: true, responseStatus: "tentative" },
+      ],
+    });
+    expect(dto.selfResponseStatus).toBe("tentative");
+    expect(dto.attendees).toHaveLength(2);
+    expect(dto.attendeesOmitted).toBeUndefined();
   });
 });

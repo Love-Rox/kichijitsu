@@ -8,6 +8,34 @@ export interface OccurrenceLink {
 }
 
 /**
+ * 予定の参加者 (ゲスト) 1件 (2026-07-30)。GoogleEventDTO.attendees[] (EventAttendeeDTO) を
+ * そのまま写した形だが、GitHubItemType 等と同じ流儀で **model 層は protocol.ts に依存しない**
+ * ため、ここに独立して定義する(構造は同じなので mapGoogle.ts は値をそのまま渡すだけ)。
+ *
+ * 持つのは「誰が・どう返事したか」を読むのに要る5項目だけ ―― 表示名・メール・応答状態・
+ * 主催者か・自分か。加えて会議室の判別 (resource) を持つ。**参加者は1予定に数十人入りうえ、
+ * その全部が IndexedDB に載る**ので、comment/additionalGuests/optional/profile id といった
+ * 画面に出さない値は最初から運ばない(サーバー側 EventAttendeeDTO のコメント参照)。
+ *
+ * 表示用の整形 (並び替え・人数・会議室の分離・ラベルの決定) は layout/guestList.ts の
+ * 純関数が行う ―― この型は「Google から来たものをそのまま持つ」だけに留める。
+ */
+export interface EventAttendee {
+  /** Google の attendee.email。表示名が無いときの表示と、同一性の判定に使う */
+  email?: string;
+  /** Google の attendee.displayName。連絡先に登録が無い相手だと付いてこない */
+  displayName?: string;
+  /** 未返信は "needsAction"。Google が値を返さないこともある(その場合 undefined) */
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  /** 自分自身の行 (attendee.self)。詳細カードは「自分」と明示して先頭付近に出す */
+  self?: boolean;
+  /** 主催者の行 (attendee.organizer)。event 直下の organizer とは別に attendees にも現れる */
+  organizer?: boolean;
+  /** 会議室・機材 (attendee.resource)。**人ではない**ので人数にも出欠集計にも含めない */
+  resource?: boolean;
+}
+
+/**
  * 展開済み occurrence。IndexedDB に入る最小単位で、UI はこれだけを読む。
  * 時刻は epoch ms (UTC instant) — IndexedDB の範囲インデックスは数値が最速。
  * タイムゾーン変換は表示層で Temporal を使って行う。
@@ -99,6 +127,19 @@ export interface Occurrence {
    * ユーザー要望「他の予定を邪魔しないくらいに」)。
    */
   isWorkingLocation?: boolean;
+  /**
+   * 参加者 (ゲスト) 一覧 (2026-07-30)。GoogleEventDTO.attendees をそのまま写す
+   * (responseStatus/isOrganizer と同じ伝播パス ―― mapGoogle.ts の rsvpFields)。
+   * 参加者のいない予定 (自分だけの予定) はキー自体を持たない。
+   * responseStatus/isOrganizer はこの配列から Google 側で導かれた**派生値**で、
+   * 冗長に見えるが両方持つ: 派生値は attendees が打ち切られていても必ず正しい。
+   */
+  attendees?: EventAttendee[];
+  /**
+   * attendees が全員ぶんではない (2026-07-30)。サーバー側の件数上限 (MAX_DTO_ATTENDEES)
+   * で切り詰められた場合などに立つ。true のとき表示側は人数を断定せず「〜人以上」と出す。
+   */
+  attendeesOmitted?: boolean;
 }
 
 /**
@@ -143,6 +184,10 @@ export interface AllDayOccurrence {
   conferenceUrl?: string;
   /** Occurrence.isWorkingLocation と同じ意味 (勤務場所の控えめ表示、2026-07-22)。 */
   isWorkingLocation?: boolean;
+  /** Occurrence.attendees と同じ意味 (参加者の表示、2026-07-30)。 */
+  attendees?: EventAttendee[];
+  /** Occurrence.attendeesOmitted と同じ意味 (参加者の表示、2026-07-30)。 */
+  attendeesOmitted?: boolean;
 }
 
 /**

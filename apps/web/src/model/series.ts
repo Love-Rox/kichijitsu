@@ -1,4 +1,4 @@
-import type { OccurrenceLink, OccurrenceSource } from "./types";
+import type { EventAttendee, OccurrenceLink, OccurrenceSource } from "./types";
 
 /**
  * 繰り返し予定のシリーズ定義。occurrence への展開は expandSeries が行い、
@@ -45,6 +45,10 @@ export interface EventSeries {
   hasConference?: boolean;
   /** Occurrence.conferenceUrl と同じ意味(会議参加 URL、2026-07-25)。hasConference と同じ伝播。 */
   conferenceUrl?: string;
+  /** Occurrence.attendees と同じ意味(参加者の表示、2026-07-30)。hasConference と同じ伝播。 */
+  attendees?: EventAttendee[];
+  /** Occurrence.attendeesOmitted と同じ意味(参加者の表示、2026-07-30)。attendees と対で伝播。 */
+  attendeesOmitted?: boolean;
   /**
    * 勤務場所の控えめ表示 (2026-07-22)。Occurrence.isWorkingLocation と同じ意味 ――
    * mapGoogle.ts の buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま
@@ -108,6 +112,15 @@ export interface InstanceOverride {
      * シリーズの conferenceUrl にフォールバックさせる)。
      */
     conferenceUrl?: string;
+    /**
+     * 参加者一覧 (2026-07-30)。conferenceUrl と同じ流儀(この例外インスタンス自体が
+     * attendees を持つときのみセットし、無ければキーを省略して expandSeries 側で
+     * シリーズの attendees にフォールバックさせる)。「その回だけ参加者を足した/外した」
+     * 例外インスタンスが、シリーズ側の一覧で上書きされないようにするため。
+     */
+    attendees?: EventAttendee[];
+    /** attendees と対 (2026-07-30)。attendees をセットするときだけ一緒にセットする。 */
+    attendeesOmitted?: boolean;
     /**
      * 勤務場所の控えめ表示 (2026-07-22)。isOutOfOffice と同じ流儀(この例外インスタンス自体が
      * eventType==='workingLocation' のときのみ true をセットする。立てないときはキー自体を

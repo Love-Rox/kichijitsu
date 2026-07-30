@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { AllDayOccurrence, Occurrence } from "./types";
+import type { AllDayOccurrence, EventAttendee, Occurrence } from "./types";
 import type { EventSeries, InstanceOverride } from "./series";
 import { instanceId } from "./series";
 
@@ -414,6 +414,119 @@ export function generateDummyTimedOooOccurrences(
 }
 
 /**
+ * 参加者 (ゲスト) 付きの単発ダミー (2026-07-30、?demo=1 のときだけ)。
+ *
+ * 追加理由: 参加者は**実データを開かないと形が分からない**項目で、しかも壊れ方が
+ * 「人数が増えたときだけ詳細カードが破綻する」という、少人数のデータでは絶対に踏まない
+ * 種類のもの。表示の判断 (会議室を人から外す・主催者と自分を先頭に出す・表示名が無い相手を
+ * メールで代替する) も、それぞれの形が1件も無ければ実ブラウザで確かめようがない。
+ * そこで、確かめたい形をそれぞれ1件ずつ固定の日時に置く:
+ *
+ *   -1 10:00  少人数 (4人)。主催者・自分・応答状態がひと目で読める基本形
+ *   -1 15:00  応答状態の全種類 (参加/未定/不参加/未返信) が同時に並ぶ形
+ *   +0 11:00  会議室込み。**会議室は人数にも出欠にも入らない**ことの確認
+ *   +0 16:00  表示名の無い参加者。メールが主表示に落ちることの確認
+ *   +1 13:00  数十人 (36人)。畳んだ5人 + 「他 N 人を表示」で高さが暴走しないことの確認
+ *   +2 09:00  上限超え (attendeesOmitted)。人数が「〜人以上」になることの確認
+ *
+ * id は他のダミーと同じく "dummy-" 始まりなので、`?demo=1` を外した次回起動時に
+ * cleanupDemoData (db/database.ts) がまとめて掃除する。
+ */
+export function generateDummyGuestOccurrences(
+  baseDate: Temporal.PlainDate,
+  timeZone: string,
+): Occurrence[] {
+  const guestEvent = (
+    id: string,
+    title: string,
+    offset: number,
+    startHm: string,
+    endHm: string,
+    attendees: EventAttendee[],
+    attendeesOmitted?: boolean,
+  ): Occurrence => {
+    const date = baseDate.add({ days: offset }).toString();
+    return {
+      id,
+      seriesId: null,
+      title,
+      startMs: localIsoToEpochMs(`${date}T${startHm}`, timeZone),
+      endMs: localIsoToEpochMs(`${date}T${endHm}`, timeZone),
+      color: "#3b82f6",
+      source: "local",
+      attendees,
+      ...(attendeesOmitted ? { attendeesOmitted: true } : {}),
+    };
+  };
+
+  /** 大人数ぶんの参加者。応答状態はばらけさせる (内訳の集計が動いていることを見るため) */
+  const crowd = (count: number): EventAttendee[] =>
+    Array.from({ length: count }, (_, i) => ({
+      email: `member${i + 1}@example.com`,
+      displayName: `メンバー${i + 1}`,
+      responseStatus: (["accepted", "tentative", "declined", "needsAction"] as const)[i % 4],
+    }));
+
+  return [
+    guestEvent("dummy-guests-small", "新機能キックオフ", -1, "10:00", "11:00", [
+      { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "accepted" },
+      { email: "lead@example.com", displayName: "田中 恵", organizer: true, responseStatus: "accepted" },
+      { email: "sato@example.com", displayName: "佐藤 悠", responseStatus: "tentative" },
+      { email: "kim@example.com", displayName: "金 秀美", responseStatus: "needsAction" },
+    ]),
+    guestEvent("dummy-guests-allstatus", "四半期レビュー", -1, "15:00", "16:30", [
+      { email: "lead@example.com", displayName: "田中 恵", organizer: true, responseStatus: "accepted" },
+      { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "tentative" },
+      { email: "sato@example.com", displayName: "佐藤 悠", responseStatus: "declined" },
+      { email: "kim@example.com", displayName: "金 秀美", responseStatus: "needsAction" },
+      { email: "abe@example.com", displayName: "阿部 蓮", responseStatus: "accepted" },
+    ]),
+    guestEvent("dummy-guests-room", "全体定例", 0, "11:00", "12:00", [
+      { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "accepted" },
+      { email: "lead@example.com", displayName: "田中 恵", organizer: true, responseStatus: "accepted" },
+      { email: "sato@example.com", displayName: "佐藤 悠", responseStatus: "accepted" },
+      // 会議室2つ。人数にも出欠の内訳にも入らず、別行にまとまることの確認
+      {
+        email: "room-a@resource.calendar.google.com",
+        displayName: "本社 3F 会議室A",
+        resource: true,
+        responseStatus: "accepted",
+      },
+      {
+        email: "projector@resource.calendar.google.com",
+        displayName: "プロジェクター #2",
+        resource: true,
+        responseStatus: "accepted",
+      },
+    ]),
+    guestEvent("dummy-guests-noname", "外部打ち合わせ", 0, "16:00", "17:00", [
+      { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "accepted" },
+      // 連絡先に無い相手は displayName が付いてこない ―― メールが主表示に落ちる
+      { email: "unknown-partner@example.co.jp", organizer: true, responseStatus: "accepted" },
+      { email: "another-partner@example.co.jp", responseStatus: "needsAction" },
+    ]),
+    guestEvent("dummy-guests-many", "全社ミーティング", 1, "13:00", "14:00", [
+      { email: "ceo@example.com", displayName: "代表 太郎", organizer: true, responseStatus: "accepted" },
+      { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "needsAction" },
+      ...crowd(34),
+    ]),
+    guestEvent(
+      "dummy-guests-omitted",
+      "キックオフ (大規模)",
+      2,
+      "09:00",
+      "10:00",
+      [
+        { email: "ceo@example.com", displayName: "代表 太郎", organizer: true, responseStatus: "accepted" },
+        { email: "me@example.com", displayName: "山田 太郎", self: true, responseStatus: "accepted" },
+        ...crowd(48),
+      ],
+      true,
+    ),
+  ];
+}
+
+/**
  * `?demo=1` のときに IndexedDB へ投入するデモデータ一式 (2026-07-30、db/bootstrap.ts から集約)。
  *
  * 切り出した理由: 何をシードするかの組み立てが bootstrap の手続きの中に埋まっていたため、
@@ -447,6 +560,7 @@ export function generateDemoSeedData(baseDate: Temporal.PlainDate, timeZone: str
       ...generateDummyOccurrences(baseDate, timeZone),
       ...generateDummyWorkingLocationOccurrences(baseDate, timeZone),
       ...generateDummyTimedOooOccurrences(baseDate, timeZone),
+      ...generateDummyGuestOccurrences(baseDate, timeZone),
     ],
   };
 }
