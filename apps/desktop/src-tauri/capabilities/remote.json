@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/remote-schema.json",
   "identifier": "remote-gh",
-  "description": "リモート URL (kichijitsu.love-rox.cc) の webview に gh_api/app_version/validate_gh_path コマンドの呼び出しを許可する。Tauri v2 はリモートコンテンツからのカスタムコマンド invoke を remote capability 無しでは ACL で全拒否するため、これが無いと gh 連携やビルド番号表示(ユーザー要望、2026-07-22、apps/web/src/version.ts の getDesktopVersion)が動かない。許可は allow-gh-api/allow-app-version/allow-validate-gh-path のみに絞り (core:default 等は付けない)、gh api のエンドポイントも lib.rs の is_allowed_gh_endpoint で読み取り系に制限済み。app_version は引数を取らず Cargo.toml のバージョン文字列を返すだけなので追加のホワイトリストは不要。validate_gh_path は設定画面の「gh のパス」を保存前に検証するだけで副作用が無く (2026-07-30)、パスの存在を答えるのもファイル名が gh の絶対パスに限られる (lib.rs の validate_gh_override_shape が先に走る)。",
+  "description": "リモート URL (kichijitsu.love-rox.cc) の webview に gh_api/app_version/validate_gh_path/notify コマンドの呼び出しを許可する。Tauri v2 はリモートコンテンツからのカスタムコマンド invoke を remote capability 無しでは ACL で全拒否するため、これが無いと gh 連携やビルド番号表示(ユーザー要望、2026-07-22、apps/web/src/version.ts の getDesktopVersion)・予定のリマインダー通知が動かない。許可は allow-gh-api/allow-app-version/allow-validate-gh-path/allow-notify のみに絞り (core:default 等は付けない)、gh api のエンドポイントも lib.rs の is_allowed_gh_endpoint で読み取り系に制限済み。app_version は引数を取らず Cargo.toml のバージョン文字列を返すだけなので追加のホワイトリストは不要。validate_gh_path は設定画面の「gh のパス」を保存前に検証するだけで副作用が無く (2026-07-30)、パスの存在を答えるのもファイル名が gh の絶対パスに限られる (lib.rs の validate_gh_override_shape が先に走る)。notify は予定のリマインダー通知の送出口 (2026-07-30、apps/web/src/sync/reminderSchedule.ts が判定し文言だけを渡す)。プラグインの notification:default をリモートへ与えず自前コマンド1本に絞っているのは、XSS 時に触れる面を最小にするため ―― notify は何も返さないので情報の持ち出しには使えず、悪用は「巨大な文言で通知を出す」迷惑行為に限られる (lib.rs の clamp_notify_text で長さも切り詰めている)。",
   "windows": ["main"],
   "remote": { "urls": ["https://kichijitsu.love-rox.cc"] },
-  "permissions": ["allow-gh-api", "allow-app-version", "allow-validate-gh-path"]
+  "permissions": ["allow-gh-api", "allow-app-version", "allow-validate-gh-path", "allow-notify"]
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
+import { canNotifyNatively } from "./sync/desktopNotify";
 import { hookActualByLinkedItem } from "./sync/hookActual";
 import { deleteJson } from "./sync/httpJson";
 import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
@@ -16,6 +17,7 @@ import type { CalendarInfo } from "./components/EventBlock";
 import { useBlockRules } from "./hooks/useBlockRules";
 import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
+import { useEventReminders } from "./hooks/useEventReminders";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
@@ -711,6 +713,13 @@ function App() {
     onToggleHelp: toggleHelp,
     onCloseHelp: closeHelp,
   });
+
+  // 予定のリマインダー通知(デスクトップ版のみ)。判定は sync/reminderSchedule.ts の
+  // 純関数、送出は sync/desktopNotify.ts、時間駆動の配線は hooks/useEventReminders.ts に
+  // 分けてある。useGlobalShortcuts と同じ「返り値を持たない副作用フック」なので、
+  // データ系フックの後ろにまとめて置く。ブラウザ/PWA では canNotifyNatively() が false に
+  // なり配線ごと張らない。
+  useEventReminders({ store, timeZone, enabled: canNotifyNatively() });
 
   // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
   // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した

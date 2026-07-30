@@ -431,3 +431,50 @@
   line-height: 1.6;
   color: var(--c-ink-sub);
 }
+
+/*
+ * 予定のリマインダー通知 (デスクトップ版のみ、2026-07-30)。見出し・説明文・エラー表示は
+ * 既存の .settings-modal-section-title / -section-desc / -error をそのまま使うので、
+ * ここはラベルと <select>/ボタンを1行に並べる器と、select の見た目だけ。
+ * 色は theme.css の var(--c-*) のみ (入力欄の意匠は -gh-path-input と揃える)。
+ */
+.settings-modal-reminder-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settings-modal-reminder-row + .settings-modal-reminder-row {
+  margin-top: 10px;
+}
+
+.settings-modal-reminder-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-ink-mute);
+}
+
+.settings-modal-reminder-select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-masu);
+  border-radius: 8px;
+  background: var(--c-surface);
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.settings-modal-reminder-select:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-color: var(--c-accent);
+}
+
+.settings-modal-reminder-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--c-ink-sub);
+}

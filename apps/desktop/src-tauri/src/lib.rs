@@ -13,9 +13,11 @@
 //   トレイに格納する
 // - グローバルショートカット: トレイ左クリックと同じトグル動作を
 //   ショートカットキーからも呼べるようにする
-// - ネイティブ通知: プラグインを配線し、起動時に1回テスト通知を出す
-//   ところまで（実際のリマインダー通知はフロントから Tauri コマンドを
-//   呼ぶ配線が要るため次増分 TODO。下記 setup() 内コメント参照）
+// - ネイティブ通知: `#[tauri::command] fn notify(title, body)` として web 側へ
+//   公開する（capabilities/remote.json の allow-notify）。「いつ・どの予定を
+//   通知するか」の判定はリモート URL 側の web が持つ（予定データが web の
+//   IndexedDB にしか無いため）。Rust は渡された文言を OS に流すだけ。
+//   apps/web/src/sync/reminderSchedule.ts / hooks/useEventReminders.ts 参照
 // - アプリ内リロード: リモート URL 方式（上記）のため web 側を再デプロイしても
 //   webview は起動時のページを保持し続け、手動リロード手段が無いと最新化されない。
 //   トレイの「再読み込み」メニューと、グローバルショートカット CmdOrCtrl+R
@@ -27,8 +29,8 @@
 // （docs/github-integration.md「認証プロバイダの抽象化」）。リモート URL の web は
 // Tauri の JS API に直接触れないため、tauri.conf.json の app.withGlobalTauri=true で
 // webview に window.__TAURI__ を注入し、web 側は invoke('gh_api', …) を呼ぶ。
-// 実リマインダーのフロント連携・Homebrew 配布・他 GitHub データ(items/activity/ci/
-// pr-commits)の gh 化は別増分（docs/desktop.md「次の増分」参照）。
+// Homebrew 配布・他 GitHub データ(items/activity/ci/pr-commits)の gh 化は別増分
+// （docs/desktop.md「次の増分」参照）。
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -434,6 +436,61 @@ fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// 通知の1行あたりの上限文字数(char 単位)。
+///
+/// 予定のタイトルは長くなりうるし、リモート URL 側に XSS が刺さった場合の唯一の悪用口が
+/// 「巨大な文言で通知を出す」なので、OS に渡す前に切り詰める。情報の持ち出しはできない
+/// (このコマンドは何も返さない) ため、脅威としては迷惑行為に限られる。
+const NOTIFY_MAX_CHARS: usize = 200;
+
+/// 文字境界を壊さずに先頭 `max` 文字までに切り詰める。
+///
+/// `String::truncate` はバイト単位で、マルチバイト境界の途中で切ると panic するため
+/// 使えない(予定のタイトルは日本語が普通)。
+fn clamp_notify_text(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{head}…")
+}
+
+/// web 側から呼ぶネイティブ通知。予定のリマインダー通知の送出口。
+///
+/// # なぜ判定を Rust に持たせないのか
+/// この webview はリモート URL を読む薄いガワで、Rust 側は予定データを一切持っていない
+/// (ファイル先頭コメント参照)。予定は web 側の IndexedDB にあるため、「いつ・どの予定を
+/// 通知するか」の判定は web 側 (apps/web/src/sync/reminderSchedule.ts) が行い、
+/// このコマンドは渡された文言をそのまま OS に流すだけにしている。
+/// 裏返すと、通知が出るのはアプリのプロセスが動いている間だけ ―― ただしウィンドウの
+/// 「閉じる」ではプロセスは終わらない (下記 on_window_event) ので、トレイに隠したままでも
+/// 通知は続く。
+///
+/// # 権限について
+/// tauri-plugin-notification の desktop 実装 (2.3.3 src/desktop.rs) は実際の送出を
+/// 別タスクへ spawn して結果を捨てているため、**macOS で通知が拒否されていても
+/// エラーは返ってこない**。`permission_state()` も desktop では常に `Granted` を返す
+/// ハードコードなので判定に使えない。つまり「許可されているか」をプログラムから知る術は
+/// 無いので、設定画面の「テスト通知を送る」で利用者自身に確かめてもらう方針にしている
+/// (apps/web/src/components/SettingsModal.tsx の ReminderControl)。
+/// ここで `Err` になるのは invoke 到達後にビルダーが失敗した場合のみ (実質 Windows 等)。
+///
+/// 注: `gh_api` と同じくリモートコンテンツから invoke されるため、capabilities/remote.json
+/// 側の明示許可 (`allow-notify`) が無いと ACL で全拒否される。プラグインの
+/// `notification:default` をリモートへ与える代わりに自前コマンド1本に絞っているのは、
+/// XSS 時に触れる面をこの1本だけにするため(スケジュール済み通知の一覧・削除といった
+/// プラグインの他 API を晒さない)。
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(clamp_notify_text(&title, NOTIFY_MAX_CHARS))
+        .body(clamp_notify_text(&body, NOTIFY_MAX_CHARS))
+        .show()
+        .map_err(|e| format!("通知の送出に失敗しました: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -450,7 +507,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             gh_api,
             app_version,
-            validate_gh_path
+            validate_gh_path,
+            notify
         ])
         .setup(|app| {
             // --- トレイ常駐 ---
@@ -526,24 +584,13 @@ pub fn run() {
                     })?;
             }
 
-            // --- ネイティブ通知: 配線の土台のみ ---
-            // 実際のリマインダー通知（予定の通知）はフロント(リモート URL の
-            // web アプリ)から Tauri コマンドを呼ぶ配線が要る。今回はフロント
-            // 連携を含まないため、プラグインが動く土台として起動時に1回だけ
-            // テスト通知を出す。
-            // TODO(次増分): フロントから呼べる通知コマンド
-            // （例: #[tauri::command] fn notify(title, body)）を追加し、
-            // Web Push (VAPID) 相当のリマインダーをネイティブ通知に配線する
-            // (docs/multiplatform.md「通知」セクション参照)。
-            {
-                use tauri_plugin_notification::NotificationExt;
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("kichijitsu")
-                    .body("トレイ常駐・グローバルショートカット・通知の土台が起動しました")
-                    .show();
-            }
+            // --- ネイティブ通知 ---
+            // 起動時にテスト通知を出していた土台のコードは削除した。予定の
+            // リマインダーが実際に配線された今、毎回の起動で意味の無い通知が出るのは
+            // 邪魔なだけ。通知が出るかどうかを確かめたい人向けには、設定画面の
+            // 「テスト通知を送る」ボタン(web 側から notify コマンドを呼ぶ)がある。
+            // 送出は #[tauri::command] fn notify、いつ出すかの判定は web 側
+            // (apps/web/src/sync/reminderSchedule.ts)。
 
             Ok(())
         })
@@ -844,5 +891,31 @@ mod tests {
         assert!(msg.contains("ファイルではありません"), "got: {msg}");
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --- 通知の文言の切り詰め (clamp_notify_text) ---
+
+    #[test]
+    fn clamp_notify_text_keeps_short_text_as_is() {
+        assert_eq!(clamp_notify_text("週次定例", 200), "週次定例");
+        // ちょうど上限は切らない
+        assert_eq!(clamp_notify_text("あいうえお", 5), "あいうえお");
+    }
+
+    #[test]
+    fn clamp_notify_text_truncates_on_char_boundary() {
+        // 日本語(マルチバイト)でも panic せず、char 単位で数える。
+        // String::truncate のバイト単位切りだと境界の途中で panic する。
+        assert_eq!(clamp_notify_text("あいうえおかきくけこ", 5), "あいうえ…");
+        // 末尾は省略記号1文字を含めて上限ぴったり
+        assert_eq!(clamp_notify_text("あいうえおかきくけこ", 5).chars().count(), 5);
+    }
+
+    #[test]
+    fn clamp_notify_text_handles_degenerate_limits() {
+        // max が 0/1 でも panic しない (saturating_sub のおかげ)
+        assert_eq!(clamp_notify_text("abc", 1), "…");
+        assert_eq!(clamp_notify_text("abc", 0), "…");
+        assert_eq!(clamp_notify_text("", 0), "");
     }
 }
