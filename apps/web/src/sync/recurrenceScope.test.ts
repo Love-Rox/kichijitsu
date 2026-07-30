@@ -437,6 +437,8 @@ describe("buildScopedEventPatchRequest — 繰り返しでない予定 (従来�
       startMs: occ.startMs,
       endMs: occ.endMs,
       timeZone: TZ,
+      // ゲスト無しの予定は必ず externalOnly (2026-07-31、sync/guestNotify.ts)
+      sendUpdates: "externalOnly",
     });
   });
 
@@ -519,6 +521,7 @@ describe("buildScopedEventPatchRequest — 繰り返し予定", () => {
       startMs: next.startMs,
       endMs: next.endMs,
       timeZone: TZ,
+      sendUpdates: "externalOnly",
     });
   });
 
@@ -540,6 +543,7 @@ describe("buildScopedEventPatchRequest — 繰り返し予定", () => {
       startMs: zms("2026-06-15T11:00"),
       endMs: zms("2026-06-15T11:30"),
       timeZone: TZ,
+      sendUpdates: "externalOnly",
     });
   });
 
@@ -560,6 +564,7 @@ describe("buildScopedEventPatchRequest — 繰り返し予定", () => {
       startMs: undefined,
       endMs: undefined,
       timeZone: TZ,
+      sendUpdates: "externalOnly",
       summary: "新題",
     });
   });
@@ -576,5 +581,85 @@ describe("buildScopedEventPatchRequest — 繰り返し予定", () => {
         timeZone: TZ,
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * ゲストへの通知 (2026-07-31)。buildScopedEventPatchRequest は「ドラッグ確定と編集フォーム
+ * 保存の両方が通る唯一の入口」なので、**ここから出る body には必ず sendUpdates が入る**
+ * ことを固める (判定そのものの境界は sync/guestNotify.test.ts)。
+ */
+describe("buildScopedEventPatchRequest — sendUpdates (2026-07-31)", () => {
+  const me = { email: "me@example.com", self: true, organizer: true } as const;
+  const guest = { email: "sato@example.com" } as const;
+  const withGuests = () => baseOccurrence({ isOrganizer: true, attendees: [me, guest] });
+
+  it("notify を渡さなくても sendUpdates が必ず入る (未文書の既定に落ちない)", () => {
+    const occ = baseOccurrence();
+    const req = buildScopedEventPatchRequest({
+      subject: occ,
+      scope: "this",
+      next: { startMs: occ.startMs, endMs: occ.endMs },
+      timeZone: TZ,
+    });
+    expect(req?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("ゲスト有り・主催者なら選ばれた値がそのまま body に載る", () => {
+    const occ = withGuests();
+    const next = { startMs: occ.startMs, endMs: occ.endMs };
+    expect(
+      buildScopedEventPatchRequest({ subject: occ, scope: "this", next, timeZone: TZ, notify: "all" })
+        ?.sendUpdates,
+    ).toBe("all");
+    expect(
+      buildScopedEventPatchRequest({
+        subject: occ,
+        scope: "this",
+        next,
+        timeZone: TZ,
+        notify: "externalOnly",
+      })?.sendUpdates,
+    ).toBe("externalOnly");
+  });
+
+  it("ゲスト無しの予定は notify='all' で呼ばれても externalOnly に倒れる", () => {
+    const occ = baseOccurrence();
+    const req = buildScopedEventPatchRequest({
+      subject: occ,
+      scope: "this",
+      next: { startMs: occ.startMs, endMs: occ.endMs },
+      timeZone: TZ,
+      notify: "all",
+    });
+    expect(req?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("ゲスト有りでも notify 未指定 (リサイズ経路) なら externalOnly", () => {
+    // リサイズは確認ダイアログを挟まないので choice が来ない ―― 訊いていない以上、
+    // 全員へのメールは出さない (sync/guestNotify.ts の resolveSendUpdates)
+    const occ = withGuests();
+    const req = buildScopedEventPatchRequest({
+      subject: occ,
+      scope: "this",
+      next: { startMs: occ.startMs, endMs: occ.endMs + 900_000 },
+      timeZone: TZ,
+    });
+    expect(req?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("繰り返し予定の「すべて」経路にも同じように載る", () => {
+    const next = { startMs: zms("2026-07-20T11:00"), endMs: zms("2026-07-20T11:30") };
+    const req = buildScopedEventPatchRequest({
+      subject: seriesOccurrence({ ...next, isOrganizer: true, attendees: [me, guest] }),
+      scope: "all",
+      series: baseSeries(),
+      previous: OCCURRENCE_RANGE,
+      next,
+      timeZone: TZ,
+      notify: "all",
+    });
+    expect(req?.eventId).toBe("series-1");
+    expect(req?.sendUpdates).toBe("all");
   });
 });

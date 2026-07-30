@@ -1,3 +1,5 @@
+import type { EventSendUpdates } from "@kichijitsu/shared";
+
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 export interface PatchEventTimeParams {
@@ -25,6 +27,13 @@ export interface PatchEventTimeParams {
   summary?: string;
   location?: string;
   description?: string;
+  /**
+   * ゲストへの通知 (2026-07-31)。**optional にしない** ―― 省略できる形にした瞬間に
+   * 「うっかり付け忘れて Google の未文書の既定に落ちる」が復活するため、
+   * 呼び出し側 (core/patch-event.ts の resolveSendUpdates) に必ず決めさせる。
+   * 値の意味と選び方は shared の EventSendUpdates のコメント参照。
+   */
+  sendUpdates: EventSendUpdates;
 }
 
 /**
@@ -69,13 +78,23 @@ export function toDateOnly(ms: number, timeZone: string): string {
  * 時刻を送る場合は必ず timeZone を併記する: Google Calendar API は**繰り返し予定では
  * start/end の timeZone を必須**としており (展開に使うため)、親イベントを patch する
  * 「すべての予定」経路ではこれが効いてくる。
+ *
+ * `sendUpdates` は**常にクエリに載せる** (2026-07-31)。この経路は参加者を触らないが、
+ * 公式の説明は "Guests who should receive notifications about the event update
+ * (for example, title changes, etc.)" ―― タイトルや時刻の変更でもゲストにメールが飛びうる。
+ * それまでここは sendUpdates を一切付けておらず、**ゲストのいる予定をドラッグで動かしたら
+ * 全員にメールが飛ぶのかどうかが、公式に文書化されていない既定次第**という状態だった。
+ * 利用者に見える挙動を未文書の既定に委ねないため、値の決定は呼び出し側に強制し
+ * (PatchEventTimeParams.sendUpdates が必須)、ここでは必ず ?sendUpdates= を付けて送る。
+ * ゲストのいない予定では**どの値でも Google 側の結果は同じ** (知らせる相手がいない) ので、
+ * 大多数を占める「自分だけの予定の編集・移動」の挙動はこれで一切変わらない。
  */
 export async function patchEventTime(
   fetchFn: typeof fetch,
   accessToken: string,
   params: PatchEventTimeParams,
 ): Promise<Response> {
-  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`;
+  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}?sendUpdates=${params.sendUpdates}`;
   const { startMs, endMs } = params;
   const start =
     startMs === undefined

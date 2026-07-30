@@ -45,6 +45,7 @@ import {
   GuestNotOrganizerError,
   type GuestChange,
 } from "../sync/eventGuests";
+import { shouldAskGuestNotify, type GuestNotify } from "../sync/guestNotify";
 import { jsonInit, sendJson, type CheckedFetch } from "../sync/httpJson";
 import { buildTaskPatchRequest } from "../sync/mapTasks";
 import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
@@ -106,6 +107,7 @@ export interface EventMutationsController {
     updated: Occurrence,
     previous: Occurrence | undefined,
     scope?: RecurrenceScope,
+    notify?: GuestNotify,
   ) => void;
   /**
    * 空き領域クリック/ドラッグからの新規作成 (onCreateEvent)。draft は速い経路
@@ -128,11 +130,13 @@ export interface EventMutationsController {
     updated: Occurrence;
     previous: Occurrence;
     scopes: readonly RecurrenceScope[];
+    /** ゲストへの通知を訊くか (2026-07-31)。false なら従来どおりダイアログに何も増えない */
+    askNotify: boolean;
   } | null;
   /** WeekGrid.handleCommit が kind==='move' で時刻が変わったときだけ呼ぶ (onRequestMoveConfirm) */
   requestMoveConfirm: (updated: Occurrence, previous: Occurrence) => void;
-  /** ダイアログ「移動する」。選ばれた適用範囲つきで persist に流す */
-  confirmMove: (scope: RecurrenceScope) => void;
+  /** ダイアログ「移動する」。選ばれた適用範囲・ゲストへの通知つきで persist に流す */
+  confirmMove: (scope: RecurrenceScope, notify: GuestNotify) => void;
   /** ダイアログ「キャンセル」。store だけ previous に戻す(IndexedDB/Google は未書き込み) */
   cancelMove: () => void;
   /**
@@ -140,9 +144,14 @@ export interface EventMutationsController {
    * null 以外なら MoveConfirmDialog を適用範囲モードで出す。**繰り返しでない予定では
    * 常に null** のままで、問いかけは一切増えない。
    */
-  editScopeConfirm: { title: string; scopes: readonly RecurrenceScope[] } | null;
+  editScopeConfirm: {
+    title: string;
+    scopes: readonly RecurrenceScope[];
+    /** ゲストへの通知を訊くか (2026-07-31)。繰り返しでない予定でも、ゲストがいれば true */
+    askNotify: boolean;
+  } | null;
   /** 適用範囲ダイアログの決定 / キャンセル (saveEdit の await を解く) */
-  confirmEditScope: (scope: RecurrenceScope) => void;
+  confirmEditScope: (scope: RecurrenceScope, notify: GuestNotify) => void;
   cancelEditScope: () => void;
   /** 編集フォームの保存 (onSaveEdit / onSaveAllDayEdit)。失敗は throw して呼び出し側に委ねる */
   saveEdit: (original: Occurrence | AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
@@ -196,6 +205,7 @@ export function useEventMutations({
     updated: Occurrence;
     previous: Occurrence;
     scopes: readonly RecurrenceScope[];
+    askNotify: boolean;
   } | null>(null);
   /**
    * 編集フォーム保存時の適用範囲の問いかけ (2026-07-30)。saveEdit が繰り返し予定を
@@ -206,10 +216,11 @@ export function useEventMutations({
   const [editScopeConfirm, setEditScopeConfirm] = useState<{
     title: string;
     scopes: readonly RecurrenceScope[];
+    askNotify: boolean;
   } | null>(null);
-  const editScopeResolveRef = useRef<((scope: RecurrenceScope | null) => void) | undefined>(
-    undefined,
-  );
+  const editScopeResolveRef = useRef<
+    ((choice: { scope: RecurrenceScope; notify: GuestNotify } | null) => void) | undefined
+  >(undefined);
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
   const flashSaveError = useCallback(() => {
@@ -280,6 +291,12 @@ export function useEventMutations({
       updated: Occurrence,
       previous: Occurrence | undefined,
       scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE,
+      /**
+       * 確認ダイアログで選ばれたゲストへの通知 (2026-07-31)。訊いていない相手では
+       * undefined のまま流してよい ―― buildScopedEventPatchRequest が subject を見て
+       * 安全側 (externalOnly) に確定する (sync/guestNotify.ts の resolveSendUpdates)。
+       */
+      notify?: GuestNotify,
     ) => {
       if (!db) return;
 
@@ -314,6 +331,7 @@ export function useEventMutations({
             series,
             previous: { startMs: previous!.startMs, endMs: previous!.endMs },
             next: { startMs: updated.startMs, endMs: updated.endMs },
+            notify,
           });
           if (ok) return;
 
@@ -361,6 +379,7 @@ export function useEventMutations({
           subject: updated,
           scope: "this",
           next: { startMs: updated.startMs, endMs: updated.endMs },
+          notify,
         });
 
         if (ok) return;
@@ -592,8 +611,11 @@ export function useEventMutations({
   // 繰り返しでない予定では DB を引かずに即座に開く (従来と同じタイミング)。
   const requestMoveConfirm = useCallback(
     (updated: Occurrence, previous: Occurrence) => {
+      // ゲストへの通知を訊くか (2026-07-31)。**ゲストのいない予定・自分が主催でない予定では
+      // false** になり、ダイアログは 2026-07-31 以前と1pxも変わらない。
+      const askNotify = shouldAskGuestNotify(updated);
       if (!db || !isSeriesInstance(updated)) {
-        setMoveConfirm({ updated, previous, scopes: [] });
+        setMoveConfirm({ updated, previous, scopes: [], askNotify });
         return;
       }
       const seriesId = updated.seriesId!;
@@ -608,21 +630,22 @@ export function useEventMutations({
               previous: { startMs: previous.startMs, endMs: previous.endMs },
               next: { startMs: updated.startMs, endMs: updated.endMs },
             }),
+            askNotify,
           });
         })
         .catch((err) => {
           // series が引けなくても移動そのものは従来どおりできる (「この予定のみ」)
           console.error("kichijitsu: failed to load series for move confirm", err);
-          setMoveConfirm({ updated, previous, scopes: ["this"] });
+          setMoveConfirm({ updated, previous, scopes: ["this"], askNotify });
         });
     },
     [db],
   );
 
   const confirmMove = useCallback(
-    (scope: RecurrenceScope) => {
+    (scope: RecurrenceScope, notify: GuestNotify) => {
       if (!moveConfirm) return;
-      persist(moveConfirm.updated, moveConfirm.previous, scope);
+      persist(moveConfirm.updated, moveConfirm.previous, scope, notify);
       setMoveConfirm(null);
     },
     [moveConfirm, persist],
@@ -635,8 +658,8 @@ export function useEventMutations({
 
   // ---- 編集フォーム保存時の適用範囲の問いかけ (2026-07-30) ----
   // ダイアログの決定/キャンセルを、saveEdit が await している Promise の resolve に流す。
-  const confirmEditScope = useCallback((scope: RecurrenceScope) => {
-    editScopeResolveRef.current?.(scope);
+  const confirmEditScope = useCallback((scope: RecurrenceScope, notify: GuestNotify) => {
+    editScopeResolveRef.current?.({ scope, notify });
   }, []);
   const cancelEditScope = useCallback(() => {
     editScopeResolveRef.current?.(null);
@@ -656,9 +679,9 @@ export function useEventMutations({
     async (original: Occurrence | AllDayOccurrence, draft: EventEditDraft): Promise<void> => {
       if (!db) throw new Error("database not ready");
 
-      // ---- 適用範囲の問いかけ (2026-07-30) ----
-      // **繰り返しでない予定では scopes が空配列**になり、ここは丸ごと素通りする
-      // (問いかけも series の読み出しも増えない = 従来と全く同じ経路)。
+      // ---- 適用範囲 (2026-07-30) とゲストへの通知 (2026-07-31) の問いかけ ----
+      // **繰り返しでなく、ゲストもいない予定では両方とも空/false** になり、ここは丸ごと
+      // 素通りする (問いかけも series の読み出しも増えない = 従来と全く同じ経路)。
       const previousRange = subjectTimeRange(original, timeZone);
       const nextRange = { startMs: draft.startMs, endMs: draft.endMs };
       const series = isSeriesInstance(original)
@@ -670,21 +693,28 @@ export function useEventMutations({
         previous: previousRange,
         next: nextRange,
       });
+      // 繰り返しでない普通の予定でも、ゲストがいて自分が主催なら問いかける
+      // (Google カレンダー自身が更新時にそうしている、sync/guestNotify.ts 参照)
+      const askNotify = shouldAskGuestNotify(original);
       let scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE;
-      if (scopes.length > 0) {
+      let notify: GuestNotify | undefined;
+      if (scopes.length > 0 || askNotify) {
         // 選択肢が「この予定のみ」1つきりでも問いかけは出す ―― 繰り返し予定を編集して
         // いるのに、それが1回分だけに効くことを黙っているのが元々の問題だったため。
-        const chosen = await new Promise<RecurrenceScope | null>((resolve) => {
-          editScopeResolveRef.current = resolve;
-          setEditScopeConfirm({ title: draft.title || original.title, scopes });
-        });
+        const chosen = await new Promise<{ scope: RecurrenceScope; notify: GuestNotify } | null>(
+          (resolve) => {
+            editScopeResolveRef.current = resolve;
+            setEditScopeConfirm({ title: draft.title || original.title, scopes, askNotify });
+          },
+        );
         editScopeResolveRef.current = undefined;
         setEditScopeConfirm(null);
         if (chosen === null) throw new EditScopeCancelledError();
-        scope = chosen;
+        scope = chosen.scope;
+        notify = chosen.notify;
       }
 
-      const patchReq = buildEventEditPatchRequest(original, draft, timeZone, scope, series);
+      const patchReq = buildEventEditPatchRequest(original, draft, timeZone, scope, series, notify);
       if (!patchReq) {
         throw new Error("kichijitsu: could not build edit EventPatchRequest");
       }

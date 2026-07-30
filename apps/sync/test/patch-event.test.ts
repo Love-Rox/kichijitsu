@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { patchEventTime, toDateOnly, toRfc3339Utc } from "../src/google/patch-event";
 import {
+  DEFAULT_SEND_UPDATES,
   isValidEventPatchRequest,
   patchEventTimeWithRetry,
+  resolveSendUpdates,
   type PatchEventCoreDeps,
 } from "../src/core/patch-event";
 
@@ -12,6 +14,8 @@ const PARAMS = {
   startMs: 1_700_000_000_000,
   endMs: 1_700_003_600_000,
   timeZone: "Asia/Tokyo",
+  // 2026-07-31: sendUpdates は必須になった (未文書の既定に落ちる経路を型で塞ぐため)
+  sendUpdates: "externalOnly" as const,
 };
 
 describe("toRfc3339Utc", () => {
@@ -29,7 +33,9 @@ describe("patchEventTime", () => {
     await patchEventTime(fetchImpl, "access-token", PARAMS);
 
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/event-1");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/event-1?sendUpdates=externalOnly",
+    );
     const requestInit = init as RequestInit;
     expect(requestInit.method).toBe("PATCH");
     expect((requestInit.headers as Record<string, string>).Authorization).toBe(
@@ -57,7 +63,7 @@ describe("patchEventTime", () => {
 
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toBe(
-      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events/event%20id%20with%20spaces",
+      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events/event%20id%20with%20spaces?sendUpdates=externalOnly",
     );
   });
 
@@ -235,6 +241,7 @@ describe("patchEventTime — 時刻を送らない (startMs/endMs 未指定)", (
       eventId: "series-1",
       timeZone: "Asia/Tokyo",
       summary: "新しいタイトル",
+      sendUpdates: "externalOnly",
     });
 
     const [, init] = fetchImpl.mock.calls[0];
@@ -310,5 +317,38 @@ describe("isValidEventPatchRequest", () => {
     expect(isValidEventPatchRequest(null)).toBe(false);
     expect(isValidEventPatchRequest("x")).toBe(false);
     expect(isValidEventPatchRequest([])).toBe(false);
+  });
+
+  // ---- ゲストへの通知 (2026-07-31) ----
+  it("sendUpdates は all / externalOnly を通し、未指定も通す (旧クライアント互換)", () => {
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: "all" })).toBe(true);
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: "externalOnly" })).toBe(true);
+    expect(isValidEventPatchRequest(VALID)).toBe(true);
+  });
+
+  it('sendUpdates="none" を弾く (外部ゲストのカレンダーが古いまま残る値は受け取らない)', () => {
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: "none" })).toBe(false);
+  });
+
+  it("sendUpdates の未知の値・型違いを弾く", () => {
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: "ALL" })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: true })).toBe(false);
+    expect(isValidEventPatchRequest({ ...VALID, sendUpdates: "" })).toBe(false);
+  });
+});
+
+/**
+ * 未指定を Google の未文書の既定に落とさないための砦 (2026-07-31)。
+ * ここに来るのは sendUpdates を知らない旧クライアントと、MCP の update_event。
+ */
+describe("resolveSendUpdates", () => {
+  it("指定された値をそのまま返す", () => {
+    expect(resolveSendUpdates("all")).toBe("all");
+    expect(resolveSendUpdates("externalOnly")).toBe("externalOnly");
+  });
+
+  it("未指定なら externalOnly を補う (頼まれていないメールを出さず、外部だけは正す)", () => {
+    expect(resolveSendUpdates(undefined)).toBe("externalOnly");
+    expect(DEFAULT_SEND_UPDATES).toBe("externalOnly");
   });
 });

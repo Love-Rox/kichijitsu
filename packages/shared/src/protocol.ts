@@ -554,7 +554,65 @@ export type ServerEvent =
  * **繰り返し予定の適用範囲 (2026-07-30)**: 「すべての予定」を選んだときは、この eventId に
  * 親 (シリーズ) の event id が入る。適用範囲そのものはクライアント側で eventId と時刻に
  * 解決してから送るため、サーバーには渡らない (web/src/sync/recurrenceScope.ts 参照)。
+ *
+ * **ゲストへの通知 (2026-07-31)**: sendUpdates を参照。
  */
+/**
+ * 予定の**変更**を Google に書き戻すときの `sendUpdates` (2026-07-31)。
+ * Google Calendar API の enum は `all` / `externalOnly` / `none` の3値だが、
+ * kichijitsu が変更 (時刻・タイトル・場所・説明) で使うのは**上2つだけ**。
+ *
+ * ## 「招待」と「更新」で必要な値が違う
+ * ゲストの追加・削除 (EventGuestsRequest) は `all` 固定にしてある ―― **招待が届かなければ
+ * 相手のカレンダーに予定が現れない**相手がいるため (「差出人を知っている場合のみ追加」の
+ * 設定など)。しかし**既にゲストが持っている予定の時刻やタイトルを変える**場合は、
+ * 相手は既にその予定を持っており、事情が違う:
+ *
+ *  - `sendUpdates` が決めるのは「更新を知らせる**通知 (メール)** を誰に出すか」であって、
+ *    予定そのものが届くかではない (公式のパラメータ説明も "Guests who should receive
+ *    **notifications** about the event update (for example, title changes, etc.)")。
+ *    主催者側の変更が参加者の複製へ伝わること自体は Event propagation に明記がある ――
+ *    "When this information is updated on the organizer calendar, the changes are
+ *    propagated to attendee copies."
+ *  - 一方 **Google カレンダー以外を使うゲスト**はメールでしか更新を受け取れない。
+ *    公式ヘルプが明言している ―― "You can also choose not to send email notifications.
+ *    Guests' calendars are still updated, unless: ... Non-Google Calendar users and
+ *    Google Calendar users with a non-Gmail email provider get an email, which updates
+ *    their calendar per the settings of their calendar service."
+ *    ここを止めると相手のカレンダーだけが**古い時刻のまま**残る ―― 送った側からは
+ *    決して見えない壊れ方で、これが `none` を選択肢にしない理由。
+ *
+ * したがって「知らせなくてよい」の正しい表現は `none` ではなく `externalOnly`
+ * ("Notifications are sent to non-Google Calendar guests only.") になる。
+ * この使い分けは、そもそも `externalOnly` が足された理由そのものでもある ――
+ * 2018-10-02 のリリースノート: "Now it is possible to always keep in sync guests who use
+ * other calendaring systems, without sending too many non-mandatory emails to
+ * Google Calendar users."
+ *
+ * kichijitsu の UI が出す2択もこの2値に対応する (web/src/sync/guestNotify.ts):
+ *
+ *  - `all`          … 「送信する」。ゲスト全員にメールが飛ぶ。
+ *  - `externalOnly` … 「送信しない」。Google カレンダーのゲストにはメールを出さない
+ *                     (予定は同期で直る)。外部のゲストには出る (それしか手段が無い)。
+ *
+ * ## 省略されたら (2026-07-31 に調べ直した結論: **分からない**)
+ * 公式リファレンスは events.patch/update で **sendUpdates を省略したときの既定を
+ * 文書化していない**。同じページの隣のパラメータ (conferenceDataVersion, supportsAttachments)
+ * には "The default is ..." が書いてあるのに sendUpdates には無く、Discovery ドキュメントの
+ * どの sendUpdates にも `default` フィールドが無い。廃止された `sendNotifications` には
+ * "The default is false." と書いてあるが、**両方とも省略したときにどちらが効くのかは
+ * どこにも書かれていない** (2018-10-02 の追加を告げるリリースノートにも既定の記述は無く、
+ * 更新のガイドページ自体が存在しない)。events.insert のページだけが sendUpdates に
+ * "The default is false." と書いているが、これは3値の enum に対する boolean の残骸で
+ * patch/update には無い。
+ * 分からない以上、**利用者に見える挙動を未文書の既定に委ねない**のが唯一の結論になる ――
+ * サーバーは受け取らなかった場合に `externalOnly` を明示的に補って Google に渡す
+ * (core/patch-event.ts の resolveSendUpdates)。MCP の update_event のように問いかける
+ * 相手がいない経路でも、「頼まれてもいないメールを出さない・外部のカレンダーは古いまま
+ * にしない」の両方を満たす唯一の値がこれ。
+ */
+export type EventSendUpdates = "all" | "externalOnly";
+
 export interface EventPatchRequest {
   accountId: string;
   calendarId: string;
@@ -585,6 +643,13 @@ export interface EventPatchRequest {
    * false/未指定は従来どおり `dateTime` (時刻予定)。
    */
   isAllDay?: boolean;
+  /**
+   * ゲストへの通知 (2026-07-31)。EventSendUpdates のコメント参照。
+   * **未指定なら サーバーが `externalOnly` を補う** ―― Google の未文書の既定に委ねない。
+   * web は必ず値を入れて送る (sync/recurrenceScope.ts の buildScopedEventPatchRequest が
+   * 唯一の組み立て口で、そこで resolveSendUpdates が必ず解決する)。
+   */
+  sendUpdates?: EventSendUpdates;
 }
 
 export interface EventPatchResponse {

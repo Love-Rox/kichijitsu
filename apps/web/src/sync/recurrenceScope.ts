@@ -3,6 +3,7 @@ import type { EventPatchRequest } from "@kichijitsu/shared";
 import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { eventPatchRequestFor, rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
+import { resolveSendUpdates, type GuestNotify } from "./guestNotify";
 
 /**
  * 繰り返し予定の「適用範囲」(2026-07-30)。編集フォームの保存とドラッグ移動の確定で
@@ -225,6 +226,12 @@ export function resolveScopedPatchTarget({
  * buildEventEditPatchRequest) の**両方が通る唯一の入口**で、宛先の決定はすべて
  * resolveScopedPatchTarget に一本化されている。
  *
+ * ゲストへの通知 (2026-07-31) もここで確定させる ―― この関数が唯一の組み立て口である以上、
+ * ここで sendUpdates を必ず埋めておけば「付け忘れて Google の未文書の既定に落ちる」経路が
+ * 構造的に無くなる (sync/guestNotify.ts の resolveSendUpdates)。notify を渡さなくても
+ * 値は必ず入る: 訊いていない相手 (ゲスト無し・非主催者) には externalOnly が入り、
+ * 実質的に何も起きない。
+ *
  * 返り値が null になるのは、
  *  - 書き戻し対象でない (source !== 'google'、accountId/calendarId が無い)
  *  - scope==='all' が選べない状態 (series が無い / 日をまたぐ移動) — 呼び出し側の
@@ -240,6 +247,7 @@ export function buildScopedEventPatchRequest({
   next,
   timeZone,
   fields,
+  notify,
 }: {
   subject: Occurrence | AllDayOccurrence;
   scope: RecurrenceScope;
@@ -249,13 +257,22 @@ export function buildScopedEventPatchRequest({
   timeZone: string;
   /** 編集フォームから来る内容の変更。ドラッグ移動では省略する (時刻だけを触る) */
   fields?: { summary?: string; location?: string; description?: string; isAllDay?: boolean };
+  /**
+   * 確認ダイアログで選ばれたゲストへの通知 (2026-07-31)。訊いていない場合は省略でよい
+   * ―― resolveSendUpdates が subject を見て安全側 (externalOnly) に倒す。
+   */
+  notify?: GuestNotify;
 }): EventPatchRequest | null {
   try {
     const target = resolveScopedPatchTarget({ subject, scope, series, previous, next });
     if (!target) return null;
     const request = eventPatchRequestFor(subject, target, timeZone);
     if (!request) return null;
-    return fields ? { ...request, ...fields } : request;
+    const withNotify: EventPatchRequest = {
+      ...request,
+      sendUpdates: resolveSendUpdates(subject, notify),
+    };
+    return fields ? { ...withNotify, ...fields } : withNotify;
   } catch (err) {
     console.error("kichijitsu: failed to build EventPatchRequest", err);
     return null;
