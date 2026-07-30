@@ -12,6 +12,12 @@ import {
 } from "../layout/guestList";
 import { clampPopoverPosition, stripHtmlToPlainText } from "./eventPopoverShared";
 import { RsvpNotAttendeeError } from "../sync/eventRsvp";
+import {
+  GuestNotOrganizerError,
+  parseGuestEmailInput,
+  type GuestChange,
+  type GuestEmailError,
+} from "../sync/eventGuests";
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { CalendarInfo } from "./calendarInfo";
 import { MeetingProviderIcon } from "./meetingProviderIcon";
@@ -99,6 +105,13 @@ export interface EventDetailCardProps {
    */
   rsvpStatus?: RsvpResponseStatus;
   onRsvp?: (status: RsvpResponseStatus) => Promise<void>;
+  /**
+   * ゲスト (参加者) の追加・削除 (2026-07-31)。**渡されたときだけ**ゲスト欄が編集できる
+   * ―― 呼び出し側が sync/eventGuests.ts の canEditGuests で判定済み (自分が主催の、
+   * 繰り返しでない Google 予定のみ)。渡さなければ従来どおり表示のみ。
+   * 422 (主催者でない) は GuestNotOrganizerError を reject する取り決め。
+   */
+  onEditGuests?: (change: GuestChange) => Promise<void>;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -129,6 +142,7 @@ export function EventDetailCard({
   onSaveEdit,
   rsvpStatus,
   onRsvp,
+  onEditGuests,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -274,12 +288,21 @@ export function EventDetailCard({
           </a>
         )}
         {/*
-         * ゲスト (参加者) 欄 (2026-07-30)。表示のみ ―― 参加者の追加/削除はこの版では入れて
-         * いない(理由は apps/site/docs/calendar/index.html の「ゲスト」節と作業報告参照)。
+         * ゲスト (参加者) 欄 (2026-07-30、2026-07-31 に追加・削除を追加)。
          * 場所・説明の後、カレンダー所属の前に置く: 参加者は予定の中身であって、
          * 「どのカレンダーにあるか」は予定の入れ物の話なので、中身を先に読ませる。
+         *
+         * **参加者が1人もいなくても、編集できる予定なら欄を出す** ―― そうしないと
+         * 「自分だけの予定に最初の1人を招待する」という一番よくある操作の入口が
+         * どこにも無くなる (guestList は参加者ゼロで null を返す)。
          */}
-        {guestList && <GuestSection view={guestList} />}
+        {(guestList || onEditGuests) && (
+          <GuestSection
+            view={guestList}
+            attendees={subject.attendees}
+            onEditGuests={onEditGuests}
+          />
+        )}
         {memberCalendars.length > 0 && (
           <div className="event-detail-calendar-list">
             {memberCalendars.map((info) => (
@@ -319,8 +342,17 @@ export function EventDetailCard({
   );
 }
 
+/** 入力の弾き方を日本語にする。理由ごとに違う文にするのは、直し方が違うため */
+const GUEST_EMAIL_ERROR_TEXT: Record<GuestEmailError, string> = {
+  empty: "メールアドレスを入力してください",
+  invalid: "メールアドレスの形になっていません",
+  tooLong: "メールアドレスが長すぎます",
+  duplicate: "すでにゲストに入っています",
+  self: "自分自身は追加できません",
+};
+
 /**
- * ゲスト (参加者) 欄 (2026-07-30)。**表示のみ**。
+ * ゲスト (参加者) 欄 (2026-07-30、2026-07-31 に追加・削除を追加)。
  *
  * 見た目は既存の意匠に寄せてある ―― 見出しの体裁はカレンダー所属の列
  * (.event-detail-calendar-list) と同じ「上に区切り線を引いた小さな塊」、行の文字色は
@@ -334,25 +366,94 @@ export function EventDetailCard({
  *   - 開いても一覧自体に max-height を持たせて中でスクロールさせる(CSS 側)。
  *     ポップオーバー全体 (max-height 420px) を参加者だけで埋めてしまうと、その下の
  *     カレンダー所属・出欠ボタン・編集/削除に届かなくなるため。
+ *
+ * ## 通知メールを黙って送らない (2026-07-31)
+ * ゲストを足す/外すと Google から**関係者全員にメールが飛ぶ** (sendUpdates=all)。
+ * これは選ばせるべき設定に見えるが、**選ばせない**ことにした ―― 公式に、通知を
+ * 送らない (`none`) と「events not syncing to external calendars or events being lost
+ * altogether for some users」と警告があり、`externalOnly` でも Google カレンダー側の
+ * 招待設定によっては相手に予定が現れない。つまり**この操作で安全な値は all しか無く**、
+ * 選択肢を出すことは「壊れる選択肢」を出すことになる。
+ * 代わりに、**押す前に必ず読める場所に書く**: 欄の中の注記と、ボタンの文言そのもの
+ * (「招待して追加」「通知して外す」)。黙って送らない、が守っていること。
+ *
+ * @param view 参加者ゼロの予定では null。編集できるときはそれでも欄を出す (追加の入口)
+ * @param onEditGuests 省略時は従来どおり表示のみ (呼び出し側が canEditGuests で判定済み)
  */
-function GuestSection({ view }: { view: GuestListView }) {
+function GuestSection({
+  view,
+  attendees,
+  onEditGuests,
+}: {
+  view: GuestListView | null;
+  attendees?: EventAttendee[];
+  onEditGuests?: (change: GuestChange) => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const hiddenCount = view.guests.length - GUEST_PREVIEW_COUNT;
-  const shown = expanded ? view.guests : view.guests.slice(0, GUEST_PREVIEW_COUNT);
+  const [draftEmail, setDraftEmail] = useState("");
+  const [inputError, setInputError] = useState<string | null>(null);
+  /** 送信中のアドレス (追加でも削除でも)。二重送信 = 招待メールの重複を防ぐ */
+  const [pending, setPending] = useState<string | null>(null);
+  /** 「外しますか?」を出している行のアドレス。削除は取り返しがつかないので必ず2段階 */
+  const [confirmingRemoval, setConfirmingRemoval] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const guests = view?.guests ?? [];
+  const hiddenCount = guests.length - GUEST_PREVIEW_COUNT;
+  const shown = expanded ? guests : guests.slice(0, GUEST_PREVIEW_COUNT);
+
+  function runChange(change: GuestChange, key: string) {
+    if (!onEditGuests || pending) return;
+    setPending(key);
+    setActionError(null);
+    onEditGuests(change)
+      .then(() => {
+        setDraftEmail("");
+        setInputError(null);
+        setConfirmingRemoval(null);
+      })
+      .catch((err) => {
+        console.error("kichijitsu: guest edit failed", err);
+        setActionError(
+          err instanceof GuestNotOrganizerError
+            ? "この予定のゲストは変更できません (主催者のみ)"
+            : "変更できませんでした（元に戻しました）",
+        );
+      })
+      .finally(() => setPending(null));
+  }
+
+  function handleAdd() {
+    const parsed = parseGuestEmailInput(draftEmail, attendees);
+    if (!parsed.ok) {
+      setInputError(GUEST_EMAIL_ERROR_TEXT[parsed.reason]);
+      return;
+    }
+    setInputError(null);
+    runChange({ addEmails: [parsed.email] }, parsed.email);
+  }
 
   return (
     <div className="event-detail-guests">
-      <div className="event-detail-guests-head">
-        <span className="event-detail-guests-count">{view.countLabel}</span>
-        {view.summaryLabel && (
-          <span className="event-detail-guests-summary">{view.summaryLabel}</span>
-        )}
-      </div>
+      {view && (
+        <div className="event-detail-guests-head">
+          <span className="event-detail-guests-count">{view.countLabel}</span>
+          {view.summaryLabel && (
+            <span className="event-detail-guests-summary">{view.summaryLabel}</span>
+          )}
+        </div>
+      )}
+      {/* 参加者ゼロで編集できる予定。人数も内訳も出しようが無いので、見出しだけ置く */}
+      {!view && (
+        <div className="event-detail-guests-head">
+          <span className="event-detail-guests-count">ゲスト</span>
+        </div>
+      )}
       {/*
        * 会議室・機材 (resource) は人ではないので一覧に混ぜず、場所行と同じピンアイコンで
        * 1行にまとめる(押さえてある部屋が分かればよく、部屋ごとの「応答状態」に意味は無い)。
        */}
-      {view.rooms.length > 0 && (
+      {view && view.rooms.length > 0 && (
         <div className="event-detail-guests-rooms">
           <PlaceIcon width={12} height={12} />
           {view.rooms.join("、")}
@@ -371,9 +472,48 @@ function GuestSection({ view }: { view: GuestListView }) {
                   <span className="event-detail-guest-mail">{guest.subLabel}</span>
                 )}
               </span>
-              <span className="event-detail-guest-status">
-                {GUEST_STATUS_LABEL[guest.responseStatus]}
-              </span>
+              {/*
+               * 右端は「応答状態」か「外す導線」のどちらか。確認中の行だけ状態の代わりに
+               * 2段階目を出す ―― 行を増やさずに済み、どの人を外そうとしているかが動かない。
+               */}
+              {onEditGuests && guest.removable && confirmingRemoval === guest.email ? (
+                <span className="event-detail-guest-confirm">
+                  <button
+                    type="button"
+                    className="event-detail-text-btn"
+                    disabled={pending !== null}
+                    onClick={() => runChange({ removeEmails: [guest.email!] }, guest.email!)}
+                  >
+                    通知して外す
+                  </button>
+                  <button
+                    type="button"
+                    className="event-detail-text-btn"
+                    disabled={pending !== null}
+                    onClick={() => setConfirmingRemoval(null)}
+                  >
+                    やめる
+                  </button>
+                </span>
+              ) : (
+                <span className="event-detail-guest-status">
+                  {GUEST_STATUS_LABEL[guest.responseStatus]}
+                  {onEditGuests && guest.removable && (
+                    <button
+                      type="button"
+                      className="event-detail-guest-remove"
+                      aria-label={`${guest.label} を外す`}
+                      disabled={pending !== null}
+                      onClick={() => {
+                        setActionError(null);
+                        setConfirmingRemoval(guest.email!);
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -388,6 +528,45 @@ function GuestSection({ view }: { view: GuestListView }) {
           {expanded ? "折りたたむ" : `他 ${hiddenCount} 人を表示`}
         </button>
       )}
+      {onEditGuests && (
+        <div className="event-detail-guest-add">
+          <input
+            type="email"
+            className="event-edit-input event-detail-guest-input"
+            placeholder="メールアドレスを追加"
+            aria-label="ゲストのメールアドレス"
+            value={draftEmail}
+            disabled={pending !== null}
+            onChange={(e) => {
+              setDraftEmail(e.target.value);
+              if (inputError) setInputError(null);
+            }}
+            onKeyDown={(e) => {
+              // ポップオーバーの Escape (閉じる) は殺さない。Enter だけ拾って追加する
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAdd();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="event-detail-text-btn event-detail-guest-add-btn"
+            disabled={pending !== null || draftEmail.trim() === ""}
+            onClick={handleAdd}
+          >
+            招待して追加
+          </button>
+        </div>
+      )}
+      {onEditGuests && (
+        // 「黙ってメールを送らない」ための注記。押す前に必ず目に入る位置に置く
+        <p className="event-detail-guest-note-line">
+          追加・外すと、Google からゲスト全員に通知メールが届きます。
+        </p>
+      )}
+      {inputError && <p className="event-detail-guest-error">{inputError}</p>}
+      {actionError && <p className="event-detail-guest-error">{actionError}</p>}
     </div>
   );
 }

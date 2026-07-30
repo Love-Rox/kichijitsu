@@ -39,6 +39,12 @@ import {
 } from "../sync/eventEdit";
 import { buildEventDeleteRequest } from "../sync/eventPatch";
 import { buildEventRsvpRequest, RsvpNotAttendeeError } from "../sync/eventRsvp";
+import {
+  applyGuestChangesLocally,
+  buildEventGuestsRequest,
+  GuestNotOrganizerError,
+  type GuestChange,
+} from "../sync/eventGuests";
 import { jsonInit, sendJson, type CheckedFetch } from "../sync/httpJson";
 import { buildTaskPatchRequest } from "../sync/mapTasks";
 import { mergeOverridePatch, resolveOverrideRef } from "../sync/overridePatch";
@@ -142,6 +148,12 @@ export interface EventMutationsController {
   saveEdit: (original: Occurrence | AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
   /** 参加ステータス変更 (onRsvp / onAllDayRsvp)。422 は RsvpNotAttendeeError を throw する */
   rsvp: (subject: Occurrence | AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
+  /**
+   * ゲスト (参加者) の追加・削除 (onEditGuests、2026-07-31)。楽観的に一覧を書き換えてから
+   * POST /api/event/guests、失敗で元へ戻して reject する。422 は GuestNotOrganizerError。
+   * 導線を出してよいかの判定は sync/eventGuests.ts の canEditGuests (呼び出し側が使う)。
+   */
+  editGuests: (subject: Occurrence | AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** タスクの完了トグル (onToggleTask)。枡チェックボックスのタップから呼ばれる */
   toggleTask: (task: TaskItem) => void;
 }
@@ -800,6 +812,61 @@ export function useEventMutations({
     [db, store, allDayStore, checkedFetch],
   );
 
+  // ---- ゲスト (参加者) の追加・削除 (2026-07-31) ----
+  // **楽観更新 + ロールバック** (persist / deleteOccurrence と同じ流儀。RSVP や編集フォームの
+  // 「保存ボタン方式」ではない) ―― 押した瞬間に一覧へ行が増える/消えるのが操作の実感そのもので、
+  // 往復を待って初めて動くと「押せていないのでは」と何度も押してしまう (= 招待メールが重なる)。
+  //
+  // ロールバック時に flashSaveError は使わない: この操作の間はゲスト欄が必ず開いており、
+  // 詳細カードの中にインラインで理由 (422 は専用メッセージ) を出すほうが近くて正確なため。
+  // reject はそのまま呼び出し側 (EventDetailCard の GuestSection) へ伝える。
+  //
+  // 送るのは**差分だけ**。attendees 配列そのものは送らない ―― 手元の一覧は50件で打ち切られて
+  // いることがあり、全置換すると手元に無い参加者を巻き添えで消してしまう (sync/eventGuests.ts)。
+  const editGuests = useCallback(
+    async (subject: Occurrence | AllDayOccurrence, change: GuestChange): Promise<void> => {
+      const req = buildEventGuestsRequest(subject, change);
+      if (!req) {
+        throw new Error("kichijitsu: could not build EventGuestsRequest");
+      }
+      // 楽観表示 (サーバーが行う read-modify-write の予測)。db が未オープンなら
+      // 見た目だけ先に動かすことはせず、書き込みだけ行う
+      const nextAttendees = applyGuestChangesLocally(subject.attendees, change);
+      const isTimed = "startMs" in subject;
+      const optimistic = { ...subject, attendees: nextAttendees };
+      if (db) {
+        if (isTimed) {
+          store.update(optimistic as Occurrence);
+          await putOccurrence(db, optimistic as Occurrence);
+        } else {
+          allDayStore.update(optimistic as AllDayOccurrence);
+          await putAllDayOccurrences(db, [optimistic as AllDayOccurrence]);
+        }
+      }
+
+      // 422 を GuestNotOrganizerError に振り替える必要があるため、throw する高レベル関数ではなく
+      // Response をそのまま受け取る sendJson を使う (rsvp と同じ)
+      const res = await sendJson(checkedFetch, "POST", "/api/event/guests", req);
+      if (res.ok) return;
+
+      // ---- ロールバック ----
+      if (db) {
+        if (isTimed) {
+          store.update(subject as Occurrence);
+          await putOccurrence(db, subject as Occurrence);
+        } else {
+          allDayStore.update(subject as AllDayOccurrence);
+          await putAllDayOccurrences(db, [subject as AllDayOccurrence]);
+        }
+      }
+      if (res.status === 422) {
+        throw new GuestNotOrganizerError();
+      }
+      throw new Error(`kichijitsu: POST /api/event/guests failed: ${res.status}`);
+    },
+    [db, store, allDayStore, checkedFetch],
+  );
+
   // タスクの完了トグル(docs/google-tasks.md)。枡チェックボックスのタップから呼ばれる。
   // ドラッグ確定 (persist) と同じ流儀: 楽観的に taskStore/IndexedDB を即座に更新し、
   // POST /api/task/patch で Google へ書き戻す。失敗時は変更前の状態にロールバックし、
@@ -870,6 +937,7 @@ export function useEventMutations({
     cancelEditScope,
     saveEdit,
     rsvp,
+    editGuests,
     toggleTask,
   };
 }

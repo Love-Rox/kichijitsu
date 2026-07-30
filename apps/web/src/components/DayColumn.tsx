@@ -11,6 +11,7 @@ import {
   type WriteTargetCandidate,
 } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
+import type { GuestChange } from "../sync/eventGuests";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
 import {
@@ -123,6 +124,8 @@ interface DayColumnProps {
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
+  /** EventBlock へそのまま流す (ゲストの追加・削除、2026-07-31) */
+  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
   calendarLookup: Map<string, CalendarInfo>;
   /** 新規予定の既定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
   writeTarget: WriteTargetCandidate | null;
@@ -251,6 +254,7 @@ export function DayColumn({
   onDelete,
   onSaveEdit,
   onRsvp,
+  onEditGuests,
   calendarLookup,
   writeTarget,
   writeTargets,
@@ -677,6 +681,7 @@ export function DayColumn({
             onDelete={onDelete}
             onSaveEdit={onSaveEdit}
             onRsvp={onRsvp}
+            onEditGuests={onEditGuests}
             calendarLookup={calendarLookup}
             // 「タップで選択してからドラッグ」は横スワイプ日移動と同じ条件(=スマホ幅)でだけ
             // 有効にする。longPressCreate は isNarrow がそのまま降りてきている値

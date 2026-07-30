@@ -100,3 +100,20 @@ describe("generateDummyAllDayOccurrences", () => {
     }
   });
 });
+
+/**
+ * デモ id の判定が**実データを巻き込まない**ことの確認 (2026-07-31)。
+ * ゲスト編集の確認用に `g:` 形式のデモ id を足したので、実 Google データ
+ * (accountId は UUID) が掃除対象に入らないことを明示的に押さえておく。
+ */
+describe("isDemoSingleOccurrenceId は実データを巻き込まない", () => {
+  it("実 Google 由来の occurrence id は掃除対象にならない", () => {
+    expect(
+      isDemoSingleOccurrenceId("g:3f2b1c8e-0a11-4f77-9d0a-2b6c1e5f9a33:primary:abc123"),
+    ).toBe(false);
+  });
+
+  it("デモ専用アカウントの id だけを拾う", () => {
+    expect(isDemoSingleOccurrenceId("g:demo-account:demo-calendar:mine-with-guests")).toBe(true);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { EventAttendee } from "../model/types";
-import { buildGuestListView, GUEST_PREVIEW_COUNT } from "./guestList";
+import { buildGuestListView, guestRemovalBlockReason, GUEST_PREVIEW_COUNT } from "./guestList";
 
 /** 数十人ぶんの参加者を作る (数え方・切り詰めの境界確認用) */
 function manyGuests(count: number): EventAttendee[] {
@@ -30,6 +30,9 @@ describe("buildGuestListView", () => {
         subLabel: "me@example.com",
         responseStatus: "accepted",
         note: "自分",
+        email: "me@example.com",
+        // 自分自身は外せない (ゲストの追加・削除、2026-07-31)
+        removable: false,
       },
     ]);
   });
@@ -150,5 +153,73 @@ describe("buildGuestListView", () => {
       { displayName: "同姓同名" },
     ]);
     expect(view?.guests[0]?.key).not.toBe(view?.guests[1]?.key);
+  });
+});
+
+/**
+ * ゲストの追加・削除 (2026-07-31) が使う2項目。表示の判断と同じデータしか見ないので
+ * この層に置いてある (詳細は guestList.ts の guestRemovalBlockReason 参照)。
+ */
+describe("guestRemovalBlockReason", () => {
+  it("普通のゲストは外せる", () => {
+    expect(guestRemovalBlockReason({ email: "a@example.com" })).toBeNull();
+  });
+
+  it("自分自身は外せない (出たくないなら不参加、無くしたいなら予定ごと削除)", () => {
+    expect(guestRemovalBlockReason({ email: "me@example.com", self: true })).toBe("self");
+  });
+
+  it("主催者は外せない", () => {
+    expect(guestRemovalBlockReason({ email: "lead@example.com", organizer: true })).toBe(
+      "organizer",
+    );
+  });
+
+  it("会議室・機材は外せない (人ではないのでこの欄では扱わない)", () => {
+    expect(guestRemovalBlockReason({ email: "room@resource.calendar.google.com", resource: true }))
+      .toBe("resource");
+  });
+
+  it("アドレスの分からない行は外せない (要求の宛先が無い)", () => {
+    expect(guestRemovalBlockReason({ displayName: "名前だけ" })).toBe("noEmail");
+  });
+
+  it("自分かつ会議室のような矛盾した行は resource を先に見る", () => {
+    expect(guestRemovalBlockReason({ email: "x@example.com", self: true, resource: true })).toBe(
+      "resource",
+    );
+  });
+});
+
+describe("GuestRow の email / removable", () => {
+  it("普通のゲストには email が付き removable が立つ", () => {
+    const view = buildGuestListView([
+      { email: "me@example.com", self: true },
+      { email: "sato@example.com", displayName: "佐藤 悠" },
+    ]);
+    expect(view?.guests[1]).toMatchObject({ email: "sato@example.com", removable: true });
+  });
+
+  it("自分・主催者の行は removable が false", () => {
+    const view = buildGuestListView([
+      { email: "me@example.com", self: true },
+      { email: "lead@example.com", organizer: true },
+    ]);
+    expect(view?.guests.every((g) => g.removable === false)).toBe(true);
+  });
+
+  it("表示名しか無い行は email を持たず removable も false", () => {
+    const view = buildGuestListView([{ displayName: "名前だけ" }]);
+    expect(view?.guests[0]).not.toHaveProperty("email");
+    expect(view?.guests[0].removable).toBe(false);
+  });
+
+  it("会議室は人の一覧に入らないので removable の判断対象にならない", () => {
+    const view = buildGuestListView([
+      { email: "me@example.com", self: true },
+      { email: "room@resource.calendar.google.com", displayName: "会議室A", resource: true },
+    ]);
+    expect(view?.guests).toHaveLength(1);
+    expect(view?.rooms).toEqual(["会議室A"]);
   });
 });

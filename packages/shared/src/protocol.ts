@@ -620,6 +620,49 @@ export interface EventRsvpResponse {
 }
 
 /**
+ * POST /api/event/guests — 予定のゲスト (参加者) を追加・削除する (2026-07-31)。
+ *
+ * ## 配列ではなく差分を送る
+ * `events.patch` の attendees は**全置換**で、公式にも "Array fields, if specified,
+ * overwrite the existing arrays; this discards any previous array elements" と明記がある。
+ * それでいてクライアントが持つ一覧は MAX_DTO_ATTENDEES (50) 件で打ち切られていることが
+ * あるため、**クライアントに配列を組ませてはいけない** ―― 手元に無い参加者を巻き添えで
+ * 全員消してしまう。そこで「このメールを足す/外す」という差分だけを送り、
+ * `events.get` → 差分適用 → `events.patch` の read-modify-write はサーバーが行う
+ * (core/guest-event.ts)。RSVP (EventRsvpRequest) と同じ考え方。
+ *
+ * ## 主催者のときだけ通す
+ * 公式の Event propagation に「The only event change that is propagated from attendees
+ * back to the organizer is the attendee's response status」とあり、参加者側の複製で
+ * attendees を書き換えても主催者には伝わらない (しかも API がそれを 403 で拒むのか
+ * 200 で自分の複製だけ変えるのかは**公式に書かれていない**)。サーバーは events.get の
+ * `organizer.self` を見て、主催者でなければ **422 not_organizer** を返す ―― 挙動が
+ * 定義されていない書き込みは行わない。クライアント側 (web の canEditGuests) も
+ * 同じ条件で導線を出さないが、権限の判断はこちらが正本。
+ *
+ * ## sendUpdates は常に all
+ * 詳細は google/guests-raw.ts の patchGuestsRaw のコメント参照 ―― 要約すると
+ * `none` / `externalOnly` は「招待が誰にも届かないまま一覧にだけ人が増える」経路を作るため、
+ * この操作では選択肢にしない。
+ */
+export interface EventGuestsRequest {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+  /** 追加するメールアドレス。空配列/未指定なら追加しない (add/remove の両方が空なら 400) */
+  addEmails?: string[];
+  /**
+   * 外すメールアドレス。**自分自身・主催者・会議室 (resource) は外せない** ――
+   * 該当する行は要求されてもサーバー側で無視する (core/guest-edit.ts の applyGuestChanges)。
+   */
+  removeEmails?: string[];
+}
+
+export interface EventGuestsResponse {
+  ok: boolean;
+}
+
+/**
  * POST /api/event/create — 新規予定を Google に作成 (フェーズ5、2026-07-29 全項目入力に拡張)。
  * 作成結果の正本は次の同期 (SSE changed → /api/sync) で還流するが、UI の
  * 楽観的表示のため作成された eventId を即時に返す。

@@ -51,6 +51,7 @@ import {
   type PaneMode,
 } from "./layout/paneMode";
 import { calendarKey } from "./layout/keys";
+import { DEMO_GOOGLE_ACCOUNT_ID, DEMO_GOOGLE_CALENDAR_ID } from "./model/dummy";
 import { readStored, writeStored } from "./layout/localStore";
 import {
   getOooAllDayPlacement,
@@ -584,6 +585,7 @@ function App() {
     cancelEditScope: handleCancelEditScope,
     saveEdit: handleEditSave,
     rsvp: handleRsvp,
+    editGuests: handleEditGuests,
     toggleTask: handleToggleTask,
   } = useEventMutations({ db, store, allDayStore, taskStore, checkedFetch, timeZone });
 
@@ -754,6 +756,12 @@ function App() {
     for (const [accountId, calendarIds] of Object.entries(visibleCalendars)) {
       for (const calendarId of calendarIds) keys.add(calendarKey(accountId, calendarId));
     }
+    // デモモード (?demo=1、開発ビルドのみ) のゲスト編集確認用ダミーは Google 由来を装うので、
+    // ここに足しておかないとこのフィルタで画面から落ちる (model/dummy.ts のコメント参照)。
+    // 本番ビルドでは DEMO_SEED_ENABLED が常に false なので、この行は効かない。
+    if (DEMO_SEED_ENABLED) {
+      keys.add(calendarKey(DEMO_GOOGLE_ACCOUNT_ID, DEMO_GOOGLE_CALENDAR_ID));
+    }
     return keys;
   }, [visibleCalendars]);
 
@@ -913,6 +921,8 @@ function App() {
                 onSaveAllDayEdit={handleEditSave}
                 onRsvp={handleRsvp}
                 onAllDayRsvp={handleRsvp}
+                onEditGuests={handleEditGuests}
+                onAllDayEditGuests={handleEditGuests}
                 writeTarget={defaultWriteTarget}
                 writeTargets={writeTargetCandidates}
                 onCreateEvent={handleCreate}
@@ -943,6 +953,8 @@ function App() {
                 onSaveAllDayEdit={handleEditSave}
                 onRsvp={handleRsvp}
                 onAllDayRsvp={handleRsvp}
+                onEditGuests={handleEditGuests}
+                onAllDayEditGuests={handleEditGuests}
                 writeTarget={defaultWriteTarget}
                 writeTargets={writeTargetCandidates}
                 onCreateEvent={handleCreate}

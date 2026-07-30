@@ -16,6 +16,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import { canEditGuests, type GuestChange } from "../sync/eventGuests";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   groupDuplicateAllDayOccurrences,
@@ -55,6 +56,9 @@ interface MonthViewProps {
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22。WeekGrid と同じ流儀) */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
+  /** ゲストの追加・削除 (2026-07-31)。WeekGrid と同じ2本 (時刻予定 / 終日予定) */
+  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。WeekGrid.declinedVisibility と同じ意味 */
   declinedVisibility: DeclinedVisibilitySettings;
   /**
@@ -106,6 +110,8 @@ export function MonthView({
   onSaveAllDayEdit,
   onRsvp,
   onAllDayRsvp,
+  onEditGuests,
+  onAllDayEditGuests,
   onNavigateToDay,
   declinedVisibility,
 }: MonthViewProps) {
@@ -354,6 +360,11 @@ export function MonthView({
               onSaveEdit={(draft) => onSaveEdit(detailSubject as Occurrence, draft)}
               rsvpStatus={(detailSubject as Occurrence).responseStatus}
               onRsvp={(status) => onRsvp(detailSubject as Occurrence, status)}
+              onEditGuests={
+                canEditGuests(detailSubject as Occurrence)
+                  ? (change) => onEditGuests(detailSubject as Occurrence, change)
+                  : undefined
+              }
             />
           ) : (
             <EventDetailCard
@@ -374,6 +385,11 @@ export function MonthView({
               onSaveEdit={(draft) => onSaveAllDayEdit(detailSubject as AllDayOccurrence, draft)}
               rsvpStatus={(detailSubject as AllDayOccurrence).responseStatus}
               onRsvp={(status) => onAllDayRsvp(detailSubject as AllDayOccurrence, status)}
+              onEditGuests={
+                canEditGuests(detailSubject as AllDayOccurrence)
+                  ? (change) => onAllDayEditGuests(detailSubject as AllDayOccurrence, change)
+                  : undefined
+              }
             />
           ),
           document.body,

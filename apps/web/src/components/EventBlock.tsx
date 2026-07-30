@@ -27,6 +27,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import { canEditGuests, type GuestChange } from "../sync/eventGuests";
 import { canDuplicateOccurrence } from "../sync/eventCreate";
 import {
   isSnapDisabledDuringDrag,
@@ -136,6 +137,11 @@ interface EventBlockProps {
    */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   /**
+   * 詳細ポップオーバーのゲスト欄から呼ばれる (ゲストの追加・削除、2026-07-31)。
+   * **編集できる予定のときだけ** EventDetailCard へ渡す (canEditGuests、下の呼び出し参照)。
+   */
+  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  /**
    * スマホの操作体系(2026-07-26、ユーザー要望): true のとき「タップで選択 → 選択中だけ
    * ドラッグで移動/リサイズ」に切り替える。WeekGrid からは longPressCreate(=isNarrow、
    * スワイプ日移動を有効にしているのと同じ条件)がそのまま降りてくる。false(デスクトップ)では
@@ -216,6 +222,7 @@ export function EventBlock({
   onDelete,
   onSaveEdit,
   onRsvp,
+  onEditGuests,
   selectBeforeDrag = false,
   isSelected = false,
   onSelect,
@@ -809,6 +816,9 @@ export function EventBlock({
             onSaveEdit={(draft) => onSaveEdit(occurrence, draft)}
             rsvpStatus={occurrence.responseStatus}
             onRsvp={(status) => onRsvp(occurrence, status)}
+            onEditGuests={
+              canEditGuests(occurrence) ? (change) => onEditGuests(occurrence, change) : undefined
+            }
           />,
           document.body,
         )}

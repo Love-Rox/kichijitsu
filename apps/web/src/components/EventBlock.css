@@ -686,6 +686,74 @@
   margin-top: 6px;
 }
 
+/* ---- ゲストの追加・削除 (2026-07-31) ----
+ * 色は既存のトークンだけを使う (朱はアクセント1色の原則どおり、追加ボタンにも足さない)。
+ * 「外す」の × は普段は薄墨で、ホバー/フォーカスでだけ danger に寄せる ―― 一覧を眺めて
+ * いるだけのときに赤が並ぶと、参加者の状態のほうが読めなくなるため。
+ */
+
+.event-detail-guest-remove {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  margin-left: 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--c-ink-faint);
+  cursor: pointer;
+}
+
+.event-detail-guest-remove:hover,
+.event-detail-guest-remove:focus-visible {
+  color: var(--c-danger);
+}
+
+.event-detail-guest-remove:disabled {
+  color: var(--c-ink-disabled);
+  cursor: default;
+}
+
+/* 「外しますか?」の2段階目。応答状態の位置にそのまま入れ替わる (行が増えない) */
+.event-detail-guest-confirm {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.event-detail-guest-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.event-detail-guest-input {
+  /* .event-edit-input を流用しつつ、この欄の文字寸法 (11px 基調) に寄せる */
+  font-size: 11px;
+  padding: 4px 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.event-detail-guest-add-btn {
+  flex: none;
+}
+
+.event-detail-guest-note-line {
+  margin: 6px 0 0;
+  font-size: 10px;
+  color: var(--c-ink-mute);
+}
+
+.event-detail-guest-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--c-danger);
+}
+
 /* ---- 削除導線 (フェーズ5) / 編集導線 (フェーズ2、2026-07-22) ---- */
 
 .event-detail-actions {

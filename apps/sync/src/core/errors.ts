@@ -43,3 +43,24 @@ export class NotAnAttendeeError extends Error {
     this.name = "NotAnAttendeeError";
   }
 }
+
+/**
+ * ゲストの追加・削除 (2026-07-31): events.get で読んだ event の `organizer.self` が
+ * true でない (= このカレンダーの持ち主が主催者ではない) 場合。
+ *
+ * ここで止めるのは「参加者側の複製で attendees を書き換えても主催者には伝わらない」から
+ * ―― 公式の Event propagation に「The only event change that is propagated from attendees
+ * back to the organizer is the attendee's response status」と明記がある。しかも API が
+ * それを 403 で拒むのか 200 で自分の複製だけ変えるのかは公式に書かれていないため、
+ * **書き込みを試さずにここで落とす** (試して 200 が返ってきても、それが招待として
+ * 成立したかどうかを判断できない)。
+ *
+ * 握りつぶさず呼び出し元 (route) まで伝播させ、422 not_organizer として明確にエラーにする
+ * (rpc-result.ts の runRpc / routes/events.ts の /api/event/guests 参照)。
+ */
+export class NotOrganizerError extends Error {
+  constructor() {
+    super("Only the organizer can change the guest list of this event");
+    this.name = "NotOrganizerError";
+  }
+}
