@@ -17,6 +17,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
+import { canEditGuests, type GuestChange } from "../sync/eventGuests";
 import "./AllDayBar.css";
 
 /** 終日レーンの勤務場所バー先頭に置く地図ピンの大きさ(px)。時刻予定側の帯上端ピンと揃える */
@@ -41,6 +42,8 @@ interface AllDayBarProps {
   onSaveEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる。EventBlock.onRsvp と同じ流儀 */
   onRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
+  /** 詳細ポップオーバーのゲスト欄から呼ばれる。EventBlock.onEditGuests と同じ流儀 */
+  onEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
 }
 
 /**
@@ -59,6 +62,7 @@ export function AllDayBar({
   timeZone,
   onSaveEdit,
   onRsvp,
+  onEditGuests,
 }: AllDayBarProps) {
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
@@ -223,6 +227,12 @@ export function AllDayBar({
             // 詳細カード側の挙動はここで変えない
             rsvpStatus={isOoo ? undefined : occurrence.responseStatus}
             onRsvp={(status) => onRsvp(occurrence, status)}
+            // 不在は編集導線を出さない (上の editDraft と同じ理由)
+            onEditGuests={
+              !isOoo && canEditGuests(occurrence)
+                ? (change) => onEditGuests(occurrence, change)
+                : undefined
+            }
           />,
           document.body,
         )}

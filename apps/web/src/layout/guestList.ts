@@ -24,6 +24,17 @@ export interface GuestRow {
   responseStatus: GuestResponseStatus;
   /** 「主催者」「自分」の注記。両方に当たる場合は主催者を優先する (下記 noteFor) */
   note?: string;
+  /**
+   * Google の attendee.email (2026-07-31、ゲストの追加・削除)。**外す操作の宛先**であり、
+   * これが無い行は外しようがない (removable も false になる)。表示は label/subLabel が担う。
+   */
+  email?: string;
+  /**
+   * この行を「外す」導線を出してよいか (2026-07-31)。外せない相手の理由は
+   * guestRemovalBlockReason 参照。編集導線そのものを出すかどうか (主催者か・繰り返しか)
+   * は別の判断なので、呼び出し側 (sync/eventGuests.ts の canEditGuests) と併せて使う。
+   */
+  removable: boolean;
 }
 
 export interface GuestListView {
@@ -83,6 +94,30 @@ function roomLabel(attendee: EventAttendee): string {
   return attendee.displayName ?? attendee.email ?? "(名称不明の会議室)";
 }
 
+/**
+ * この参加者を一覧から外してよいか。外せない理由があれば返す (null なら外せる)。
+ * ゲストの追加・削除 (2026-07-31) の判断だが、**表示の判断と同じデータしか見ない**ので
+ * ここに置いてある (sync/eventGuests.ts と components/EventDetailCard.tsx の両方から使う)。
+ *
+ *  - `self` … **自分自身**。主催者が自分を外すと、その予定は自分のカレンダーから消える
+ *    (予定自体は他の参加者のところに残る)。出たくないなら出欠で「不参加」と返すのが正しく、
+ *    無くしたいなら予定ごと削除する ―― どちらも既に導線があるので、ここで踏める必要は無い。
+ *  - `organizer` … 主催者の行。主催者を attendees から外すのは Google の想定外
+ *    (主催者の変更は events.move という別の操作)。
+ *  - `resource` … 会議室・機材。人の一覧に混ぜていないのと同じ理由で、部屋の予約解除は
+ *    この欄では扱わない (Google カレンダー側の仕事)。
+ *  - `noEmail` … アドレスが分からない行。外す要求の宛先が無い。
+ */
+export function guestRemovalBlockReason(
+  attendee: EventAttendee,
+): "self" | "organizer" | "resource" | "noEmail" | null {
+  if (attendee.resource === true) return "resource";
+  if (attendee.self === true) return "self";
+  if (attendee.organizer === true) return "organizer";
+  if (attendee.email === undefined) return "noEmail";
+  return null;
+}
+
 function toGuestRow(attendee: EventAttendee, index: number): GuestRow {
   const label = attendee.displayName ?? attendee.email ?? "(不明な参加者)";
   const note = noteFor(attendee);
@@ -94,6 +129,8 @@ function toGuestRow(attendee: EventAttendee, index: number): GuestRow {
     ...(attendee.displayName && attendee.email ? { subLabel: attendee.email } : {}),
     responseStatus: normalizeStatus(attendee.responseStatus),
     ...(note ? { note } : {}),
+    ...(attendee.email !== undefined ? { email: attendee.email } : {}),
+    removable: guestRemovalBlockReason(attendee) === null,
   };
 }
 

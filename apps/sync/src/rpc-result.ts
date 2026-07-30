@@ -1,4 +1,9 @@
-import { GoogleApiError, NotAnAttendeeError, NotConnectedError } from "./core/errors";
+import {
+  GoogleApiError,
+  NotAnAttendeeError,
+  NotConnectedError,
+  NotOrganizerError,
+} from "./core/errors";
 
 /**
  * Durable Object の RPC メソッドは、カスタム Error サブクラスをそのまま throw しても
@@ -19,6 +24,11 @@ export async function runRpc<T>(fn: () => Promise<T>): Promise<RpcResult<T>> {
       // RSVP (2026-07-22): self attendee が無い予定への RSVP 試行。route 側 (POST
       // /api/event/rsvp) はこの error 文字列で判定し、他の失敗 (409) と区別して 422 で返す。
       return { ok: false, status: 422, error: "not_an_attendee" };
+    }
+    if (err instanceof NotOrganizerError) {
+      // ゲストの追加・削除 (2026-07-31): 主催者でない予定への試行。route 側 (POST
+      // /api/event/guests) はこの error 文字列で判定し、他の失敗 (409) と区別して 422 で返す。
+      return { ok: false, status: 422, error: "not_organizer" };
     }
     if (err instanceof GoogleApiError) {
       return { ok: false, status: err.status, error: err.message };

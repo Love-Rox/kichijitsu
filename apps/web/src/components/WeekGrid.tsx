@@ -17,6 +17,7 @@ import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
 import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
+import type { GuestChange } from "../sync/eventGuests";
 import type { DroppedWorkItem } from "../sync/planned";
 import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
@@ -179,6 +180,9 @@ interface WeekGridProps {
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 終日レーンの詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
+  /** ゲストの追加・削除 (2026-07-31)。時刻予定は DayColumn、終日は AllDayBar へ流す */
+  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 新規予定の既定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
   writeTarget: WriteTargetCandidate | null;
   /** 詳細フォームの「カレンダー」欄で選べる書き込み先の全候補(2026-07-29 全項目入力、DayColumn 参照) */
@@ -316,6 +320,8 @@ export function WeekGrid({
   onSaveAllDayEdit,
   onRsvp,
   onAllDayRsvp,
+  onEditGuests,
+  onAllDayEditGuests,
   writeTarget,
   writeTargets,
   onCreateEvent,
@@ -1080,6 +1086,7 @@ export function WeekGrid({
                       timeZone={timeZone}
                       onSaveEdit={onSaveAllDayEdit}
                       onRsvp={onAllDayRsvp}
+                      onEditGuests={onAllDayEditGuests}
                     />
                   ))}
                   {overflowByDay.map((info, dayIndex) =>
@@ -1192,6 +1199,7 @@ export function WeekGrid({
                       onDelete={onDelete}
                       onSaveEdit={onSaveEdit}
                       onRsvp={onRsvp}
+                      onEditGuests={onEditGuests}
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
                       writeTargets={writeTargets}

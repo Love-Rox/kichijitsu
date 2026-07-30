@@ -674,9 +674,24 @@ export function isDemoSeriesId(id: string): boolean {
   return id.startsWith("series-");
 }
 
-/** 単発ダミー occurrence の id 規則 (`dummy-<何か>`、model/dummy.ts 参照) */
+/**
+ * デモの「Google 由来のふり」をする occurrence の id 接頭辞 (2026-07-31)。
+ *
+ * ゲストの追加・削除 (sync/eventGuests.ts の canEditGuests) は **source==='google' かつ
+ * `g:<accountId>:<calendarId>:<eventId>` 形式の id** でなければ導線を出さないため、
+ * `dummy-` 始まりの id では実ブラウザ (`?demo=1`) でその UI を確かめられない。
+ * そこでデモ専用のアカウント id (`demo-account`) を挟んだ Google 形式の id を使う ――
+ * 実データの accountId は UUID なのでこの接頭辞と衝突しない。
+ */
+const DEMO_GOOGLE_ID_PREFIX = "g:demo-account:";  // = model/dummy.ts の DEMO_GOOGLE_ACCOUNT_ID
+
+/**
+ * 単発ダミー occurrence の id 規則 (`dummy-<何か>`、model/dummy.ts 参照)。
+ * ゲスト編集の確認用に Google 形式の id を持つデモ (上記) もここで拾う ――
+ * **掃除の網から漏らさない**ことがこの述語の存在理由なので、id の形が増えたら必ずここに足す。
+ */
 export function isDemoSingleOccurrenceId(id: string): boolean {
-  return id.startsWith("dummy-");
+  return id.startsWith("dummy-") || id.startsWith(DEMO_GOOGLE_ID_PREFIX);
 }
 
 /** cleanupDemoData の戻り値。全て 0 なら削除対象が無かった(冪等の2回目以降含む) */

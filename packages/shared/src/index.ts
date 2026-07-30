@@ -35,6 +35,8 @@ export type {
   RsvpResponseStatus,
   EventRsvpRequest,
   EventRsvpResponse,
+  EventGuestsRequest,
+  EventGuestsResponse,
   EventCreateRequest,
   EventCreateResponse,
   EventDeleteRequest,

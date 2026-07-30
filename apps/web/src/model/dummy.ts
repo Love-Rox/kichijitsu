@@ -75,6 +75,18 @@ const LOCATIONS: (string | undefined)[] = [
   "オンライン https://zoom.us/j/9876543210",
 ];
 
+/**
+ * ゲスト編集の確認用ダミーが名乗る accountId / calendarId (2026-07-31)。
+ *
+ * 編集導線 (sync/eventGuests.ts の canEditGuests) は Google 由来の予定でしか出ないため、
+ * このダミーだけは `source: "google"` を名乗る。すると WeekGrid/MonthView の
+ * 「選択中カレンダーだけ描く」フィルタ (visibleCalendarKeys) に引っかかって画面から
+ * 消えてしまうので、App.tsx がデモモードのときだけこの組を可視カレンダーへ足す。
+ * 実データの accountId は UUID なので、この値と衝突することはない。
+ */
+export const DEMO_GOOGLE_ACCOUNT_ID = "demo-account";
+export const DEMO_GOOGLE_CALENDAR_ID = "demo-calendar";
+
 /** ISO ローカル日時文字列 + タイムゾーンを epoch ms に変換する小さなヘルパー */
 function localIsoToEpochMs(iso: string, timeZone: string): number {
   return Temporal.PlainDateTime.from(iso).toZonedDateTime(timeZone).epochMilliseconds;
@@ -459,6 +471,36 @@ export function generateDummyGuestOccurrences(
     };
   };
 
+  /**
+   * ゲスト編集の確認用ダミー (2026-07-31)。accountId/calendarId と `g:` 形式の id を持たせて
+   * 「Google 由来の・自分が主催の・単発の」予定を装う ―― 編集導線 (sync/eventGuests.ts の
+   * canEditGuests) はこの形でしか出ないため。id の接頭辞は db/database.ts の
+   * isDemoSingleOccurrenceId が掃除対象として拾う。
+   */
+  const guestEditableEvent = (
+    suffix: string,
+    title: string,
+    offset: number,
+    startHm: string,
+    endHm: string,
+    attendees: EventAttendee[],
+  ): Occurrence => {
+    const date = baseDate.add({ days: offset }).toString();
+    return {
+      id: `g:${DEMO_GOOGLE_ACCOUNT_ID}:${DEMO_GOOGLE_CALENDAR_ID}:${suffix}`,
+      seriesId: null,
+      title,
+      startMs: localIsoToEpochMs(`${date}T${startHm}`, timeZone),
+      endMs: localIsoToEpochMs(`${date}T${endHm}`, timeZone),
+      color: "#3b82f6",
+      source: "google",
+      accountId: DEMO_GOOGLE_ACCOUNT_ID,
+      calendarId: DEMO_GOOGLE_CALENDAR_ID,
+      isOrganizer: true,
+      ...(attendees.length > 0 ? { attendees } : {}),
+    };
+  };
+
   /** 大人数ぶんの参加者。応答状態はばらけさせる (内訳の集計が動いていることを見るため) */
   const crowd = (count: number): EventAttendee[] =>
     Array.from({ length: count }, (_, i) => ({
@@ -523,8 +565,26 @@ export function generateDummyGuestOccurrences(
       ],
       true,
     ),
+    // ---- ゲストの追加・削除 (2026-07-31) の確認用 ----
+    // 編集導線 (sync/eventGuests.ts の canEditGuests) は **source==='google' かつ自分が主催の
+    // 単発予定**でしか出ないので、確かめるにはその形のダミーが要る。id も Google 形式
+    // (`g:demo-account:...`) にしてある ―― `dummy-` 始まりでは event id を取り出せず、
+    // 導線を出しても押した瞬間に組み立てに失敗する。掃除は db/database.ts の
+    // isDemoSingleOccurrenceId がこの接頭辞も拾う。
+    //
+    // 注: source==='google' なので編集/削除ボタンも出る。デモにはサーバーがいないので
+    // 押せば失敗する ―― ゲスト欄の見え方を実ブラウザで確かめるための割り切り。
+    guestEditableEvent("mine-with-guests", "採用面談", 0, "14:00", "15:00", [
+      { email: "me@example.com", displayName: "山田 太郎", self: true, organizer: true, responseStatus: "accepted" },
+      { email: "sato@example.com", displayName: "佐藤 悠", responseStatus: "accepted" },
+      { email: "kim@example.com", responseStatus: "needsAction" },
+    ]),
+    // 参加者ゼロの自分の予定。**ゲスト欄そのものが出ない**はずが、編集できる予定では
+    // 「最初の1人を招待する」入口として欄が出る (EventDetailCard の GuestSection 参照)
+    guestEditableEvent("mine-no-guests", "資料づくり", 1, "19:30", "20:30", []),
   ];
 }
+
 
 /**
  * リマインダー付きの単発ダミー (2026-07-31、`?demo=1` のときだけ)。

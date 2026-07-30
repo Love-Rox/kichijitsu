@@ -14,6 +14,8 @@ import type {
   EventCreateResponse,
   EventDeleteRequest,
   EventDeleteResponse,
+  EventGuestsRequest,
+  EventGuestsResponse,
   EventPatchRequest,
   EventPatchResponse,
   EventRsvpRequest,
@@ -25,6 +27,7 @@ import { requireAuth } from "../middleware";
 import { isAccountInProfile } from "../accounts";
 import { isValidEventCreateRequest } from "../core/create-event";
 import { isValidEventPatchRequest } from "../core/patch-event";
+import { isValidEventGuestsRequest } from "../core/guest-edit";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-protocol";
@@ -176,6 +179,58 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
   }
 
   return c.json<EventRsvpResponse>({ ok: true });
+});
+
+// 予定のゲスト (参加者) を追加・削除する (2026-07-31)。認可チェック (requireAuth +
+// isAccountInProfile) は /api/event/patch と同じ。
+//
+// **配列ではなく差分 (addEmails/removeEmails) を受け取る**: events.patch の attendees は
+// 全置換で、クライアントが持つ一覧は MAX_DTO_ATTENDEES (50) 件で打ち切られていることが
+// あるため、クライアントに配列を組ませると手元に無い参加者を巻き添えで消してしまう。
+// read-modify-write は core/guest-event.ts が events.get の結果に対して行う。
+//
+// 主催者でない予定は RpcResult.error === "not_organizer" (core/guest-event.ts →
+// NotOrganizerError → rpc-result.ts) として 422 で明確に区別して返す ―― RSVP の
+// not_an_attendee と同じ流儀で、UI が「この予定のゲストは変更できません」という専用の
+// 説明を出せるようにするため。それ以外の失敗は一律 409 (理由ごとの分岐を要求しない方針)。
+eventRoutes.post("/api/event/guests", requireAuth, async (c) => {
+  const profileId = c.get("profileId")!;
+  let body: unknown;
+  try {
+    body = await c.req.json<EventGuestsRequest>();
+  } catch {
+    return c.json<ApiError>({ error: "invalid_json" }, 400);
+  }
+  if (!isValidEventGuestsRequest(body)) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
+    .bind(body.accountId)
+    .first<{ profile_id: string }>();
+  if (!isAccountInProfile(account, profileId)) {
+    return c.json<ApiError>({ error: "account_not_found" }, 403);
+  }
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId);
+  const result = await stub.editEventGuests(
+    body.accountId,
+    body.calendarId,
+    body.eventId,
+    body.addEmails,
+    body.removeEmails,
+  );
+  if (!result.ok) {
+    console.warn(
+      `event guests failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    );
+    if (result.error === "not_organizer") {
+      return c.json<ApiError>({ error: "not_organizer" }, 422);
+    }
+    return c.json<ApiError>({ error: "guests_failed" }, 409);
+  }
+
+  return c.json<EventGuestsResponse>({ ok: true });
 });
 
 // 新規予定を Google へ作成する (フェーズ5、2026-07-29 全項目入力に拡張)。エラーの一律 409

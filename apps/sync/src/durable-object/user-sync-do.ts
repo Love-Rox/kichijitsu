@@ -27,6 +27,7 @@ import {
 import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
 import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
 import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
+import { editEventGuestsWithRetry } from "../core/guest-event";
 import type { MirrorEventBody } from "../core/block-reconcile";
 import type { RawEventTimeField } from "../google/patch-event-raw";
 import {
@@ -341,6 +342,34 @@ export class UserSyncDO extends DurableObject<Env> {
         calendarId,
         eventId,
         responseStatus,
+      }),
+    );
+  }
+
+  /**
+   * POST /api/event/guests (2026-07-31): 予定のゲスト (参加者) を追加・削除する。
+   * events.get → 主催者チェック → 差分適用 → events.patch (attendees 全置換、
+   * sendUpdates=all) の read-modify-write を core/guest-event.ts が行う
+   * (詳細はそちらと google/guests-raw.ts のコメント参照)。
+   *
+   * **クライアントは配列ではなく差分を送る**: 手元の一覧は 50 件で打ち切られている
+   * ことがあり、そのまま全置換すると手元に無い参加者を巻き添えで消してしまうため。
+   * 主催者でない予定は NotOrganizerError → runRpc が 422 not_organizer として
+   * RpcResult に載せる。成功しても戻り値は無い (void) — 正本は次の同期で還流する。
+   */
+  async editEventGuests(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    addEmails: string[] | undefined,
+    removeEmails: string[] | undefined,
+  ): Promise<RpcResult<void>> {
+    return runRpc(() =>
+      editEventGuestsWithRetry(this.buildEventWriteDeps(accountId), {
+        calendarId,
+        eventId,
+        addEmails,
+        removeEmails,
       }),
     );
   }
