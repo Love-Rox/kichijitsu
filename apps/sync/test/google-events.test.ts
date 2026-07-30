@@ -5,7 +5,10 @@ import {
   deriveConferenceUrl,
   deriveHasConference,
   deriveIsOrganizer,
+  derivePopupReminderMinutes,
+  deriveReminders,
   deriveSelfResponseStatus,
+  MAX_REMINDER_MINUTES,
   toGoogleEventDTO,
 } from "../src/core/google-events";
 
@@ -474,5 +477,138 @@ describe("deriveAttendeeList", () => {
     expect(dto.selfResponseStatus).toBe("tentative");
     expect(dto.attendees).toHaveLength(2);
     expect(dto.attendeesOmitted).toBeUndefined();
+  });
+});
+
+// 予定ごとのリマインダー (2026-07-31)。公式仕様は EventRemindersDTO のコメント参照
+// (method は email/popup の2値、minutes は 0〜40320、overrides は最大5件、
+//  useDefault:true のときは overrides を持てない)。
+describe("derivePopupReminderMinutes", () => {
+  it("popup だけを拾い、email は落とす (メールは Google 自身が送るので二重に出さない)", () => {
+    expect(
+      derivePopupReminderMinutes([
+        { method: "email", minutes: 1440 },
+        { method: "popup", minutes: 10 },
+      ]),
+    ).toEqual([10]);
+  });
+
+  it("method が無い/未知の値のエントリは採らない (安全側へ倒す)", () => {
+    expect(
+      derivePopupReminderMinutes([
+        { minutes: 5 },
+        { method: "sms", minutes: 5 },
+        { method: "popup", minutes: 5 },
+      ]),
+    ).toEqual([5]);
+  });
+
+  it("昇順・重複除去して返す", () => {
+    expect(
+      derivePopupReminderMinutes([
+        { method: "popup", minutes: 60 },
+        { method: "popup", minutes: 10 },
+        { method: "popup", minutes: 60 },
+      ]),
+    ).toEqual([10, 60]);
+  });
+
+  it("0 分 (開始時刻ちょうど) は有効な値", () => {
+    expect(derivePopupReminderMinutes([{ method: "popup", minutes: 0 }])).toEqual([0]);
+  });
+
+  it("公式の上限 40320 分 (4週間) までは通し、それを超える値・負値・非整数は落とす", () => {
+    expect(
+      derivePopupReminderMinutes([
+        { method: "popup", minutes: MAX_REMINDER_MINUTES },
+        { method: "popup", minutes: MAX_REMINDER_MINUTES + 1 },
+        { method: "popup", minutes: -1 },
+        { method: "popup", minutes: 10.5 },
+      ]),
+    ).toEqual([MAX_REMINDER_MINUTES]);
+  });
+
+  it("minutes が欠けているエントリは落とす", () => {
+    expect(derivePopupReminderMinutes([{ method: "popup" }])).toEqual([]);
+  });
+
+  it("公式の上限件数 (5件) を超えたぶんは切り捨てる", () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({ method: "popup", minutes: i + 1 }));
+    expect(derivePopupReminderMinutes(many)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("undefined / 空配列は空配列", () => {
+    expect(derivePopupReminderMinutes(undefined)).toEqual([]);
+    expect(derivePopupReminderMinutes([])).toEqual([]);
+  });
+});
+
+describe("deriveReminders", () => {
+  it("useDefault: true はそのまま宣言として載せる (分数はカレンダー既定側にある)", () => {
+    expect(
+      deriveReminders({ id: "e", status: "confirmed", reminders: { useDefault: true } }),
+    ).toEqual({ reminders: { useDefault: true } });
+  });
+
+  it("useDefault: false + overrides は popup の分数に潰す", () => {
+    expect(
+      deriveReminders({
+        id: "e",
+        status: "confirmed",
+        reminders: {
+          useDefault: false,
+          overrides: [
+            { method: "popup", minutes: 10 },
+            { method: "email", minutes: 60 },
+          ],
+        },
+      }),
+    ).toEqual({ reminders: { minutes: [10] } });
+  });
+
+  it("overrides が空 = リマインダーなし。**空配列でも省略しない** (未同期と区別するため)", () => {
+    expect(
+      deriveReminders({ id: "e", status: "confirmed", reminders: { useDefault: false, overrides: [] } }),
+    ).toEqual({ reminders: { minutes: [] } });
+    expect(
+      deriveReminders({ id: "e", status: "confirmed", reminders: { useDefault: false } }),
+    ).toEqual({ reminders: { minutes: [] } });
+  });
+
+  it("email だけの予定は「リマインダーなし」に落ちる (デスクトップ通知としては出さない)", () => {
+    expect(
+      deriveReminders({
+        id: "e",
+        status: "confirmed",
+        reminders: { useDefault: false, overrides: [{ method: "email", minutes: 30 }] },
+      }),
+    ).toEqual({ reminders: { minutes: [] } });
+  });
+
+  it("useDefault と overrides が両立していたら useDefault を優先する (公式は両立時を未定義とする)", () => {
+    expect(
+      deriveReminders({
+        id: "e",
+        status: "confirmed",
+        reminders: { useDefault: true, overrides: [{ method: "popup", minutes: 5 }] },
+      }),
+    ).toEqual({ reminders: { useDefault: true } });
+  });
+
+  it("reminders 自体が来なければキーを持たない (削除通知は id しか持たないことが保証されている)", () => {
+    expect(deriveReminders({ id: "e", status: "cancelled" })).toEqual({});
+  });
+
+  it("toGoogleEventDTO 経由でも reminders が載り、無い場合はワイヤ形式にも出ない", () => {
+    const withReminders = toGoogleEventDTO({
+      id: "e",
+      status: "confirmed",
+      reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 15 }] },
+    });
+    expect(withReminders.reminders).toEqual({ minutes: [15] });
+
+    const without = toGoogleEventDTO({ id: "e2", status: "confirmed" });
+    expect(without.reminders).toBeUndefined();
+    expect(JSON.stringify(without)).not.toContain("reminders");
   });
 });

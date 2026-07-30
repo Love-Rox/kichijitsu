@@ -36,6 +36,23 @@ export interface EventAttendee {
 }
 
 /**
+ * 予定ごとのリマインダー設定 (2026-07-31)。GoogleEventDTO.reminders (EventRemindersDTO) を
+ * そのまま写した形。EventAttendee と同じく **model 層は protocol.ts に依存しない**流儀で
+ * ここに独立して定義する (構造が同じなので mapGoogle.ts は値をそのまま渡すだけ)。
+ *
+ * 3つの状態を取り違えないための判別可能ユニオン:
+ *   - `{ useDefault: true }` … カレンダーの既定リマインダーに従う (分数はこの予定には無い。
+ *                              CalendarListEntryDTO.defaultReminderMinutes から解決する)
+ *   - `{ minutes: [] }`      … **リマインダーを1つも設定していない** (= 通知しないが正解)
+ *   - このフィールド自体が無い … まだ同期していない (バックフィル世代6以前に取り込んだ予定) か、
+ *                              そもそも Google 由来でない予定 (kichijitsu 内で作った予定・デモ)
+ *
+ * 解決 (この設定 + カレンダー既定 + 端末の設定 → 実際に何分前に出すか) は
+ * sync/reminderSchedule.ts の純関数が行う。この型は「Google から来たものをそのまま持つ」だけ。
+ */
+export type EventReminders = { useDefault: true } | { minutes: number[] };
+
+/**
  * 展開済み occurrence。IndexedDB に入る最小単位で、UI はこれだけを読む。
  * 時刻は epoch ms (UTC instant) — IndexedDB の範囲インデックスは数値が最速。
  * タイムゾーン変換は表示層で Temporal を使って行う。
@@ -140,6 +157,16 @@ export interface Occurrence {
    * で切り詰められた場合などに立つ。true のとき表示側は人数を断定せず「〜人以上」と出す。
    */
   attendeesOmitted?: boolean;
+  /**
+   * 予定ごとのリマインダー設定 (2026-07-31)。GoogleEventDTO.reminders をそのまま写す。
+   * デスクトップ版の通知 (sync/reminderSchedule.ts) だけが読む。
+   *
+   * **終日予定 (AllDayOccurrence) には持たせていない**: 終日予定には「何分前」の基準になる
+   * 時刻が無いため通知の対象外で (isReminderTarget 参照)、持っても読む側がいない。
+   * attendees のように「全パスへ同じ形で流す」より、読まれない配列を全端末の IndexedDB に
+   * 積まないほうを採った。終日にも通知を出すことにした時点で AllDayOccurrence へ足せばよい。
+   */
+  reminders?: EventReminders;
 }
 
 /**

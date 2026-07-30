@@ -527,6 +527,65 @@ export function generateDummyGuestOccurrences(
 }
 
 /**
+ * リマインダー付きの単発ダミー (2026-07-31、`?demo=1` のときだけ)。
+ *
+ * **他のダミーと違い、日付ではなく「いまから何分後」で置く**。リマインダーは
+ * 「通知が実際に飛ぶかどうか」でしか確かめようがなく、固定時刻に置くと確かめられる時間帯が
+ * 1日に数分しか無くなるため ―― nowMs を引数で受けるのはそのため (呼び出し側が
+ * `Date.now()` を渡す。テストからは固定値を渡して決定性を保つ)。
+ *
+ * 確かめたい形をそれぞれ1件ずつ:
+ *
+ *   +3 分  minutes:[5,60]   複数設定。**5分前ぶんだけが出る** ―― 60分前ぶんは通知時刻を
+ *                           57分も過ぎており、REMINDER_CATCHUP_MS で抑止される
+ *   +9 分  minutes:[10]     ふつうの1件。通知時刻を1分過ぎているので**すぐ出る**
+ *   +29 分 minutes:[10,30]  複数設定。30分前ぶんが**すぐ出て**、10分前ぶんは19分後に別途出る
+ *                           (= 1つの予定から2回出ることの確認)
+ *   +6 分  minutes:[10080]  1週間前。**上限 (MAX_HONORED_LEAD_MINUTES) 超えなので出ない**
+ *   +7 分  minutes:[]       リマインダー未設定。**出ない**(一律の分数で勝手に補わない)
+ *   +8 分  minutes:[]       Google 側で「メール」だけを設定した予定。サーバー側 (popup 絞り込み)
+ *                           で分数が落ちるので、手元に届く形は「未設定」と同じになる
+ *   +11 分 useDefault       カレンダー既定に従う予定。デモにはカレンダー一覧が無いので**出ない**
+ *                           (実データでは所属カレンダーの既定リマインダーで鳴る)
+ *   +13 分 (reminders なし) 世代7のバックフィル前の予定。カレンダー既定と同じ扱いになるが、
+ *                           デモは Google 由来でない (accountId/calendarId が無い) ので**出ない**
+ *
+ * id は他のダミーと同じく "dummy-" 始まりなので、`?demo=1` を外した次回起動時に
+ * cleanupDemoData (db/database.ts) がまとめて掃除する。
+ */
+export function generateDummyReminderOccurrences(nowMs: number): Occurrence[] {
+  const at = (
+    id: string,
+    title: string,
+    offsetMin: number,
+    reminders: Occurrence["reminders"],
+  ): Occurrence => {
+    const startMs = nowMs + offsetMin * 60_000;
+    return {
+      id,
+      seriesId: null,
+      title,
+      startMs,
+      endMs: startMs + 30 * 60_000,
+      color: "#3b82f6",
+      source: "local",
+      ...(reminders ? { reminders } : {}),
+    };
+  };
+
+  return [
+    at("dummy-reminder-multi-soon", "レビュー (5分前と1時間前)", 3, { minutes: [5, 60] }),
+    at("dummy-reminder-basic", "打ち合わせ (10分前)", 9, { minutes: [10] }),
+    at("dummy-reminder-multi", "デザイン確認 (10分前と30分前)", 29, { minutes: [10, 30] }),
+    at("dummy-reminder-too-early", "合宿 (1週間前・上限超え)", 6, { minutes: [10080] }),
+    at("dummy-reminder-none", "通知を設定していない予定", 7, { minutes: [] }),
+    at("dummy-reminder-email-only", "メール通知だけの予定", 8, { minutes: [] }),
+    at("dummy-reminder-default", "カレンダー既定に従う予定", 11, { useDefault: true }),
+    at("dummy-reminder-unsynced", "リマインダー未同期の予定", 13, undefined),
+  ];
+}
+
+/**
  * `?demo=1` のときに IndexedDB へ投入するデモデータ一式 (2026-07-30、db/bootstrap.ts から集約)。
  *
  * 切り出した理由: 何をシードするかの組み立てが bootstrap の手続きの中に埋まっていたため、
@@ -551,7 +610,16 @@ export interface DemoSeedData {
   occurrences: Occurrence[];
 }
 
-export function generateDemoSeedData(baseDate: Temporal.PlainDate, timeZone: string): DemoSeedData {
+export function generateDemoSeedData(
+  baseDate: Temporal.PlainDate,
+  timeZone: string,
+  /**
+   * リマインダーのダミー (generateDummyReminderOccurrences) だけが使う「いま」。
+   * 通知は現在時刻からの相対でしか確かめられないため、日付ベースの baseDate とは別に要る。
+   * 引数で受けるのは決定性のため ―― 同じ引数なら常に同じデータになる (model/dummy.test.ts)。
+   */
+  nowMs: number,
+): DemoSeedData {
   const series = generateDummySeries(timeZone);
   return {
     series,
@@ -561,6 +629,7 @@ export function generateDemoSeedData(baseDate: Temporal.PlainDate, timeZone: str
       ...generateDummyWorkingLocationOccurrences(baseDate, timeZone),
       ...generateDummyTimedOooOccurrences(baseDate, timeZone),
       ...generateDummyGuestOccurrences(baseDate, timeZone),
+      ...generateDummyReminderOccurrences(nowMs),
     ],
   };
 }

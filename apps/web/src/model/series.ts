@@ -1,4 +1,4 @@
-import type { EventAttendee, OccurrenceLink, OccurrenceSource } from "./types";
+import type { EventAttendee, EventReminders, OccurrenceLink, OccurrenceSource } from "./types";
 
 /**
  * 繰り返し予定のシリーズ定義。occurrence への展開は expandSeries が行い、
@@ -49,6 +49,8 @@ export interface EventSeries {
   attendees?: EventAttendee[];
   /** Occurrence.attendeesOmitted と同じ意味(参加者の表示、2026-07-30)。attendees と対で伝播。 */
   attendeesOmitted?: boolean;
+  /** Occurrence.reminders と同じ意味(予定ごとのリマインダー、2026-07-31)。hasConference と同じ伝播。 */
+  reminders?: EventReminders;
   /**
    * 勤務場所の控えめ表示 (2026-07-22)。Occurrence.isWorkingLocation と同じ意味 ――
    * mapGoogle.ts の buildSeries が付与し、expandSeries が展開後の各 occurrence へそのまま
@@ -121,6 +123,13 @@ export interface InstanceOverride {
     attendees?: EventAttendee[];
     /** attendees と対 (2026-07-30)。attendees をセットするときだけ一緒にセットする。 */
     attendeesOmitted?: boolean;
+    /**
+     * 予定ごとのリマインダー (2026-07-31)。conferenceUrl と同じ流儀(この例外インスタンス自体が
+     * reminders を持つときのみセットし、無ければキーを省略して expandSeries 側でシリーズの
+     * reminders にフォールバックさせる)。Google では例外インスタンスも1つの event なので、
+     * 「その回だけ通知を切った/早めた」設定を持ち得る。
+     */
+    reminders?: EventReminders;
     /**
      * 勤務場所の控えめ表示 (2026-07-22)。isOutOfOffice と同じ流儀(この例外インスタンス自体が
      * eventType==='workingLocation' のときのみ true をセットする。立てないときはキー自体を

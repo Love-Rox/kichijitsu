@@ -38,6 +38,38 @@ export interface EventAttendeeDTO {
   resource?: true;
 }
 
+/**
+ * 予定ごとのリマインダー設定 (2026-07-31)。Google Calendar API の `event.reminders` を
+ * **デスクトップ通知に意味のある形だけ**に潰したもの。
+ *
+ * Google 側の形は `{ useDefault: boolean, overrides?: [{ method, minutes }] }` で、公式仕様
+ * (developers.google.com/workspace/calendar/api/v3/reference/events) では:
+ *   - `method` は `"email"` と `"popup"` の2値のみ (v3 リファレンスに他の値の記述は無い)
+ *   - `minutes` は 0〜40320 (4週間)
+ *   - `overrides` は最大5件
+ *   - `useDefault: true` のときは overrides を持てない ("Overrides can be set if and only if
+ *     useDefault is false." — /api/concepts/reminders)。このとき実際の分数は**このイベントには
+ *     入っておらず**、カレンダー側の既定 (CalendarListEntryDTO.defaultReminderMinutes) から来る
+ *
+ * **`email` は載せない**: 公式の Delivery mechanisms が "Email sent by the server" と明記して
+ * おり、メールは Google 自身が送る。kichijitsu が同じ時刻にデスクトップ通知を重ねると、
+ * 「メールで受け取る」と決めた設定が勝手にポップアップに化けることになる。`popup` だけを写す。
+ *
+ * 判別可能ユニオンにしてあるのは、**3つの状態を取り違えないため**:
+ *   - `{ useDefault: true }` … カレンダーの既定に従う (分数はこのイベントには無い)
+ *   - `{ minutes: [] }`      … **リマインダーを1つも設定していない** (= 通知しない、が正解)
+ *   - `undefined`            … このフィールドを同期する前 (世代6以前) に取り込んだ予定、または
+ *                              Google 由来でない予定。「設定が無い」とは意味が違う
+ */
+export type EventRemindersDTO =
+  /** event.reminders.useDefault === true。実際の分数はカレンダー既定側にある */
+  | { useDefault: true }
+  /**
+   * event.reminders.overrides のうち method==='popup' のものの minutes (昇順・重複除去)。
+   * **空配列は「リマインダーなし」という積極的な意味を持つ** ので、空でも省略しないこと。
+   */
+  | { minutes: number[] };
+
 /** Google Calendar API の event リソースから必要な部分だけを写した DTO */
 export interface GoogleEventDTO {
   id: string;
@@ -129,6 +161,18 @@ export interface GoogleEventDTO {
    * どちらでも true になる。表示側は人数を断定せず「〜人以上」と出すこと。
    */
   attendeesOmitted?: true;
+  /**
+   * 予定ごとのリマインダー設定 (2026-07-31)。EventRemindersDTO のコメント参照。
+   *
+   * デスクトップ版の通知 (apps/web/src/sync/reminderSchedule.ts) が「何分前に出すか」を
+   * 決めるのに使う。これが載る前 (バックフィル世代6以前) の予定は undefined のままなので、
+   * 世代を7へ上げて全端末に1回だけ forceFull 同期を走らせる。
+   *
+   * ⚠️ 公式に「changing reminders does not also change the `updated` property of the enclosing
+   * event」と明記がある。リマインダーだけを変更した予定が差分同期でいつ届くかは Google の
+   * 変更フィード次第で、`updated` を当てにはできない。
+   */
+  reminders?: EventRemindersDTO;
 }
 
 /** 連携済みの Google アカウント1件。id は Google の sub */
@@ -406,6 +450,25 @@ export interface CalendarListEntryDTO {
    * (undefined は「他のカレンダー」側に倒す — apps/web/src/sync/calendarGroups.ts 参照)。
    */
   accessRole?: "owner" | "writer" | "reader" | "freeBusyReader";
+  /**
+   * このカレンダーの既定リマインダー (2026-07-31)。CalendarListEntry.defaultReminders のうち
+   * method==='popup' のものの minutes (昇順・重複除去)。
+   *
+   * ここにしか無い値: 予定側が `reminders.useDefault: true` (= Google 上の大多数の予定) のとき、
+   * 実際の分数はイベントに入っておらずカレンダー既定から来る。公式も「Default reminders are
+   * manipulated through the CalendarList collection … They're not accessible through the
+   * Calendars collection」と明記している (/api/concepts/reminders)。
+   *
+   * events.list の応答トップレベルにも同じ値が `defaultReminders` として載るが、そちらは
+   * 採らない ―― カレンダー一覧は起動のたびに GET /api/calendars で取り直されるのに対し、
+   * events.list の応答は syncToken 次第で「差分ゼロ」になり得るので、既定リマインダーを
+   * 変更したときの追随はカレンダー一覧側のほうが素直。
+   *
+   * 空配列は「このカレンダーには既定リマインダーが無い」(祝日カレンダー等でよくある) の意味で、
+   * undefined は「この項目を返す前のサーバー」。表示ではなく通知の判定にしか使わないので、
+   * どちらも「通知しない」に落ちる点では同じ扱いでよい。
+   */
+  defaultReminderMinutes?: number[];
 }
 
 /** GET /api/calendars?accountId=... で対象アカウントを指定する */

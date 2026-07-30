@@ -19,10 +19,12 @@ import { generateDemoSeedData, generateDummyAllDayOccurrences } from "./dummy";
 
 const TZ = "Asia/Tokyo";
 const BASE_DATE = Temporal.PlainDate.from("2026-07-30");
+/** リマインダーのダミーだけが使う「いま」(2026-07-30T14:00+09:00)。決定性のため固定値を渡す */
+const NOW_MS = Date.UTC(2026, 6, 30, 5, 0, 0);
 
 describe("generateDemoSeedData", () => {
   it("series/override/occurrence のすべてが cleanupDemoData の id 規則に当てはまる", () => {
-    const { series, overrides, occurrences } = generateDemoSeedData(BASE_DATE, TZ);
+    const { series, overrides, occurrences } = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
     expect(series.length).toBeGreaterThan(0);
     expect(overrides.length).toBeGreaterThan(0);
     expect(occurrences.length).toBeGreaterThan(0);
@@ -47,24 +49,44 @@ describe("generateDemoSeedData", () => {
     // 展開は expansion/ が行うが、その id は `${seriesId}:${originalStartMs}` と決まっている。
     // cleanupDemoData は「現存する demo series の seriesId」だけでなく id 前方一致でも
     // 拾えるようにしてあるので、その前提(id が "series-" 始まりになること)を確かめる
-    const { series } = generateDemoSeedData(BASE_DATE, TZ);
+    const { series } = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
     for (const s of series) {
       expect(isDemoSeriesId(instanceId(s.id, 0))).toBe(true);
     }
   });
 
   it("同じ baseDate/timeZone なら常に同じデータを返す(ランダム性はシード固定)", () => {
-    const a = generateDemoSeedData(BASE_DATE, TZ);
-    const b = generateDemoSeedData(BASE_DATE, TZ);
+    const a = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
+    const b = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
     expect(b).toEqual(a);
   });
 
   it("id が重複しない(投入し直しても件数が揺れないことの前提)", () => {
-    const { series, overrides, occurrences } = generateDemoSeedData(BASE_DATE, TZ);
+    const { series, overrides, occurrences } = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
     for (const list of [series, overrides, occurrences]) {
       const ids = list.map((x) => x.id);
       expect(new Set(ids).size).toBe(ids.length);
     }
+  });
+
+  it("リマインダーの確かめたい形が一通り揃っている(2026-07-31)", () => {
+    // デモは「通知が実際に飛ぶか」を実ブラウザで見るための唯一の足場なので、確かめたい形が
+    // 1つでも欠けると、その分岐は実機で一度も踏まれないまま出ていくことになる。
+    // 形の一覧は generateDummyReminderOccurrences のコメントと対で維持すること。
+    const { occurrences } = generateDemoSeedData(BASE_DATE, TZ, NOW_MS);
+    const byId = new Map(occurrences.map((o) => [o.id, o]));
+
+    expect(byId.get("dummy-reminder-basic")?.reminders).toEqual({ minutes: [10] });
+    // 1つの予定に複数 (= それぞれの時刻で別々に通知が出る)
+    expect(byId.get("dummy-reminder-multi")?.reminders).toEqual({ minutes: [10, 30] });
+    // カレンダー既定に委ねる形 (分数が予定側に無い)
+    expect(byId.get("dummy-reminder-default")?.reminders).toEqual({ useDefault: true });
+    // リマインダーなし = 空配列。**キーが無いのとは別の意味**
+    expect(byId.get("dummy-reminder-none")?.reminders).toEqual({ minutes: [] });
+    // 上限 (1日) を超える分数 ―― 落とされて通知が出ないことを実機で見るためのもの
+    expect(byId.get("dummy-reminder-too-early")?.reminders).toEqual({ minutes: [10080] });
+    // 世代7のバックフィル前の予定 = キー自体が無い
+    expect(byId.get("dummy-reminder-unsynced")).not.toHaveProperty("reminders");
   });
 });
 

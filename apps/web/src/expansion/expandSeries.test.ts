@@ -500,6 +500,64 @@ describe("expandSeries", () => {
     });
   });
 
+  describe("reminders の伝播 (予定ごとのリマインダー、2026-07-31)", () => {
+    it("series.reminders を展開後の全 occurrence へそのまま伝播する", () => {
+      const series = baseSeries({ reminders: { minutes: [10, 60] }, rrule: "FREQ=DAILY;COUNT=2" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.reminders).toEqual({ minutes: [10, 60] });
+      }
+    });
+
+    it("series に reminders が無ければ occurrence 側もキーを持たない", () => {
+      const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=1" });
+
+      const result = expandSeries({
+        series,
+        overrides: [],
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      expect(result[0]).not.toHaveProperty("reminders");
+    });
+
+    it("『その回だけ通知を切る』例外インスタンスがシリーズ側の設定で塗り潰されない", () => {
+      // patch.reminders = { minutes: [] } は falsy ではないが「空」なので、`??` ではなく
+      // truthy 判定でフォールバックすると、この回だけ通知を切った意図が消える
+      const series = baseSeries({ reminders: { minutes: [10] }, rrule: "FREQ=DAILY;COUNT=2" });
+      const originalStartMs = zms("2026-01-02T09:00", "Asia/Tokyo");
+      const overrides: InstanceOverride[] = [
+        {
+          id: instanceId(series.id, originalStartMs),
+          seriesId: series.id,
+          originalStartMs,
+          patch: { reminders: { minutes: [] } },
+        },
+      ];
+
+      const result = expandSeries({
+        series,
+        overrides,
+        windowStartMs: FAR_PAST,
+        windowEndMs: FAR_FUTURE,
+      });
+
+      const unpatched = result.find((o) => o.originalStartMs !== originalStartMs);
+      const patched = result.find((o) => o.originalStartMs === originalStartMs);
+      expect(unpatched!.reminders).toEqual({ minutes: [10] });
+      expect(patched!.reminders).toEqual({ minutes: [] });
+    });
+  });
+
   it("FREQ=WEEKLY + BYDAY 複数曜日 + INTERVAL=2 (隔週)", () => {
     // 2026-01-05 は月曜
     const series = baseSeries({
