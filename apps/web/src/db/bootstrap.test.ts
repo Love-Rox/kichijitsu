@@ -15,9 +15,16 @@ import { OccurrenceStore } from "../store/occurrenceStore";
 import { PlannedStore } from "../store/plannedStore";
 import { TaskStore } from "../store/taskStore";
 import { DEFAULT_DECLINED_VISIBILITY } from "../sync/declinedVisibility";
+import { expandSeries } from "../expansion/expandSeries";
+import { decideExpansionWindow } from "../expansion/windowPolicy";
 import { bootstrapDatabase, type BootstrapOptions } from "./bootstrap";
 import {
   DB_VERSION,
+  deleteOccurrencesByIds,
+  getAllOccurrences,
+  getAllOverrides,
+  getAllSeries,
+  getExpansionState,
   putAllDayOccurrences,
   putGitHubItems,
   putOccurrences,
@@ -133,6 +140,7 @@ function setup(
     declinedVisibility: unknown[];
     ready: number;
     expand: { fromMs: number; toMs: number }[];
+    reexpand: number;
   };
 } {
   const stores = {
@@ -149,6 +157,7 @@ function setup(
     declinedVisibility: [] as unknown[],
     ready: 0,
     expand: [] as { fromMs: number; toMs: number }[],
+    reexpand: 0,
   };
   const options: BootstrapOptions = {
     stores,
@@ -167,9 +176,71 @@ function setup(
     expand: async (_db, _store, fromMs, toMs) => {
       calls.expand.push({ fromMs, toMs });
     },
+    reexpand: async () => {
+      calls.reexpand += 1;
+    },
     ...overrides,
   };
   return { options, stores, calls };
+}
+
+/**
+ * expansion/ensureExpanded の **DB 側の手順だけを写した最小版** (expand / reexpand の組)。
+ *
+ * 本物は Worker を起こすのでこのテストには乗らない(ファイル冒頭のコメント参照)が、
+ * 「?demo=1 をリロードしても繰り返し予定が出るか」は展開結果が IndexedDB とストアに載る
+ * ところまで通さないと確かめられない ―― なので純関数の expandSeries を直接呼ぶ版を置く。
+ * ウィンドウの決め方も本物と同じ decideExpansionWindow を使う。
+ */
+function makeRealisticExpanders(): Pick<BootstrapOptions, "expand" | "reexpand"> {
+  const expandInto = async (
+    db: IDBPDatabase<KichijitsuDB>,
+    store: OccurrenceStore,
+    fromMs: number,
+    toMs: number,
+    dropStale: boolean,
+  ): Promise<void> => {
+    const [series, overrides] = await Promise.all([getAllSeries(db), getAllOverrides(db)]);
+    if (dropStale) {
+      const seriesIds = new Set(series.map((s) => s.id));
+      const existing = await getAllOccurrences(db);
+      await deleteOccurrencesByIds(
+        db,
+        existing.filter((o) => o.seriesId !== null && seriesIds.has(o.seriesId)).map((o) => o.id),
+      );
+    }
+    const overridesBySeriesId = new Map(
+      series.map((s) => [s.id, overrides.filter((o) => o.seriesId === s.id)]),
+    );
+    const expanded = series.flatMap((s) =>
+      expandSeries({
+        series: s,
+        overrides: overridesBySeriesId.get(s.id) ?? [],
+        windowStartMs: fromMs,
+        windowEndMs: toMs,
+      }),
+    );
+    await putOccurrences(db, expanded);
+    store.load(expanded);
+  };
+
+  return {
+    expand: async (db, store, fromMs, toMs) => {
+      const state = await getExpansionState(db);
+      const decision = decideExpansionWindow(fromMs, toMs, state, Date.now());
+      if (!decision.needsExpand) return;
+      await expandInto(db, store, decision.fromMs, decision.toMs, false);
+      await setExpansionState(db, {
+        expandedFromMs: decision.fromMs,
+        expandedToMs: decision.toMs,
+      });
+    },
+    reexpand: async (db, store) => {
+      const state = await getExpansionState(db);
+      if (!state) return;
+      await expandInto(db, store, state.expandedFromMs, state.expandedToMs, true);
+    },
+  };
 }
 
 describe("bootstrapDatabase", () => {
@@ -339,25 +410,85 @@ describe("bootstrapDatabase", () => {
     expect(calls.ready).toBe(0);
   });
 
-  it("demoSeedEnabled が false なら空の DB でもダミーを投入しない", async () => {
+  it("demoSeedEnabled が false なら空の DB でもダミーを投入せず、強制再展開もしない", async () => {
     const db = await openTestDB();
-    const { options, stores } = setup(db);
+    const { options, stores, calls } = setup(db);
 
     await bootstrapDatabase(options);
 
     await expect(db.count("series")).resolves.toBe(0);
     expect(stores.store.getAll()).toEqual([]);
+    // 通常起動で毎回全 series を再展開するのは増分ポリシーの放棄なので、呼ばれてはいけない
+    expect(calls.reexpand).toBe(0);
   });
 
-  it("demoSeedEnabled が true なら空の DB にだけダミーを投入する(既存データがあれば投入しない)", async () => {
-    const seeded = await openTestDB();
-    await bootstrapDatabase(setup(seeded, { demoSeedEnabled: true }).options);
-    const seededCount = await seeded.count("series");
-    expect(seededCount).toBeGreaterThan(0);
+  it("demoSeedEnabled が true なら毎起動でデモデータを入れ直し、そのつど強制再展開する", async () => {
+    const db = await openTestDB();
 
-    // 既に series があるので二度目は投入されない(件数が増えない)
-    await bootstrapDatabase(setup(seeded, { demoSeedEnabled: true }).options);
-    await expect(seeded.count("series")).resolves.toBe(seededCount);
+    // 3回続けて起動する。cleanupDemoData が毎回消して、シードが毎回入れ直すので、
+    // 件数は「初回だけ多い/2回目以降ゼロ」ではなく毎回同じでなければならない
+    const counts: { series: number; overrides: number; occurrences: number; reexpand: number }[] =
+      [];
+    for (let i = 0; i < 3; i++) {
+      const { options, calls } = setup(db, { demoSeedEnabled: true });
+      await bootstrapDatabase(options);
+      counts.push({
+        series: await db.count("series"),
+        overrides: await db.count("overrides"),
+        occurrences: await db.count("occurrences"),
+        reexpand: calls.reexpand,
+      });
+    }
+
+    expect(counts[0].series).toBeGreaterThan(0);
+    expect(counts[0].overrides).toBeGreaterThan(0);
+    expect(counts[0].occurrences).toBeGreaterThan(0);
+    // 起動のたびに1回だけ強制再展開する(シリーズ由来の occurrence を復活させるため)
+    expect(counts.map((c) => c.reexpand)).toEqual([1, 1, 1]);
+    // 3回とも同じ ―― 重複して増えることも、消えたままになることも無い
+    expect(counts[1]).toEqual(counts[0]);
+    expect(counts[2]).toEqual(counts[0]);
+  });
+
+  it("?demo=1 の再起動でも繰り返し予定が毎回ストアに載る(初回起動だけ正常にならない)", async () => {
+    const db = await openTestDB();
+
+    // 展開を通す最小版を使い、シリーズ由来の occurrence が実際に IndexedDB とストアへ
+    // 載るところまで確かめる(この回帰こそが 2026-07-30 のバグ本体)
+    const seriesOccurrenceCounts: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const { options, stores } = setup(db, {
+        demoSeedEnabled: true,
+        ...makeRealisticExpanders(),
+      });
+      await bootstrapDatabase(options);
+      seriesOccurrenceCounts.push(stores.store.getAll().filter((o) => o.seriesId !== null).length);
+    }
+
+    expect(seriesOccurrenceCounts[0]).toBeGreaterThan(0);
+    expect(seriesOccurrenceCounts[1]).toBe(seriesOccurrenceCounts[0]);
+    expect(seriesOccurrenceCounts[2]).toBe(seriesOccurrenceCounts[0]);
+  });
+
+  it("デモで起動した後に通常起動すると、デモの残骸が1件も残らない", async () => {
+    const db = await openTestDB();
+
+    // ?demo=1 で起動(展開まで通すので、シリーズ由来の occurrence も DB に入る)
+    await bootstrapDatabase(
+      setup(db, { demoSeedEnabled: true, ...makeRealisticExpanders() }).options,
+    );
+    expect(await db.count("series")).toBeGreaterThan(0);
+    expect((await getAllOccurrences(db)).filter((o) => o.seriesId !== null).length).toBeGreaterThan(
+      0,
+    );
+
+    // 実データを1件混ぜてから ?demo=1 なしで起動する ―― デモだけが消え、実データは残ること
+    await putOccurrences(db, [occurrence("g:acc-1:cal-1:keep")]);
+    await bootstrapDatabase(setup(db, { ...makeRealisticExpanders() }).options);
+
+    await expect(db.count("series")).resolves.toBe(0);
+    await expect(db.count("overrides")).resolves.toBe(0);
+    expect((await getAllOccurrences(db)).map((o) => o.id)).toEqual(["g:acc-1:cal-1:keep"]);
   });
 
   it("過去にシードされたデモデータの残骸は通常起動で掃除される(冪等)", async () => {

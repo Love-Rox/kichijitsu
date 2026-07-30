@@ -290,13 +290,22 @@ export function generateDummyAllDayOccurrences(baseDate: Temporal.PlainDate): Al
  *       → 既定と上書きが逆でも同じように畳まれる(実データ 2026-07-14 の形)
  *   +0  終日=自宅 のみ
  *       → **時刻付きが無い日は従来どおり終日レーンのチップ**(見え方の据え置き確認)
+ *   +1  終日の不在「有給休暇」+ 時刻付き=オフィス 10:00–16:00 (+ 時刻の不在「通院」13:00–15:00)
+ *       → **全高ラインと時刻の帯が同じ日にある形**(2026-07-30 修正の確認用、下記)
  *   +2  終日=自宅 + 時刻付き2件(オフィス 9:00–12:00 / カフェ 15:00–17:00)
  *       → 地が細切れになり、時刻付きが複数あっても全て残る
+ *   +3  終日の不在「夏季休暇」(+3〜+4) + 時刻付き=自宅 9:30–12:00
+ *       → 同じく重なりの確認。翌日 (+4) は全高ラインだけなので **1列のまま**(据え置き確認)
  *
- * 日の選び方: 終日の不在のダミー(+1 の「有給休暇」、+3〜+4 の「夏季休暇」)と重ならない日に
- * 寄せてある。終日の不在は日列レールに常に列0・全高で描かれる(列パッキングの対象外)ので、
- * 同じ日に勤務場所の区間を置くと重なって両方読めなくなり、確認の役に立たないため。
- * 「時刻付きだけがあり終日は無い日」はこの表に入れていない ―― それは今回の変更前から
+ * +1 / +3 について (2026-07-30、終日不在の全高ラインが他の帯と重なる不具合の修正):
+ * それ以前この2日はあえて空けてあった ―― 終日の不在が列パッキングの対象外で常に列0・全高に
+ * 描かれており、同じ日に勤務場所の区間を置くと重なって両方読めなくなっていたため。その重なり
+ * こそが不具合の本体だったので、修正後は逆に **重なる形をデモで再現できることが必要** になった
+ * (全高ラインもパッキングに入り、列が分かれて両方読める。layout/railItems.ts の
+ * packDayRailBands 参照)。+1 は時刻の不在も足して3列になる形にしてある ―― 列が3本に増えても
+ * レール幅と予定カードの左インセットが破綻しないことを実ブラウザで見るため。
+ *
+ * 「時刻付きだけがあり終日は無い日」はこの表に入れていない ―― それは 2026-07-29 の変更前から
  * ずっと出ていた形(時刻付きの帯そのもの)で、回帰の心配が無いうえ、区間への畳み込みは
  * layout/workingLocationSegments.test.ts が網羅している。
  *
@@ -330,8 +339,11 @@ export function generateDummyWorkingLocationOccurrences(
   return [
     workingLocation("dummy-wl-office-m2", "オフィス", -2, "13:30", "20:00"),
     workingLocation("dummy-wl-home-m1", "自宅", -1, "09:30", "13:00"),
+    // 終日の不在(全高ライン)と同じ日の帯。2026-07-30 の重なり修正の確認用(上記コメント参照)
+    workingLocation("dummy-wl-office-1", "オフィス", 1, "10:00", "16:00"),
     workingLocation("dummy-wl-office-2", "オフィス", 2, "09:00", "12:00"),
     workingLocation("dummy-wl-cafe-2", "カフェ", 2, "15:00", "17:00"),
+    workingLocation("dummy-wl-home-3", "自宅", 3, "09:30", "12:00"),
   ];
 }
 
@@ -354,11 +366,15 @@ export function generateDummyWorkingLocationOccurrences(
  *   +6  夏季連休 +6 0:00 → +8 0:00
  *       → **複数日を丸ごと覆う不在**。覆う日は +6 と +7 の2日(+8 は覆わない)。
  *          終日欄では2日をまたぐ1本のバーになる
+ *   +1  通院 13:00–15:00
+ *       → 終日の不在「有給休暇」+ 勤務場所の帯と同じ日に置いた**3本目の帯**。
+ *          2026-07-30 の重なり修正で **レールが3列に分かれる**ことの確認用
+ *          (列が増えたときにレール幅と予定カードの左インセットが破綻しないかを見る)
  *
- * 日の選び方: 終日の不在のダミー(+1「有給休暇」、+3〜+4「夏季休暇」)とも勤務場所のダミー
- * (-2〜+2)とも重ならない日に寄せてある ―― 既定 (timeline) では不在が日列レールに列0・全高で
- * 描かれ、同じ日の勤務場所の区間と重なって両方読めなくなるため(この重なりは 2026-07-22 の
- * レール導入時からある既存の課題で、今回の変更とは独立)。
+ * 日の選び方: +5 / +6 は、終日の不在のダミー(+1「有給休暇」、+3〜+4「夏季休暇」)とも
+ * 勤務場所のダミー(-2〜+3)とも重ならない日に寄せてある ―― 設定の切り替えで「丸ごと覆う
+ * 不在だけが終日欄へ移る」ことを、他の帯に邪魔されずに見比べられるようにするため。
+ * 逆に +1 は意図的に重ねてある(上記)。
  *
  * id は "dummy-" 始まりなので、?demo=1 を外した次回起動時に cleanupDemoData がまとめて掃除する。
  */
@@ -392,7 +408,47 @@ export function generateDummyTimedOooOccurrences(
     ooo("dummy-ooo-timed-fullday", "法定外休日", "#ef4444", 5, "00:00", 6, "00:00"),
     ooo("dummy-ooo-timed-partial", "通院", "#8b5cf6", 5, "09:00", 5, "12:00"),
     ooo("dummy-ooo-timed-span", "夏季連休", "#f59e0b", 6, "00:00", 8, "00:00"),
+    // 終日の不在 +勤務場所の帯と同じ日に置く3本目(レールが3列に分かれる形、上記コメント参照)
+    ooo("dummy-ooo-timed-partial-1", "通院", "#8b5cf6", 1, "13:00", 1, "15:00"),
   ];
+}
+
+/**
+ * `?demo=1` のときに IndexedDB へ投入するデモデータ一式 (2026-07-30、db/bootstrap.ts から集約)。
+ *
+ * 切り出した理由: 何をシードするかの組み立てが bootstrap の手続きの中に埋まっていたため、
+ * 「デモデータを1種類足したら cleanupDemoData (db/database.ts) の掃除対象から漏れていないか」を
+ * 目で追うしかなかった。純関数にしておけば model/dummy.test.ts が生成物すべてに掃除の述語
+ * (isDemoSeriesId / isDemoSingleOccurrenceId) を当てて機械的に確かめられる ―― デモデータが
+ * 実データ環境に残らないことは cleanupDemoData の存在理由そのものなので、そこを固めておく。
+ *
+ * 単発ダミーは3種類を素直に連結する: ランダム生成の単発予定・時刻付きの勤務場所 (2026-07-29
+ * 「1日の区間として描く」) ・時刻付きの不在 (2026-07-29「1日を丸ごと覆う不在」)。後の2つは
+ * 日付・時刻を固定してあり、終日ぶん (generateDummyAllDayOccurrences) と組み合わせたときの
+ * 畳み方を目視確認するためのもの。id はいずれも "dummy-" / "series-" 始まりなので、
+ * `?demo=1` を外した次回起動時に cleanupDemoData がまとめて掃除する。
+ *
+ * 終日予定 (generateDummyAllDayOccurrences) はここに含めない ―― あちらは IndexedDB に書かず
+ * メモリ上の allDayStore にだけ載せる扱いなので、「投入する一式」とは別物として呼び出し側が扱う。
+ */
+export interface DemoSeedData {
+  series: EventSeries[];
+  overrides: InstanceOverride[];
+  /** シリーズ由来ではない単発の occurrence (シリーズ由来は展開 (expansion/) が作る) */
+  occurrences: Occurrence[];
+}
+
+export function generateDemoSeedData(baseDate: Temporal.PlainDate, timeZone: string): DemoSeedData {
+  const series = generateDummySeries(timeZone);
+  return {
+    series,
+    overrides: generateDummyOverrides(series),
+    occurrences: [
+      ...generateDummyOccurrences(baseDate, timeZone),
+      ...generateDummyWorkingLocationOccurrences(baseDate, timeZone),
+      ...generateDummyTimedOooOccurrences(baseDate, timeZone),
+    ],
+  };
 }
 
 /**

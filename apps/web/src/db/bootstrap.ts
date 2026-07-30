@@ -1,14 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
-import { ensureExpanded } from "../expansion/ensureExpanded";
-import {
-  generateDummyAllDayOccurrences,
-  generateDummyOccurrences,
-  generateDummyOverrides,
-  generateDummySeries,
-  generateDummyTimedOooOccurrences,
-  generateDummyWorkingLocationOccurrences,
-} from "../model/dummy";
+import { ensureExpanded, reexpandCurrentWindow } from "../expansion/ensureExpanded";
+import { generateDemoSeedData, generateDummyAllDayOccurrences } from "../model/dummy";
 import type { Occurrence } from "../model/types";
 import type { AllDayStore } from "../store/allDayStore";
 import type { GitHubStore } from "../store/githubStore";
@@ -19,7 +12,6 @@ import type { DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   cleanupDemoData,
   cleanupLegacyGoogleData,
-  countSeries,
   getAllAllDayOccurrences,
   getAllGitHubItems,
   getAllPlannedBlocks,
@@ -48,8 +40,10 @@ import {
  *  1. DB を開く → **deviceId** を取得/生成する(端末ごと syncToken、2026-07-21。
  *     以後の POST /api/sync がこれを body に含めるため、他のどの読み込みより先に確定させる)。
  *  2. レガシー掃除・デモデータ掃除(どちらも冪等、0件なら無音)。
- *  3. 開発時オプトイン (`?demo=1`) のダミーシード。
- *  4. 表示範囲ぶんの展開 (ensureExpanded) → 展開済みウィンドウの occurrences を読む。
+ *  3. 開発時オプトイン (`?demo=1`) のダミーシード(**?demo=1 なら毎起動で投入し直す** ――
+ *     2 の掃除と対になっている。2026-07-30、下のコメント参照)。
+ *  4. 表示範囲ぶんの展開 (ensureExpanded)。`?demo=1` のときはさらに強制再展開
+ *     (reexpandCurrentWindow) を通してから、展開済みウィンドウの occurrences を読む。
  *  5. 終日予定・タスク・GitHub アイテム・予定タイムブロックを**全件**読む
  *     (いずれも展開ウィンドウの概念が無いストア)。
  *  6. 5つのストアへの初回反映を **batch のネストで1回の通知にまとめる**
@@ -61,8 +55,8 @@ import {
  * **キャンセル**は各 await の直後に isCancelled() を挟む形で移設前と同じ位置に残してある
  * (アンマウント後に state を触らないため。5〜7 は「読み込みは続けるが通知だけしない」)。
  *
- * openDatabase / expand を差し替え可能にしてあるのはテストのため ―― openKichijitsuDB は
- * プロセス内で1接続にメモ化され、ensureExpanded は Worker を起こすので、そのままでは
+ * openDatabase / expand / reexpand を差し替え可能にしてあるのはテストのため ―― openKichijitsuDB は
+ * プロセス内で1接続にメモ化され、ensureExpanded/reexpandCurrentWindow は Worker を起こすので、そのままでは
  * fake-indexeddb 上の単体テストに乗らない(db/database.test.ts と同じ事情)。
  * 本番の呼び出し側 (App.tsx) は既定値のまま何も渡さない。
  */
@@ -107,6 +101,12 @@ export interface BootstrapOptions {
     fromMs: number,
     toMs: number,
   ) => Promise<void>;
+  /**
+   * 保存済みウィンドウ全体の強制再展開。既定は expansion/ensureExpanded の
+   * reexpandCurrentWindow(expand と同じくテスト用の差し替え口)。
+   * デモシード後にしか呼ばれない ―― 理由は下の呼び出し箇所のコメント参照
+   */
+  reexpand?: (db: IDBPDatabase<KichijitsuDB>, store: OccurrenceStore) => Promise<void>;
 }
 
 export async function bootstrapDatabase({
@@ -122,6 +122,7 @@ export async function bootstrapDatabase({
   onReady,
   openDatabase = openKichijitsuDB,
   expand = ensureExpanded,
+  reexpand = reexpandCurrentWindow,
 }: BootstrapOptions): Promise<void> {
   const database = await openDatabase();
   if (isCancelled()) return;
@@ -164,33 +165,42 @@ export async function bootstrapDatabase({
   }
 
   // ダミーシード投入は開発時の明示的なオプトイン (?demo=1) のときだけ
-  // (App.tsx の DEMO_SEED_ENABLED 参照)。実データ運用では絶対に自動投入しない
+  // (App.tsx の DEMO_SEED_ENABLED 参照)。実データ運用では絶対に自動投入しない。
+  //
+  // **?demo=1 のときは毎起動で投入し直す** (2026-07-30 の修正、旧: countSeries()===0 の
+  // ときだけ)。直前の cleanupDemoData がデモの series/override/occurrence を必ず消すので、
+  // 「一度入れたら二度目は入れない」条件を付けても意味が無く ―― むしろ「Google 連携済みの
+  // 環境で ?demo=1 を付けると、series が0件でないのでデモが1件も入らない」という
+  // 分かりにくい分岐を生んでいた。掃除の直後に入れ直すので重複も生まれない
+  // (何度リロードしても同じ見え方になる、という要件そのもの)
   if (demoSeedEnabled) {
-    const existingSeriesCount = await countSeries(database);
-    if (existingSeriesCount === 0) {
-      const series = generateDummySeries(timeZone);
-      const overrides = generateDummyOverrides(series);
-      // 時刻付きの勤務場所 (2026-07-29「1日の区間として描く」) は、終日の勤務場所と
-      // 組み合わさったときの畳み方を目視確認するためのもの。ランダム生成の単発予定と違い
-      // 日付・時刻を固定してあるので、そのまま連結する(id はどちらも "dummy-" 始まりで、
-      // ?demo=1 を外した次回起動時に cleanupDemoData がまとめて掃除する)
-      const singles = [
-        ...generateDummyOccurrences(Temporal.Now.plainDateISO(), timeZone),
-        ...generateDummyWorkingLocationOccurrences(Temporal.Now.plainDateISO(), timeZone),
-        // 時刻付きの不在 (2026-07-29「1日を丸ごと覆う不在」)。実データと同じ形
-        // (dateTime で 0:00–24:00 / 複数日 / 丸ごとではないもの)を混ぜて、
-        // 「終日の不在を終日欄に表示」の設定のオン/オフを目視で確かめられるようにする
-        ...generateDummyTimedOooOccurrences(Temporal.Now.plainDateISO(), timeZone),
-      ];
-      await putSeries(database, series);
-      await Promise.all(overrides.map((o) => putOverride(database, o)));
-      await putOccurrences(database, singles);
-    }
+    const demo = generateDemoSeedData(Temporal.Now.plainDateISO(), timeZone);
+    await putSeries(database, demo.series);
+    await Promise.all(demo.overrides.map((o) => putOverride(database, o)));
+    await putOccurrences(database, demo.occurrences);
   }
   if (isCancelled()) return;
 
   await expand(database, store, initialRange.fromMs, initialRange.toMs);
   if (isCancelled()) return;
+
+  // デモの series を入れ直したら、展開もやり直す (2026-07-30)。
+  //
+  // なぜ expand だけでは足りないか: ensureExpanded は「表示範囲が展開済みウィンドウの境界に
+  // 近づいたときだけ広げる」増分ポリシーなので、2回目以降の起動では expansionState が既に
+  // 保存されているぶん何もせずに返る。すると上の cleanupDemoData が消したシリーズ由来の
+  // occurrence が復活せず、**単発予定と終日予定だけが出て繰り返し予定が消えた**画面になる
+  // (「?demo=1 は初回起動だけ正常」というバグの正体、報告 2026-07-30)。
+  //
+  // series の定義が変わったのに展開結果が古い、という状況は sync 適用後と同じなので、
+  // 同じ道具で直す ―― reexpandCurrentWindow は保存済みウィンドウ全体を無条件に再展開し、
+  // 現存する series 由来の古い occurrence を先に消してから書き直す。
+  // デモ以外(実データ運用)では絶対に呼ばない: 起動のたびに全 series を再展開するのは
+  // 増分ポリシーの放棄であり、通常起動でそこまでする理由が無い
+  if (demoSeedEnabled) {
+    await reexpand(database, store);
+    if (isCancelled()) return;
+  }
 
   const state = await getExpansionState(database);
   let all: Occurrence[] | undefined;
