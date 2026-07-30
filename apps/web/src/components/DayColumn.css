@@ -149,9 +149,12 @@
  * 内側(left: 14px)へ固定オフセットしていたが、同時刻(特に終了==開始の長さ0)の帯が
  * 横にずれて side-by-side に見える不具合があったため、両方をこの1つのコンテナ
  * (x=0 起点)に統合した。個々の帯(.day-ooo-line/.day-workloc-band)は DayColumn.tsx が
- * layout/railStack.ts の列パッキング結果から求めた left(`column * RAIL_BAND_WIDTH_PX`)を
- * インライン style で指定する ―― 時間が重ならない帯はすべて left: 0(縦に並ぶ)、重なる
- * 帯だけ列が分かれて横に並ぶ。width はその日実際に必要になった最大列数ぶん
+ * layout/railItems.ts の packDayRailBands(内部は railStack.ts の列パッキング)の結果から
+ * 求めた left(`column * RAIL_BAND_WIDTH_PX`)をインライン style で指定する ―― 時間が
+ * 重ならない帯はすべて left: 0(縦に並ぶ)、重なる帯だけ列が分かれて横に並ぶ
+ * (2026-07-30: 終日 OOO の全高ラインもこのパッキングに入るようになった。それ以前は
+ * 全高ラインだけが常に left: 0 で、同じ日の時刻の帯と必ず重なっていた)。
+ * width はその日実際に必要になった最大列数ぶん
  * (DayColumn.tsx がインライン style で指定、下記の 12px は列数1のときの既定値)。
  * day-ci-rail (左端、下記) と同じ DAY_COLUMN_INSET_PX ぶんのガターを共有する(CI は既定
  * OFF なので通常はこのレールが唯一の左端占有者)。
