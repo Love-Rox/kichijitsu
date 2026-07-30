@@ -70,10 +70,11 @@ windows, target_os = "linux"))'.dependencies` に限定）
   - **`CmdOrCtrl+Shift+K`** でウィンドウの表示/隠すをトグル（トレイ左クリックと
     同じ `toggle_main_window()` を呼ぶ）。定数 `TOGGLE_WINDOW_SHORTCUT` として
     `lib.rs` 冒頭にコメント付きで定義
-- **ネイティブ通知**（`tauri-plugin-notification` 2.x）は**配線の土台まで**。
-  プラグインを有効化し、起動時に1回テスト通知（「トレイ常駐・グローバル
-  ショートカット・通知の土台が起動しました」）を出すところまでで、実際の
-  予定リマインダー通知は未配線（下記「残 TODO」参照）
+- **ネイティブ通知**（`tauri-plugin-notification` 2.x）。増分2a では起動時の
+  テスト通知だけだったが、**2026-07-30 に予定リマインダーを配線済み**
+  （`notify` コマンド + web 側の `sync/reminderSchedule.ts` /
+  `hooks/useEventReminders.ts`）。起動時のテスト通知は毎回のノイズになるので
+  削除し、代わりに設定画面に「テスト通知を送る」ボタンを置いた
 - `capabilities/default.json` に `global-shortcut:allow-register` /
   `allow-unregister` / `allow-is-registered` と `notification:default` を追加。
   ただし今回追加した機能はすべて Rust の `setup()` から直接プラグイン API を
@@ -91,19 +92,38 @@ windows, target_os = "linux"))'.dependencies` に限定）
 - ウィンドウを閉じてもアプリは終了せずトレイに残る。完全終了はトレイメニュー
   の「終了」から
 
-### 残 TODO: 実リマインダーのフロント連携
+### 予定リマインダー（2026-07-30 に配線済み）
 
-予定のリマインダー通知（Web 版の VAPID Web Push 相当）をネイティブ通知に置き
-換えるには、フロント(リモート URL の web アプリ)側から Tauri コマンドを呼ぶ
-配線が必要（今回はやらない、次増分）。想定する形:
+**判定は web 側、Rust は文言を受けて通知を出すだけ**。Rust 側でスケジュールするには
+予定データを Rust に持たせる必要があり、Google 同期と繰り返し展開の複製になるため
+採らなかった。
 
-1. `#[tauri::command]` でフロントから呼べる通知コマンド（例:
-   `fn notify(title: String, body: String)`）を追加
-2. `capabilities/default.json` の `notification:*` 許可をそのコマンド用に絞り
-   込む
-3. Web 版のリマインダースケジューリングロジックから、デスクトップ実行時のみ
-   その Tauri コマンドを呼ぶ分岐を追加（`window.__TAURI__` の有無で判定、また
-   は `@tauri-apps/api` の環境検出）
+- **ウィンドウを閉じても通知は届く**。`CloseRequested` が `prevent_close` + `hide` で
+  プロセスは生きているため。届かないのはトレイの「終了」で落としている間だけ
+- **予定ごとの `setTimeout` ではなく 30 秒 tick**。同期のたびに occurrence 行は丸ごと
+  書き換わる（`reexpandCurrentWindow`）のでタイマーは張り直しが必要になるうえ、
+  隠れた webview のタイマーは間引かれ、スリープ復帰でずれる。毎 tick 壁時計から
+  判定し直せば tick が遅れても判定は正しい
+- **何分前かはアプリ独自の一律設定**（通知しない/5/10/15/30/60分、既定10分）。
+  **Google の予定ごとのリマインダー設定は同期していない** ―― `GoogleEventDTO` に
+  該当フィールドが無く `toGoogleEventDTO` も読んでいない（Google は返しているが
+  捨てている）。尊重するには protocol / google-events / mapGoogle の4ビルダー /
+  model/types と、バックフィル世代定数の更新が必要。設定 UI とドキュメントには
+  「Google 側の設定は使わない」と明記してある
+- **通知済みキーは `${id}@${startMs}`**（localStorage、24時間保持）。開始時刻を
+  埋め込むので、予定が動けばキーが変わって新時刻で改めて通知し、同じなら二重に
+  通知しない。復元は**最後の `@`** で切る（calendarId が `…@group.calendar.google.com`
+  やメール形式のため）
+- 条件は `fireAt <= now` かつ **`now < startMs`**。2本目が「起動時に過去分が一気に
+  飛ぶ」事故を単独で防ぐ
+- **終日予定は通知しない**（「何分前」の基準時刻が無い）。削除済み・ミラー
+  （カレンダーブロックの複製 = 二重通知になる）・欠席・勤務場所も対象外
+
+**通知権限は原理的に判定できない。** `tauri-plugin-notification` 2.3.3 の desktop 実装は
+`show()` の結果を捨てて必ず `Ok` を返し、`permission_state()` も `Granted` の
+ハードコード。したがって macOS で拒否されていてもアプリ側は知りようがない。
+「許可されています」と表示するのは嘘になるので、設定画面に**テスト通知ボタン**を置き、
+出なければ OS の設定を見るよう案内する形にした。
 
 ## ビルド・実行手順
 

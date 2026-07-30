@@ -586,10 +586,6 @@ export async function setSyncBackfillVersion(
   await db.put("meta", version, META_SYNC_BACKFILL_VERSION_KEY);
 }
 
-export async function countSeries(db: IDBPDatabase<KichijitsuDB>): Promise<number> {
-  return db.count("series");
-}
-
 /** cleanupLegacyGoogleData の戻り値。全て 0 なら削除対象が無かった(冪等の2回目以降含む) */
 export interface LegacyCleanupResult {
   seriesRemoved: number;
@@ -651,6 +647,27 @@ export async function cleanupLegacyGoogleData(
   };
 }
 
+/**
+ * デモデータの id 規則 (2026-07-30 に述語として切り出し)。model/dummy.ts が付ける id と
+ * cleanupDemoData が掃除する id を**同じ1箇所**で表すためのもの。
+ *
+ * 切り出した理由: デモデータを1種類足すたびに「cleanupDemoData の掃除対象から漏れていないか」を
+ * 目で追うしかなかった。述語にしておけば model/dummy.test.ts が generateDemoSeedData の生成物
+ * すべてに当てて機械的に確かめられる ―― 「デモの残骸を実データ環境に残さない」ことが
+ * cleanupDemoData の存在理由なので、そこは検査で固めておきたい。
+ *
+ * シリーズ由来の展開済み occurrence は `${seriesId}:${originalStartMs}` 形式の id を持つため、
+ * 単発ダミー (`dummy-` 始まり) とは別に seriesId 側で判定する(cleanupDemoData 参照)。
+ */
+export function isDemoSeriesId(id: string): boolean {
+  return id.startsWith("series-");
+}
+
+/** 単発ダミー occurrence の id 規則 (`dummy-<何か>`、model/dummy.ts 参照) */
+export function isDemoSingleOccurrenceId(id: string): boolean {
+  return id.startsWith("dummy-");
+}
+
 /** cleanupDemoData の戻り値。全て 0 なら削除対象が無かった(冪等の2回目以降含む) */
 export interface DemoDataCleanupResult {
   seriesRemoved: number;
@@ -659,19 +676,22 @@ export interface DemoDataCleanupResult {
 }
 
 /**
- * デモ/シードデータの一回きりクリーンアップ (実データ運用への移行、2026-07-20)。
+ * デモ/シードデータのクリーンアップ (実データ運用への移行、2026-07-20)。
  *
- * App.tsx の起動時シード (generateDummySeries/generateDummyOccurrences/
- * generateDummyOverrides) は開発時 (`import.meta.env.DEV` かつ `?demo=1`) の
- * みに退避したが、過去にシード済みだった環境には残骸が残るため、通常起動時に
- * 一度だけ掃除する。id 規則 (dummy.ts 参照): 単発ダミーは `dummy-<day>-<i>`、
- * シリーズは `series-<name>`。シリーズ由来の展開済み occurrence は
- * `${seriesId}:${originalStartMs}` 形式の id を持つため、id の前方一致ではなく
- * occurrence.seriesId がダミーシリーズ id 集合に含まれるかで判定する。
+ * **これがデモデータの唯一の出口**であり、「デモの残骸を実データ環境に残さない」ための
+ * 装置。起動時シードは開発時 (`import.meta.env.DEV` かつ `?demo=1`) のみに退避したが、
+ * 過去にシード済みだった環境や、直前に `?demo=1` で開いた環境には残骸が残るため、
+ * 起動のたびにここで掃除する。id 規則は isDemoSeriesId / isDemoSingleOccurrenceId
+ * (上記) に集約してあり、model/dummy.test.ts がデモデータの生成物すべてに当てて
+ * 「掃除対象から漏れていないこと」を検査する。
  *
  * 起動のたびに呼んでよい設計(冪等): 一度掃除し終われば以降は全て 0 件で
  * 即 return する。呼び出し側は 0 件なら何もログを出さない想定
  * (cleanupLegacyGoogleData と同じ流儀)。
+ *
+ * なお `?demo=1` のときは、この掃除の直後に db/bootstrap.ts が同じデータを投入し直す
+ * (2026-07-30) ―― 掃除と再投入が対になっていることで「何度リロードしても同じ見え方」に
+ * なる。掃除そのものの役割(デモ以外の起動では消しっぱなしにする)は変えていない。
  */
 export async function cleanupDemoData(
   db: IDBPDatabase<KichijitsuDB>,
@@ -682,16 +702,22 @@ export async function cleanupDemoData(
     getAllOverrides(db),
   ]);
 
-  const demoSeriesIds = allSeries.filter((s) => s.id.startsWith("series-")).map((s) => s.id);
-  const demoSeriesIdSet = new Set(demoSeriesIds);
+  const demoSeriesIds = allSeries.filter((s) => isDemoSeriesId(s.id)).map((s) => s.id);
+  // シリーズ由来 occurrence の判定を「現存する demo series の id 集合に入っているか」から
+  // 「seriesId が demo の規則か」に変えた (2026-07-30)。series レコードが既に消えている
+  // 状態(前回の掃除が途中で終わった等)でも取り残さないようにするため ―― 展開済み
+  // occurrence の id は `${seriesId}:${originalStartMs}` なので id 側からも辿れる。
+  // "series-" 始まりの id を作るのはデモデータだけ(Google 由来は `g:` 始まり、
+  // ローカル操作は既存 series の id を保つ)なので、実データを巻き込む余地は無い
   const demoOccurrenceIds = allOccurrences
     .filter(
-      (o) => o.id.startsWith("dummy-") || (o.seriesId !== null && demoSeriesIdSet.has(o.seriesId)),
+      (o) =>
+        isDemoSingleOccurrenceId(o.id) ||
+        isDemoSeriesId(o.id) ||
+        (o.seriesId !== null && isDemoSeriesId(o.seriesId)),
     )
     .map((o) => o.id);
-  const demoOverrideIds = allOverrides
-    .filter((o) => demoSeriesIdSet.has(o.seriesId))
-    .map((o) => o.id);
+  const demoOverrideIds = allOverrides.filter((o) => isDemoSeriesId(o.seriesId)).map((o) => o.id);
 
   if (
     demoSeriesIds.length === 0 &&

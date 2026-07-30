@@ -3,6 +3,13 @@ import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijits
 import { mcpTokenCreatedLabel, mcpTokenLabel, mcpTokenLastUsedLabel } from "../sync/mcpTokens";
 import { getGhPathOverride, isTauri, saveGhPathOverride } from "../sync/githubProvider";
 import { clearAppCaches } from "../sync/appCache";
+import { notifyNatively } from "../sync/desktopNotify";
+import {
+  getReminderLeadMinutes,
+  REMINDER_LEAD_OFF,
+  REMINDER_LEAD_PRESETS,
+  setReminderLeadMinutes,
+} from "../sync/reminderSchedule";
 import { getThemePref, setThemePref, type ThemePref } from "../sync/themePref";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { BUILD_SHA, BUILD_TIME, formatBuildTime, getDesktopVersion } from "../version";
@@ -232,6 +239,21 @@ export function SettingsModal({
             <button type="button" className="settings-modal-add-account" onClick={onOpenBlockRules}>
               予定のブロックを設定
             </button>
+          </section>
+        )}
+
+        {/*
+         * 予定のリマインダー通知 (2026-07-30)。デスクトップ版 (Tauri) だけの機能なので
+         * ブラウザ/PWA には出さない ―― そちらには通知の配線そのものが無い
+         * (apps/web/src/sync/desktopNotify.ts 冒頭参照)。テーマと同じく localStorage だけで
+         * 完結するため props に依存しない。
+         */}
+        {isTauri() && (
+          <section className="settings-modal-section">
+            <h3 className="settings-modal-section-title" id="settings-reminder-title">
+              予定のリマインダー通知
+            </h3>
+            <ReminderControl />
           </section>
         )}
 
@@ -563,6 +585,106 @@ function GhPathOverrideControl() {
         )}
       </p>
     </div>
+  );
+}
+
+/**
+ * 「何分前に通知するか」の選択肢。値の正は sync/reminderSchedule.ts の
+ * REMINDER_LEAD_PRESETS / REMINDER_LEAD_OFF で、ここは表示ラベルだけを足している。
+ */
+const REMINDER_LEAD_OPTIONS: { value: number; label: string }[] = [
+  { value: REMINDER_LEAD_OFF, label: "通知しない" },
+  ...REMINDER_LEAD_PRESETS.map((minutes) => ({
+    value: minutes,
+    label: minutes >= 60 ? `${minutes / 60} 時間前` : `${minutes} 分前`,
+  })),
+];
+
+/**
+ * 予定のリマインダー通知の設定 (デスクトップ版のみ、2026-07-30)。
+ *
+ * 値の正は localStorage で、ここの useState は「いま何が選ばれているか」を描くための
+ * ローカルな写し (ThemeControl / GhPathOverrideControl と同じ流儀)。判定側
+ * (hooks/useEventReminders.ts) は 30 秒ごとに localStorage を読み直すので、
+ * App.tsx に state を持ち上げる必要は無い。
+ *
+ * 自由入力の分数ではなくプリセットの <select> にしているのは、
+ * (1) このアプリに `type="number"` の入力が1つも無い (HourHeightControl もプリセット) 、
+ * (2) 極端に短い分数は判定 tick の間隔と噛み合わない
+ *     (sync/reminderSchedule.ts の REMINDER_LEAD_PRESETS のコメント参照) の2点から。
+ *
+ * ## 「テスト通知を送る」がなぜ必要か
+ * macOS の通知許可が拒否されていても、**プログラムからはそれを知る術が無い** ――
+ * tauri-plugin-notification の desktop 実装は送出を別タスクへ投げて結果を捨てており、
+ * `permission_state()` も desktop では常に Granted のハードコード
+ * (apps/desktop/src-tauri/src/lib.rs の notify コマンドのコメント参照)。
+ * 「許可されています」と嘘をつくわけにもいかず、黙って何も起きないのが最悪なので、
+ * **利用者自身がその場で確かめられるボタン**と、出なかったときに次に何をすればよいか
+ * (OS の設定のどこを見るか) を置く形にした。
+ */
+function ReminderControl() {
+  const [leadMinutes, setLeadMinutes] = useState<number>(() => getReminderLeadMinutes());
+  const [tested, setTested] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  const sendTest = () => {
+    setTested(false);
+    setTestError(null);
+    void notifyNatively("kichijitsu", "テスト通知です。これが見えていれば通知は届きます。").then(
+      (sent) => {
+        if (sent) setTested(true);
+        else setTestError("通知の送出に失敗しました。アプリを再起動して試してください。");
+      },
+    );
+  };
+
+  return (
+    <>
+      <p className="settings-modal-section-desc">
+        予定が始まる前に、macOS の通知でお知らせします。
+        <strong>Google カレンダー側で予定ごとに設定した通知は使いません</strong>
+        ―― ここで選んだ分数を、すべての予定に一律で適用します。時刻のない終日の予定は通知しません。
+      </p>
+      <p className="settings-modal-section-desc">
+        通知が届くのは kichijitsu が起動している間だけです(ウィンドウを閉じてトレイに隠している間は届きます。トレイメニューの「終了」でアプリを終わらせている間は届きません)。
+      </p>
+      <div className="settings-modal-reminder-row">
+        <label className="settings-modal-reminder-label" htmlFor="settings-reminder-lead">
+          通知するタイミング
+        </label>
+        <select
+          id="settings-reminder-lead"
+          className="settings-modal-reminder-select"
+          value={leadMinutes}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            setReminderLeadMinutes(next);
+            setLeadMinutes(next);
+          }}
+        >
+          {REMINDER_LEAD_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="settings-modal-reminder-row">
+        <button type="button" className="settings-modal-text-btn" onClick={sendTest}>
+          テスト通知を送る
+        </button>
+      </div>
+      {/* 押下で内容が入れ替わる場所なので、読み上げにも変化が伝わるようにする */}
+      <p className="settings-modal-reminder-hint" aria-live="polite">
+        {testError ? (
+          <span className="settings-modal-error">{testError}</span>
+        ) : tested ? (
+          "送りました。通知が出なければ、macOS の「システム設定 → 通知」で kichijitsu の通知が許可されているか確認してください。"
+        ) : (
+          "通知が来ているか不安なときは、テスト通知で確かめられます。"
+        )}
+      </p>
+    </>
   );
 }
 

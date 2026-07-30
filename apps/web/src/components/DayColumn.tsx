@@ -22,7 +22,7 @@ import {
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
 import { clusterOverflowSuffix } from "../layout/clusterByTopPx";
-import { packRailBandColumns } from "../layout/railStack";
+import { packDayRailBands, railBandColumnCount } from "../layout/railItems";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
 import type { OooRailItem } from "../layout/oooRail";
 import type { WorkingLocationRailItem } from "../layout/workingLocationRail";
@@ -166,9 +166,10 @@ interface DayColumnProps {
    * 「不在ライン/× が下、CI マーカーが上」に固定してある。
    *
    * 2026-07-22 横ずれ解消リファクタ: 時刻の不在(startMs を持つ subject)と終日の不在
-   * (全高ライン、subject が startDate/endDate のみ)が同じ配列に混在している。DayColumn 側で
-   * この2つを再度分け、終日ぶんは従来どおり列パッキング対象外の全高ラインとして描画し、
-   * 時刻ぶんだけを勤務場所と合わせて列パッキング(layout/railStack.ts)にかける。
+   * (全高ライン、subject が startDate/endDate のみ)が同じ配列に混在している。
+   * 2026-07-30 修正: どちらも勤務場所と合わせて同じ列パッキング(layout/railItems.ts の
+   * packDayRailBands)にかける ―― 以前は終日ぶんだけを対象外にして常に left: 0 へ描いていた
+   * ため、同じ日に時刻の帯があると必ず重なっていた。
    */
   oooItems: OooRailItem[];
   /**
@@ -302,63 +303,31 @@ export function DayColumn({
     })
     .forEach((occ, rank) => stackZ.set(occ.id, rank));
 
-  // 終日 OOO(全高ライン)は列パッキングの対象外(既存のまま、要件変更なし)。
-  // oooItems には時刻・終日の両方が混在しているので、subject の形(Occurrence には
-  // startMs がある/AllDayOccurrence には無い)で振り分ける。RailBand.tsx の
-  // isTimedSubject と同じ構造的ガード。
+  // 2026-07-22 横ずれ解消リファクタ: OOO と勤務場所を1本のレール(同じ x=0 起点の列)に統合し、
+  // 時間が重なる帯どうしだけを列パッキング(layout/railItems.ts の packDayRailBands →
+  // railStack.ts → packColumns.ts の貪欲 first-fit)で列分けして横に並べる。重ならない帯
+  // (接触含む)は全て列0(left: 0)に本来の時刻位置のまま乗るので縦に並ぶ。
+  //
+  // 2026-07-30 修正: 終日 OOO(全高ライン)もこのパッキングに入れる。以前は全高ラインだけを
+  // 対象外にして常に left: 0 に描いていたため、同じ日に時刻の帯(勤務場所の区間や部分的な
+  // 不在)があると必ず重なっていた ―― 詳細は packDayRailBands のコメント参照。
+  //
+  // oooItems には時刻・終日の両方が混在している(WeekGrid.tsx が1本の配列にマージして渡す)。
+  // subject の形(Occurrence には startMs がある/AllDayOccurrence には無い。RailBand.tsx の
+  // isTimedSubject と同じ構造的ガード)で振り分けるのは **渡す順序を決めるためだけ** ――
+  // 全高ラインを先に渡すと、同区間でタイになったときに全高ラインが列0(レールの左端)に来る。
+  // 描画そのものは全高ラインも時刻の帯と全く同じ式で足りる(全高ラインは startMinutes===0 かつ
+  // 十分な長さを持つので、top も高さの下限も時刻の帯と同じ計算で同じ値になる)。
   const timedOooItems = oooItems.filter((item) => "startMs" in item.subject);
   const allDayOooItems = oooItems.filter((item) => !("startMs" in item.subject));
-
-  // 2026-07-22 横ずれ解消リファクタ: OOO(時刻ぶん)と勤務場所を1本のレール(同じ x=0 起点の
-  // 列)に統合し、時間が重なる帯どうしだけを列パッキング(layout/railStack.ts、
-  // 勤務場所側は 2026-07-29 以降「1日ぶんを畳んだ区間列」なので、勤務場所どうしは定義上
-  // 重ならない。列が増えるのは時刻の OOO と時間帯がぶつかったときだけ。
-  // packColumns.ts の貪欲 first-fit を流用)で列分けして横に並べる。重ならない帯(接触含む)は
-  // 全て列0(left: 0)に本来の時刻位置のまま乗るので縦に並ぶ。
-  // 並び順は OOO → 勤務場所の順で配列を組み立てる ―― 同時刻タイ(例: 終了==開始が同時刻の
-  // OOO と勤務場所)になったとき、packRailBandColumns 内の安定ソートにより OOO が列0
-  // (カードに一番近い左)に来る(任意だが決めてある。OOO の方が「その場にいない」という
-  // より強い情報なので優先して手前寄りに置く)。
-  type TimedRailBand =
-    | { kind: "ooo"; id: string; startMinutes: number; endMinutes: number; oooItem: OooRailItem }
-    | {
-        kind: "workloc";
-        id: string;
-        startMinutes: number;
-        endMinutes: number;
-        workLocItem: WorkingLocationRailItem;
-      };
-  const timedRailBands: TimedRailBand[] = [
-    ...timedOooItems.map(
-      (oooItem): TimedRailBand => ({
-        kind: "ooo",
-        id: oooItem.id,
-        startMinutes: oooItem.startMinutes,
-        endMinutes: oooItem.endMinutes,
-        oooItem,
-      }),
-    ),
-    ...workingLocationItems.map(
-      (workLocItem): TimedRailBand => ({
-        kind: "workloc",
-        id: workLocItem.id,
-        startMinutes: workLocItem.startMinutes,
-        endMinutes: workLocItem.endMinutes,
-        workLocItem,
-      }),
-    ),
-  ];
-  const packedRailBands = packRailBandColumns(
-    timedRailBands,
-    (b) => b.startMinutes,
-    (b) => b.endMinutes,
+  const packedRailBands = packDayRailBands<OooRailItem, WorkingLocationRailItem>(
+    [...allDayOooItems, ...timedOooItems],
+    workingLocationItems,
     hourHeight,
   );
-  // その日のレールで実際に必要になった最大列数。終日 OOO しか無い日でも帯1本ぶん(1列)は
-  // 確保する(以前の「hasOoo なら16px」という挙動と同じ広さを保つため)。
-  const hasAnyRailItem = allDayOooItems.length > 0 || packedRailBands.length > 0;
-  const railMaxColumnCount = packedRailBands.reduce((max, p) => Math.max(max, p.columnCount), 0);
-  const railColumnCount = hasAnyRailItem ? Math.max(1, railMaxColumnCount) : 0;
+  // その日のレールで実際に必要になった最大列数(帯が1本も無ければ0)
+  const hasAnyRailItem = packedRailBands.length > 0;
+  const railColumnCount = railBandColumnCount(packedRailBands);
 
   // 左端レールの左インセット一般化: この日のレール列数(railColumnCount、上記)ぶん
   // EventBlock の左インセットを広げて予定カードと重ならないようにする(gridMetrics.ts の
@@ -787,23 +756,9 @@ export function DayColumn({
         // width は railColumnCount(上記、その日実際に必要になった最大列数)ぶん ―― 時間が
         // 重ならない日は1列(12px)のまま、重なる日だけ列数に応じて広がる。
         <div className="day-rail" style={{ width: railColumnCount * RAIL_BAND_WIDTH_PX }}>
-          {/* 終日 OOO(全高ライン)は列パッキングの対象外。常に列0・全高のまま独立して描画する
-              (既存の挙動を変えない要件)。 */}
-          {allDayOooItems.map((item) => (
-            <RailBand
-              key={item.id}
-              variant="ooo"
-              item={item}
-              top={0}
-              height={minutesToPx(item.endMinutes - item.startMinutes, hourHeight)}
-              left={0}
-              timeZone={timeZone}
-              calendarLookup={calendarLookup}
-            />
-          ))}
-          {/* 時刻の OOO・勤務場所は列パッキング結果どおりに top(本来の時刻位置のまま)・
-              left(column * RAIL_BAND_WIDTH_PX)で描画する。縦位置は押し下げない ――
-              重なる帯だけが横の列で分かれる。 */}
+          {/* OOO(時刻・終日の全高ラインとも)・勤務場所は列パッキング結果どおりに
+              top(本来の時刻位置のまま)・left(column * RAIL_BAND_WIDTH_PX)で描画する。
+              縦位置は押し下げない ―― 重なる帯だけが横の列で分かれる。 */}
           {packedRailBands.map(({ item: band, column }) => {
             const top = minutesToPx(band.startMinutes, hourHeight);
             const height = Math.max(

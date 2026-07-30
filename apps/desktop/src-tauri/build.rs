@@ -9,6 +9,7 @@ fn main() {
                 "gh_api",
                 "app_version",
                 "validate_gh_path",
+                "notify",
             ])),
     )
     .expect("failed to run tauri-build");
