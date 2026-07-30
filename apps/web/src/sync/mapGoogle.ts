@@ -2,7 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { GoogleEventDTO } from "@kichijitsu/shared";
 import type { EventSeries, InstanceOverride } from "../model/series";
 import { instanceId } from "../model/series";
-import type { AllDayOccurrence, Occurrence } from "../model/types";
+import type { AllDayOccurrence, EventAttendee, Occurrence } from "../model/types";
 
 /**
  * Google Calendar の event DTO を kichijitsu のローカルモデルへ変換する純関数層。
@@ -153,12 +153,19 @@ function rsvpFields(event: GoogleEventDTO): {
   isOrganizer?: boolean;
   hasConference?: boolean;
   conferenceUrl?: string;
+  attendees?: EventAttendee[];
+  attendeesOmitted?: boolean;
 } {
   return {
     ...(event.selfResponseStatus ? { responseStatus: event.selfResponseStatus } : {}),
     ...(event.isOrganizer ? { isOrganizer: true as const } : {}),
     ...(event.hasConference ? { hasConference: true as const } : {}),
     ...(event.conferenceUrl ? { conferenceUrl: event.conferenceUrl } : {}),
+    // 参加者一覧 (2026-07-30)。selfResponseStatus/isOrganizer はこの配列から Google 側で
+    // 導かれた派生値なので、同じ断片で運ぶのが素直(4パス全てへ同じ経路で伝播する)。
+    // 空配列は「参加者なし」と同じ意味なので、キー自体を持たせない。
+    ...(event.attendees && event.attendees.length > 0 ? { attendees: event.attendees } : {}),
+    ...(event.attendeesOmitted ? { attendeesOmitted: true as const } : {}),
   };
 }
 

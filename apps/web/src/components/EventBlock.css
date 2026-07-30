@@ -565,6 +565,127 @@
   flex: none;
 }
 
+/*
+ * ---- ゲスト (参加者) 欄 (2026-07-30) ----
+ * 塊の作り方は .event-detail-calendar-list と同じ(上に区切り線を引いて小さくまとめる)。
+ * **新しい色は足していない**: 応答状態は文言と形(打ち消し線・淡さ)だけで表し、
+ * 予定カード側の描き分け(未返信=輪郭だけ / 未定=淡い / 不参加=打ち消し線)と読み方を揃える。
+ */
+.event-detail-guests {
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--c-line-warm);
+  margin-bottom: 2px;
+}
+
+.event-detail-guests-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+}
+
+.event-detail-guests-count {
+  font-weight: 600;
+}
+
+.event-detail-guests-summary {
+  color: var(--c-ink-mute);
+}
+
+/* 会議室・機材。場所行と同じトーン・同じピンアイコンで1行にまとめる */
+.event-detail-guests-rooms {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--c-ink-mute);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 一覧本体。畳んだ状態は先頭5人ぶんなので高さは知れているが、開いたときは
+ * **一覧の中でスクロールさせる**(is-expanded)―― ポップオーバー全体 (max-height 420px) を
+ * 参加者だけで埋めると、その下の出欠ボタンや編集/削除に手が届かなくなるため。
+ */
+.event-detail-guest-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.event-detail-guest-list.is-expanded {
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.event-detail-guest {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+}
+
+.event-detail-guest-who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.event-detail-guest-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+/* 「主催者」「自分」の注記。名前より一段落として、名前の読み取りを邪魔しない */
+.event-detail-guest-note {
+  flex: none;
+  font-size: 10px;
+  color: var(--c-ink-mute);
+}
+
+.event-detail-guest-mail {
+  font-size: 10px;
+  color: var(--c-ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.event-detail-guest-status {
+  flex: none;
+  font-size: 10px;
+  color: var(--c-ink-mute);
+}
+
+/* 未定 / 未返信: カード側の「淡くなる」に合わせる */
+.event-detail-guest.is-tentative,
+.event-detail-guest.is-needsAction {
+  color: var(--c-ink-mute);
+}
+
+/* 不参加: カード側と同じく打ち消し線 + さらに淡く */
+.event-detail-guest.is-declined {
+  color: var(--c-ink-faint);
+}
+
+.event-detail-guest.is-declined .event-detail-guest-name {
+  text-decoration: line-through;
+}
+
+.event-detail-guests-toggle {
+  margin-top: 6px;
+}
+
 /* ---- 削除導線 (フェーズ5) / 編集導線 (フェーズ2、2026-07-22) ---- */
 
 .event-detail-actions {

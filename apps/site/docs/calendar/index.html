@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>予定の扱い | kichijitsu</title>
-    <meta name="description" content="kichijitsu での予定の扱い。表示の切り替え、作成・編集、RSVP 返信、不在、勤務場所、キーボードショートカット。" />
+    <meta name="description" content="kichijitsu での予定の扱い。表示の切り替え、作成・編集、RSVP 返信、ゲストの見かた、不在、勤務場所、キーボードショートカット。" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#FAF7F2" />
     <meta property="og:title" content="予定の扱い | kichijitsu" />
-    <meta property="og:description" content="表示の切り替えから予定の作成・編集、RSVP、不在・勤務場所の見かた、キーボードショートカットまで。" />
+    <meta property="og:description" content="表示の切り替えから予定の作成・編集、RSVP、ゲスト・不在・勤務場所の見かた、キーボードショートカットまで。" />
     <meta property="og:type" content="article" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -51,6 +51,7 @@
             <li><a href="#create">予定を作る</a></li>
             <li><a href="#edit">予定を動かす・編集する</a></li>
             <li><a href="#rsvp">招待に返事をする (RSVP)</a></li>
+            <li><a href="#guests">ゲスト (参加者) を見る</a></li>
             <li><a href="#ooo">不在 (OOO)</a></li>
             <li><a href="#working-location">勤務場所</a></li>
             <li><a href="#legend">見た目の読みかた</a></li>
@@ -339,7 +340,8 @@
           <h3>詳細カードから編集する</h3>
           <p>
             カードをクリックすると詳細カードが開く (狭い画面では選択済みカードの再タップ)。
-            日時・オンライン会議の参加リンク・場所・説明・「Google で開く」・どのカレンダーの予定かが並ぶ。
+            日時・オンライン会議の参加リンク・場所・説明・「Google で開く」・<a href="#guests">ゲスト</a>・
+            どのカレンダーの予定かが並ぶ。
             同じ予定が複数のカレンダーに入っている場合は、その全部がここに列挙される。
           </p>
           <p>
@@ -464,6 +466,63 @@
             自分が主催で、かつ自分は不参加と返した予定を、隠さずに残しておくための逃げ道だ。
           </p>
           <p>この2つはこの端末だけの設定で、サーバーにも他の端末にも同期されない。</p>
+        </section>
+
+        <section class="doc-section" id="guests" aria-labelledby="guests-title">
+          <h2 id="guests-title">ゲスト (参加者) を見る</h2>
+          <p>
+            招待者のいる予定は、詳細カードに<strong>ゲスト</strong>の欄が出る。
+            見出しに人数と出欠の内訳、その下に一人ずつの行が並ぶ。
+            参加者のいない予定 (自分だけの予定) にはこの欄自体が出ない。
+          </p>
+          <p>
+            行に出るのは<strong>表示名</strong>と<strong>メールアドレス</strong>、そして右端に
+            <strong>参加 / 未定 / 不参加 / 未返信</strong>。
+            Google 側に表示名が無い相手 (連絡先に入っていない社外の人など) は、メールアドレスが名前の位置に出る。
+          </p>
+          <p>
+            並び順は<strong>主催者が先頭、次に自分</strong>、そのあとは Google から届いた順のまま。
+            主催者の行には「主催者」、自分の行には「自分」と添える (自分が主催の予定は「主催者」に寄せる)。
+            返事の状態では並べ替えない。同じ予定を何度も開いたときに、誰かが返事を変えるたびに
+            行が飛び回るほうが探しにくいからだ。
+          </p>
+          <p>
+            返事の状態の見え方は、予定カードの描き分けと同じ読みかたにしてある。
+            <strong>不参加</strong>は名前に打ち消し線が入って淡くなり、<strong>未定</strong>と
+            <strong>未返信</strong>は淡くなる。<strong>参加</strong>は通常のまま。
+          </p>
+
+          <h3>人数が多いとき</h3>
+          <p>
+            はじめは<strong>先頭の5人だけ</strong>を出し、残りは「他 N 人を表示」に畳んである。
+            開いても一覧の中でスクロールするので、詳細カードそのものが縦に伸び続けることはない
+            (下にある出欠のボタンや編集・削除に手が届かなくなるのを防ぐため)。
+          </p>
+          <p>
+            とても大人数の予定では、人数が<strong>「50人以上」</strong>のように出ることがある。
+            端末に持つ参加者を50人までに切ってあるためで、そのぶん出欠の内訳も手元にある50人ぶんの数になる。
+            全員を見たいときは「Google で開く」から Google カレンダー側で確認する。
+          </p>
+
+          <h3>会議室は人数に入れない</h3>
+          <p>
+            会議室やプロジェクターのような設備は、Google の上では参加者と同じ扱いで届く。
+            kichijitsu ではこれを人と分け、ゲストの人数にも出欠の内訳にも入れず、
+            <strong>場所と同じピンの付いた1行</strong>にまとめて出す。
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>ゲストの追加・削除はまだできない。</strong>この版のゲスト欄は<strong>見るだけ</strong>で、
+              人を足したり外したりはできない。Google カレンダーでは、主催者でない参加者がゲストを足しても
+              その変更は主催者側に伝わらない (参加者から主催者へ返るのは自分の出欠だけ) ため、
+              「足せたように見えて実際には誰にも届いていない」状態を作ってしまう。
+              加えて、ゲストを変えたときに<strong>関係者へ招待メールを送るかどうか</strong>は、
+              黙って決めてよい種類の選択ではない。どちらも先に決めきる必要があるので、
+              この版では表示だけにしてある。ゲストを変えたいときは「Google で開く」から
+              Google カレンダー側で操作する。
+            </p>
+          </div>
         </section>
 
         <section class="doc-section" id="ooo" aria-labelledby="ooo-title">

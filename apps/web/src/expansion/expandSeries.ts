@@ -308,6 +308,13 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     const hasConference = override?.patch?.hasConference ?? series.hasConference;
     // 会議参加 URL (2026-07-25)。hasConference と全く同じフォールバックの形
     const conferenceUrl = override?.patch?.conferenceUrl ?? series.conferenceUrl;
+    // 参加者一覧 (2026-07-30)。conferenceUrl と全く同じフォールバックの形。attendeesOmitted は
+    // 一覧そのものと対で意味を持つ(「この一覧は全員ではない」)ので、**attendees を採った側から**
+    // 一緒に取る ―― 別々にフォールバックさせると、例外インスタンスの一覧にシリーズ側のフラグが
+    // 付くような食い違いが起きる。
+    const attendeeSource = override?.patch?.attendees ? override.patch : series;
+    const attendees = attendeeSource.attendees;
+    const attendeesOmitted = attendeeSource.attendeesOmitted;
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue;
@@ -335,6 +342,8 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       ...(isOrganizer ? { isOrganizer: true } : {}),
       ...(hasConference ? { hasConference: true } : {}),
       ...(conferenceUrl ? { conferenceUrl } : {}),
+      ...(attendees && attendees.length > 0 ? { attendees } : {}),
+      ...(attendees && attendees.length > 0 && attendeesOmitted ? { attendeesOmitted: true } : {}),
     });
   }
 

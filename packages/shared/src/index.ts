@@ -23,6 +23,7 @@ export type {
   DisconnectRequest,
   ApiError,
   CalendarListEntryDTO,
+  EventAttendeeDTO,
   GoogleEventDTO,
   MeResponse,
   VisibleCalendarsRequest,

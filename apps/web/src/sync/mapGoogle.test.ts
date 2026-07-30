@@ -1041,3 +1041,78 @@ describe("mapGoogleEvents: 会議参加 URL (conferenceUrl、2026-07-25)", () =>
     expect(result.overrides[0].patch).not.toHaveProperty("conferenceUrl");
   });
 });
+
+describe("mapGoogleEvents: 参加者一覧 (attendees、2026-07-30)", () => {
+  const ATTENDEES = [
+    { email: "boss@example.com", displayName: "主催", organizer: true as const, responseStatus: "accepted" as const },
+    { email: "me@example.com", self: true as const, responseStatus: "tentative" as const },
+  ];
+
+  it("単発イベントの attendees を occurrence へ写す", () => {
+    const result = mapGoogleEvents([baseEvent({ id: "att-single", attendees: ATTENDEES })], ctx);
+
+    expect(result.singles[0].attendees).toEqual(ATTENDEES);
+  });
+
+  it("終日イベント (start.date のみ) にも attendees を写す", () => {
+    const result = mapGoogleEvents(
+      [
+        baseEvent({
+          id: "att-allday",
+          start: { date: "2026-07-20" },
+          end: { date: "2026-07-21" },
+          attendees: ATTENDEES,
+        }),
+      ],
+      ctx,
+    );
+
+    expect(result.allDays[0].attendees).toEqual(ATTENDEES);
+  });
+
+  it("繰り返し親イベントは EventSeries へ attendees を写す", () => {
+    const result = mapGoogleEvents(
+      [baseEvent({ id: "att-series", recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"], attendees: ATTENDEES })],
+      ctx,
+    );
+
+    expect(result.series[0].attendees).toEqual(ATTENDEES);
+  });
+
+  it("例外インスタンスは InstanceOverride.patch へ attendees を写す", () => {
+    const result = mapGoogleEvents(
+      [
+        baseEvent({
+          id: "att-exception",
+          recurringEventId: "att-series",
+          originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+          start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+          end: { dateTime: "2026-07-27T11:00:00+09:00", timeZone: "Asia/Tokyo" },
+          attendees: ATTENDEES,
+        }),
+      ],
+      ctx,
+    );
+
+    expect(result.overrides[0].patch?.attendees).toEqual(ATTENDEES);
+  });
+
+  it("attendeesOmitted も attendees と対で写す", () => {
+    const result = mapGoogleEvents(
+      [baseEvent({ id: "att-omitted", attendees: ATTENDEES, attendeesOmitted: true })],
+      ctx,
+    );
+
+    expect(result.singles[0].attendeesOmitted).toBe(true);
+  });
+
+  it("attendees が無い/空なら occurrence 側もキー自体を持たない", () => {
+    const result = mapGoogleEvents(
+      [baseEvent({ id: "att-none" }), baseEvent({ id: "att-empty", attendees: [] })],
+      ctx,
+    );
+
+    expect(result.singles[0]).not.toHaveProperty("attendees");
+    expect(result.singles[1]).not.toHaveProperty("attendees");
+  });
+});

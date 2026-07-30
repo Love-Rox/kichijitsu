@@ -1,4 +1,4 @@
-import type { GoogleEventDTO } from "@kichijitsu/shared";
+import type { EventAttendeeDTO, GoogleEventDTO } from "@kichijitsu/shared";
 
 /** Google Calendar API `events.list` の応答から必要なフィールドだけを写した型。 */
 interface RawGoogleEvent {
@@ -21,12 +21,18 @@ interface RawGoogleEvent {
   /** 不在レール表示 (2026-07-22) が使う。Google の生文字列をそのまま写す。 */
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation" | "birthday";
   /**
-   * 参加ステータス表示 (RSVP、2026-07-22) の元データ。deriveSelfResponseStatus/
-   * deriveIsOrganizer が self:true のエントリだけを拾って GoogleEventDTO の派生フィールドへ
-   * 潰し、この生配列自体は toGoogleEventDTO の戻り値には含めない (email は self エントリの
-   * 特定にのみ使い、DTO には渡さない ―― リーン維持)。
+   * 参加ステータス表示 (RSVP、2026-07-22) と参加者の表示 (2026-07-30) の元データ。
+   * deriveSelfResponseStatus/deriveIsOrganizer が self:true のエントリだけを拾って
+   * GoogleEventDTO の派生フィールドへ潰し、配列そのものは deriveAttendees が
+   * **必要なフィールドだけ・上限件数まで**に絞ってから DTO へ載せる。
    */
-  attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
+  attendees?: RawAttendee[];
+  /**
+   * Google 自身が「attendees は全員ぶんではない」と宣言するフィールド (maxAttendees を
+   * 指定したときに立つ)。kichijitsu は maxAttendees を付けない (buildEventsListUrl 参照)
+   * ため通常は来ないが、来たときに黙って握り潰さないよう deriveAttendeesOmitted で拾う。
+   */
+  attendeesOmitted?: boolean;
   /** deriveIsOrganizer が self のみを見て isOrganizer を導出する。 */
   organizer?: { self?: boolean };
   /**
@@ -49,6 +55,20 @@ interface RawGoogleEvent {
  */
 interface RawConferenceData {
   entryPoints?: { entryPointType?: string; uri?: string }[];
+}
+
+/**
+ * event.attendees[] の1要素のうち kichijitsu が読むフィールドだけを写した型。
+ * Google は他にも id/comment/additionalGuests/optional を返すが、参加者の表示
+ * (2026-07-30) に要らないため写さない ―― 詳細は EventAttendeeDTO のコメント参照。
+ */
+interface RawAttendee {
+  email?: string;
+  displayName?: string;
+  self?: boolean;
+  organizer?: boolean;
+  resource?: boolean;
+  responseStatus?: string;
 }
 
 /** GoogleEventDTO.selfResponseStatus が取り得る値。Google の生文字列との照合に使う */
@@ -75,6 +95,86 @@ export function deriveSelfResponseStatus(
 /** event.organizer.self===true のときのみ true。それ以外(false/organizer 自体が無い)は undefined */
 export function deriveIsOrganizer(organizer: RawGoogleEvent["organizer"]): true | undefined {
   return organizer?.self === true ? true : undefined;
+}
+
+/**
+ * DTO に載せる参加者の上限件数 (参加者の表示、2026-07-30)。
+ *
+ * サーバーはイベント本体を保存しない設計なので、ここで通した配列はそのまま各端末の
+ * IndexedDB に積まれる ―― 大人数の予定 (全社会議など数百人) を丸ごと持つと、読みもしない
+ * データでレプリカが膨らむ。詳細カードが実際に見せるのは十数人ぶんで、それを超える分は
+ * どのみち「ほか N 人」に畳まれるため、50 件で足切りして attendeesOmitted を立てる。
+ *
+ * events.list の `maxAttendees` は**使わない**: 公式仕様が「上限を超えた場合は
+ * (切り詰めるのではなく) 参加者本人1件だけを返す」と定めており、大人数の予定で
+ * 一覧が丸ごと消えてしまう。切り詰めは自前でやる方が挙動が読める。
+ * (加えて syncToken は取得時と同じクエリパラメータでしか使えないため、events.list の
+ *  パラメータ構成は増やさないに越したことがない ―― buildEventsListUrl のコメント参照)
+ */
+export const MAX_DTO_ATTENDEES = 50;
+
+/**
+ * attendees[] の1件を DTO 形へ。email も displayName も無い行は画面に出しようがないので
+ * null を返して落とす (Google は現在 email に必ず何かを入れて返すが、それが実在しない
+ * 生成値のことがある ―― 公式の alwaysIncludeEmail の記述参照。両方欠けた行は残さない)。
+ * responseStatus は deriveSelfResponseStatus と同じく、union に無い値は落として安全側へ倒す。
+ */
+function toAttendeeDTO(attendee: RawAttendee): EventAttendeeDTO | null {
+  if (!attendee.email && !attendee.displayName) return null;
+  const status =
+    attendee.responseStatus && VALID_RESPONSE_STATUSES.has(attendee.responseStatus)
+      ? (attendee.responseStatus as NonNullable<EventAttendeeDTO["responseStatus"]>)
+      : undefined;
+  return {
+    ...(attendee.email ? { email: attendee.email } : {}),
+    ...(attendee.displayName ? { displayName: attendee.displayName } : {}),
+    ...(status ? { responseStatus: status } : {}),
+    ...(attendee.self === true ? { self: true as const } : {}),
+    ...(attendee.organizer === true ? { organizer: true as const } : {}),
+    ...(attendee.resource === true ? { resource: true as const } : {}),
+  };
+}
+
+/**
+ * 参加者一覧 (GoogleEventDTO.attendees / attendeesOmitted、2026-07-30) を組み立てる。
+ * 値がある分だけスプレッドできる断片を返す (web 側 mapGoogle.ts の rsvpFields と同じ流儀 ――
+ * 「無ければキー自体を持たせない」)。
+ *
+ * 上限 (MAX_DTO_ATTENDEES) を超えたときは**自分 (self) と主催者 (organizer) を必ず残し**、
+ * 残りを元の順で埋める: 詳細カードは真っ先にこの2人を出すので、切り詰めで消えると
+ * 「主催者が分からない」「自分がいない」という一番困る欠け方をする。この場合だけ順序が
+ * 元の attendees 順とずれるが、上限に達しない通常の予定 (ほぼ全部) では順序を保つ。
+ *
+ * attendeesOmitted は「手元の一覧が全員ぶんではない」ことを示す。立てるのは3通り:
+ *   - Google 自身が立てて返してきた (maxAttendees 指定時。kichijitsu は指定しないので通常来ない)
+ *   - MAX_DTO_ATTENDEES で切り詰めた
+ *   - email も displayName も無い行を落とした
+ * いずれも「人数を断定できない」点では同じなので、表示側は1つのフラグとして扱えばよい。
+ */
+export function deriveAttendeeList(raw: RawGoogleEvent): {
+  attendees?: EventAttendeeDTO[];
+  attendeesOmitted?: true;
+} {
+  const list = raw.attendees;
+  if (!list || list.length === 0) return {};
+
+  const mapped = list
+    .map(toAttendeeDTO)
+    .filter((attendee): attendee is EventAttendeeDTO => attendee !== null);
+  if (mapped.length === 0) return {};
+
+  const omitted = raw.attendeesOmitted === true || mapped.length < list.length;
+
+  if (mapped.length <= MAX_DTO_ATTENDEES) {
+    return { attendees: mapped, ...(omitted ? { attendeesOmitted: true as const } : {}) };
+  }
+
+  const keepFirst = mapped.filter((a) => a.self === true || a.organizer === true);
+  const rest = mapped.filter((a) => a.self !== true && a.organizer !== true);
+  return {
+    attendees: [...keepFirst, ...rest].slice(0, MAX_DTO_ATTENDEES),
+    attendeesOmitted: true,
+  };
 }
 
 /**
@@ -175,10 +275,10 @@ interface RawEventsListResponse {
  * ここに置いてあるのは、この数字の意味が「toGoogleEventDTO (下) が何を載せられるか」そのものだから。
  * **サーバー側の DTO に新しいフィールドを足したときは、web の CURRENT_SYNC_BACKFILL_VERSION
  * (apps/web/src/db/database.ts) と一緒にこの値も上げる**。世代の意味 (1=eventType, 2=RSVP,
- * 3=isWorkingLocation, 4=空振り用, 5=conferenceUrl) は web 側のコメントに一覧がある。
- * 現在値 5 = conferenceUrl まで対応 (deriveConferenceUrl、2026-07-25)。
+ * 3=isWorkingLocation, 4=空振り用, 5=conferenceUrl, 6=attendees) は web 側のコメントに一覧がある。
+ * 現在値 6 = attendees / attendeesOmitted まで対応 (deriveAttendeeList、2026-07-30)。
  */
-export const SUPPORTED_SYNC_BACKFILL_VERSION = 5;
+export const SUPPORTED_SYNC_BACKFILL_VERSION = 6;
 
 export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
   return {
@@ -202,6 +302,7 @@ export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
     isOrganizer: deriveIsOrganizer(raw.organizer),
     hasConference: deriveHasConference(raw.conferenceData, raw.hangoutLink),
     conferenceUrl: deriveConferenceUrl(raw.conferenceData, raw.hangoutLink),
+    ...deriveAttendeeList(raw),
   };
 }
 
