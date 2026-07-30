@@ -315,6 +315,11 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
     const attendeeSource = override?.patch?.attendees ? override.patch : series;
     const attendees = attendeeSource.attendees;
     const attendeesOmitted = attendeeSource.attendeesOmitted;
+    // 予定ごとのリマインダー (2026-07-31)。conferenceUrl と同じフォールバックの形だが、
+    // **`??` で判定する**のが要点 ―― この値は `{ minutes: [] }` (= リマインダーなし) という
+    // falsy になり得ない一方で意味のある状態を持つので、truthy 判定にすると
+    // 「その回だけ通知を切った」例外インスタンスがシリーズ側の設定に戻ってしまう。
+    const reminders = override?.patch?.reminders ?? series.reminders;
 
     if (startMs < windowStartMs || startMs >= windowEndMs) {
       continue;
@@ -344,6 +349,7 @@ export function expandSeries(input: ExpandInput): Occurrence[] {
       ...(conferenceUrl ? { conferenceUrl } : {}),
       ...(attendees && attendees.length > 0 ? { attendees } : {}),
       ...(attendees && attendees.length > 0 && attendeesOmitted ? { attendeesOmitted: true } : {}),
+      ...(reminders ? { reminders } : {}),
     });
   }
 

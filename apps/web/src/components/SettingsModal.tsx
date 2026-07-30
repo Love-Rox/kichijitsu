@@ -5,10 +5,12 @@ import { getGhPathOverride, isTauri, saveGhPathOverride } from "../sync/githubPr
 import { clearAppCaches } from "../sync/appCache";
 import { notifyNatively } from "../sync/desktopNotify";
 import {
-  getReminderLeadMinutes,
-  REMINDER_LEAD_OFF,
+  getReminderMode,
+  MAX_HONORED_LEAD_MINUTES,
   REMINDER_LEAD_PRESETS,
-  setReminderLeadMinutes,
+  serializeReminderMode,
+  setReminderMode,
+  type ReminderMode,
 } from "../sync/reminderSchedule";
 import { getThemePref, setThemePref, type ThemePref } from "../sync/themePref";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
@@ -589,14 +591,19 @@ function GhPathOverrideControl() {
 }
 
 /**
- * 「何分前に通知するか」の選択肢。値の正は sync/reminderSchedule.ts の
- * REMINDER_LEAD_PRESETS / REMINDER_LEAD_OFF で、ここは表示ラベルだけを足している。
+ * 「何分前に通知するか」の選択肢。値の正は sync/reminderSchedule.ts の ReminderMode /
+ * REMINDER_LEAD_PRESETS で、ここは表示ラベルだけを足している。
+ *
+ * 先頭が既定の「Google の設定に従う」。以下は「Google 側の設定を無視して一律◯分前」で、
+ * 2026-07-30 時点の挙動をそのまま選べるように残してある(この設定で明示的に分数を
+ * 選んでいた利用者は、その選択のまま引き継がれる ―― parseReminderMode 参照)。
  */
-const REMINDER_LEAD_OPTIONS: { value: number; label: string }[] = [
-  { value: REMINDER_LEAD_OFF, label: "通知しない" },
+const REMINDER_MODE_OPTIONS: { mode: ReminderMode; label: string }[] = [
+  { mode: { kind: "google" }, label: "Google の設定に従う" },
+  { mode: { kind: "off" }, label: "通知しない" },
   ...REMINDER_LEAD_PRESETS.map((minutes) => ({
-    value: minutes,
-    label: minutes >= 60 ? `${minutes / 60} 時間前` : `${minutes} 分前`,
+    mode: { kind: "fixed", minutes } as ReminderMode,
+    label: minutes >= 60 ? `一律 ${minutes / 60} 時間前` : `一律 ${minutes} 分前`,
   })),
 ];
 
@@ -623,7 +630,7 @@ const REMINDER_LEAD_OPTIONS: { value: number; label: string }[] = [
  * (OS の設定のどこを見るか) を置く形にした。
  */
 function ReminderControl() {
-  const [leadMinutes, setLeadMinutes] = useState<number>(() => getReminderLeadMinutes());
+  const [mode, setMode] = useState<ReminderMode>(() => getReminderMode());
   const [tested, setTested] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
 
@@ -641,9 +648,9 @@ function ReminderControl() {
   return (
     <>
       <p className="settings-modal-section-desc">
-        予定が始まる前に、macOS の通知でお知らせします。
-        <strong>Google カレンダー側で予定ごとに設定した通知は使いません</strong>
-        ―― ここで選んだ分数を、すべての予定に一律で適用します。時刻のない終日の予定は通知しません。
+        予定が始まる前に、macOS の通知でお知らせします。既定では
+        <strong>Google カレンダー側で予定ごとに設定した通知に従います</strong>
+        ―― Google 側で「30 分前」にしてある予定は 30 分前に、通知を設定していない予定は通知しません。時刻のない終日の予定は通知しません。
       </p>
       <p className="settings-modal-section-desc">
         通知が届くのは kichijitsu が起動している間だけです(ウィンドウを閉じてトレイに隠している間は届きます。トレイメニューの「終了」でアプリを終わらせている間は届きません)。
@@ -655,20 +662,42 @@ function ReminderControl() {
         <select
           id="settings-reminder-lead"
           className="settings-modal-reminder-select"
-          value={leadMinutes}
+          value={serializeReminderMode(mode)}
           onChange={(e) => {
-            const next = Number(e.target.value);
-            setReminderLeadMinutes(next);
-            setLeadMinutes(next);
+            const next =
+              REMINDER_MODE_OPTIONS.find((o) => serializeReminderMode(o.mode) === e.target.value)
+                ?.mode ?? mode;
+            setReminderMode(next);
+            setMode(next);
           }}
         >
-          {REMINDER_LEAD_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
+          {REMINDER_MODE_OPTIONS.map((option) => (
+            <option key={serializeReminderMode(option.mode)} value={serializeReminderMode(option.mode)}>
               {option.label}
             </option>
           ))}
         </select>
       </div>
+      {/*
+       * 選んだ結果どうなるかを、その場で1文だけ添える。「Google の設定に従う」は
+       * 説明すべきことが多い(複数設定・カレンダー既定・上限)ので、そこだけ厚くする。
+       */}
+      <p className="settings-modal-section-desc">
+        {mode.kind === "google" ? (
+          <>
+            予定に通知が複数(「1 時間前」と「10 分前」など)設定されていれば、そのすべてでお知らせします。「デフォルトの通知を使用」の予定はカレンダーごとの既定に従います。
+            <strong>メールの通知は対象外</strong>(Google
+            が自分でメールを送るため)、
+            <strong>{MAX_HONORED_LEAD_MINUTES / 60} 時間より前の通知も対象外</strong>です。
+          </>
+        ) : mode.kind === "off" ? (
+          <>予定側の設定に関わらず、通知は出しません。</>
+        ) : (
+          <>
+            <strong>Google 側の設定は使いません。</strong>ここで選んだ分数を、すべての予定に一律で適用します。
+          </>
+        )}
+      </p>
       <div className="settings-modal-reminder-row">
         <button type="button" className="settings-modal-text-btn" onClick={sendTest}>
           テスト通知を送る

@@ -2,7 +2,12 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { GoogleEventDTO } from "@kichijitsu/shared";
 import type { EventSeries, InstanceOverride } from "../model/series";
 import { instanceId } from "../model/series";
-import type { AllDayOccurrence, EventAttendee, Occurrence } from "../model/types";
+import type {
+  AllDayOccurrence,
+  EventAttendee,
+  EventReminders,
+  Occurrence,
+} from "../model/types";
 
 /**
  * Google Calendar の event DTO を kichijitsu のローカルモデルへ変換する純関数層。
@@ -170,6 +175,22 @@ function rsvpFields(event: GoogleEventDTO): {
 }
 
 /**
+ * 予定ごとのリマインダー設定 (2026-07-31) を、値がある分だけスプレッドできる断片にする。
+ *
+ * rsvpFields と分けてあるのは、**行き先が違う**から: rsvpFields は buildSingle / buildAllDay /
+ * buildSeries / buildOverride の4パス全てに流すが、リマインダーは終日予定 (buildAllDay) には
+ * 流さない ―― 終日予定には「何分前」の基準になる時刻が無く通知の対象外なので
+ * (reminderSchedule.ts の isReminderTarget)、読む側のいない値を全端末の IndexedDB に
+ * 積むことになる。終日予定にも通知を出すことにした時点で buildAllDay にも足せばよい。
+ *
+ * `{ minutes: [] }` (= リマインダーを1つも設定していない) は falsy ではないのでそのまま通る。
+ * キーごと落とすのは event.reminders 自体が来なかったとき (削除通知や旧サーバー) だけ。
+ */
+function reminderFields(event: GoogleEventDTO): { reminders?: EventReminders } {
+  return event.reminders ? { reminders: event.reminders } : {};
+}
+
+/**
  * 色の決定順位: イベント個別 colorId があればそれ(Google 公式パレット)、
  * 無ければカレンダー自体の色 (ctx.defaultColor、Google の backgroundColor)、
  * それも無ければ最終フォールバックの DEFAULT_COLOR。
@@ -328,6 +349,7 @@ function buildSeries(event: GoogleEventDTO, ctx: MapGoogleContext): EventSeries 
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
     ...(isWorkingLocationEvent(event) ? { isWorkingLocation: true } : {}),
     ...rsvpFields(event),
+    ...reminderFields(event),
   };
 }
 
@@ -366,7 +388,7 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   if (isWorkingLocationEvent(event)) {
     patch.isWorkingLocation = true;
   }
-  Object.assign(patch, rsvpFields(event));
+  Object.assign(patch, rsvpFields(event), reminderFields(event));
 
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch };
 }
@@ -441,6 +463,7 @@ function buildSingle(
     ...(isOutOfOfficeEvent(event) ? { isOutOfOffice: true } : {}),
     ...(isWorkingLocationEvent(event) ? { isWorkingLocation: true } : {}),
     ...rsvpFields(event),
+    ...reminderFields(event),
   };
 }
 

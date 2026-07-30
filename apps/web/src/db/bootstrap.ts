@@ -174,7 +174,7 @@ export async function bootstrapDatabase({
   // 分かりにくい分岐を生んでいた。掃除の直後に入れ直すので重複も生まれない
   // (何度リロードしても同じ見え方になる、という要件そのもの)
   if (demoSeedEnabled) {
-    const demo = generateDemoSeedData(Temporal.Now.plainDateISO(), timeZone);
+    const demo = generateDemoSeedData(Temporal.Now.plainDateISO(), timeZone, Date.now());
     await putSeries(database, demo.series);
     await Promise.all(demo.overrides.map((o) => putOverride(database, o)));
     await putOccurrences(database, demo.occurrences);

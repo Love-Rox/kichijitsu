@@ -714,12 +714,33 @@ function App() {
     onCloseHelp: closeHelp,
   });
 
+  // カレンダーごとの既定リマインダー (2026-07-31)。Google 上のほとんどの予定は
+  // `reminders.useDefault: true`(= 予定側に分数が入っていない)なので、通知の判定には
+  // この lookup が要る。calendarLookup と同じ形だが、あちらは表示用 (名前と色) で
+  // useEventReminders より後ろで組み立てているため、判定用はここに分けて置く。
+  const calendarDefaultReminders = useMemo(() => {
+    const lookup = new Map<string, readonly number[]>();
+    for (const [accountId, calendars] of Object.entries(calendarsByAccount)) {
+      for (const cal of calendars) {
+        if (cal.defaultReminderMinutes) {
+          lookup.set(calendarKey(accountId, cal.id), cal.defaultReminderMinutes);
+        }
+      }
+    }
+    return lookup;
+  }, [calendarsByAccount]);
+
   // 予定のリマインダー通知(デスクトップ版のみ)。判定は sync/reminderSchedule.ts の
   // 純関数、送出は sync/desktopNotify.ts、時間駆動の配線は hooks/useEventReminders.ts に
   // 分けてある。useGlobalShortcuts と同じ「返り値を持たない副作用フック」なので、
   // データ系フックの後ろにまとめて置く。ブラウザ/PWA では canNotifyNatively() が false に
   // なり配線ごと張らない。
-  useEventReminders({ store, timeZone, enabled: canNotifyNatively() });
+  useEventReminders({
+    store,
+    timeZone,
+    enabled: canNotifyNatively(),
+    calendarDefaults: calendarDefaultReminders,
+  });
 
   // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
   // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した

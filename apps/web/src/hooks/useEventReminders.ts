@@ -24,12 +24,13 @@ import type { OccurrenceStore } from "../store/occurrenceStore";
 import { notifyNatively } from "../sync/desktopNotify";
 import {
   getNotifiedKeys,
-  getReminderLeadMinutes,
+  getReminderMode,
   pruneNotifiedKeys,
-  REMINDER_LEAD_OFF,
+  REMINDER_LOOKAHEAD_MS,
   REMINDER_TICK_MS,
   selectDueReminders,
   setNotifiedKeys,
+  type CalendarDefaultReminders,
 } from "../sync/reminderSchedule";
 
 export interface UseEventRemindersOptions {
@@ -39,12 +40,20 @@ export interface UseEventRemindersOptions {
   timeZone: string;
   /** デスクトップ版 (Tauri) かどうか。false のときは配線ごと張らない */
   enabled: boolean;
+  /**
+   * カレンダーごとの既定リマインダー (2026-07-31)。予定側が `{ useDefault: true }` の
+   * ときの分数はここにしか無い (CalendarListEntryDTO.defaultReminderMinutes)。
+   * カレンダー一覧の取得より先に tick が走ることがあるので、空でも動くこと。
+   */
+  calendarDefaults: CalendarDefaultReminders;
 }
 
-/** 判定のたびに store から読む範囲の上限。最大プリセット (60 分) + tick 1回分の余裕 */
-const LOOKAHEAD_MS = 61 * 60 * 1000;
-
-export function useEventReminders({ store, timeZone, enabled }: UseEventRemindersOptions): void {
+export function useEventReminders({
+  store,
+  timeZone,
+  enabled,
+  calendarDefaults,
+}: UseEventRemindersOptions): void {
   useEffect(() => {
     if (!enabled || !store) return;
 
@@ -54,14 +63,21 @@ export function useEventReminders({ store, timeZone, enabled }: UseEventReminder
       if (disposed) return;
 
       // 設定は毎 tick 読む。設定モーダル側は localStorage に直接書く流儀 (ThemeControl と
-      // 同じ) なので、変更を伝える経路はこれで足りる ―― 次の tick から新しい分数で動く。
-      const leadMinutes = getReminderLeadMinutes();
-      if (leadMinutes === REMINDER_LEAD_OFF) return;
+      // 同じ) なので、変更を伝える経路はこれで足りる ―― 次の tick から新しい設定で動く。
+      const mode = getReminderMode();
+      if (mode.kind === "off") return;
 
       const nowMs = Date.now();
-      const candidates = store.getRange(nowMs, nowMs + LOOKAHEAD_MS);
+      const candidates = store.getRange(nowMs, nowMs + REMINDER_LOOKAHEAD_MS);
       const notified = getNotifiedKeys();
-      const due = selectDueReminders({ candidates, nowMs, leadMinutes, notified, timeZone });
+      const due = selectDueReminders({
+        candidates,
+        nowMs,
+        mode,
+        calendarDefaults,
+        notified,
+        timeZone,
+      });
 
       // 通知済み記録は「出そうとした時点」で先に確定させる。通知の送出は非同期なので、
       // await してから記録すると、その間に次の tick が同じ予定をもう一度拾ってしまう。
@@ -85,5 +101,5 @@ export function useEventReminders({ store, timeZone, enabled }: UseEventReminder
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [store, timeZone, enabled]);
+  }, [store, timeZone, enabled, calendarDefaults]);
 }

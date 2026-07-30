@@ -1,4 +1,4 @@
-import type { EventAttendeeDTO, GoogleEventDTO } from "@kichijitsu/shared";
+import type { EventAttendeeDTO, EventRemindersDTO, GoogleEventDTO } from "@kichijitsu/shared";
 
 /** Google Calendar API `events.list` の応答から必要なフィールドだけを写した型。 */
 interface RawGoogleEvent {
@@ -44,6 +44,18 @@ interface RawGoogleEvent {
    */
   conferenceData?: RawConferenceData;
   hangoutLink?: string;
+  /**
+   * 予定ごとのリマインダー設定 (2026-07-31)。deriveReminders が popup だけに絞って DTO へ載せる。
+   * events.list は通常このフィールドを必ず返すが、削除通知 (status: cancelled) は id しか
+   * 持たないことが保証されているため optional。
+   */
+  reminders?: RawReminders;
+}
+
+/** event.reminders の生の形 (公式仕様は EventRemindersDTO のコメント参照) */
+interface RawReminders {
+  useDefault?: boolean;
+  overrides?: { method?: string; minutes?: number }[];
 }
 
 /**
@@ -178,6 +190,75 @@ export function deriveAttendeeList(raw: RawGoogleEvent): {
 }
 
 /**
+ * リマインダーの分数の上限 (公式: "Valid values are between 0 and 40320 (4 weeks in minutes)")。
+ * これを超える値は Google 側が受け付けないはずだが、写す前にここで弾いて
+ * 「4週間より前に通知が飛ぶ」異常値がクライアントへ渡らないようにする。
+ */
+export const MAX_REMINDER_MINUTES = 40320;
+
+/**
+ * DTO に載せる overrides の上限 (公式: "The maximum number of override reminders is 5.")。
+ * 仕様上5件を超えることは無いはずだが、attendees と同じくサーバー応答を鵜呑みにせず
+ * 上限を自分で持つ (この配列も各端末の IndexedDB にそのまま積まれるため)。
+ */
+export const MAX_REMINDER_OVERRIDES = 5;
+
+/**
+ * `{ method, minutes }` の配列から **popup のものの minutes だけ**を昇順・重複除去で取り出す。
+ * event.reminders.overrides と calendarList の defaultReminders は公式仕様上まったく同じ形
+ * (method は "email"/"popup" の2値、minutes は 0〜40320) なので、判定はここ1箇所に集約する
+ * (google/calendar-list.ts からも呼ぶ)。
+ *
+ * **email を落とす理由**: 公式の Delivery mechanisms に "Email sent by the server" とあり、
+ * メールは Google 自身が送る。同じ時刻に kichijitsu がデスクトップ通知を重ねると、
+ * 「メールで受け取る」という利用者の選択を勝手にポップアップへ読み替えることになる。
+ *
+ * 昇順にするのは、通知の判定 (web の reminderSchedule.ts) が「近いものから」を素直に
+ * 扱えるようにするためと、同じ集合が常に同じ配列になって差分同期での無駄な書き換えを
+ * 避けるため。
+ */
+export function derivePopupReminderMinutes(
+  entries: { method?: string; minutes?: number }[] | undefined,
+): number[] {
+  if (!entries || entries.length === 0) return [];
+  const minutes = new Set<number>();
+  for (const entry of entries) {
+    if (entry.method !== "popup") continue;
+    const value = entry.minutes;
+    // 非整数・負値・上限超えは黙って落とす (通知は「時刻」の機能なので、
+    // 解釈できない値で近似するより出さないほうが害が小さい)
+    if (typeof value !== "number" || !Number.isInteger(value)) continue;
+    if (value < 0 || value > MAX_REMINDER_MINUTES) continue;
+    minutes.add(value);
+  }
+  return [...minutes].sort((a, b) => a - b).slice(0, MAX_REMINDER_OVERRIDES);
+}
+
+/**
+ * event.reminders → GoogleEventDTO.reminders (2026-07-31)。値がある分だけスプレッドできる
+ * 断片を返す (deriveAttendeeList と同じ流儀)。
+ *
+ * 3状態の作り分けが要点 (EventRemindersDTO のコメント参照):
+ *   - useDefault === true          → `{ useDefault: true }`。**分数はここには無い**
+ *                                    (カレンダー既定 = calendarList 側から来る)
+ *   - useDefault !== true          → `{ minutes: popup の分数 }`。**空配列でも省略しない** ――
+ *                                    「リマインダーを1つも設定していない」という積極的な意味を
+ *                                    持ち、undefined (未同期) と混同してはいけない
+ *   - reminders 自体が無い         → キーを持たせない (削除通知など、Google が返さなかった場合)
+ *
+ * useDefault が true でも overrides が付いてきた場合は useDefault を優先する: 公式は
+ * 「overrides は useDefault が false のときに限り設定できる」としか書いておらず、両立時の
+ * 挙動は未定義。宣言されたほう (useDefault) に従うのが素直で、かつ Google の UI 上の
+ * 「デフォルトの通知を使用」と一致する。
+ */
+export function deriveReminders(raw: RawGoogleEvent): { reminders?: EventRemindersDTO } {
+  const reminders = raw.reminders;
+  if (!reminders) return {};
+  if (reminders.useDefault === true) return { reminders: { useDefault: true } };
+  return { reminders: { minutes: derivePopupReminderMinutes(reminders.overrides) } };
+}
+
+/**
  * 会議リンク (conferenceData または hangoutLink) の有無。存在判定のみで、値そのものは
  * DTO へ持ち出さない(GoogleEventDTO.hasConference のコメント参照 ―― Google API は
  * 「自分がオンライン/現地のどちらで参加するか」を公開していないため、イベント側の
@@ -275,10 +356,11 @@ interface RawEventsListResponse {
  * ここに置いてあるのは、この数字の意味が「toGoogleEventDTO (下) が何を載せられるか」そのものだから。
  * **サーバー側の DTO に新しいフィールドを足したときは、web の CURRENT_SYNC_BACKFILL_VERSION
  * (apps/web/src/db/database.ts) と一緒にこの値も上げる**。世代の意味 (1=eventType, 2=RSVP,
- * 3=isWorkingLocation, 4=空振り用, 5=conferenceUrl, 6=attendees) は web 側のコメントに一覧がある。
- * 現在値 6 = attendees / attendeesOmitted まで対応 (deriveAttendeeList、2026-07-30)。
+ * 3=isWorkingLocation, 4=空振り用, 5=conferenceUrl, 6=attendees, 7=reminders) は web 側の
+ * コメントに一覧がある。
+ * 現在値 7 = reminders まで対応 (deriveReminders、2026-07-31)。
  */
-export const SUPPORTED_SYNC_BACKFILL_VERSION = 6;
+export const SUPPORTED_SYNC_BACKFILL_VERSION = 7;
 
 export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
   return {
@@ -303,6 +385,7 @@ export function toGoogleEventDTO(raw: RawGoogleEvent): GoogleEventDTO {
     hasConference: deriveHasConference(raw.conferenceData, raw.hangoutLink),
     conferenceUrl: deriveConferenceUrl(raw.conferenceData, raw.hangoutLink),
     ...deriveAttendeeList(raw),
+    ...deriveReminders(raw),
   };
 }
 

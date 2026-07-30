@@ -1116,3 +1116,84 @@ describe("mapGoogleEvents: 参加者一覧 (attendees、2026-07-30)", () => {
     expect(result.singles[1]).not.toHaveProperty("attendees");
   });
 });
+
+describe("mapGoogleEvents: 予定ごとのリマインダー (reminders、2026-07-31)", () => {
+  it("単発イベントの reminders を occurrence へ写す", () => {
+    const result = mapGoogleEvents(
+      [baseEvent({ id: "rem-single", reminders: { minutes: [10, 60] } })],
+      ctx,
+    );
+
+    expect(result.singles[0].reminders).toEqual({ minutes: [10, 60] });
+  });
+
+  it("useDefault もそのまま写す (分数はカレンダー既定側から解決する)", () => {
+    const result = mapGoogleEvents(
+      [baseEvent({ id: "rem-default", reminders: { useDefault: true } })],
+      ctx,
+    );
+
+    expect(result.singles[0].reminders).toEqual({ useDefault: true });
+  });
+
+  it("空の minutes (= リマインダーなし) も落とさずに写す ―― 未同期と区別が付かなくなるため", () => {
+    const result = mapGoogleEvents([baseEvent({ id: "rem-empty", reminders: { minutes: [] } })], ctx);
+
+    expect(result.singles[0].reminders).toEqual({ minutes: [] });
+  });
+
+  it("繰り返し親イベントは EventSeries へ写す", () => {
+    const result = mapGoogleEvents(
+      [
+        baseEvent({
+          id: "rem-series",
+          recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+          reminders: { minutes: [30] },
+        }),
+      ],
+      ctx,
+    );
+
+    expect(result.series[0].reminders).toEqual({ minutes: [30] });
+  });
+
+  it("例外インスタンスは InstanceOverride.patch へ写す (その回だけ通知を切れる)", () => {
+    const result = mapGoogleEvents(
+      [
+        baseEvent({
+          id: "rem-exception",
+          recurringEventId: "rem-series",
+          originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+          start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+          end: { dateTime: "2026-07-27T11:00:00+09:00", timeZone: "Asia/Tokyo" },
+          reminders: { minutes: [] },
+        }),
+      ],
+      ctx,
+    );
+
+    expect(result.overrides[0].patch?.reminders).toEqual({ minutes: [] });
+  });
+
+  it("終日イベントには写さない ―― 終日は通知の対象外で、読む側がいないため", () => {
+    const result = mapGoogleEvents(
+      [
+        baseEvent({
+          id: "rem-allday",
+          start: { date: "2026-07-20" },
+          end: { date: "2026-07-21" },
+          reminders: { minutes: [1440] },
+        }),
+      ],
+      ctx,
+    );
+
+    expect(result.allDays[0]).not.toHaveProperty("reminders");
+  });
+
+  it("reminders が無ければ occurrence 側もキー自体を持たない", () => {
+    const result = mapGoogleEvents([baseEvent({ id: "rem-none" })], ctx);
+
+    expect(result.singles[0]).not.toHaveProperty("reminders");
+  });
+});

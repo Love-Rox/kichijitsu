@@ -24,6 +24,7 @@ export type {
   ApiError,
   CalendarListEntryDTO,
   EventAttendeeDTO,
+  EventRemindersDTO,
   GoogleEventDTO,
   MeResponse,
   VisibleCalendarsRequest,
