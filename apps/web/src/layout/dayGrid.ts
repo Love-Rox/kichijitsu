@@ -8,7 +8,14 @@ import { Temporal } from "@js-temporal/polyfill";
  * (gridMetrics.ts/monthGrid.ts と同じ流儀)。
  */
 
-/** anchor を含む N 日ぶんの日付を先頭から並べて返す(anchor が先頭日) */
+/**
+ * anchor を含む N 日ぶんの日付を先頭から並べて返す(anchor が先頭日)。
+ *
+ * 現在の呼び出し元は単体テストだけ ―― WeekGrid.tsx はパネルごとの日付配列を同じ式
+ * (`Array.from({ length: dayCount }, (_, i) => panelStart.add({ days: i }))`)で直に書いている。
+ * 「N 日ぶんの日付列」の正はここだと示す意味で残してあるので、消すなら WeekGrid 側を
+ * これに寄せるほうを先に決めること(この関数だけ消すと定義が WeekGrid にしか無くなる)。
+ */
 export function daysFrom(anchor: Temporal.PlainDate, dayCount: number): Temporal.PlainDate[] {
   return Array.from({ length: dayCount }, (_, i) => anchor.add({ days: i }));
 }

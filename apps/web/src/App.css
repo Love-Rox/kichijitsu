@@ -206,31 +206,11 @@
  */
 
 /*
- * GitHub 実績オーバーレイの表示 ON/OFF トグル(docs/github-integration.md フェーズ③Part B)。
- * ON 状態は GitHub purple のアクセント(brand の朱は通知バッジ専用、ここでは使わない)で示す。
+ * かつての GitHub 実績オーバーレイ表示トグル(.toolbar-activity-btn、docs/github-integration.md
+ * フェーズ③Part B)は増分2で CalendarPane の GitHub セクションへ移設した ―― 移設先は
+ * ボタンではなく枡トグル(CalendarPane.tsx の masu/masu--kichi)なので、ツールバー用の
+ * このスタイルは引き継がず撤去した。
  */
-.toolbar-activity-btn {
-  display: inline-flex;
-  align-items: center;
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--c-line);
-  background: var(--c-surface);
-  color: var(--c-ui-ink);
-  border-radius: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-
-.toolbar-activity-btn:hover {
-  background: var(--c-surface-hover);
-}
-
-.toolbar-activity-btn.is-active {
-  border-color: var(--c-github);
-  color: var(--c-github);
-  background: rgba(var(--c-github-rgb), 0.08);
-}
 
 /* かつての .toolbar-queue-badge は増分3で calendar-pane-action-badge(CalendarPane.css)へ移設・撤去した */
 

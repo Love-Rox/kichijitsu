@@ -66,11 +66,15 @@ export class OccurrenceStore {
   }
 
   /**
-   * 全件(予定 vs 実績レポートの hook 実績集計用、docs/mcp.md「エージェントの作業時間記録」)。
-   * getRange と違い表示範囲を問わず、現在ロード済みの(=展開済みウィンドウ内の) 全 occurrence を
-   * 対象にする。PlannedStore.getAll/TimeEntryStore.getAll と同じくキャッシュ無し
-   * (呼び出しごとに新しい配列)。展開ウィンドウは初回 now±1年 (windowPolicy.ts) なので、
-   * hook 実績のような直近の作業記録を取りこぼす実用上の懸念は小さい。
+   * 全件。getRange と違い表示範囲を問わず、現在ロード済みの(=展開済みウィンドウ内の)
+   * 全 occurrence を対象にする。PlannedStore.getAll/TimeEntryStore.getAll と同じくキャッシュ無し
+   * (呼び出しごとに新しい配列)。
+   *
+   * 現在の呼び出し元はストア/ブートストラップのテストだけ ―― 元は予定 vs 実績レポートの
+   * hook 実績集計のために useAllOccurrences(全件購読フック)から呼んでいたが、hook 実績は
+   * work_logs から buildReportRows が組み立てる形に変わった(2026-07-25、sync/reportExport.ts)
+   * ため、フックごと不要になった。読み口としては getRange と対で残しておく価値があるので
+   * (「ロード済み全件をそのまま見る」手段が他に無い)、ここは消していない。
    */
   getAll(): Occurrence[] {
     return [...this.byId.values()];
@@ -117,15 +121,4 @@ export function useOccurrences(
 ): Occurrence[] {
   useSyncExternalStore(store.subscribe, store.getVersion);
   return store.getRange(startMs, endMs);
-}
-
-/**
- * 全件購読フック(予定 vs 実績レポートの hook 実績集計用)。useOccurrences(範囲絞り込み、
- * WeekGrid 等が使う)とは別に、TimeReportOverlay が表示中の週/月に関係なく
- * 展開済み全 occurrence から「kichijitsu 実績」由来のものを拾うために用意する。
- * useAllPlannedBlocks/useTimeEntries と同じ形。
- */
-export function useAllOccurrences(store: OccurrenceStore): Occurrence[] {
-  useSyncExternalStore(store.subscribe, store.getVersion);
-  return store.getAll();
 }

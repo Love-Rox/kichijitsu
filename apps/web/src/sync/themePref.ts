@@ -95,8 +95,13 @@ export function setThemePref(pref: ThemePref): void {
 /**
  * テーマ設定を DOM に適用する薄い配線 (data-theme 属性 + theme-color meta)。
  * 判断は上の純関数が全部済ませているので、ここは属性を書くだけ。
+ *
+ * 非 export: 呼び出しは上の setThemePref だけで、初回描画前の適用は index.html の
+ * インラインスクリプトが独自に持っている(このモジュールを読み込む前に走るため)。
+ * テストも DOM を触らない純関数 (normalizeThemePref/resolveThemeAttr/resolveThemeColorMedia)
+ * 側だけを対象にしているので、外へ出す必要がない。
  */
-export function applyThemePref(pref: ThemePref): void {
+function applyThemePref(pref: ThemePref): void {
   const attr = resolveThemeAttr(pref);
   if (attr === null) document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", attr);
