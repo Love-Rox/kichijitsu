@@ -50,14 +50,25 @@ const OG_IMAGE = `${SITE_ORIGIN}/og.png`;
 const OG_IMAGE_ALT =
   "「思い立ったが吉日。」7つ並んだ枡のうち5つ目だけが朱で傾いている kichijitsu のブランド画像";
 
-/** "/docs/start/index.html" → "/docs/start/" (og:url は公開 URL の形で出す) */
+/**
+ * "/docs/start/index.html" → "/docs/start/" (公開 URL の形で出す)。
+ *
+ * **末尾スラッシュを残すのが正しい**。apps/web/wrangler.jsonc の assets 配信は
+ * html_handling が既定の "auto-trailing-slash" で、`/docs/start` は `/docs/start/` へ
+ * 307 される (向こうのコメント参照)。`index.html` を消したうえでスラッシュまで
+ * 削ると、og:url も canonical も「リダイレクトされる側の URL」を指すことになる。
+ * og:url ならクローラが追ってくれる可能性はあるが、canonical は
+ * 「このページの正規の場所はここ」という宣言なので、実際に 200 で返る形
+ * (= 末尾スラッシュあり) を指さないと意味が薄い。ランディングだけは
+ * "/index.html" → "/" となり、これもそのまま 200 で返る形になる。
+ */
 function pageUrl(htmlPath: string): string {
   const withSlash = htmlPath.startsWith("/") ? htmlPath : `/${htmlPath}`;
   return withSlash.replace(/index\.html$/, "");
 }
 
 /**
- * OGP / Twitter Card の**ページ共通部分**を全ページへ注入するプラグイン (2026-07-31)。
+ * OGP / Twitter Card / canonical の**ページ共通部分**を全ページへ注入するプラグイン (2026-07-31)。
  *
  * og:title / og:description / og:type は「そのページ固有の文章」なので各 HTML に
  * 直接書く (title・meta description の隣にあった方が書き手が揃えやすい)。
@@ -66,7 +77,7 @@ function pageUrl(htmlPath: string): string {
  * - og:image 一式 … 無いとプレビューに画像が出ない。10ページに同じ4行を手で書くと
  *   差し替え時に必ず取りこぼすので、絶対 URL・寸法・alt をまとめて一箇所に置く
  * - twitter:card … `summary_large_image` を宣言しないと X は og:image を無視する
- * - og:url … ページごとに違うが、ビルド入力のパスから決まるので手書きの余地は無い
+ * - og:url / canonical … ページごとに違うが、ビルド入力のパスから決まるので手書きの余地は無い
  *   (手で書くと 10 ページぶんのコピペでズレる。この注入なら不整合が起きえない)
  * - og:site_name / og:locale … 全ページ同一
  *
@@ -85,8 +96,20 @@ function ogpPlugin() {
         attrs: { property, content },
         injectTo: "head" as const,
       });
+      // og:url と canonical は同一の URL を指す。片方だけ書き換えて食い違うことが
+      // 起きないよう、導出はここ 1 回だけにして両方で使い回す。
+      const url = `${SITE_ORIGIN}${pageUrl(ctx.path)}`;
       return [
-        meta("og:url", `${SITE_ORIGIN}${pageUrl(ctx.path)}`),
+        // canonical (2026-07-31 追加)。同じページに `/docs/start` `/docs/start/index.html`
+        // `/docs/start/?utm_source=…` など複数の URL で到達できるので、検索エンジンに
+        // 正規の 1 本を示す。値は上の `url` = origin が実際に 200 で返す形
+        // (前2つは 307 で `/docs/start/` へ寄せられ、クエリ付きは 200 のまま素通しになる)。
+        {
+          tag: "link",
+          attrs: { rel: "canonical", href: url },
+          injectTo: "head" as const,
+        },
+        meta("og:url", url),
         meta("og:site_name", "kichijitsu"),
         meta("og:locale", "ja_JP"),
         meta("og:image", OG_IMAGE),
