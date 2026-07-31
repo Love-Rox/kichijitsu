@@ -128,8 +128,13 @@ type RuleDeleteState = "idle" | "confirming" | "deleting" | "error";
 
 /**
  * ルール1件ぶんの削除導線。window.confirm を使わないインライン2段階確認
- * (SettingsModal の AccountDisconnectControl / EventDetailCard の削除と同じ流儀) に、
+ * (settings/ConfirmActionControl.tsx / EventDetailCard の削除と同じ流儀) に、
  * 「作成済みのブロック予定も削除する」チェックボックスを足したもの。
+ *
+ * **共通部品へは畳んでいない**: 確認の中にチェックボックスと、その状態で文が変わる注記を
+ * 抱えており (下記)、実行ボタンのラベルも「削除中…」に変わる。縦積み (CSS も
+ * flex-direction: column) なのもここだけ。理由の詳細は
+ * settings/ConfirmActionControl.tsx の冒頭コメント (適用範囲) を参照。
  *
  * チェックボックスの**既定は on**: ルールを消したら効果も消えるのが素直で、かつ利用者の
  * 目の前にあるので外せる。外した場合はコピー先に作られた「予定あり」がそのまま残る
