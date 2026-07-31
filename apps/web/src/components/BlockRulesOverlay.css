@@ -175,7 +175,7 @@
 }
 
 /*
- * 削除の確認(インライン2段階、SettingsModal の .settings-modal-disconnect-confirm と同じ流儀)。
+ * 削除の確認(インライン2段階、SettingsModal の .settings-modal-confirm と同じ流儀)。
  * .block-rules-rule は flex-wrap の行なので、確認ブロックは幅いっぱいを取って自分の行になる。
  */
 .block-rules-rule-confirm {

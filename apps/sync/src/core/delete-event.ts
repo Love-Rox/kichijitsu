@@ -2,6 +2,7 @@ import type { EventDeleteRequest } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { deleteEvent, type DeleteEventParams } from "../google/delete-event";
 import { SEND_UPDATES_VALUES } from "./patch-event";
+import { isNonEmptyString } from "./validation";
 
 /**
  * POST /api/event/delete のボディ検証 (2026-07-31)。それまでルートにインラインで書かれていた
@@ -18,9 +19,9 @@ export function isValidEventDeleteRequest(body: unknown): body is EventDeleteReq
   if (!body || typeof body !== "object") return false;
   const candidate = body as Record<string, unknown>;
 
-  if (typeof candidate.accountId !== "string" || candidate.accountId.length === 0) return false;
-  if (typeof candidate.calendarId !== "string" || candidate.calendarId.length === 0) return false;
-  if (typeof candidate.eventId !== "string" || candidate.eventId.length === 0) return false;
+  if (!isNonEmptyString(candidate.accountId)) return false;
+  if (!isNonEmptyString(candidate.calendarId)) return false;
+  if (!isNonEmptyString(candidate.eventId)) return false;
   if (
     candidate.sendUpdates !== undefined &&
     !SEND_UPDATES_VALUES.includes(candidate.sendUpdates as string)

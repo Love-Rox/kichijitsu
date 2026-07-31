@@ -10,6 +10,7 @@ import type {
   WorkIntervalStopResponse,
 } from "@kichijitsu/shared";
 import { resolveProfileFromMcpToken } from "../mcp-auth";
+import { INVALID_JSON, readJsonBody } from "./guards";
 import {
   buildWorkLogRow,
   insertWorkLog,
@@ -45,12 +46,8 @@ workIntervalsRoutes.post("/api/work-intervals", async (c) => {
     return c.json<ApiError>({ error: "unauthorized" }, 401);
   }
 
-  let body: WorkIntervalRequest;
-  try {
-    body = await c.req.json<WorkIntervalRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkIntervalRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (
     typeof body?.start !== "string" ||
     typeof body?.end !== "string" ||
@@ -100,12 +97,8 @@ workIntervalsRoutes.post("/api/work-intervals/start", async (c) => {
     return c.json<ApiError>({ error: "unauthorized" }, 401);
   }
 
-  let body: WorkIntervalStartRequest;
-  try {
-    body = await c.req.json<WorkIntervalStartRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkIntervalStartRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (typeof body?.repo !== "string") {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -145,12 +138,8 @@ workIntervalsRoutes.post("/api/work-intervals/stop", async (c) => {
     return c.json<ApiError>({ error: "unauthorized" }, 401);
   }
 
-  let body: WorkIntervalStopRequest;
-  try {
-    body = await c.req.json<WorkIntervalStopRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkIntervalStopRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (typeof body?.repo !== "string") {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }

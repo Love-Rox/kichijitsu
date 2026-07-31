@@ -1,8 +1,8 @@
-import { Temporal } from "@js-temporal/polyfill";
+import type { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
 import { DEFAULT_OOO_ALLDAY_PLACEMENT, type OooAllDayPlacement } from "./oooAllDayPlacement";
-import { railItemsForDay, type RailItem } from "./railItems";
+import { allDayRailItemsForDay, railItemsForDay, type RailItem } from "./railItems";
 
 /**
  * 不在 (Out of Office) レール表示 (2026-07-22) の DOM/React に依存しない純関数層。
@@ -82,11 +82,9 @@ export function splitOutOfOfficeAllDayGroups(
  *
  * 形そのものは勤務場所レールと共通(layout/railItems.ts の RailItem)で、subject の型だけが
  * 違う ―― 不在は時刻・終日の両方がこのレールに来るため合併型になっている。
- * 終日の不在は常に [0, MINUTES_PER_DAY] (全高) の範囲を持つ。
+ * 終日の不在は常に [0, MINUTES_PER_DAY] (全高、layout/dayTime.ts) の範囲を持つ。
  */
 export type OooRailItem = RailItem<Occurrence | AllDayOccurrence>;
-
-const MINUTES_PER_DAY = 24 * 60;
 
 /**
  * 時刻予定の不在 group を [dayStartMs, dayEndMs) にクリップしてレール項目化する。
@@ -105,26 +103,15 @@ export function timedOooRailItems(
 /**
  * 終日の不在 group のうち day を含むものを、その日の全高([0, MINUTES_PER_DAY]分)ラインとして
  * レール項目化する(要件: 終日レーンには出さず、対象日の DayColumn に全高ラインで出す)。
+ *
+ * 計算本体は勤務場所レールと共通の allDayRailItemsForDay(layout/railItems.ts、2026-07-31 に
+ * 「allDayWorkingLocationRailItems と1文字も違わない」2本を generic 化して統合)。時刻側の
+ * timedOooRailItems と同じく、このラッパーは呼び出し元 (WeekGrid.tsx) から見た意図を
+ * 名前で示すために残してある。
  */
 export function allDayOooRailItems(
   oooGroups: readonly AllDayOccurrenceGroup[],
   day: Temporal.PlainDate,
 ): OooRailItem[] {
-  const out: OooRailItem[] = [];
-  for (const g of oooGroups) {
-    const occ = g.primary;
-    const start = Temporal.PlainDate.from(occ.startDate);
-    const end = Temporal.PlainDate.from(occ.endDate);
-    if (Temporal.PlainDate.compare(day, start) < 0 || Temporal.PlainDate.compare(day, end) > 0) {
-      continue; // day を含まない(startDate〜endDate は両端 inclusive)
-    }
-    out.push({
-      id: occ.id,
-      subject: occ,
-      groupMembers: g.members,
-      startMinutes: 0,
-      endMinutes: MINUTES_PER_DAY,
-    });
-  }
-  return out;
+  return allDayRailItemsForDay(oooGroups, day);
 }

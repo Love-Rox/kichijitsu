@@ -1,5 +1,12 @@
 import { GoogleApiError } from "./errors";
 import { patchEventRaw, type PatchEventRawParams } from "../google/patch-event-raw";
+import { DEFAULT_SEND_UPDATES } from "./patch-event";
+
+/**
+ * 呼び出し元 (UserSyncDO.patchEventRaw) が渡すパラメータ。sendUpdates だけは渡させない ――
+ * この関数はミラー専用で、値はここで決まるため (下のコメント参照)。
+ */
+export type MirrorPatchParams = Omit<PatchEventRawParams, "sendUpdates">;
 
 /**
  * UserSyncDO.patchEventRaw が実装すべき依存先。core/patch-event.ts の PatchEventCoreDeps と
@@ -24,16 +31,31 @@ export interface PatchEventRawCoreDeps {
  *
  * 書き込みが成功しても戻り値は無い (void)。正本は次の同期で還流する設計であり、ここで
  * Google の応答をクライアントへそのまま返すことはしない (他の patch 系と同じ方針)。
+ *
+ * ## sendUpdates に既定値を入れる理由 (2026-07-31)
+ * ミラー予定は kichijitsu が自分で作った「予定あり」の箱で、**参加者を持たない** ――
+ * buildMirrorEventBody (core/block-reconcile.ts) は時間帯だけを写し、attendees を含む内容は
+ * 一切写さない (無内容原則、docs/blocking.md)。したがって現状はどの値を送っても Google 側の
+ * 結果は同じで、この変更で利用者に見える挙動は変わらない。
+ *
+ * それでも値を固定するのは、**「この層では必ず値が入る」という不変条件を破らないため**。
+ * 選ぶのは kichijitsu 全体で一本の既定 (DEFAULT_SEND_UPDATES = externalOnly、
+ * core/patch-event.ts のコメント参照) ―― ミラーは「利用者が明示的に全員へ知らせると
+ * 言った」経路ではないので `all` にはしない。万一この経路に参加者のいる予定が来ても、
+ * 頼まれてもいないメールを撒かない側に倒れる。
  */
 export async function patchEventRawWithRetry(
   deps: PatchEventRawCoreDeps,
-  params: PatchEventRawParams,
+  params: MirrorPatchParams,
 ): Promise<void> {
   let accessToken = await deps.getAccessToken();
   let retriedAuth = false;
 
   for (;;) {
-    const response = await patchEventRaw(deps.fetch, accessToken, params);
+    const response = await patchEventRaw(deps.fetch, accessToken, {
+      ...params,
+      sendUpdates: DEFAULT_SEND_UPDATES,
+    });
 
     if (response.status === 401 && !retriedAuth) {
       retriedAuth = true;

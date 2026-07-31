@@ -104,8 +104,15 @@
   white-space: nowrap;
 }
 
-.settings-modal-disconnect-row,
-.settings-modal-disconnect-confirm {
+/*
+ * インライン2段階確認 (settings/ConfirmActionControl.tsx) の行。平常時 (-row) と確認中
+ * (-confirm) で見た目は同じで、中に並ぶものだけが変わる。
+ * 旧名は .settings-modal-disconnect-* だったが、いまは連携解除だけでなく MCP トークン失効・
+ * キャッシュ削除・再同期も同じ行を使うため、5用途のうち1つの名前が全体に付いている状態
+ * だった (2026-07-31 に -confirm-* へ改名。規則は宣言のみで、見た目は1pxも変えていない)。
+ */
+.settings-modal-confirm-row,
+.settings-modal-confirm {
   display: flex;
   align-items: center;
   gap: 6px;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
+import { MINUTES_PER_DAY } from "./dayTime";
 import type { RailItem } from "./railItems";
-import { foldWorkingLocationDay, MINUTES_PER_DAY } from "./workingLocationSegments";
+import { foldWorkingLocationDay } from "./workingLocationSegments";
 
 /**
  * 1日ぶんの勤務場所を区間列へ畳む純関数のテスト(2026-07-29、「勤務地の変更前と変更後の

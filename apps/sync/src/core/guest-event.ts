@@ -1,18 +1,14 @@
-import { GoogleApiError, NotOrganizerError } from "./errors";
+import { NotOrganizerError } from "./errors";
 import { applyGuestChanges } from "./guest-edit";
-import { getEventRaw } from "../google/rsvp-raw";
 import { parseEventGuestState, patchGuestsRaw } from "../google/guests-raw";
+import { updateAttendeesWithRetry, type AttendeeWriteDeps } from "./attendee-write";
 
 /**
  * UserSyncDO.editEventGuests が実装すべき依存先。他の core/*.ts (rsvp-event.ts 等) と
  * 同じ { fetch, getAccessToken, forceRefreshAccessToken } 形なので、DO 側は
  * buildEventWriteDeps を共用できる。
  */
-export interface GuestEventCoreDeps {
-  fetch: typeof fetch;
-  getAccessToken: () => Promise<string>;
-  forceRefreshAccessToken: () => Promise<string>;
-}
+export type GuestEventCoreDeps = AttendeeWriteDeps;
 
 export interface EditGuestsParams {
   calendarId: string;
@@ -32,74 +28,36 @@ export interface EditGuestsParams {
  *      書き込みは主催者に伝わらず、API の結果も公式に定義されていない。
  *   3. 差分 (addEmails/removeEmails) を適用して `events.patch` (sendUpdates=all) で書き戻す
  *
+ * 1 と 3 (と 401 リトライ) は RSVP とまったく同じなので core/attendee-write.ts に出してある。
+ * **この関数に残っているのは 2 の判断と差分の適用だけ**。
+ *
  * **差分を受け取り、配列はサーバーで組む**のがこの経路の要点: クライアントが持つ一覧は
  * MAX_DTO_ATTENDEES (50) 件で打ち切られていることがあり、そのまま全置換すると手元に
  * 無い参加者を巻き添えで全員消してしまう。events.get で読んだ**実際の全員**に対して
  * 差分を当てる (core/guest-edit.ts の applyGuestChanges)。
  *
  * 変更が何も起きない場合 (要求されたアドレスが全て既にいる/居ない、外せない相手だけ) は
- * **patch を送らずに成功として返す** ―― 何も変わらない patch は、それでもゲスト全員へ
- * 「予定が更新されました」のメールを飛ばしうる (sendUpdates=all)。無害な操作で他人の
- * 受信箱を鳴らさない。
- *
- * 401 リトライは rsvpEventWithRetry と同じく「1回だけ強制リフレッシュして GET からやり直す」。
- * GET→PATCH の間に attendees が変わっている可能性 (競合) は、events.patch に楽観ロック
- * 相当を使っていない現状ではこれ以上どうにもならない ―― 他の書き込み系 RPC と同じ楽観前提。
+ * **patch を送らずに成功として返す** (resolveNext が null を返す) ―― 何も変わらない patch は、
+ * それでもゲスト全員へ「予定が更新されました」のメールを飛ばしうる (sendUpdates=all)。
+ * 無害な操作で他人の受信箱を鳴らさない。
  */
 export async function editEventGuestsWithRetry(
   deps: GuestEventCoreDeps,
   params: EditGuestsParams,
 ): Promise<void> {
-  let accessToken = await deps.getAccessToken();
-  let retriedAuth = false;
+  return updateAttendeesWithRetry(deps, params, {
+    patchAttendees: patchGuestsRaw,
+    resolveNext: async (response) => {
+      const state = await parseEventGuestState(response);
+      if (!state.isOrganizer) {
+        throw new NotOrganizerError();
+      }
 
-  for (;;) {
-    const getResponse = await getEventRaw(
-      deps.fetch,
-      accessToken,
-      params.calendarId,
-      params.eventId,
-    );
-
-    if (getResponse.status === 401 && !retriedAuth) {
-      retriedAuth = true;
-      accessToken = await deps.forceRefreshAccessToken();
-      continue;
-    }
-    if (!getResponse.ok) {
-      throw new GoogleApiError(getResponse.status, await getResponse.text());
-    }
-
-    const state = await parseEventGuestState(getResponse);
-    if (!state.isOrganizer) {
-      throw new NotOrganizerError();
-    }
-
-    const { next, added, removed } = applyGuestChanges(state.attendees, {
-      addEmails: params.addEmails,
-      removeEmails: params.removeEmails,
-    });
-    if (added === 0 && removed === 0) {
-      return;
-    }
-
-    const patchResponse = await patchGuestsRaw(
-      deps.fetch,
-      accessToken,
-      params.calendarId,
-      params.eventId,
-      next,
-    );
-
-    if (patchResponse.status === 401 && !retriedAuth) {
-      retriedAuth = true;
-      accessToken = await deps.forceRefreshAccessToken();
-      continue;
-    }
-    if (!patchResponse.ok) {
-      throw new GoogleApiError(patchResponse.status, await patchResponse.text());
-    }
-
-    return;
-  }
+      const { next, added, removed } = applyGuestChanges(state.attendees, {
+        addEmails: params.addEmails,
+        removeEmails: params.removeEmails,
+      });
+      return added === 0 && removed === 0 ? null : next;
+    },
+  });
 }

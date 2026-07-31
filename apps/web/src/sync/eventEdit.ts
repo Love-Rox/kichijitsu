@@ -2,6 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { EventPatchRequest } from "@kichijitsu/shared";
 import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence, OccurrenceSource } from "../model/types";
+import { dayRangeMs, dayStartMs, plainDateOfMs } from "../layout/dayTime";
 import { isBusyPlaceholder } from "../layout/gridMetrics";
 import type { GuestNotify } from "./guestNotify";
 import {
@@ -56,12 +57,10 @@ export function draftFromOccurrence(occ: Occurrence): EventEditDraft {
  * この endMs をそのまま date に変換したとき、Google の end.date (排他的) と一致するように。
  */
 export function draftFromAllDayOccurrence(occ: AllDayOccurrence, timeZone: string): EventEditDraft {
-  const startMs = Temporal.PlainDate.from(occ.startDate).toZonedDateTime(
-    timeZone,
-  ).epochMilliseconds;
-  const endMs = Temporal.PlainDate.from(occ.endDate)
-    .add({ days: 1 })
-    .toZonedDateTime(timeZone).epochMilliseconds;
+  // 日境界の計算は layout/dayTime.ts に集約(2026-07-31 横断レビュー B-4)。endDate は
+  // inclusive なので「その日1日ぶんの区間の終わり」= 翌日 0:00 を dayRangeMs から取る
+  const startMs = dayStartMs(Temporal.PlainDate.from(occ.startDate), timeZone);
+  const { endMs } = dayRangeMs(Temporal.PlainDate.from(occ.endDate), 1, timeZone);
   return {
     title: occ.title,
     location: occ.location ?? "",
@@ -275,15 +274,12 @@ export function datetimeLocalValueToMs(value: string, timeZone: string): number 
 
 /** epoch ms → <input type="date"> の value ("YYYY-MM-DD"、timeZone のローカル日付) */
 export function msToDateValue(ms: number, timeZone: string): string {
-  return Temporal.Instant.fromEpochMilliseconds(ms)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDate()
-    .toString();
+  return plainDateOfMs(ms, timeZone).toString();
 }
 
 /** <input type="date"> の value → その日のローカル 0:00 の epoch ms */
 export function dateValueToMs(value: string, timeZone: string): number {
-  return Temporal.PlainDate.from(value).toZonedDateTime(timeZone).epochMilliseconds;
+  return dayStartMs(Temporal.PlainDate.from(value), timeZone);
 }
 
 /**
@@ -291,15 +287,10 @@ export function dateValueToMs(value: string, timeZone: string): number {
  * フォームの「終了日」欄はユーザーに馴染みのある inclusive 表記で見せる。
  */
 export function msExclusiveToDateValue(ms: number, timeZone: string): string {
-  return Temporal.Instant.fromEpochMilliseconds(ms)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDate()
-    .subtract({ days: 1 })
-    .toString();
+  return plainDateOfMs(ms, timeZone).subtract({ days: 1 }).toString();
 }
 
 /** フォームの「終了日」欄 (inclusive) の value → draft.endMs (排他的、翌日 0:00) */
 export function dateValueToExclusiveEndMs(value: string, timeZone: string): number {
-  return Temporal.PlainDate.from(value).add({ days: 1 }).toZonedDateTime(timeZone)
-    .epochMilliseconds;
+  return dayRangeMs(Temporal.PlainDate.from(value), 1, timeZone).endMs;
 }

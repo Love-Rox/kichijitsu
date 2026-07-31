@@ -18,10 +18,16 @@ describe("insertEvent", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "mirror-1" }), { status: 200 }));
 
-    await insertEvent(fetchImpl, "access-token", { calendarId: "primary", body: BODY });
+    await insertEvent(fetchImpl, "access-token", {
+      calendarId: "primary",
+      body: BODY,
+      sendUpdates: "externalOnly",
+    });
 
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=externalOnly",
+    );
     const requestInit = init as RequestInit;
     expect(requestInit.method).toBe("POST");
     expect((requestInit.headers as Record<string, string>).Authorization).toBe(
@@ -35,10 +41,16 @@ describe("insertEvent", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "mirror-1" }), { status: 200 }));
 
-    await insertEvent(fetchImpl, "access-token", { calendarId: "a/b@example.com", body: BODY });
+    await insertEvent(fetchImpl, "access-token", {
+      calendarId: "a/b@example.com",
+      body: BODY,
+      sendUpdates: "externalOnly",
+    });
 
     const url = fetchImpl.mock.calls[0][0] as string;
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events?sendUpdates=externalOnly",
+    );
   });
 });
 

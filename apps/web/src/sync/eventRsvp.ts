@@ -5,7 +5,7 @@ import { rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
 /**
  * RSVP (自分の参加ステータス変更、2026-07-22) に関する純関数群。詳細ポップオーバーの
  * 参加/未定/不参加ボタンから呼ばれる。POST /api/event/rsvp の body 組み立ては
- * sync/eventPatch.ts の buildEventPatchRequest / eventEdit.ts の buildEventEditPatchRequest と
+ * sync/eventPatch.ts の eventPatchRequestFor / eventEdit.ts の buildEventEditPatchRequest と
  * 同じ eventId 組み立て規則 (rawGoogleEventId / seriesInstanceEventId) を再利用する。
  */
 
@@ -25,7 +25,7 @@ export class RsvpNotAttendeeError extends Error {
 /**
  * occurrence/allDayOccurrence から POST /api/event/rsvp の body を組み立てる。
  * source !== 'google' や accountId/calendarId 欠落、id のパース失敗時は null
- * (呼び出し側で warn する。buildEventPatchRequest と同じ流儀)。
+ * (呼び出し側で warn する。sync/eventPatch.ts の eventPatchRequestFor と同じ流儀)。
  */
 export function buildEventRsvpRequest(
   subject: Occurrence | AllDayOccurrence,

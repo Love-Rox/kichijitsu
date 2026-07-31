@@ -78,9 +78,6 @@ export const DEFAULT_REMINDER_MODE: ReminderMode = { kind: "google" };
  */
 export const REMINDER_LEAD_PRESETS = [5, 10, 15, 30, 60] as const;
 
-/** 「一律◯分前」を選んだときの初期表示。旧実装の既定値と同じ */
-export const DEFAULT_FIXED_LEAD_MINUTES = 10;
-
 /**
  * Google 側の設定として尊重する分数の上限 (24 時間)。
  *
@@ -126,7 +123,29 @@ export const REMINDER_LOOKAHEAD_MS = MAX_HONORED_LEAD_MINUTES * 60_000 + REMINDE
 /** 通知済みキーを保持する期間。これより古い開始時刻のキーは捨てる (無限に増えないように) */
 export const NOTIFIED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * 「何分前に通知するか」の**決め方** (ReminderMode) を入れるキー。
+ *
+ * 名前が "lead" (= リード分数) のままなのは**歴史的経緯**で、実際に入るのは分数とは限らない:
+ * 2026-07-30 の初版は分数そのもの ("0" / "5" … "60") を書いていたが、翌日 ReminderMode を
+ * 導入して "google" / "off" / 分数 の3種を同じキーに書くようになった (parseReminderMode /
+ * serializeReminderMode 参照)。
+ *
+ * **キー名を改めないのは意図的**。このキーは既存利用者の localStorage に既に存在し、
+ * 名前を変えれば移行コードを書かない限り「自分で通知を切った/分数を選んだ」設定が黙って
+ * 既定 ("google") に戻る。得られるのは名前の正しさだけで、失うのは利用者の設定という
+ * 釣り合わない取引なので、名前は据え置き、実態はこのコメントとサイトのドキュメント
+ * (/docs/data/ のキー一覧) で説明する側に倒した。
+ */
 const LEAD_STORAGE_KEY = "kichijitsu:reminderLead";
+/**
+ * 通知済みキー (reminderKey 参照) の集合を入れるキー。値は
+ * `${分数}#${occurrence の id}@${開始時刻ミリ秒}` の並びで、Google 由来の予定なら
+ * id は `g:<accountId>:<calendarId>:<eventId>` ―― つまり**カレンダー ID (多くはメール
+ * アドレス)・イベント ID・開始時刻がここに残る**。タイトル・説明・参加者は入らないが、
+ * 「予定の識別子は一切入らない」ではないので、プライバシーポリシーと /docs/data/ の
+ * 記述はこの粒度に合わせてある。
+ */
 const NOTIFIED_STORAGE_KEY = "kichijitsu:reminderNotified";
 
 /**

@@ -13,7 +13,9 @@ const PARAMS = {
   startMs: 1_700_000_000_000,
   endMs: 1_700_003_600_000,
   timeZone: "Asia/Tokyo",
-};
+  // 2026-07-31: google 層は sendUpdates 必須 (google/create-event.ts のコメント参照)
+  sendUpdates: "externalOnly",
+} as const;
 
 describe("createEvent", () => {
   it("POSTs events with summary and start/end dateTime+timeZone and a bearer auth header", async () => {
@@ -24,7 +26,9 @@ describe("createEvent", () => {
     await createEvent(fetchImpl, "access-token", PARAMS);
 
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=externalOnly",
+    );
     const requestInit = init as RequestInit;
     expect(requestInit.method).toBe("POST");
     expect((requestInit.headers as Record<string, string>).Authorization).toBe(
@@ -48,7 +52,9 @@ describe("createEvent", () => {
     await createEvent(fetchImpl, "access-token", { ...PARAMS, calendarId: "a/b@example.com" });
 
     const url = fetchImpl.mock.calls[0][0] as string;
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events?sendUpdates=externalOnly",
+    );
   });
 });
 

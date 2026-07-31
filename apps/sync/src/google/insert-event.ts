@@ -1,8 +1,16 @@
+import type { EventSendUpdates } from "@kichijitsu/shared";
+
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 export interface InsertEventParams<TBody extends { eventType?: "outOfOffice" }> {
   calendarId: string;
   body: TBody;
+  /**
+   * ゲストへの通知 (2026-07-31)。他の書き込み系 google/*.ts と同じ理由で **optional に
+   * しない** ―― 省略できる形にすると Google の未文書の既定に落ちる。呼び出し側
+   * (core/insert-event.ts) に必ず決めさせる。
+   */
+  sendUpdates: EventSendUpdates;
 }
 
 /**
@@ -15,13 +23,16 @@ export interface InsertEventParams<TBody extends { eventType?: "outOfOffice" }> 
  * (他の google/*.ts と同じ層分担)。body は呼び出し元ごとに形が異なる (MirrorEventBody /
  * WorkLogEventBody 等) ため、insertEventWithRetry がリトライ判定に使う `eventType` フィールド
  * だけを制約するジェネリクスにしてある。
+ *
+ * `sendUpdates` は**常にクエリに載せる** (2026-07-31)。それまでここはクエリを一切付けて
+ * おらず、「この層では必ず値が入る」という不変条件が破れていた。
  */
 export async function insertEvent<TBody extends { eventType?: "outOfOffice" }>(
   fetchFn: typeof fetch,
   accessToken: string,
   params: InsertEventParams<TBody>,
 ): Promise<Response> {
-  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events`;
+  const url = `${CALENDAR_BASE}/${encodeURIComponent(params.calendarId)}/events?sendUpdates=${params.sendUpdates}`;
   return fetchFn(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },

@@ -771,22 +771,19 @@ export function DayColumn({
               RAIL_MIN_BAND_HEIGHT_PX,
             );
             const left = column * RAIL_BAND_WIDTH_PX;
-            return band.kind === "ooo" ? (
+            // band.kind と RailBand の variant は同じ2値("ooo" | "workingLocation"、
+            // 2026-07-31 横断レビュー B-6 で揃えた)。それでも三項が残るのは、
+            // variant と item が対応することを型で保証する判別可能ユニオン(RailBandProps)を
+            // 満たすには、band 側も同じ位置で絞り込む必要があるため ―― 以前のように
+            // JSX を丸ごと2つ書かず、対になる2つの prop だけを切り替える。
+            const variantProps =
+              band.kind === "ooo"
+                ? ({ variant: "ooo", item: band.oooItem } as const)
+                : ({ variant: "workingLocation", item: band.workingLocationItem } as const);
+            return (
               <RailBand
                 key={band.id}
-                variant="ooo"
-                item={band.oooItem}
-                top={top}
-                height={height}
-                left={left}
-                timeZone={timeZone}
-                calendarLookup={calendarLookup}
-              />
-            ) : (
-              <RailBand
-                key={band.id}
-                variant="workingLocation"
-                item={band.workLocItem}
+                {...variantProps}
                 top={top}
                 height={height}
                 left={left}

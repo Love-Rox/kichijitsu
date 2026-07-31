@@ -197,10 +197,10 @@ describe("packDayRailBands", () => {
     const oooBand = packed.find((p) => p.item.id === "allday-ooo")?.item;
     const wlBand = packed.find((p) => p.item.id === "wl")?.item;
     expect(oooBand?.kind).toBe("ooo");
-    expect(wlBand?.kind).toBe("workloc");
+    expect(wlBand?.kind).toBe("workingLocation");
     // 元項目は参照のまま渡る(ツールチップ・詳細ポップオーバーが subject を辿るため)
     expect(oooBand?.kind === "ooo" && oooBand.oooItem).toBe(ooo);
-    expect(wlBand?.kind === "workloc" && wlBand.workLocItem).toBe(wl);
+    expect(wlBand?.kind === "workingLocation" && wlBand.workingLocationItem).toBe(wl);
   });
 
   it("終日の不在が無い日は列の割り当てが変わらない(この修正の安全弁)", () => {

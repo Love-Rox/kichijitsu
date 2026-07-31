@@ -494,6 +494,13 @@ function GuestSection({
               {/*
                * 右端は「応答状態」か「外す導線」のどちらか。確認中の行だけ状態の代わりに
                * 2段階目を出す ―― 行を増やさずに済み、どの人を外そうとしているかが動かない。
+               *
+               * ここだけ**問いかけの文が無い**のは意図的: 「誰を」は行そのものが示しており、
+               * 「何をするか」はボタンの文言 (「通知して外す」) が兼ねる。狭い右端に
+               * 「外しますか?」を足すと名前を押し出してしまう。この非対称のため、他の
+               * 2段階確認 (settings/ConfirmActionControl.tsx) とは畳んでいない ――
+               * disabled も欄ぜんたいで共有する pending (追加の送信中も止まる)、失敗表示も
+               * 入力エラーと同じ欄の下、と土台から違う。
                */}
               {onEditGuests && guest.removable && confirmingRemoval === guest.email ? (
                 <span className="event-detail-guest-confirm">
@@ -654,7 +661,14 @@ type DeleteControlState = "idle" | "confirming";
 
 /**
  * 詳細ポップオーバーの「削除」導線。window.confirm を使わないインライン2段階確認
- * (CalendarSettingsPanel.tsx の AccountDisconnectControl と同じ流儀)。
+ * (settings/ConfirmActionControl.tsx と同じ流儀)。
+ *
+ * **同じ流儀だが、そこへは畳んでいない**: ConfirmActionControl は「実行中に両ボタンを
+ * disabled にし、失敗したら行に失敗表示を出す」ための非同期の状態機械が本体で、
+ * こちらは下のとおり**非同期を待たない** (押した瞬間に閉じる) ため実行中も失敗表示も
+ * 存在せず、共有できるのは span と2つのボタンという見た目だけになる。理由の詳細は
+ * settings/ConfirmActionControl.tsx の冒頭コメント (適用範囲) を参照。
+ *
  * 削除自体は楽観的 (App.tsx の handleDeleteOccurrence が即座に occurrence を消す) なので、
  * このコンポーネントは非同期の完了を待たない — 確定操作で onDelete() を呼んだら
  * そのままポップオーバーを閉じる (onDeleted、失敗時の通知は App.tsx の saveError トースト)。

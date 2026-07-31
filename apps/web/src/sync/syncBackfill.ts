@@ -9,7 +9,8 @@
  * CURRENT_SYNC_BACKFILL_VERSION/getSyncBackfillVersion 参照)。
  *
  * ここでは「どのカレンダーを対象にすべきか」の判定だけを純関数として切り出す
- * (db/App.tsx の副作用 — IndexedDB 読み書き・fetch — から独立してテストするため)。
+ * (hooks/useCalendarSync.ts の runSyncBackfillIfNeeded が抱える副作用 — IndexedDB
+ * 読み書き・fetch — から独立してテストするため)。
  */
 
 export interface SyncBackfillTarget {
@@ -17,21 +18,6 @@ export interface SyncBackfillTarget {
   calendarId: string;
 }
 
-/**
- * バックフィル対象の列挙。
- * - savedVersion が currentVersion 以上 (=既に追いついている) なら空配列 (再実行しない)
- * - 未達なら、現在選択中の全 (accountId, calendarId) をそのまま返す
- *
- * 世代が複数離れていても(例: 旧 boolean 移行直後の 1 → 現行 2 など)対象は常に選択中の
- * 全カレンダーのまま ―― 1回の forceFull 同期で最新の DTO 全フィールドが一気に届くため、
- * 世代ごとに個別のバックフィルを重ねて走らせる必要はない(常に「保存済み世代 → 現行世代」への
- * 1ジャンプとして扱う)。
- *
- * T を selectedTargets() の要素型 (WriteTargetCandidate、defaultColor/primary 等の
- * 付加情報を持つ) にも対応できるよう accountId/calendarId を持つ最小構造で受け取る
- * ジェネリクスにしてある — 呼び出し側 (App.tsx) は同期に必要な defaultColor 等を
- * 保ったまま渡せる。
- */
 /**
  * 実際にバックフィル完了として記録してよい世代 = min(このクライアントの世代, サーバー対応世代)。
  *
@@ -57,6 +43,21 @@ export function resolveEffectiveSyncBackfillVersion(
   return Math.min(clientVersion, serverVersion);
 }
 
+/**
+ * バックフィル対象の列挙。
+ * - savedVersion が currentVersion 以上 (=既に追いついている) なら空配列 (再実行しない)
+ * - 未達なら、現在選択中の全 (accountId, calendarId) をそのまま返す
+ *
+ * 世代が複数離れていても(例: 旧 boolean 移行直後の 1 → 現行 2 など)対象は常に選択中の
+ * 全カレンダーのまま ―― 1回の forceFull 同期で最新の DTO 全フィールドが一気に届くため、
+ * 世代ごとに個別のバックフィルを重ねて走らせる必要はない(常に「保存済み世代 → 現行世代」への
+ * 1ジャンプとして扱う)。
+ *
+ * T を selectedTargets() の要素型 (WriteTargetCandidate、defaultColor/primary 等の
+ * 付加情報を持つ) にも対応できるよう accountId/calendarId を持つ最小構造で受け取る
+ * ジェネリクスにしてある — 呼び出し側 (hooks/useCalendarSync.ts の runSyncBackfillIfNeeded) は
+ * 同期に必要な defaultColor 等を保ったまま渡せる。
+ */
 export function decideSyncBackfillTargets<T extends SyncBackfillTarget>(
   savedVersion: number,
   currentVersion: number,

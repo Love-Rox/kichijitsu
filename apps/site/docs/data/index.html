@@ -155,9 +155,11 @@
             </table>
           </div>
 
-          <h3>localStorage — 画面の設定</h3>
+          <h3>localStorage — 画面の設定と、通知済みの記録</h3>
           <p>
-            見た目と操作の好みだけが入る。予定は入らない。キーはすべて
+            この端末での見た目・操作の好みと、リマインダー通知の設定が入る。
+            <strong>予定の中身 (タイトル・説明・参加者) は入らない</strong>が、
+            通知済みの記録だけは予定を指す値を持つ (最後の項目を参照)。キーはすべて
             <code>kichijitsu:</code> で始まる。
           </p>
           <ul>
@@ -171,7 +173,28 @@
               カレンダー一覧の折りたたみ状態
             </li>
             <li>
+              <code>kichijitsu:oooAllDayPlacement</code> — 終日の<a href="/docs/calendar/"
+                >不在 (OOO)</a
+              >を、その日のタイムラインに載せるか終日レーンに出すか
+            </li>
+            <li>
               <code>kichijitsu:ghPath</code> — <code>gh</code> コマンドのパス (デスクトップ版のみ)
+            </li>
+            <li>
+              <code>kichijitsu:reminderLead</code> —
+              <a href="/docs/apps/">予定のリマインダー通知</a>を「何分前に出すか」の決め方
+              (デスクトップ版のみ)。
+              キー名は <code>lead</code> (何分前) だが、入るのは分数とは限らず
+              <strong>「Google の設定に従う」「通知しない」「一律◯分前の分数」の3種</strong>。
+              初版が分数だけを書いていた名残で、名前を変えると既存の設定が消えるためそのままにしてある
+            </li>
+            <li>
+              <code>kichijitsu:reminderNotified</code> —
+              同じ通知を二度出さないための<strong>通知済みの記録</strong> (デスクトップ版のみ)。
+              1件ごとに「何分前の通知か・どの予定か・その予定の開始時刻」を持ち、
+              予定を指す部分には<strong>カレンダー ID (多くはメールアドレス) と予定の
+              ID</strong> が含まれる。予定のタイトル・説明・参加者は入らない。
+              24時間より古い記録は自動で捨てられる
             </li>
           </ul>
 
@@ -432,13 +455,14 @@
           <div class="callout">
             <p>
               <strong>「予定を再同期」は消す操作ではない。</strong> 設定のキャッシュ削除の隣にある
-              「予定を再同期」は、表示中のカレンダーの予定を Google
-              から全件取り直して<strong>ブラウザ側の複製を作り直す</strong>だけの操作で、上の3段階とは性質が違う。
+              「予定を再同期」は、表示中のカレンダーの予定と<strong>取得済みのタスクリスト</strong>を
+              Google から全件取り直して<strong>ブラウザ側の複製を作り直す</strong>だけの操作で、上の3段階とは性質が違う。
             </p>
             <p>
               サーバーに入っているもの (認可情報・カレンダー選択・購読の記録・作業実績・カレンダーブロックの設定・MCP
               トークン) には一切触らず、Google 側の予定も当然そのまま。書き換わるのは
-              IndexedDB の予定・終日予定だけで、手元の複製が Google
+              IndexedDB の <code>occurrences</code> / <code>allDayOccurrences</code> /
+              <code>tasks</code> だけで、手元の複製が Google
               と食い違ってしまったときに使う。手順は<a href="/docs/apps/">デスクトップ版と PWA</a
               >の「更新されないとき」にある。
             </p>

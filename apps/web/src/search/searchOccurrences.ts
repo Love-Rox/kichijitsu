@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
+import { plainDateOfMs } from "../layout/dayTime";
 import { calendarKey } from "../layout/keys";
 
 /**
@@ -129,8 +130,6 @@ export type SearchJumpTarget =
  */
 export function resolveJumpDate(target: SearchJumpTarget, timeZone: string): Temporal.PlainDate {
   return target.kind === "timed"
-    ? Temporal.Instant.fromEpochMilliseconds(target.startMs)
-        .toZonedDateTimeISO(timeZone)
-        .toPlainDate()
+    ? plainDateOfMs(target.startMs, timeZone)
     : Temporal.PlainDate.from(target.startDate);
 }

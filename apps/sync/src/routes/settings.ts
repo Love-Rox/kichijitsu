@@ -39,6 +39,7 @@ import {
   shouldClearSessionAfterDisconnect,
   type AccountMembership,
 } from "../accounts";
+import { denyUnlessAccountInProfile, INVALID_JSON, readJsonBody } from "./guards";
 import {
   aggregateVisibleCalendars,
   buildCalendarPrefsRow,
@@ -108,23 +109,14 @@ settingsRoutes.get("/api/me", async (c) => {
 // migrations/0005_visible_calendars.sql と core/visible-calendars.ts のコメント参照)。
 // D1 の batch は暗黙のトランザクションとして実行される。
 settingsRoutes.put("/api/visible-calendars", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: VisibleCalendarsRequest;
-  try {
-    body = await c.req.json<VisibleCalendarsRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<VisibleCalendarsRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidVisibleCalendarsRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const now = Date.now();
   const rows = buildVisibleCalendarRows(body.accountId, body.calendarIds, now);
@@ -162,12 +154,8 @@ settingsRoutes.get("/api/block-rules", requireAuth, async (c) => {
 // 暗黙のトランザクションとして実行される。
 settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: BlockRuleUpsertRequest;
-  try {
-    body = await c.req.json<BlockRuleUpsertRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<BlockRuleUpsertRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidBlockRuleUpsertRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -259,12 +247,8 @@ settingsRoutes.post("/api/block-rules", requireAuth, async (c) => {
 // (「予定が消せないせいでルールも消せない」状態に利用者を閉じ込めないため)。
 settingsRoutes.delete("/api/block-rules", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: BlockRuleDeleteRequest;
-  try {
-    body = await c.req.json<BlockRuleDeleteRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<BlockRuleDeleteRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidBlockRuleDeleteRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -330,12 +314,8 @@ settingsRoutes.get("/api/mcp-tokens", requireAuth, async (c) => {
 
 settingsRoutes.post("/api/mcp-tokens", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: McpTokenCreateRequest;
-  try {
-    body = await c.req.json<McpTokenCreateRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<McpTokenCreateRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
 
   // 空文字ラベルは「未指定」と同じ扱いにする (DB 上は NULL に正規化、一覧表示側の
   // 「(無題)」プレースホルダ判定を label === null だけで済ませるため)。
@@ -358,12 +338,8 @@ settingsRoutes.post("/api/mcp-tokens", requireAuth, async (c) => {
 
 settingsRoutes.delete("/api/mcp-tokens", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: McpTokenDeleteRequest;
-  try {
-    body = await c.req.json<McpTokenDeleteRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<McpTokenDeleteRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!body.id) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -385,22 +361,14 @@ settingsRoutes.delete("/api/mcp-tokens", requireAuth, async (c) => {
 // (ポーリングフォールバックが補うので、クライアントにエラー扱いさせる必要が無い)。
 settingsRoutes.post("/api/watch", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: WatchRequest;
-  try {
-    body = await c.req.json<WatchRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WatchRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!body?.accountId || !body?.calendarId || typeof body.enabled !== "boolean") {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   if (!body.enabled) {
     await disableWatch(c.env, body.accountId, body.calendarId);
@@ -419,6 +387,8 @@ settingsRoutes.post("/api/watch", requireAuth, async (c) => {
 settingsRoutes.delete("/api/account", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
+  // ここだけ guards.ts の readJsonBody を使わない ―― **ボディ無し (accountId 省略 =
+  // 全アカウント解除) を許す**唯一のルートで、空文字と壊れた JSON を区別する必要があるため。
   let body: DisconnectRequest = {};
   const rawBody = await c.req.text();
   if (rawBody) {

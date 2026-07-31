@@ -27,6 +27,7 @@ import { layoutDayCiRuns } from "../sync/mapCiRuns";
 import { packColumns } from "../layout/packColumns";
 import { buildAllDayPanels, clipToVisibleRows, resolveSharedRows } from "../layout/allDayPanels";
 import { calendarKeyOf, taskListKey } from "../layout/keys";
+import { dayStartMs, plainDateOfMs } from "../layout/dayTime";
 import {
   groupDuplicateAllDayOccurrences,
   groupDuplicateOccurrences,
@@ -615,17 +616,16 @@ export function WeekGrid({
   // 「3×N日」ぶんのストリップになる(panelAnchors、dayGrid.ts)
   const panelStarts = useMemo(() => panelAnchors(center, dayCount), [center, dayCount]);
 
-  const todayPlainDate = useMemo(
-    () => Temporal.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(timeZone).toPlainDate(),
-    [nowMs, timeZone],
-  );
+  // 日境界と epoch ms ⇔ ローカル日の変換は layout/dayTime.ts に集約してある
+  // (2026-07-31 横断レビュー B-4。以前はこのファイルだけで同じ式が4回書かれていた)
+  const todayPlainDate = useMemo(() => plainDateOfMs(nowMs, timeZone), [nowMs, timeZone]);
 
   const rangeStartMs = useMemo(
-    () => panelStarts[0].toZonedDateTime({ timeZone }).epochMilliseconds,
+    () => dayStartMs(panelStarts[0], timeZone),
     [panelStarts, timeZone],
   );
   const rangeEndMs = useMemo(
-    () => panelStarts[2].add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds,
+    () => dayStartMs(panelStarts[2].add({ days: dayCount }), timeZone),
     [panelStarts, dayCount, timeZone],
   );
   const occurrences = useOccurrences(store, rangeStartMs, rangeEndMs);
@@ -657,10 +657,10 @@ export function WeekGrid({
     () =>
       panelStarts.map((panelStart) => {
         const days = Array.from({ length: dayCount }, (_, i) => panelStart.add({ days: i }));
-        const dayStarts = days.map((d) => d.toZonedDateTime({ timeZone }).epochMilliseconds);
+        const dayStarts = days.map((d) => dayStartMs(d, timeZone));
         const dayEnds = [
           ...dayStarts.slice(1),
-          panelStart.add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds,
+          dayStartMs(panelStart.add({ days: dayCount }), timeZone),
         ];
         const dayData = days.map((day, i) => {
           const items = groupedOccurrences.filter(

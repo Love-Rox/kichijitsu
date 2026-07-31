@@ -15,6 +15,8 @@
  * 修正箇所だったため、テストで固定できる位置に置く必要があった。
  */
 
+import { Temporal } from "@js-temporal/polyfill";
+import { allDayRangeCoversDate, MINUTES_PER_DAY } from "./dayTime";
 import type { Positioned } from "./packColumns";
 import { packRailBandColumns } from "./railStack";
 
@@ -63,6 +65,49 @@ export function railItemsForDay<T extends TimedSubject>(
   return out;
 }
 
+/** allDayRailItemsForDay が必要とする最小の subject 形状(日付範囲を持つ終日 occurrence) */
+interface AllDaySubject {
+  id: string;
+  /** "YYYY-MM-DD"、両端 inclusive */
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * 終日予定の group のうち day を含むものを、その日の全高([0, MINUTES_PER_DAY]分)の
+ * レール項目にする。
+ *
+ * 2026-07-31 に統合(横断レビュー B-3): oooRail.ts の allDayOooRailItems と
+ * workingLocationRail.ts の allDayWorkingLocationRailItems は **引数名と戻り値の型エイリアス
+ * 以外1文字も違わなかった**(どちらも実体は RailItem<Occurrence | AllDayOccurrence>)。
+ * 時刻側の同じペアは 2026-07-26 に railItemsForDay へ統合済みで、終日側だけが取り残されて
+ * いたので、同じ形(subject の型だけをパラメータにする)でここへ寄せた。
+ *
+ * 出来上がる帯の「意味」は呼び出し元で違う ―― 不在は全高ラインそのもの、勤務場所は
+ * foldWorkingLocationDay で時刻付きに上書きされる前の「地」―― が、**この層の計算は同一**。
+ * その事実だけをここに置き、意味の違いは各ラッパーの名前とコメントが担う。
+ */
+export function allDayRailItemsForDay<T extends AllDaySubject>(
+  groups: readonly { primary: T; members: T[] }[],
+  day: Temporal.PlainDate,
+): RailItem<T>[] {
+  // 文字列化はループの外で1回だけ(dayTime.ts の allDayRangeCoversDate のコメント参照)
+  const dateStr = day.toString();
+  const out: RailItem<T>[] = [];
+  for (const g of groups) {
+    const occ = g.primary;
+    if (!allDayRangeCoversDate(occ, dateStr)) continue; // day を含まない
+    out.push({
+      id: occ.id,
+      subject: occ,
+      groupMembers: g.members,
+      startMinutes: 0,
+      endMinutes: MINUTES_PER_DAY,
+    });
+  }
+  return out;
+}
+
 /**
  * 列パッキングに必要な最小の形。RailItem<S> はこれを満たす(この層は subject を見ない)。
  * 素の値でテストできるよう、あえて RailItem そのものを要求しない。
@@ -76,10 +121,24 @@ export interface RailSpan {
 /**
  * 1日ぶんのレールに乗る帯1本。描画時の見た目(塗り・上端の飾り)が違うだけなので、
  * レイアウト計算に必要な時刻と、描画で使う元項目を kind で判別できる形にして持つ。
+ *
+ * kind のリテラルは RailBand.tsx の `variant` と同じ2値に揃えてある(2026-07-31、
+ * 横断レビュー B-6)。以前は `"ooo" | "workloc"` と `"ooo" | "workingLocation"` の
+ * **同じ二択が別リテラル** で、DayColumn.tsx が両者を突き合わせて翻訳していた ――
+ * 判別子を共有すれば、その翻訳は「どの item を渡すか」の分岐だけに縮む。
+ *
+ * 元項目のフィールド名を kind ごとに分けている(oooItem / workingLocationItem)のは、
+ * O と W が別の型パラメータで、TypeScript の絞り込みで型が確定することを示すため。
  */
 export type DayRailBand<O extends RailSpan, W extends RailSpan> =
   | { kind: "ooo"; id: string; startMinutes: number; endMinutes: number; oooItem: O }
-  | { kind: "workloc"; id: string; startMinutes: number; endMinutes: number; workLocItem: W };
+  | {
+      kind: "workingLocation";
+      id: string;
+      startMinutes: number;
+      endMinutes: number;
+      workingLocationItem: W;
+    };
 
 /**
  * その日のレール(不在 + 勤務場所)に乗る帯を1本の列へ統合して列パッキングする。
@@ -120,12 +179,12 @@ export function packDayRailBands<O extends RailSpan, W extends RailSpan>(
       }),
     ),
     ...workingLocationItems.map(
-      (workLocItem): DayRailBand<O, W> => ({
-        kind: "workloc",
-        id: workLocItem.id,
-        startMinutes: workLocItem.startMinutes,
-        endMinutes: workLocItem.endMinutes,
-        workLocItem,
+      (workingLocationItem): DayRailBand<O, W> => ({
+        kind: "workingLocation",
+        id: workingLocationItem.id,
+        startMinutes: workingLocationItem.startMinutes,
+        endMinutes: workingLocationItem.endMinutes,
+        workingLocationItem,
       }),
     ),
   ];
