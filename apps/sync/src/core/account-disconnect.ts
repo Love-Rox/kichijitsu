@@ -45,6 +45,8 @@ export interface BlockRuleCleanupPlan {
  *   (core/block-orchestrate.ts の reconcileRule はルール単位で try/catch する) ため、
  *   「残す」なら参照だけは必ず消す必要がある。
  * - source が0件になった → ルールも削除。source の無いルールは何もブロックしない = 無意味。
+ *   なお削除されるルールが Google 上に作ったミラー予定は残す (target が生きていて消せる場合でも)
+ *   — 理由は planReconcileTriggers の「原則との関係」を参照。
  *
  * なお、生き残ったルールが解除済み source の予定から作っていたミラーは、リコンサイルさえ
  * 走れば「source 側に存在しない予定のミラー」として削除計画に載る (block-reconcile.ts) ので、
@@ -101,10 +103,21 @@ export interface ReconcileTrigger {
  * コメント参照)。
  *
  * 対象は「source の一部だけが外れて生き残るルール」だけ:
- * - target が解除された / 全 source が解除された → ルールごと消えるので起こす意味が無い
- *   (そのミラーは Google 上に残るが、target の認可も含めて消えている場合は原理的に触れない
- *    — routes/settings.ts の applyBlockRuleCleanup のコメント参照)
+ * - target が解除された / 全 source が解除された → ルールごと消えるので起こす意味が無い。
+ *   ルールと一緒に block_mirrors の行も消える (applyBlockRuleCleanup) ため、リコンサイルが
+ *   見るミラーがそもそも残らない。そのミラー予定は Google 上に残る — 理由は下記の原則で
+ *   あって、target の認可が生きているかどうかではない (routes/settings.ts の
+ *   applyBlockRuleCleanup のコメント参照)
  * - 何も外れなかったルール → 変えるものが無い
+ *
+ * **原則との関係**: 「Google 上の予定を消すのは利用者が明示的に選んだときだけ」
+ * (docs/blocking.md「後始末」) と、ここでミラーが消えることは矛盾しない。生き残るルールは
+ * block_mirrors の行も生き残るので、**放っておいても次にどれかの source が変わった時点で
+ * 同じ削除が起きる** — 起点を用意するのは「消すか否か」ではなく「いつ消えるか」を変えている
+ * だけで、削除自体はルールを作った時点で利用者が選んだ「元の予定に追従する」の一部である。
+ * 対してルールごと消える場合は対応表の行ごと消えて二度と辿れなくなるので、そこで消すことは
+ * 追従の続きではなく新しい破壊操作になる。だから「消しますか」を聞ける瞬間の無い解除では
+ * 消さない (聞ける瞬間があるルール削除だけがチェックボックスで選ばせる)。
  *
  * 同じ source を複数ルールが共有していても1回だけ起こす — 1回のリコンサイルはその source を
  * 持つ全ルールを見る (block-orchestrate.ts の reconcileSourceChange) ので、重複は無駄なだけ。

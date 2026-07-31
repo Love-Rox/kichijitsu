@@ -510,8 +510,13 @@ function buildDisconnectDeps(env: Env, profileId: string): DisconnectDeps {
           env.DB.prepare("DELETE FROM block_rules WHERE id = ?").bind(ruleId),
           env.DB.prepare("DELETE FROM block_rule_sources WHERE rule_id = ?").bind(ruleId),
           // block_mirrors 行だけを消す (Google 側に作られたミラー予定は消さない) — DELETE
-          // /api/block-rules と同じ扱い。target の認可は既に revoke されている可能性が高く、
-          // ここから Google の予定を消すことは原理的にできない。
+          // /api/block-rules で deleteMirrors を外したときと同じ扱い。**target のアカウントが
+          // 生きていれば技術的には消せる** (source を全部解除してルールが消える場合がこれ) が、
+          // 解除には「作成済みのブロック予定も消しますか」を聞ける瞬間が無いので消さない
+          // — 原則「Google 上の予定を消すのは利用者が明示的に選んだときだけ」(docs/blocking.md
+          // 「後始末」)。target ごと解除された場合は加えて認可も無く、そもそも消せない。
+          // 生き残るルールのミラーが解除直後に消えるのとの違いは、core/account-disconnect.ts の
+          // planReconcileTriggers「原則との関係」を参照。
           env.DB.prepare("DELETE FROM block_mirrors WHERE rule_id = ?").bind(ruleId),
         ]),
         ...plan.sourcesToDetach.map((source) =>
