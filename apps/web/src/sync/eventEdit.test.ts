@@ -173,6 +173,8 @@ describe("buildEventEditPatchRequest", () => {
       startMs: draft.startMs,
       endMs: draft.endMs,
       timeZone: TZ,
+      // ゲスト無しの予定は必ず externalOnly (2026-07-31、sync/guestNotify.ts)
+      sendUpdates: "externalOnly",
       summary: "編集後タイトル",
       location: "新しい場所",
       description: "新しい説明",

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   CalendarListEntryDTO,
   GoogleEventDTO,
+  EventSendUpdates,
   GoogleTaskDTO,
   RsvpResponseStatus,
   SyncResponse,
@@ -16,7 +17,11 @@ import {
   V2_TOKEN_MAX_AGE_MS,
   wrapGetSyncTokenForForceFull,
 } from "../core/sync-token-store";
-import { patchEventTimeWithRetry, type PatchEventCoreDeps } from "../core/patch-event";
+import {
+  patchEventTimeWithRetry,
+  resolveSendUpdates,
+  type PatchEventCoreDeps,
+} from "../core/patch-event";
 import { createEventWithRetry, type CreateEventCoreDeps } from "../core/create-event";
 import { deleteEventWithRetry, type DeleteEventCoreDeps } from "../core/delete-event";
 import {
@@ -176,6 +181,10 @@ export class UserSyncDO extends DurableObject<Env> {
    * まとめる) — 既存呼び出し元 (MCP の update_event が6引数で呼ぶ) を壊さないための工夫。
    * summary/location/description/isAllDay の扱いは google/patch-event.ts の
    * patchEventTime のコメント参照 (指定したフィールドのみ書き換え)。
+   *
+   * fields.sendUpdates (2026-07-31) だけは扱いが違い、**未指定でも素通しにしない** ――
+   * resolveSendUpdates が既定 (externalOnly) を補ってから渡す。Google の未文書の既定に
+   * 落とさないためで、6引数で呼ぶ MCP の update_event もこれで確定値を送ることになる。
    */
   async patchEvent(
     accountId: string,
@@ -194,6 +203,7 @@ export class UserSyncDO extends DurableObject<Env> {
       location?: string;
       description?: string;
       isAllDay?: boolean;
+      sendUpdates?: EventSendUpdates;
     },
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
@@ -204,6 +214,7 @@ export class UserSyncDO extends DurableObject<Env> {
         endMs,
         timeZone,
         ...fields,
+        sendUpdates: resolveSendUpdates(fields?.sendUpdates),
       }),
     );
   }

@@ -1,6 +1,30 @@
-import type { EventPatchRequest } from "@kichijitsu/shared";
+import type { EventPatchRequest, EventSendUpdates } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { patchEventTime, type PatchEventTimeParams } from "../google/patch-event";
+
+/** クライアントから送ってよい sendUpdates。`none` は含めない (shared の EventSendUpdates 参照) */
+const SEND_UPDATES_VALUES: readonly string[] = ["all", "externalOnly"];
+
+/**
+ * リクエストが sendUpdates を持たないときに補う値 (2026-07-31)。
+ *
+ * `externalOnly` にする理由は shared の EventSendUpdates のコメントのとおり ――
+ * **頼まれてもいないメールを Google カレンダーのゲストに出さない**かつ
+ * **外部カレンダーのゲストを古い時刻のまま放置しない**を同時に満たす唯一の値だから。
+ * ここに来るのは (1) sendUpdates を知らない旧クライアント、(2) MCP の update_event の
+ * ように問いかける相手がいない経路 ―― どちらも「利用者が明示的に全員へ知らせると
+ * 言った」わけではないので、`all` を既定にはしない。
+ */
+export const DEFAULT_SEND_UPDATES: EventSendUpdates = "externalOnly";
+
+/**
+ * 送られてきた sendUpdates を、Google に渡す確定値へ解決する純関数。
+ * **未指定を Google の未文書の既定に落とさない**ための、たった1行の砦
+ * (google/patch-event.ts の PatchEventTimeParams.sendUpdates が必須なのと対になる)。
+ */
+export function resolveSendUpdates(requested: EventSendUpdates | undefined): EventSendUpdates {
+  return requested ?? DEFAULT_SEND_UPDATES;
+}
 
 /**
  * POST /api/event/patch のボディ検証で使う上限。core/create-event.ts の同名定数と同じ根拠
@@ -38,6 +62,10 @@ function isOptionalBoundedString(value: unknown, maxLength: number): boolean {
  *  - startMs / endMs: **両方 undefined** (時刻を触らない) か、**両方が有限の数値で開始 < 終了**
  *  - summary / location / description: 未指定か長さ上限内の文字列 (空文字は「クリア」なので許す)
  *  - isAllDay: 未指定か boolean (文字列 "true" 等の曖昧な指定は弾く)
+ *  - sendUpdates: 未指定か "all" / "externalOnly" (2026-07-31)。**"none" は弾く** ――
+ *    Google の enum には在るが kichijitsu は使わない値で、通してしまうと外部ゲストの
+ *    カレンダーだけが古いまま残る (shared の EventSendUpdates のコメント参照)。
+ *    未指定は resolveSendUpdates が既定を補うので 400 にはしない (旧クライアント互換)。
  */
 export function isValidEventPatchRequest(body: unknown): body is EventPatchRequest {
   if (!body || typeof body !== "object") return false;
@@ -61,6 +89,12 @@ export function isValidEventPatchRequest(body: unknown): body is EventPatchReque
   if (!isOptionalBoundedString(candidate.location, MAX_LOCATION_LENGTH)) return false;
   if (!isOptionalBoundedString(candidate.description, MAX_DESCRIPTION_LENGTH)) return false;
   if (candidate.isAllDay !== undefined && typeof candidate.isAllDay !== "boolean") return false;
+  if (
+    candidate.sendUpdates !== undefined &&
+    !SEND_UPDATES_VALUES.includes(candidate.sendUpdates as string)
+  ) {
+    return false;
+  }
 
   return true;
 }

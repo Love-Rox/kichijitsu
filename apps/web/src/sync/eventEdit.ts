@@ -3,6 +3,7 @@ import type { EventPatchRequest } from "@kichijitsu/shared";
 import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence, OccurrenceSource } from "../model/types";
 import { isBusyPlaceholder } from "../layout/gridMetrics";
+import type { GuestNotify } from "./guestNotify";
 import {
   buildScopedEventPatchRequest,
   DEFAULT_RECURRENCE_SCOPE,
@@ -127,6 +128,11 @@ export function buildEventEditPatchRequest(
   scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE,
   /** scope==='all' のときだけ必要な、ローカルの series レコード */
   series?: EventSeries | null,
+  /**
+   * 確認ダイアログで選ばれたゲストへの通知 (2026-07-31)。訊いていない場合は省略でよい
+   * ―― buildScopedEventPatchRequest が subject を見て安全側 (externalOnly) に確定する。
+   */
+  notify?: GuestNotify,
 ): EventPatchRequest | null {
   return buildScopedEventPatchRequest({
     subject,
@@ -135,6 +141,7 @@ export function buildEventEditPatchRequest(
     previous: subjectTimeRange(subject, timeZone),
     next: { startMs: draft.startMs, endMs: draft.endMs },
     timeZone,
+    notify,
     fields: {
       summary: draft.title,
       location: draft.location,

@@ -969,6 +969,7 @@ function App() {
                 updated={moveConfirm.updated}
                 timeZone={timeZone}
                 scopes={moveConfirm.scopes}
+                askNotify={moveConfirm.askNotify}
                 onConfirm={handleConfirmMove}
                 onCancel={handleCancelMove}
               />
@@ -984,6 +985,7 @@ function App() {
                 timeZone={timeZone}
                 purpose="edit"
                 scopes={editScopeConfirm.scopes}
+                askNotify={editScopeConfirm.askNotify}
                 onConfirm={handleConfirmEditScope}
                 onCancel={handleCancelEditScope}
               />

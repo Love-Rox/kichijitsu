@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { formatDetailDateTime } from "../layout/gridMetrics";
 import type { Occurrence } from "../model/types";
+import { DEFAULT_GUEST_NOTIFY, type GuestNotify } from "../sync/guestNotify";
 import { DEFAULT_RECURRENCE_SCOPE, type RecurrenceScope } from "../sync/recurrenceScope";
 import "./MoveConfirmDialog.css";
 
@@ -26,7 +27,14 @@ export interface MoveConfirmDialogProps {
    * 完全に同じ見た目・同じキーボード操作のままになる。
    */
   scopes?: readonly RecurrenceScope[];
-  onConfirm: (scope: RecurrenceScope) => void;
+  /**
+   * ゲストへの通知を選ばせるか (2026-07-31、sync/guestNotify.ts の shouldAskGuestNotify)。
+   * **false/未指定なら選択 UI を一切描かない** ―― ゲストのいない予定・自分が主催でない
+   * 予定では、2026-07-31 以前と完全に同じ見た目・同じキーボード操作のままになる
+   * (scopes と全く同じ「出さないときは1pxも動かない」流儀)。
+   */
+  askNotify?: boolean;
+  onConfirm: (scope: RecurrenceScope, notify: GuestNotify) => void;
   onCancel: () => void;
 }
 
@@ -34,6 +42,16 @@ const SCOPE_LABEL: Record<RecurrenceScope, string> = {
   this: "この予定のみ",
   all: "すべての予定",
 };
+
+/**
+ * ゲストへの通知の選択肢 (2026-07-31)。値は Google の sendUpdates そのもの
+ * (shared の EventSendUpdates 参照)。**「送信しない」は none ではなく externalOnly** で、
+ * Google カレンダー以外のゲストには送られる ―― 下の注記で必ずそう書く。
+ */
+const NOTIFY_OPTIONS: readonly { value: GuestNotify; label: string }[] = [
+  { value: "all", label: "送信する" },
+  { value: "externalOnly", label: "送信しない" },
+];
 
 /**
  * ドラッグ移動の確認ダイアログ(フェーズ2、2026-07-22)。WeekGrid 上でイベントを
@@ -51,6 +69,12 @@ const SCOPE_LABEL: Record<RecurrenceScope, string> = {
  * も、聞くこと (適用範囲) も、押せる操作 (確定/キャンセル) も同じだからで、意匠を2つに
  * 分けると「移動のときだけ選択肢の並びが違う」といったズレを産む。
  *
+ * 2026-07-31 の「ゲストへの通知」も同じ考えでここに足した (askNotify)。Google カレンダー
+ * 自身が、ゲストのいる予定を動かすと更新メールを送るか訊いてくるのと同じ問いかけで、
+ * 出す条件も押せる操作も適用範囲と同じ ―― **移動の確認は元々ドラッグのたびに出るので、
+ * ここに相乗りすれば操作の回数は1回も増えない**。編集フォームの保存では、繰り返しでない
+ * 予定でもゲストがいればこのダイアログが出るようになる (Google カレンダーと同じ挙動)。
+ *
  * BlockRulesOverlay.tsx と同じ画面中央のバックドロップ+カード構成。キーボード
  * Enter=確定/Esc=キャンセル(要件どおり)。適用範囲は <fieldset> + ラジオで、
  * 上下キーによる選択はブラウザ標準の挙動に任せる。
@@ -62,12 +86,17 @@ export function MoveConfirmDialog({
   timeZone,
   purpose = "move",
   scopes,
+  askNotify = false,
   onConfirm,
   onCancel,
 }: MoveConfirmDialogProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   // 既定は「この予定のみ」(Google カレンダーに合わせた、最も影響が小さい方)
   const [scope, setScope] = useState<RecurrenceScope>(DEFAULT_RECURRENCE_SCOPE);
+  // 既定は「送信する」(sync/guestNotify.ts の DEFAULT_GUEST_NOTIFY に理由を書いた)。
+  // askNotify が false のときもこの値をそのまま返すが、受け手 (resolveSendUpdates) が
+  // subject を見て安全側に倒すので影響しない。
+  const [notify, setNotify] = useState<GuestNotify>(DEFAULT_GUEST_NOTIFY);
   // 選択肢が2つ以上あるときだけラジオを出す。1つきりのときは「なぜ1つなのか」を
   // 文章で伝える(押せない選択肢を並べて見せるのは、選べるように見えて紛らわしい)
   const hasChoice = (scopes?.length ?? 0) > 1;
@@ -81,7 +110,7 @@ export function MoveConfirmDialog({
   function handleKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      onConfirm(scope);
+      onConfirm(scope, notify);
     } else if (e.key === "Escape") {
       e.preventDefault();
       onCancel();
@@ -149,11 +178,41 @@ export function MoveConfirmDialog({
           </p>
         )}
 
+        {/*
+         * ゲストへの通知 (2026-07-31)。適用範囲と全く同じ見た目 (fieldset + ラジオ) を
+         * 使い回す ―― 同じダイアログの中で問いかけの形が2種類あると、どちらが何の
+         * 選択なのか読み取りにくくなる。新しいクラスも新しい意匠も足していない。
+         */}
+        {askNotify && (
+          <>
+            <fieldset className="move-confirm-scope">
+              <legend className="move-confirm-scope-legend">ゲストへの通知</legend>
+              {NOTIFY_OPTIONS.map((option) => (
+                <label key={option.value} className="move-confirm-scope-option">
+                  <input
+                    type="radio"
+                    name="move-confirm-notify"
+                    value={option.value}
+                    checked={notify === option.value}
+                    onChange={() => setNotify(option.value)}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </fieldset>
+            <p className="move-confirm-note">
+              「送信しない」でも、Google カレンダー以外のゲストにはメールが届く ――
+              相手のカレンダーを直す手段が他に無いためだ。Google
+              カレンダーのゲストの予定は、メールが無くても同期で直る。
+            </p>
+          </>
+        )}
+
         <div className="move-confirm-actions">
           <button
             type="button"
             className="move-confirm-confirm-btn"
-            onClick={() => onConfirm(scope)}
+            onClick={() => onConfirm(scope, notify)}
           >
             {purpose === "edit" ? "保存する" : "移動する"}
           </button>

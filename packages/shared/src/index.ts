@@ -30,6 +30,7 @@ export type {
   VisibleCalendarsRequest,
   SyncRequest,
   ServerEvent,
+  EventSendUpdates,
   EventPatchRequest,
   EventPatchResponse,
   RsvpResponseStatus,

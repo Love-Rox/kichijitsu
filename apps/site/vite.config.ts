@@ -27,11 +27,92 @@ import { defineConfig } from "vite-plus";
 // rollupOptions.input 向け。apps/web/vite.config.ts と同じ書き方)。
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
+/**
+ * 公式インスタンスの公開オリジン。**ここに書いてよいのは apps/site だけ**。
+ *
+ * apps/web の成果物はセルフホストした人のドメインでそのまま配信されるので、
+ * 向こうに公式ホスト名を焼き込むと「他人のインスタンスが公式を名乗る」事故になる
+ * (このファイル冒頭のコメントと dbac3ad 参照)。site は公式専用パッケージなので、
+ * OGP に必須の絶対 URL をここで持てる。
+ */
+const SITE_ORIGIN = "https://kichijitsu.love-rox.cc";
+
+/**
+ * リンクプレビュー画像。生成元は brand/gen-og-image.js (`pnpm --filter site gen:og`)、
+ * 実体は apps/site/public/og.png → dist 直下に出る。
+ *
+ * クエリ (`?v=1` のようなキャッシュバスター) は付けない。ブラウザ相手の
+ * wordmark.svg?v=1 と違い、読み手はクローラで、クエリ付き URL を素直に扱わない実装が
+ * ありうる。差し替えたときにプレビューを更新させたい場合は各サービスのデバッガ
+ * (X / Facebook 等) を叩くか、ファイル名ごと変える。
+ */
+const OG_IMAGE = `${SITE_ORIGIN}/og.png`;
+const OG_IMAGE_ALT =
+  "「思い立ったが吉日。」7つ並んだ枡のうち5つ目だけが朱で傾いている kichijitsu のブランド画像";
+
+/** "/docs/start/index.html" → "/docs/start/" (og:url は公開 URL の形で出す) */
+function pageUrl(htmlPath: string): string {
+  const withSlash = htmlPath.startsWith("/") ? htmlPath : `/${htmlPath}`;
+  return withSlash.replace(/index\.html$/, "");
+}
+
+/**
+ * OGP / Twitter Card の**ページ共通部分**を全ページへ注入するプラグイン (2026-07-31)。
+ *
+ * og:title / og:description / og:type は「そのページ固有の文章」なので各 HTML に
+ * 直接書く (title・meta description の隣にあった方が書き手が揃えやすい)。
+ * 一方ここで入れるのは全ページで同じか、URL から機械的に決まるものだけ:
+ *
+ * - og:image 一式 … 無いとプレビューに画像が出ない。10ページに同じ4行を手で書くと
+ *   差し替え時に必ず取りこぼすので、絶対 URL・寸法・alt をまとめて一箇所に置く
+ * - twitter:card … `summary_large_image` を宣言しないと X は og:image を無視する
+ * - og:url … ページごとに違うが、ビルド入力のパスから決まるので手書きの余地は無い
+ *   (手で書くと 10 ページぶんのコピペでズレる。この注入なら不整合が起きえない)
+ * - og:site_name / og:locale … 全ページ同一
+ *
+ * ページ固有の og:title 等をこちらへ寄せなかったのは、それをやると「文章がビルド設定に
+ * ある」状態になり、ページを書き足す人が vite.config.ts を触る羽目になるため。
+ *
+ * 注入対象は rollupOptions.input の全ページで、`/docs/calendar/` のように
+ * このファイルを触っていないページにも同じ共通メタが付く (漏れが構造的に起きない)。
+ */
+function ogpPlugin() {
+  return {
+    name: "kichijitsu:ogp",
+    transformIndexHtml(_html: string, ctx: { path: string }) {
+      const meta = (property: string, content: string) => ({
+        tag: "meta",
+        attrs: { property, content },
+        injectTo: "head" as const,
+      });
+      return [
+        meta("og:url", `${SITE_ORIGIN}${pageUrl(ctx.path)}`),
+        meta("og:site_name", "kichijitsu"),
+        meta("og:locale", "ja_JP"),
+        meta("og:image", OG_IMAGE),
+        meta("og:image:type", "image/png"),
+        meta("og:image:width", "1200"),
+        meta("og:image:height", "630"),
+        meta("og:image:alt", OG_IMAGE_ALT),
+        // twitter:* は property ではなく name 属性で読まれる (X の仕様)
+        {
+          tag: "meta",
+          attrs: { name: "twitter:card", content: "summary_large_image" },
+          injectTo: "head" as const,
+        },
+      ];
+    },
+  };
+}
+
 export default defineConfig({
+  plugins: [ogpPlugin()],
   /**
-   * apps/site/public/ の中身 (favicon.svg / wordmark.svg / icons/apple-touch-icon.png) は
+   * apps/site/public/ のうち favicon.svg / wordmark.svg / icons/apple-touch-icon.png は
    * **apps/web/public/ と同じファイルの複製**。既定値と同じ "public" をあえて明示して、
    * この注意書きを置いている。
+   * (og.png だけは複製ではなく site 専用。公式インスタンスのリンクプレビュー画像であり、
+   *  セルフホストの成果物に入る apps/web には置かない。生成は brand/gen-og-image.js)
    *
    * なぜ複製するのか: これらはサイト3ページとアプリ側 (app/index.html の favicon・
    * apple-touch-icon、privacy.html / terms.html のワードマーク) の**両方**が参照するため、

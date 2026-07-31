@@ -116,6 +116,8 @@ eventRoutes.post("/api/event/patch", requireAuth, async (c) => {
       location: body.location,
       description: body.description,
       isAllDay: body.isAllDay,
+      // 未指定なら DO 側の resolveSendUpdates が既定 (externalOnly) を補う (2026-07-31)
+      sendUpdates: body.sendUpdates,
     },
   );
   if (!result.ok) {
