@@ -46,9 +46,11 @@ export interface BlockRuleCleanupPlan {
  *   「残す」なら参照だけは必ず消す必要がある。
  * - source が0件になった → ルールも削除。source の無いルールは何もブロックしない = 無意味。
  *
- * なお、生き残ったルールが解除済み source の予定から作っていたミラーは、次回のリコンサイルで
- * 「source 側に存在しない予定のミラー」として削除計画に載る (block-reconcile.ts) ので、
- * ここで block_mirrors を個別に消す必要はない。
+ * なお、生き残ったルールが解除済み source の予定から作っていたミラーは、リコンサイルさえ
+ * 走れば「source 側に存在しない予定のミラー」として削除計画に載る (block-reconcile.ts) ので、
+ * ここで block_mirrors を個別に消す必要はない。ただし**そのリコンサイルは自動では起きない**
+ * — 起点は残っている source への notifyChanged だけで、解除されたカレンダーはもう発火しない。
+ * だから解除の最後に planReconcileTriggers で自分から起こす (下記参照)。
  */
 export function planBlockRuleCleanup(
   disconnectedAccountIds: Iterable<string>,
@@ -82,6 +84,58 @@ export function planBlockRuleCleanup(
   return plan;
 }
 
+/** リコンサイルの起点にする「解除後も残っている source カレンダー」1件。 */
+export interface ReconcileTrigger {
+  accountId: string;
+  calendarId: string;
+}
+
+/**
+ * 解除後も生き残るルールについて、リコンサイルの起点にできる「残っている source」を選ぶ (純関数)。
+ *
+ * **なぜ要るか**: リコンサイルに到達する唯一の経路は source カレンダーへの変更通知
+ * (ProfileHubDO.notifyChanged) で、解除されたカレンダーはもう二度と発火しない。放っておくと
+ * 「外したアカウント由来のミラー」は、無関係な別 source がたまたま変わるまで target に残り続ける。
+ * そこで解除の最後に、残っている source を起点にして自分でリコンサイルを起こす。ミラーは
+ * 「source 側に存在しない予定のミラー」として削除計画に載って片付く (planBlockRuleCleanup の
+ * コメント参照)。
+ *
+ * 対象は「source の一部だけが外れて生き残るルール」だけ:
+ * - target が解除された / 全 source が解除された → ルールごと消えるので起こす意味が無い
+ *   (そのミラーは Google 上に残るが、target の認可も含めて消えている場合は原理的に触れない
+ *    — routes/settings.ts の applyBlockRuleCleanup のコメント参照)
+ * - 何も外れなかったルール → 変えるものが無い
+ *
+ * 同じ source を複数ルールが共有していても1回だけ起こす — 1回のリコンサイルはその source を
+ * 持つ全ルールを見る (block-orchestrate.ts の reconcileSourceChange) ので、重複は無駄なだけ。
+ */
+export function planReconcileTriggers(
+  disconnectedAccountIds: Iterable<string>,
+  rules: BlockRuleCleanupInput[],
+): ReconcileTrigger[] {
+  const disconnected = new Set(disconnectedAccountIds);
+  const triggers: ReconcileTrigger[] = [];
+  if (disconnected.size === 0) return triggers;
+
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    if (disconnected.has(rule.targetAccountId)) continue;
+    const remaining = rule.sources.filter((source) => !disconnected.has(source.accountId));
+    // 残る source が無い = ルールごと削除。全部残る = このルールは無関係。
+    if (remaining.length === 0 || remaining.length === rule.sources.length) continue;
+
+    const source = remaining[0]!;
+    // 区切りは U+0000 (NUL) — id に現れない文字なのでキー衝突が起きない。生バイトを書くと git が
+    // バイナリ扱いするのでエスケープ表記で書く (profile-hub-do.ts の reconcileChains と同じ)。
+    const key = `${source.accountId}\u0000${source.calendarId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    triggers.push({ accountId: source.accountId, calendarId: source.calendarId });
+  }
+
+  return triggers;
+}
+
 /**
  * 連携解除の後始末が必要とする副作用一式。呼び出し元 (routes/settings.ts) が D1 / Google /
  * UserSyncDO RPC を注入する。
@@ -101,6 +155,11 @@ export interface DisconnectDeps {
   loadBlockRules(): Promise<BlockRuleCleanupInput[]>;
   /** planBlockRuleCleanup の結果を D1 に適用する。 */
   applyBlockRuleCleanup(plan: BlockRuleCleanupPlan): Promise<void>;
+  /**
+   * その source カレンダーが変わったことにして、ブロックルールのリコンサイルを起こす
+   * (実体は ProfileHubDO.notifyChanged)。best-effort — 失敗しても解除は成立させる。
+   */
+  reconcileFromSource(trigger: ReconcileTrigger): Promise<void>;
 }
 
 /**
@@ -120,6 +179,12 @@ export interface DisconnectDeps {
  * 最後に、解除された全アカウントを踏まえてブロックルールを1回だけ掃除する
  * (アカウント単位ではなくプロファイル単位の判断 — オーナー解除で束ごと消えるとき、
  * 「1件目の解除では生き残るが2件目で source が0件になる」ルールを正しく扱うため)。
+ *
+ * 掃除の後、生き残ったルールについてはリコンサイルを起こして、外したカレンダー由来の
+ * ミラーをその場で片付ける (planReconcileTriggers 参照)。**D1 の掃除より後**であることが
+ * 重要 — 先に起こすと、まだ外れていない解除済み source を読みに行って必ず失敗する。
+ * ここも best-effort: 失敗しても解除自体は成立させる (残るのはミラー予定だけで、次に
+ * その source が変わったときに片付く)。
  */
 export async function disconnectAccounts(
   accountIds: string[],
@@ -166,4 +231,15 @@ export async function disconnectAccounts(
   const plan = planBlockRuleCleanup(accountIds, rules);
   if (plan.ruleIdsToDelete.length === 0 && plan.sourcesToDetach.length === 0) return;
   await deps.applyBlockRuleCleanup(plan);
+
+  for (const trigger of planReconcileTriggers(accountIds, rules)) {
+    try {
+      await deps.reconcileFromSource(trigger);
+    } catch (err) {
+      console.warn(
+        `account deletion: failed to trigger block reconcile for ${trigger.accountId}/${trigger.calendarId} (mirrors from the disconnected calendar stay until the next change)`,
+        err,
+      );
+    }
+  }
 }

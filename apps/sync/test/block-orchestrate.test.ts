@@ -7,7 +7,13 @@ import {
   type ReconcileRule,
   type ReconcileWindow,
 } from "../src/core/block-orchestrate";
-import type { BlockMirrorRow } from "../src/core/block-reconcile";
+import {
+  MIRROR_MARKER_KEY,
+  MIRROR_RULE_KEY,
+  MIRROR_SOURCE_KEY,
+  type BlockMirrorRow,
+  type MirrorEventBody,
+} from "../src/core/block-reconcile";
 
 const WINDOW: ReconcileWindow = {
   timeMin: "2026-07-19T00:00:00.000Z",
@@ -51,6 +57,7 @@ function makeDeps(overrides: Partial<ReconcileDeps> = {}): ReconcileDeps {
   return {
     loadRulesForSource: vi.fn(async () => []),
     listSourceEvents: vi.fn(async () => []),
+    listTargetEvents: vi.fn(async () => []),
     loadMirrors: vi.fn(async () => []),
     createMirror: vi.fn(async () => ({ id: "mirror-new", oooFallback: false })),
     patchMirrorTime: vi.fn(async () => {}),
@@ -403,6 +410,218 @@ describe("reconcileSourceChange", () => {
       expect(createMirror).toHaveBeenCalledTimes(2);
       expect(deps.setRuleOooFallback).toHaveBeenCalledWith("rule-1", true);
     });
+  });
+});
+
+/**
+ * ミラー作成の不変条件 (block-orchestrate.ts の reconcileRule の doc):
+ * *Google 上にミラーが存在するなら、それを指す行が残っているか、確実に消えているか*。
+ *
+ * 回帰の中身: 以前は createMirror と saveMirrorRow が1つの try に入っていたため、insert 成功後の
+ * D1 書き込み失敗で「行の無いミラー」が残り、後始末の経路 (block_mirrors を走査する) から
+ * 二度と辿れないまま、次のリコンサイルが同じ source をまた作り直して**毎回1件ずつ増えていた**。
+ */
+describe("ミラー作成の不変条件 (孤児を作らない・増やさない)", () => {
+  /** target カレンダーを模したフェイク。作られた mirror を由来つきで保持し、一覧/削除できる。 */
+  function makeMirrorCalendar(options: { deleteAlwaysFails?: boolean } = {}) {
+    const events = new Map<string, GoogleEventDTO>();
+    let seq = 0;
+    return {
+      events,
+      createMirror: vi.fn(async (_a: string, _c: string, body: MirrorEventBody) => {
+        const id = `mirror-${++seq}`;
+        events.set(id, {
+          id,
+          status: "confirmed",
+          start: body.start,
+          end: body.end,
+          extendedProperties: { private: { ...body.extendedProperties.private } },
+        });
+        return { id, oooFallback: false };
+      }),
+      deleteMirror: vi.fn(async (_a: string, _c: string, mirrorEventId: string) => {
+        if (options.deleteAlwaysFails) throw new Error("google delete failed");
+        if (!events.delete(mirrorEventId)) throw new Error("404 notFound");
+      }),
+      listTargetEvents: vi.fn(async () => [...events.values()]),
+    };
+  }
+
+  /** block_mirrors を模した対応表。saveMirrorRow を任意の回だけ失敗させられる。 */
+  function makeMirrorRows(failingSaves: number) {
+    const rows = new Map<string, BlockMirrorRow>();
+    let remainingFailures = failingSaves;
+    return {
+      rows,
+      loadMirrors: vi.fn(async () => [...rows.values()]),
+      saveMirrorRow: vi.fn(async (row: BlockMirrorRow) => {
+        if (remainingFailures > 0) {
+          remainingFailures -= 1;
+          throw new Error("d1 write failed");
+        }
+        rows.set(row.source_event_id, row);
+      }),
+    };
+  }
+
+  it("行が書けなかったら、作ったばかりのミラーを Google から消す (孤児にしない)", async () => {
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      createMirror: vi.fn(async () => ({ id: "mirror-created", oooFallback: false })),
+      saveMirrorRow: vi.fn(async () => {
+        throw new Error("d1 write failed");
+      }),
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(deps.deleteMirror).toHaveBeenCalledWith("tgt-acc", "tgt-cal", "mirror-created");
+  });
+
+  it("補償削除も失敗したときに例外を投げない (他の操作・他ルールを巻き込まない)", async () => {
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      saveMirrorRow: vi.fn(async () => {
+        throw new Error("d1 write failed");
+      }),
+      deleteMirror: vi.fn(async () => {
+        throw new Error("google delete failed");
+      }),
+    });
+
+    await expect(reconcileSourceChange("src-acc", "src-cal", WINDOW, deps)).resolves.toBeUndefined();
+  });
+
+  it("D1 書き込みが落ちた回のミラーは巻き戻り、次のリコンサイルで1件だけ作り直される", async () => {
+    const google = makeMirrorCalendar();
+    const table = makeMirrorRows(1); // 1回目の saveMirrorRow だけ失敗する
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      loadMirrors: table.loadMirrors,
+      saveMirrorRow: table.saveMirrorRow,
+      createMirror: google.createMirror,
+      deleteMirror: google.deleteMirror,
+      listTargetEvents: google.listTargetEvents,
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+    // 補償削除で「行も予定も無い」状態に戻っている。
+    expect(google.events.size).toBe(0);
+    expect(table.rows.size).toBe(0);
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+    expect(google.events.size).toBe(1);
+    expect(table.rows.size).toBe(1);
+  });
+
+  it("補償削除まで失敗して孤児が残っても、次のリコンサイルが採用して二重にしない", async () => {
+    const google = makeMirrorCalendar({ deleteAlwaysFails: true });
+    const table = makeMirrorRows(1);
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      loadMirrors: table.loadMirrors,
+      saveMirrorRow: table.saveMirrorRow,
+      createMirror: google.createMirror,
+      deleteMirror: google.deleteMirror,
+      listTargetEvents: google.listTargetEvents,
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+    // 行は書けず補償削除も失敗 = Google 上に孤児が1件残った状態。
+    expect(google.events.size).toBe(1);
+    expect(table.rows.size).toBe(0);
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+    // 作り直さずに孤児を回収した: ミラーは1件のまま、行がそれを指している。
+    expect(google.createMirror).toHaveBeenCalledTimes(1);
+    expect(google.events.size).toBe(1);
+    expect(table.rows.get("ev-1")?.mirror_event_id).toBe("mirror-1");
+
+    // 3回目以降も増えない (孤児が毎回積み上がらないことの確認)。
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+    expect(google.events.size).toBe(1);
+  });
+
+  it("採用した行は source_updated=null で入る (次のリコンサイルで時刻を揃えるため)", async () => {
+    const orphan: GoogleEventDTO = timedEvent({
+      id: "mirror-orphan",
+      extendedProperties: {
+        private: {
+          [MIRROR_MARKER_KEY]: "1",
+          [MIRROR_RULE_KEY]: "rule-1",
+          [MIRROR_SOURCE_KEY]: "ev-1",
+        },
+      },
+    });
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent({ updated: "2026-07-25T00:00:00.000Z" })]),
+      listTargetEvents: vi.fn(async () => [orphan]),
+      now: vi.fn(() => 7777),
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(deps.createMirror).not.toHaveBeenCalled();
+    expect(deps.saveMirrorRow).toHaveBeenCalledWith({
+      rule_id: "rule-1",
+      source_event_id: "ev-1",
+      mirror_event_id: "mirror-orphan",
+      source_updated: null,
+      created_at: 7777,
+    });
+  });
+
+  it("作るものが無い回は target 一覧を引かない (定常状態で Google 呼び出しを増やさない)", async () => {
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      loadMirrors: vi.fn(async () => [mirrorRow()]),
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(deps.listTargetEvents).not.toHaveBeenCalled();
+  });
+
+  it("target 一覧の取得に失敗しても、これまで通り新規作成に進む", async () => {
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule()]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      listTargetEvents: vi.fn(async () => {
+        throw new Error("google list failed");
+      }),
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(deps.createMirror).toHaveBeenCalledTimes(1);
+  });
+
+  it("採用だけで済んだ回は ooo_fallback を上書きしない (Google に body を送っていない)", async () => {
+    const orphan: GoogleEventDTO = timedEvent({
+      id: "mirror-orphan",
+      extendedProperties: {
+        private: {
+          [MIRROR_MARKER_KEY]: "1",
+          [MIRROR_RULE_KEY]: "rule-1",
+          [MIRROR_SOURCE_KEY]: "ev-1",
+        },
+      },
+    });
+    const deps = makeDeps({
+      loadRulesForSource: vi.fn(async () => [makeRule({ mode: "outOfOffice" })]),
+      listSourceEvents: vi.fn(async () => [timedEvent()]),
+      listTargetEvents: vi.fn(async () => [orphan]),
+    });
+
+    await reconcileSourceChange("src-acc", "src-cal", WINDOW, deps);
+
+    expect(deps.setRuleOooFallback).not.toHaveBeenCalled();
   });
 });
 

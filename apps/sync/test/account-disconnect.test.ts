@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   disconnectAccounts,
   planBlockRuleCleanup,
+  planReconcileTriggers,
   type BlockRuleCleanupInput,
   type BlockRuleCleanupPlan,
   type DisconnectDeps,
   type DisconnectWatchRef,
+  type ReconcileTrigger,
 } from "../src/core/account-disconnect";
 
 describe("planBlockRuleCleanup", () => {
@@ -96,6 +98,62 @@ describe("planBlockRuleCleanup", () => {
   });
 });
 
+/**
+ * 解除後に自分でリコンサイルを起こす判断 (A-3)。リコンサイルの唯一の入口は source への
+ * 変更通知であり、解除されたカレンダーは二度と発火しない — だから残っている source を
+ * 起点に選ぶ。
+ */
+describe("planReconcileTriggers", () => {
+  const RULE: BlockRuleCleanupInput = {
+    id: "rule-1",
+    targetAccountId: "acc-target",
+    sources: [
+      { accountId: "acc-a", calendarId: "cal-a" },
+      { accountId: "acc-b", calendarId: "cal-b" },
+    ],
+  };
+
+  it("生き残るルールについて、残っている source を起点に選ぶ", () => {
+    expect(planReconcileTriggers(["acc-a"], [RULE])).toEqual([
+      { accountId: "acc-b", calendarId: "cal-b" },
+    ]);
+  });
+
+  it("target が解除されたルールは起こさない (ルールごと消えるので起こす意味が無い)", () => {
+    expect(planReconcileTriggers(["acc-target"], [RULE])).toEqual([]);
+  });
+
+  it("全 source が解除されたルールは起こさない (ルールごと消える)", () => {
+    expect(planReconcileTriggers(["acc-a", "acc-b"], [RULE])).toEqual([]);
+  });
+
+  it("何も外れなかったルールは起こさない", () => {
+    expect(planReconcileTriggers(["acc-other"], [RULE])).toEqual([]);
+  });
+
+  it("同じ source を複数ルールが共有していても1回だけ起こす", () => {
+    // 1回のリコンサイルはその source を持つ全ルールを見るので、重複は無駄なだけ。
+    const rules: BlockRuleCleanupInput[] = [
+      RULE,
+      {
+        id: "rule-2",
+        targetAccountId: "acc-target2",
+        sources: [
+          { accountId: "acc-a", calendarId: "cal-a" },
+          { accountId: "acc-b", calendarId: "cal-b" },
+        ],
+      },
+    ];
+    expect(planReconcileTriggers(["acc-a"], rules)).toEqual([
+      { accountId: "acc-b", calendarId: "cal-b" },
+    ]);
+  });
+
+  it("何も解除されていなければ空", () => {
+    expect(planReconcileTriggers([], [RULE])).toEqual([]);
+  });
+});
+
 /** 呼ばれた副作用を順番に記録するデバッグ用の deps。テストごとに必要なものを上書きする。 */
 function makeDeps(
   calls: string[],
@@ -126,6 +184,9 @@ function makeDeps(
     applyBlockRuleCleanup: vi.fn(async (plan: BlockRuleCleanupPlan) => {
       calls.push("applyBlockRuleCleanup");
       appliedPlans.push(plan);
+    }),
+    reconcileFromSource: vi.fn(async (trigger: ReconcileTrigger) => {
+      calls.push(`reconcileFromSource:${trigger.accountId}:${trigger.calendarId}`);
     }),
     ...overrides,
   };
@@ -240,6 +301,76 @@ describe("disconnectAccounts", () => {
       ruleIdsToDelete: ["rule-2"],
       sourcesToDetach: [{ ruleId: "rule-1", accountId: "acc-1", calendarId: "cal-1" }],
     });
+  });
+
+  /**
+   * 回帰 (A-3): 以前は「残ったミラーは次回のリコンサイルで削除計画に載る」とコメントが
+   * 主張していたが、そのリコンサイルを起こす者が居なかった。解除されたカレンダーはもう
+   * 変更通知を出さないので、無関係な別 source がたまたま変わるまでミラーが残り続けていた。
+   */
+  it("生き残ったルールについて、掃除の後にリコンサイルを起こす (外したカレンダー由来のミラーを片付ける)", async () => {
+    const calls: string[] = [];
+    const deps = makeDeps(calls, {
+      loadBlockRules: async () => [
+        {
+          id: "rule-1",
+          targetAccountId: "acc-keep",
+          sources: [
+            { accountId: "acc-1", calendarId: "cal-1" },
+            { accountId: "acc-keep", calendarId: "cal-keep" },
+          ],
+        },
+      ],
+    });
+    await disconnectAccounts(["acc-1"], deps);
+
+    // D1 の掃除より後であること: 先に起こすと、まだ外れていない解除済み source を読みに行って失敗する。
+    expect(calls.slice(-2)).toEqual([
+      "applyBlockRuleCleanup",
+      "reconcileFromSource:acc-keep:cal-keep",
+    ]);
+  });
+
+  it("リコンサイルの起動に失敗しても解除は成立させる (best-effort)", async () => {
+    const calls: string[] = [];
+    const deps = makeDeps(calls, {
+      loadBlockRules: async () => [
+        {
+          id: "rule-1",
+          targetAccountId: "acc-keep",
+          sources: [
+            { accountId: "acc-1", calendarId: "cal-1" },
+            { accountId: "acc-keep", calendarId: "cal-keep" },
+          ],
+        },
+      ],
+      reconcileFromSource: vi.fn(async () => {
+        throw new Error("DO unreachable");
+      }),
+    });
+
+    await expect(disconnectAccounts(["acc-1"], deps)).resolves.toBeUndefined();
+    expect(deps.reconcileFromSource).toHaveBeenCalledWith({
+      accountId: "acc-keep",
+      calendarId: "cal-keep",
+    });
+    expect(calls).toContain("applyBlockRuleCleanup");
+  });
+
+  it("ルールごと消える解除ではリコンサイルを起こさない", async () => {
+    const calls: string[] = [];
+    const deps = makeDeps(calls, {
+      loadBlockRules: async () => [
+        {
+          id: "rule-1",
+          targetAccountId: "acc-1",
+          sources: [{ accountId: "acc-keep", calendarId: "cal-keep" }],
+        },
+      ],
+    });
+    await disconnectAccounts(["acc-1"], deps);
+
+    expect(deps.reconcileFromSource).not.toHaveBeenCalled();
   });
 
   it("skips the cleanup write when no rule is affected (no empty D1 batch)", async () => {
