@@ -150,60 +150,53 @@ export function buildEventEditPatchRequest(
   });
 }
 
-/** original (Occurrence/AllDayOccurrence どちらでも) + draft(時刻予定側) → 更新後の Occurrence */
+/**
+ * draft が編集する項目のうち、**時刻予定と終日予定で扱いが同じもの**
+ * (タイトル・場所・説明)。時間の表し方だけが startMs/endMs と startDate/endDate に
+ * 分かれるので、それは呼び出し側の2つの関数がそれぞれ足す。
+ */
+function draftAppliedFields(
+  draft: EventEditDraft,
+): Pick<Occurrence, "title" | "location" | "description"> {
+  return {
+    title: draft.title,
+    // 空文字は「無い」と同義にする(ローカル表示の falsy 判定と揃える)
+    location: draft.location || undefined,
+    description: draft.description || undefined,
+  };
+}
+
+/**
+ * original (Occurrence/AllDayOccurrence どちらでも) + draft(時刻予定側) → 更新後の Occurrence。
+ *
+ * **draft が持たない項目は original からそのまま引き継ぐ** (2026-07-31 の修正)。
+ * 以前は引き継ぐ項目を1つずつ列挙して組み立てていたため、あとから Occurrence に増えた
+ * attendees / attendeesOmitted / reminders が列挙から漏れ、編集フォームで保存した直後だけ
+ * 参加者やリマインダーが消えていた ―― 次の同期で戻るとはいえ、その間の削除は
+ * 「ゲストがいて自分が主催なら通知を訊く」(sync/guestNotify.ts の shouldAskGuestNotify) の
+ * 判定を素通りしてしまう。この関数は編集フォームの draft を写す役目しか持たないので、
+ * **列挙するのは「落とす項目」だけ**にして、増えたフィールドが黙って消えないようにする。
+ */
 export function applyDraftToOccurrence(
   original: Occurrence | AllDayOccurrence,
   draft: EventEditDraft,
 ): Occurrence {
-  const {
-    id,
-    color,
-    hasCustomColor,
-    source,
-    link,
-    accountId,
-    calendarId,
-    iCalUID,
-    isMirror,
-    isOutOfOffice,
-    responseStatus,
-    isOrganizer,
-    hasConference,
-    conferenceUrl,
-    isWorkingLocation,
-  } = original;
-  const originalStartMs = "originalStartMs" in original ? original.originalStartMs : undefined;
-  return {
-    id,
-    // seriesId は Occurrence/AllDayOccurrence どちらの型にも存在する共通フィールド
-    seriesId: original.seriesId,
-    title: draft.title,
-    startMs: draft.startMs,
-    endMs: draft.endMs,
-    color,
-    hasCustomColor,
-    source,
-    link,
-    accountId,
-    calendarId,
-    iCalUID,
-    location: draft.location || undefined,
-    description: draft.description || undefined,
-    isMirror,
-    isOutOfOffice,
-    responseStatus,
-    isOrganizer,
-    hasConference,
-    conferenceUrl,
-    isWorkingLocation,
-    ...(originalStartMs !== undefined ? { originalStartMs } : {}),
-  };
+  const applied = { ...draftAppliedFields(draft), startMs: draft.startMs, endMs: draft.endMs };
+  if ("startMs" in original) return { ...original, ...applied };
+  // 終日予定 → 時刻予定への変換。時刻予定に startDate/endDate は無いので、
+  // この2つだけを落として残りは引き継ぐ (seriesId は両方の型にある共通フィールド)。
+  const { startDate: _startDate, endDate: _endDate, ...carried } = original;
+  return { ...carried, ...applied };
 }
 
 /**
  * original (Occurrence/AllDayOccurrence どちらでも) + draft(終日側) → 更新後の AllDayOccurrence。
  * draft.endMs (排他的) から表示用の inclusive な endDate を導出する
  * (mapGoogle.ts の buildAllDay と同じ「1日前倒し」規則、異常値のクランプも揃える)。
+ *
+ * applyDraftToOccurrence と同じ理由で、**draft が持たない項目は引き継ぐ**
+ * (列挙するのは「終日予定には無い項目」だけ)。seriesId だけは例外的に null に潰す ――
+ * 終日の繰り返しは未対応で、展開結果は常に時刻予定になるため (model/types.ts 参照)。
  */
 export function applyDraftToAllDayOccurrence(
   original: Occurrence | AllDayOccurrence,
@@ -215,46 +208,19 @@ export function applyDraftToAllDayOccurrence(
   let endDate = Temporal.PlainDate.from(endDateExclusive).subtract({ days: 1 }).toString();
   if (Temporal.PlainDate.compare(endDate, startDate) < 0) endDate = startDate;
 
+  const applied = { ...draftAppliedFields(draft), seriesId: null, startDate, endDate };
+  if (!("startMs" in original)) return { ...original, ...applied };
+  // 時刻予定 → 終日予定への変換。終日予定が持たない4つ (時刻そのもの・シリーズ展開の
+  // 元時刻・リマインダー) を落として、残りは引き継ぐ。reminders を落とすのは終日予定を
+  // 通知の対象にしていないため (model/types.ts の Occurrence.reminders のコメント参照)。
   const {
-    id,
-    color,
-    hasCustomColor,
-    source,
-    link,
-    accountId,
-    calendarId,
-    iCalUID,
-    isMirror,
-    isOutOfOffice,
-    responseStatus,
-    isOrganizer,
-    hasConference,
-    conferenceUrl,
-    isWorkingLocation,
+    startMs: _startMs,
+    endMs: _endMs,
+    originalStartMs: _originalStartMs,
+    reminders: _reminders,
+    ...carried
   } = original;
-  return {
-    id,
-    seriesId: null,
-    title: draft.title,
-    startDate,
-    endDate,
-    color,
-    hasCustomColor,
-    source,
-    link,
-    accountId,
-    calendarId,
-    iCalUID,
-    location: draft.location || undefined,
-    description: draft.description || undefined,
-    isMirror,
-    isOutOfOffice,
-    responseStatus,
-    isOrganizer,
-    hasConference,
-    conferenceUrl,
-    isWorkingLocation,
-  };
+  return { ...carried, ...applied };
 }
 
 // ---- <input> の value ⇔ epoch ms 変換 (EventEditForm.tsx から使う純関数) ----

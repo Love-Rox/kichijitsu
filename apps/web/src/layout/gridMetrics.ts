@@ -107,7 +107,11 @@ export function matchHourHeightPreset(hourHeight: number): HourHeightPresetId | 
   return HOUR_HEIGHT_PRESETS.find((p) => p.px === hourHeight)?.id ?? null;
 }
 
-/** 1日(24時間)ぶんの高さ(px)。CSS 側は calc(var(--hour-height) * 24) で同じ値を出す */
+/**
+ * 1日(24時間)ぶんの高さ(px)。CSS 側は calc(var(--hour-height) * 24) で同じ値を出す。
+ * 高さを実際に決めているのはその CSS なので、TS 側の呼び出し元は「CSS と同じ値になること」を
+ * 固定する単体テストだけ ―― 参照ゼロに見えるが、24 という係数の二重管理を検知する役目がある。
+ */
 export function dayHeightPx(hourHeight: number): number {
   return hourHeight * 24;
 }

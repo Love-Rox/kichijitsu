@@ -104,7 +104,12 @@ export function postJson<TReq, TRes>(f: CheckedFetch, path: string, body: TReq):
   return requestJson<TRes>(f, "POST", path, jsonInit("POST", body));
 }
 
-/** PUT(JSON ボディ)して応答 JSON を返す。非 2xx は HttpError */
+/**
+ * PUT(JSON ボディ)して応答 JSON を返す。非 2xx は HttpError。
+ * 今のところ PUT を使う API が無いため呼び出し元は単体テストだけだが、JsonBodyMethod が
+ * PUT を含む以上ここに口が無いと「PUT だけ生 fetch」に戻ってしまうので、動詞一式
+ * (get/post/put/patch/delete)は揃えて置いてある。
+ */
 export function putJson<TReq, TRes>(f: CheckedFetch, path: string, body: TReq): Promise<TRes> {
   return requestJson<TRes>(f, "PUT", path, jsonInit("PUT", body));
 }

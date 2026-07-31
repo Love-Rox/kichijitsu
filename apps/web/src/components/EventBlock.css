@@ -783,15 +783,33 @@
   cursor: pointer;
 }
 
-.event-detail-text-btn:hover {
+.event-detail-text-btn:hover:not(:disabled) {
   color: var(--c-ink);
+}
+
+/*
+ * 押せない間の見た目 (2026-07-31)。ゲストの追加・削除の実行中はこのボタンが
+ * disabled になる (EventDetailCard.tsx の GuestSection の pending) のに、
+ * :disabled 規則が無いせいで見た目が変わらず、ホバーではむしろ濃くなっていた
+ * ―― 「押せる」と読めるボタンが実は押せない状態。他の文字だけボタン
+ * (.settings-modal-text-btn / .block-rules-text-btn / .github-pane-text-btn) と
+ * 同じ2規則 (:hover は :not(:disabled) で守り、:disabled は薄墨+cursor 既定) に揃える。
+ */
+.event-detail-text-btn:disabled {
+  color: var(--c-ink-faint);
+  cursor: default;
 }
 
 .event-detail-delete-btn {
   color: var(--c-danger);
 }
 
-.event-detail-delete-btn:hover {
+/*
+ * :not(:disabled) は上の .event-detail-text-btn:hover と揃えるために要る ――
+ * 揃えないと詳細度が (0,2,0) 対 (0,3,0) で負け、削除だけホバーで朱に濃くならず
+ * 墨色になってしまう。削除ボタン自体は disabled にならないので、見た目は変わらない。
+ */
+.event-detail-delete-btn:hover:not(:disabled) {
   color: var(--c-danger-strong);
 }
 

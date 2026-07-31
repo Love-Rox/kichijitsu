@@ -373,6 +373,32 @@ describe("disconnectAccounts", () => {
     expect(deps.reconcileFromSource).not.toHaveBeenCalled();
   });
 
+  /**
+   * 全 source が解除されてルールごと消えるが、**target のアカウントは生きている**ケース。
+   * 技術的にはミラー予定を Google から消せるが、消さない — 解除には「消しますか」を聞ける
+   * 瞬間が無いため (原則は docs/blocking.md「後始末」、判断の全文は src の
+   * planReconcileTriggers「原則との関係」)。ここで消しにいく実装 (リコンサイルを起こす等) に
+   * 戻したらこのテストが落ちる。
+   */
+  it("全 source 解除で target が生きていても、ミラーには触れず対応表の削除だけで終える", async () => {
+    const calls: string[] = [];
+    const deps = makeDeps(calls, {
+      loadBlockRules: async () => [
+        {
+          id: "rule-1",
+          targetAccountId: "acc-keep",
+          sources: [{ accountId: "acc-1", calendarId: "cal-1" }],
+        },
+      ],
+    });
+    await disconnectAccounts(["acc-1"], deps);
+
+    expect(deps.appliedPlans[0]).toEqual({ ruleIdsToDelete: ["rule-1"], sourcesToDetach: [] });
+    // 掃除の後に Google へ触る操作が1つも走らないこと (最後の副作用が D1 の掃除であること)。
+    expect(calls[calls.length - 1]).toBe("applyBlockRuleCleanup");
+    expect(deps.reconcileFromSource).not.toHaveBeenCalled();
+  });
+
   it("skips the cleanup write when no rule is affected (no empty D1 batch)", async () => {
     const calls: string[] = [];
     const deps = makeDeps(calls, {

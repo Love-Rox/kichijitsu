@@ -224,7 +224,7 @@
       </p>
       <p>
         なお、カレンダーブロック機能が Google
-        カレンダー上に作成した「予定あり」等のブロック予定の扱いは、解除によってルールが残るかどうかで変わります。複数の参照元を持つルールの<b>一部だけを解除した場合</b>、ルールは残った参照元で生き続け、解除したカレンダー由来のブロック予定は解除の直後に削除されます。<b>ルールごと消える場合</b>（書き込み先を解除した場合や、参照元をすべて解除した場合）は、ブロック予定はそのカレンダーに残ります（サーバー側の対応表が削除されるため、アプリからは操作できなくなります）。不要な場合は
+        カレンダー上に作成した「予定あり」等のブロック予定の扱いは、解除によってルールが残るかどうかで変わります。複数の参照元を持つルールの<b>一部だけを解除した場合</b>、ルールは残った参照元で生き続け、解除したカレンダー由来のブロック予定は解除の直後に削除されます（生きているルールが元の予定に追従した結果であり、参照元が次に変化した時点でいずれ削除されるものを待たずに行うだけです）。<b>ルールごと消える場合</b>（書き込み先を解除した場合や、参照元をすべて解除した場合）は、ブロック予定はそのカレンダーに残ります。解除の操作には削除の可否を確認する場面が無いためで、参照元をすべて解除した場合のように書き込み先のアカウントが残っていても削除は行いません（あわせてサーバー側の対応表も削除されるため、以後アプリからは操作できません）。不要な場合は
         Google カレンダー側で削除してください。このほかにブロック予定を Google
         カレンダーから消せるのは、アプリ内でブロックのルールを削除するときに「作成済みのブロック予定も削除する」を選んだ場合だけです（ルールの書き込み先を変更しただけでは、作成済みのブロック予定は削除しません）。
       </p>
@@ -344,10 +344,15 @@
           What happens to busy/out-of-office blocks the blocking feature already created in Google
           Calendar depends on whether the rule survives the disconnect. If you disconnect only
           <b>some</b> of a rule's source calendars, the rule lives on through the remaining sources
-          and the blocks derived from the disconnected calendar are deleted right away. If the
+          and the blocks derived from the disconnected calendar are deleted right away (that is the
+          surviving rule following its sources, and only brings forward a deletion that the next
+          change to a remaining source would have made anyway). If the
           <b>rule itself goes away</b> — you disconnected its destination calendar, or all of its
-          sources — the blocks remain in that calendar (the server-side mapping is deleted, so the
-          app can no longer manage them); delete them in Google Calendar if you no longer want them.
+          sources — the blocks remain in that calendar. Disconnecting offers no moment to ask whether
+          they should be deleted, so the app does not delete them, not even when the destination
+          account is still connected (as it is when you disconnect all of a rule's sources); the
+          server-side mapping is deleted as well, so the app can no longer manage them. Delete them
+          in Google Calendar if you no longer want them.
           Apart from that, the only case where the app deletes those blocks is when you delete a
           blocking rule in the app and leave "delete the blocks already created" checked; changing a
           rule's destination calendar alone never deletes blocks that were already created.

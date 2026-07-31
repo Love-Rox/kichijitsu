@@ -1,6 +1,6 @@
 /*
  * ヘッダーの走行中タイマー インジケーター(docs/github-integration.md「時間計測」増分2)。
- * .toolbar-activity-btn と同じトーン(枠線・パディション・角丸・hover)に、GitHub purple の
+ * .toolbar-actuals-btn と同じトーン(枠線・パディング・角丸・hover)に、GitHub purple の
  * 脈動ドットで「計測中」を示す(brand の朱は通知バッジ専用、ここでは使わない)。
  */
 .running-timers {

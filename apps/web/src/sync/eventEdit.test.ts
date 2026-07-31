@@ -17,6 +17,7 @@ import {
   validateEventEditDraft,
   type EventEditDraft,
 } from "./eventEdit";
+import { shouldAskGuestNotify } from "./guestNotify";
 
 const TZ = "Asia/Tokyo";
 
@@ -285,6 +286,108 @@ describe("applyDraftToOccurrence", () => {
     expect(result.startMs).toBe(draft.startMs);
     expect(result.endMs).toBe(draft.endMs);
   });
+
+  // ---- draft が持たない項目を落とさないこと (2026-07-31 の不具合) ----
+  // 落ちると「次の同期で戻るまでの間だけ」ゲストのいない予定に見え、削除時に
+  // 通知の選択が出なくなる (sync/guestNotify.ts の shouldAskGuestNotify)。
+  it("draft が持たない項目 (attendees/attendeesOmitted/reminders) を落とさない", () => {
+    const occ = baseOccurrence({
+      attendees: [
+        { email: "me@example.com", self: true, organizer: true, responseStatus: "accepted" },
+        { email: "guest@example.com", responseStatus: "needsAction" },
+      ],
+      attendeesOmitted: true,
+      reminders: { minutes: [10] },
+      isOrganizer: true,
+    });
+    const draft: EventEditDraft = {
+      title: "新タイトル",
+      location: "",
+      description: "",
+      isAllDay: false,
+      startMs: zms("2026-07-20T14:00"),
+      endMs: zms("2026-07-20T15:00"),
+    };
+    const result = applyDraftToOccurrence(occ, draft);
+    expect(result.attendees).toEqual(occ.attendees);
+    expect(result.attendeesOmitted).toBe(true);
+    expect(result.reminders).toEqual({ minutes: [10] });
+  });
+
+  it("保存直後の occurrence でも「ゲストがいて主催者なら訊く」判定が生き残る", () => {
+    const occ = baseOccurrence({
+      isOrganizer: true,
+      attendees: [
+        { email: "me@example.com", self: true, organizer: true },
+        { email: "guest@example.com", responseStatus: "accepted" },
+      ],
+    });
+    const draft: EventEditDraft = {
+      title: "編集後",
+      location: "会議室Z",
+      description: "",
+      isAllDay: false,
+      startMs: occ.startMs,
+      endMs: occ.endMs,
+    };
+    expect(shouldAskGuestNotify(applyDraftToOccurrence(occ, draft))).toBe(true);
+  });
+
+  it("draft が触る項目以外はキーごと original と一致する (増えたフィールドの列挙漏れ検出)", () => {
+    const occ = baseOccurrence({
+      seriesId: "series-1",
+      originalStartMs: zms("2026-07-20T10:00"),
+      hasCustomColor: true,
+      link: { url: "https://example.com" },
+      iCalUID: "ical-1",
+      isMirror: false,
+      isOutOfOffice: false,
+      responseStatus: "tentative",
+      isOrganizer: true,
+      hasConference: true,
+      conferenceUrl: "https://meet.example.com/abc",
+      isWorkingLocation: false,
+      attendees: [{ email: "guest@example.com" }],
+      attendeesOmitted: false,
+      reminders: { useDefault: true },
+    });
+    const draft: EventEditDraft = {
+      title: "新タイトル",
+      location: "新場所",
+      description: "新説明",
+      isAllDay: false,
+      startMs: zms("2026-07-20T14:00"),
+      endMs: zms("2026-07-20T15:00"),
+    };
+    const result = applyDraftToOccurrence(occ, draft);
+    const edited = new Set(["title", "startMs", "endMs", "location", "description"]);
+    for (const key of Object.keys(occ) as (keyof Occurrence)[]) {
+      if (edited.has(key)) continue;
+      expect({ key, value: result[key] }).toEqual({ key, value: occ[key] });
+    }
+  });
+
+  it("終日予定 → 時刻予定へ変換しても attendees は保ち、startDate/endDate は残さない", () => {
+    const allDay = baseAllDay({
+      attendees: [{ email: "guest@example.com", responseStatus: "accepted" }],
+      attendeesOmitted: true,
+    });
+    const draft: EventEditDraft = {
+      title: "時刻予定に変換",
+      location: "",
+      description: "",
+      isAllDay: false,
+      startMs: zms("2026-07-20T09:00"),
+      endMs: zms("2026-07-20T10:00"),
+    };
+    const result = applyDraftToOccurrence(allDay, draft);
+    expect(result.attendees).toEqual(allDay.attendees);
+    expect(result.attendeesOmitted).toBe(true);
+    // 変換後は時刻予定なので、終日予定の日付は**キーごと**残っていてはいけない
+    // (IndexedDB にそのまま入るため、余計なキーは次の同期まで残り続ける)
+    expect(Object.keys(result)).not.toContain("startDate");
+    expect(Object.keys(result)).not.toContain("endDate");
+  });
 });
 
 describe("applyDraftToAllDayOccurrence", () => {
@@ -320,6 +423,52 @@ describe("applyDraftToAllDayOccurrence", () => {
     expect(result.endDate).toBe("2026-07-21");
     expect(result.isOrganizer).toBe(true);
     expect(result.responseStatus).toBe("tentative");
+  });
+
+  // applyDraftToOccurrence と同じ列挙漏れがこちらにもあった (2026-07-31)
+  it("終日予定 → 終日予定でも attendees/attendeesOmitted を落とさない", () => {
+    const allDay = baseAllDay({
+      attendees: [{ email: "guest@example.com", responseStatus: "accepted" }],
+      attendeesOmitted: true,
+    });
+    const draft: EventEditDraft = {
+      title: "更新後",
+      location: "",
+      description: "",
+      isAllDay: true,
+      startMs: zms("2026-07-21T00:00"),
+      endMs: zms("2026-07-22T00:00"),
+    };
+    const result = applyDraftToAllDayOccurrence(allDay, draft, TZ);
+    expect(result.attendees).toEqual(allDay.attendees);
+    expect(result.attendeesOmitted).toBe(true);
+  });
+
+  it("時刻予定 → 終日予定でも attendees は保ち、時刻側だけの項目はキーごと落とす", () => {
+    const occ = baseOccurrence({
+      seriesId: "series-1",
+      originalStartMs: zms("2026-07-20T10:00"),
+      reminders: { minutes: [10] },
+      attendees: [{ email: "guest@example.com", responseStatus: "accepted" }],
+      isOrganizer: true,
+    });
+    const draft: EventEditDraft = {
+      title: "終日に変換",
+      location: "",
+      description: "",
+      isAllDay: true,
+      startMs: zms("2026-07-20T00:00"),
+      endMs: zms("2026-07-21T00:00"),
+    };
+    const result = applyDraftToAllDayOccurrence(occ, draft, TZ);
+    expect(result.attendees).toEqual(occ.attendees);
+    expect(result.isOrganizer).toBe(true);
+    // 終日予定は時刻を持たない。リマインダーも対象外なので運ばない (model/types.ts)
+    for (const key of ["startMs", "endMs", "originalStartMs", "reminders"]) {
+      expect(Object.keys(result)).not.toContain(key);
+    }
+    // 終日の繰り返しは未対応なので seriesId は潰す (従来どおり)
+    expect(result.seriesId).toBeNull();
   });
 });
 

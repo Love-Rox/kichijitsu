@@ -229,10 +229,16 @@ export function classifySwipeAxis(
 
 /**
  * 横スワイプ確定中、指に追従させる strip の transform 文字列を作る。
- * basePercent は現在の phase(prev/idle/next)が指す translateX の基準値(%、WeekGrid.tsx の
- * PHASE_BASE_PERCENT)、dxPx は pointerdown からの指の水平移動量(px)。
- * calc() で % と px を混在させることで、パネル幅を px で計算し直す必要なく
+ * basePercent は現在表示中のパネルが指す translateX の基準値(%)、dxPx は pointerdown からの
+ * 指の水平移動量(px)。calc() で % と px を混在させることで、パネル幅を px で計算し直す必要なく
  * そのまま「基準位置 + 指の移動量」を表現できる。
+ *
+ * **現在この関数を呼ぶ本体コードは無い**(呼び出し元は単体テストだけ)―― WeekGrid は
+ * transform 文字列を JS で組み立てるのをやめ、CSS 変数2本
+ * (--strip-base = 基準%、--swipe-dx = 指追従 px)を渡して WeekGrid.css 側で
+ * translateX(calc(var(--strip-base) + var(--swipe-dx))) と合成する方式に変えた
+ * (React 再レンダーなしで指に追従させるため)。同じ calc() の組み立て規則をここが
+ * 実行可能な形で持っている状態なので、消すならテストごと落とすこと。
  */
 export function swipeStripTransform(basePercent: number, dxPx: number): string {
   if (dxPx === 0) return `translateX(${basePercent}%)`;
