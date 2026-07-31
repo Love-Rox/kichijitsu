@@ -576,6 +576,9 @@ function App() {
     createEvent: handleCreate,
     duplicateEvent: handleDuplicate,
     deleteOccurrence: handleDeleteOccurrence,
+    deleteConfirm,
+    confirmDelete: handleConfirmDelete,
+    cancelDelete: handleCancelDelete,
     moveConfirm,
     requestMoveConfirm: handleRequestMoveConfirm,
     confirmMove: handleConfirmMove,
@@ -988,6 +991,23 @@ function App() {
                 askNotify={editScopeConfirm.askNotify}
                 onConfirm={handleConfirmEditScope}
                 onCancel={handleCancelEditScope}
+              />
+            )}
+            {/*
+             * ゲストのいる予定の削除確認 (2026-07-31)。ゲストがいて自分が主催のときだけ
+             * 立つ state で、移動確認と同じダイアログを purpose="delete" で使い回す
+             * (適用範囲は渡さない ―― 削除は従来どおりその1回分だけに効く)。
+             * ゲストのいない予定・主催者でない予定では常に null なので、削除は
+             * ポップオーバー内のインライン2段階確認だけで完了する (2026-07-31 以前と同じ)。
+             */}
+            {deleteConfirm && (
+              <MoveConfirmDialog
+                title={deleteConfirm.occurrence.title}
+                timeZone={timeZone}
+                purpose="delete"
+                askNotify
+                onConfirm={handleConfirmDelete}
+                onCancel={handleCancelDelete}
               />
             )}
             {initIndicator.visible && (

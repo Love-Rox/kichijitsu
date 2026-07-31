@@ -69,6 +69,8 @@ import {
  *     Option(Alt)+ドラッグの**複製** (duplicateEvent、2026-07-29) もこの経路に相乗りする
  *     ―― 複製元の内容を draft に写して createEvent を呼ぶだけの薄い包み。
  *  3. **削除** (deleteOccurrence): 楽観的に消す → POST /api/event/delete → 失敗で復元。
+ *     ゲストがいて自分が主催の予定だけ、消す前に確認ダイアログを挟む (deleteConfirm、
+ *     2026-07-31) ―― ゲストへの通知を訊いてからでないと sendUpdates が決まらないため。
  *  4. **編集フォーム保存** (saveEdit) と **RSVP** (rsvp): 「保存ボタン方式」なので楽観更新はせず、
  *     成功して初めて store/IndexedDB へ反映する(= ロールバック経路が無い)。
  *  5. **移動確認ダイアログ** (moveConfirm / requestMoveConfirm / confirmMove / cancelMove):
@@ -119,8 +121,23 @@ export interface EventMutationsController {
    * ドロップ先の時間帯へ同じ内容の**新しい予定**を作る ―― 中身は createEvent そのもの。
    */
   duplicateEvent: (source: Occurrence, startMs: number, endMs: number) => void;
-  /** 詳細ポップオーバーの削除ボタン (onDelete) */
+  /**
+   * 詳細ポップオーバーの削除ボタン (onDelete)。**ゲストがいて自分が主催の予定では、
+   * ここでは消さずに確認ダイアログ (deleteConfirm) を開く** (2026-07-31) ―― 通知を
+   * 送るかどうかを訊いてからでないと sendUpdates が決まらないため。それ以外の予定
+   * (削除のほとんど) は 2026-07-31 以前と同じで、その場で楽観的に消しにいく。
+   */
   deleteOccurrence: (occurrence: Occurrence) => void;
+  /**
+   * ゲストのいる予定の削除確認待ち (2026-07-31)。null 以外なら MoveConfirmDialog を
+   * purpose='delete' で出す。**ゲストのいない予定・自分が主催でない予定では常に null**
+   * のままで、削除は従来どおりポップオーバー内のインライン2段階確認だけで完了する。
+   */
+  deleteConfirm: { occurrence: Occurrence } | null;
+  /** ダイアログ「削除する」。選ばれたゲストへの通知つきで実際の削除に進む */
+  confirmDelete: (scope: RecurrenceScope, notify: GuestNotify) => void;
+  /** ダイアログ「キャンセル」。何も消さずに閉じるだけ (まだ1件も書き換えていない) */
+  cancelDelete: () => void;
   /**
    * ドラッグ移動の確認待ち。null 以外なら MoveConfirmDialog を出す。
    * scopes は繰り返し予定の適用範囲の選択肢 (2026-07-30) — **空配列なら繰り返しでない
@@ -221,6 +238,13 @@ export function useEventMutations({
   const editScopeResolveRef = useRef<
     ((choice: { scope: RecurrenceScope; notify: GuestNotify } | null) => void) | undefined
   >(undefined);
+  /**
+   * ゲストのいる予定の削除確認 (2026-07-31)。deleteOccurrence が
+   * shouldAskGuestNotify(occurrence) のときだけ立てる ―― それ以外は null のままで、
+   * 削除はポップオーバー内のインライン2段階確認だけで完了する (従来と同じ)。
+   * moveConfirm と違い**まだ何も書き換えていない**ので、キャンセルは state を落とすだけ。
+   */
+  const [deleteConfirm, setDeleteConfirm] = useState<{ occurrence: Occurrence } | null>(null);
 
   // 保存失敗の通知を数秒間表示してから消す(ツールバーの同期ステータスの流儀に倣う)
   const flashSaveError = useCallback(() => {
@@ -538,8 +562,13 @@ export function useEventMutations({
   // 正だが、既存の override 機構を流用する)。POST /api/event/delete で Google へ
   // 書き戻し、失敗時は occurrence(と override)を復元してロールバックし、saveError を表示する。
   // 成功後に SSE/同期で cancelled が届いても既に消えているため冪等。
-  const deleteOccurrence = useCallback(
-    (occurrence: Occurrence) => {
+  //
+  // notify (2026-07-31) は確認ダイアログで選ばれたゲストへの通知。**訊いていない経路
+  // (ゲスト無し・自分が主催でない = 削除のほとんど) では省略され**、
+  // buildEventDeleteRequest の中の resolveSendUpdates が安全側 (externalOnly) に倒す
+  // ―― 知らせる相手がいないのだから Google 側の結果は従来と1つも変わらない。
+  const runDelete = useCallback(
+    (occurrence: Occurrence, notify?: GuestNotify) => {
       if (!db) return;
       async function run() {
         if (!db) return;
@@ -556,7 +585,7 @@ export function useEventMutations({
           await putOverride(db, { ...overrideRef, patch: null });
         }
 
-        const deleteReq = buildEventDeleteRequest(occurrence);
+        const deleteReq = buildEventDeleteRequest(occurrence, notify);
         let ok = false;
         if (deleteReq) {
           try {
@@ -597,6 +626,36 @@ export function useEventMutations({
     },
     [db, store, checkedFetch, flashSaveError],
   );
+
+  // ---- ゲストのいる予定の削除確認 (2026-07-31) ----
+  // 削除は取り消せないので、ゲストがいて自分が主催のときだけ、ポップオーバー内の
+  // インライン2段階確認を確認ダイアログへ格上げして「削除するか」と「ゲストへの通知」を
+  // 一度に訊く (components/MoveConfirmDialog.tsx の purpose='delete')。
+  // **判定は移動・編集と同じ shouldAskGuestNotify** ―― 削除用の条件は作らない。
+  const deleteOccurrence = useCallback(
+    (occurrence: Occurrence) => {
+      if (shouldAskGuestNotify(occurrence)) {
+        setDeleteConfirm({ occurrence });
+        return;
+      }
+      runDelete(occurrence);
+    },
+    [runDelete],
+  );
+
+  // 適用範囲 (scope) は受け取るが使わない: 削除はダイアログに適用範囲を出さない
+  // (scopes を渡していない) ので必ず既定のまま届く。繰り返し予定の削除は従来どおり
+  // その1回分だけに効く ―― 2026-07-31 で変えていない。
+  const confirmDelete = useCallback(
+    (_scope: RecurrenceScope, notify: GuestNotify) => {
+      if (!deleteConfirm) return;
+      runDelete(deleteConfirm.occurrence, notify);
+      setDeleteConfirm(null);
+    },
+    [deleteConfirm, runDelete],
+  );
+
+  const cancelDelete = useCallback(() => setDeleteConfirm(null), []);
 
   // ---- ドラッグ移動の確認ダイアログ (フェーズ2、2026-07-22) ----
   // WeekGrid.handleCommit は kind==='move' で実際に時刻が変わったときだけこれを呼ぶ。
@@ -958,6 +1017,9 @@ export function useEventMutations({
     createEvent,
     duplicateEvent,
     deleteOccurrence,
+    deleteConfirm,
+    confirmDelete,
+    cancelDelete,
     moveConfirm,
     requestMoveConfirm,
     confirmMove,

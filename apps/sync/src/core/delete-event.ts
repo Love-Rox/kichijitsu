@@ -1,5 +1,35 @@
+import type { EventDeleteRequest } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { deleteEvent, type DeleteEventParams } from "../google/delete-event";
+import { SEND_UPDATES_VALUES } from "./patch-event";
+
+/**
+ * POST /api/event/delete のボディ検証 (2026-07-31)。それまでルートにインラインで書かれていた
+ * 3つの非空チェックを、core/patch-event.ts の isValidEventPatchRequest と同じ
+ * 「型ガード付き純関数」に出したもの ―― sendUpdates が増えて、値の集合まで見る必要が
+ * 出たため (インラインの `!body?.x` の並びでは表現できない)。
+ *
+ * sendUpdates は未指定か "all" / "externalOnly"。**"none" は弾く** ―― 更新のときと
+ * 同じ理由で、Google の enum には在るが kichijitsu は使わない値だから
+ * (shared の EventSendUpdates のコメント参照)。未指定は resolveSendUpdates が既定を
+ * 補うので 400 にはしない (sendUpdates を知らない旧クライアント互換)。
+ */
+export function isValidEventDeleteRequest(body: unknown): body is EventDeleteRequest {
+  if (!body || typeof body !== "object") return false;
+  const candidate = body as Record<string, unknown>;
+
+  if (typeof candidate.accountId !== "string" || candidate.accountId.length === 0) return false;
+  if (typeof candidate.calendarId !== "string" || candidate.calendarId.length === 0) return false;
+  if (typeof candidate.eventId !== "string" || candidate.eventId.length === 0) return false;
+  if (
+    candidate.sendUpdates !== undefined &&
+    !SEND_UPDATES_VALUES.includes(candidate.sendUpdates as string)
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * UserSyncDO.deleteEvent が実装すべき依存先。core/patch-event.ts の PatchEventCoreDeps と

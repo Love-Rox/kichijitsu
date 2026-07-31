@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { deleteEvent } from "../src/google/delete-event";
-import { deleteEventWithRetry, type DeleteEventCoreDeps } from "../src/core/delete-event";
+import {
+  deleteEventWithRetry,
+  isValidEventDeleteRequest,
+  type DeleteEventCoreDeps,
+} from "../src/core/delete-event";
 
 const PARAMS = {
   calendarId: "primary",
   eventId: "event-1",
+  sendUpdates: "externalOnly" as const,
 };
 
 describe("deleteEvent", () => {
@@ -16,7 +21,9 @@ describe("deleteEvent", () => {
     await deleteEvent(fetchImpl, "access-token", PARAMS);
 
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/event-1");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/event-1?sendUpdates=externalOnly",
+    );
     const requestInit = init as RequestInit;
     expect(requestInit.method).toBe("DELETE");
     expect((requestInit.headers as Record<string, string>).Authorization).toBe(
@@ -32,12 +39,55 @@ describe("deleteEvent", () => {
     await deleteEvent(fetchImpl, "access-token", {
       calendarId: "a/b@example.com",
       eventId: "event id with spaces",
+      sendUpdates: "externalOnly",
     });
 
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toBe(
-      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events/event%20id%20with%20spaces",
+      "https://www.googleapis.com/calendar/v3/calendars/a%2Fb%40example.com/events/event%20id%20with%20spaces?sendUpdates=externalOnly",
     );
+  });
+
+  // sendUpdates を必ず載せる (2026-07-31)。省略時の既定が未文書なので、付け忘れた
+  // リクエストが1本でも出ると「キャンセルメールが飛ぶか分からない削除」になる
+  it("always puts sendUpdates on the query string", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await deleteEvent(fetchImpl, "access-token", { ...PARAMS, sendUpdates: "all" });
+    expect(fetchImpl.mock.calls[0][0] as string).toContain("?sendUpdates=all");
+
+    await deleteEvent(fetchImpl, "access-token", { ...PARAMS, sendUpdates: "externalOnly" });
+    expect(fetchImpl.mock.calls[1][0] as string).toContain("?sendUpdates=externalOnly");
+  });
+});
+
+describe("isValidEventDeleteRequest", () => {
+  const valid = { accountId: "acc-1", calendarId: "cal-1", eventId: "evt-1" };
+
+  it("3つの id が揃っていれば通る (sendUpdates は無くてもよい = 旧クライアント)", () => {
+    expect(isValidEventDeleteRequest(valid)).toBe(true);
+  });
+
+  it("id が欠けている・空文字・オブジェクトでないものは弾く", () => {
+    expect(isValidEventDeleteRequest(null)).toBe(false);
+    expect(isValidEventDeleteRequest("nope")).toBe(false);
+    expect(isValidEventDeleteRequest({})).toBe(false);
+    expect(isValidEventDeleteRequest({ ...valid, accountId: "" })).toBe(false);
+    expect(isValidEventDeleteRequest({ ...valid, calendarId: undefined })).toBe(false);
+    expect(isValidEventDeleteRequest({ ...valid, eventId: 42 })).toBe(false);
+  });
+
+  it("sendUpdates は all / externalOnly のみ通す", () => {
+    expect(isValidEventDeleteRequest({ ...valid, sendUpdates: "all" })).toBe(true);
+    expect(isValidEventDeleteRequest({ ...valid, sendUpdates: "externalOnly" })).toBe(true);
+  });
+
+  it("sendUpdates: 'none' は弾く (外部ゲストのカレンダーに取り消しが届かなくなる)", () => {
+    expect(isValidEventDeleteRequest({ ...valid, sendUpdates: "none" })).toBe(false);
+    expect(isValidEventDeleteRequest({ ...valid, sendUpdates: "" })).toBe(false);
+    expect(isValidEventDeleteRequest({ ...valid, sendUpdates: true })).toBe(false);
   });
 });
 

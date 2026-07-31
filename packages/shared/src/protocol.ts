@@ -558,9 +558,9 @@ export type ServerEvent =
  * **ゲストへの通知 (2026-07-31)**: sendUpdates を参照。
  */
 /**
- * 予定の**変更**を Google に書き戻すときの `sendUpdates` (2026-07-31)。
+ * 予定の**変更・削除**を Google に書き戻すときの `sendUpdates` (2026-07-31)。
  * Google Calendar API の enum は `all` / `externalOnly` / `none` の3値だが、
- * kichijitsu が変更 (時刻・タイトル・場所・説明) で使うのは**上2つだけ**。
+ * kichijitsu が変更 (時刻・タイトル・場所・説明) と削除で使うのは**上2つだけ**。
  *
  * ## 「招待」と「更新」で必要な値が違う
  * ゲストの追加・削除 (EventGuestsRequest) は `all` 固定にしてある ―― **招待が届かなければ
@@ -610,6 +610,39 @@ export type ServerEvent =
  * (core/patch-event.ts の resolveSendUpdates)。MCP の update_event のように問いかける
  * 相手がいない経路でも、「頼まれてもいないメールを出さない・外部のカレンダーは古いまま
  * にしない」の両方を満たす唯一の値がこれ。
+ *
+ * ## 削除 (2026-07-31 に追加調査。**同じ規則で良い**)
+ * `events.delete` にも同じ `sendUpdates` があり ("Guests who should receive notifications
+ * about the deletion of the event")、既定はやはり**文書化されていない** ―― 同じページの
+ * 廃止済み `sendNotifications` にだけ "The default is false." が書いてある、という
+ * patch/update と全く同じ形をしている。Discovery ドキュメントにも `default` は無い。
+ *
+ * 肝心の「メールを止めるとゲストの手元から予定が消えないのか」は、**消える**:
+ *
+ *  - 主催者の削除はゲストの複製ごと取り消される ―― "If you create an event, you can delete
+ *    the event. **This takes the event off your calendar, and off the calendars of everyone
+ *    else invited.**" / "When an event organizer deletes an event, the event disappears from
+ *    the invitees' calendars." どちらもメールの送信を条件にしていない。
+ *  - 取り消しは status='cancelled' として**同期の側で必ず届く**。"All other cancelled events
+ *    represent deleted events. Clients should remove their locally synced copies." であり、
+ *    増分同期は "the result will always contain deleted entries, so that the clients get the
+ *    chance to remove them from storage"。メール通知とは別の経路。
+ *  - Google 自身、管理者向けの一括キャンセルで通知を止めている ―― "When you cancel events,
+ *    Calendar doesn't send notifications, so guests don't get spammed."
+ *
+ * そして `externalOnly` が要る理由も削除で変わらない。2018-10-02 の告知が**削除を名指しで
+ * 含めている**: "users who don't use Calendar will now always be sent an email when an event
+ * is created, updated **or deleted** in Google Calendar. Previously, some calendar systems
+ * would not update these details without an email"。つまり `none` で削除すると、
+ * **Google カレンダー以外のゲストのカレンダーにだけ、取り消されたはずの予定が残る**。
+ *
+ * 唯一の**穴**として記録しておく: 「通知の選択はカレンダーの同期に影響しない」を明言した
+ * 文 ("Regardless of what notification choice you make, Google Calendar attendees' events
+ * will be kept up to date.") は "create or change" の文脈で書かれており、**削除を名指しで
+ * 含む同じ文は存在しない**。上の3点からの結論であって、1文の引用では裏付けられない。
+ * それでも `externalOnly` を選ぶ判断は変わらない ―― 仮に同期でも消えなかったとしたら、
+ * `all` 以外のすべての値が壊れることになり、「利用者が選ばなかったから黙って送らない」
+ * という規則そのものが成立しなくなるが、その場合でも `externalOnly` は `none` より安全側。
  */
 export type EventSendUpdates = "all" | "externalOnly";
 
@@ -771,11 +804,21 @@ export interface EventCreateResponse {
 /**
  * POST /api/event/delete — 予定を Google から削除 (フェーズ5)。
  * 繰り返しの1回分は EventPatchRequest と同じインスタンス ID の組み立て規則に従う。
+ *
+ * **ゲストへの通知 (2026-07-31)**: sendUpdates を参照。
  */
 export interface EventDeleteRequest {
   accountId: string;
   calendarId: string;
   eventId: string;
+  /**
+   * ゲストへの通知 (2026-07-31)。EventSendUpdates のコメント参照 ―― **更新と同じ規則・
+   * 同じ2値**で、削除専用の規則は作っていない。
+   * **未指定ならサーバーが `externalOnly` を補う** (core/patch-event.ts の
+   * DEFAULT_SEND_UPDATES を削除経路でも使う)。web は必ず値を入れて送る
+   * (sync/eventPatch.ts の buildEventDeleteRequest が唯一の組み立て口)。
+   */
+  sendUpdates?: EventSendUpdates;
 }
 
 export interface EventDeleteResponse {

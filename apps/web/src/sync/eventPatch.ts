@@ -1,6 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { EventDeleteRequest, EventPatchRequest } from "@kichijitsu/shared";
 import type { Occurrence } from "../model/types";
+import { resolveSendUpdates, type GuestNotify } from "./guestNotify";
 
 /**
  * ドラッグ確定を Google へ書き戻す (フェーズ5) ための、EventPatchRequest 組み立て純関数群。
@@ -71,8 +72,20 @@ export function eventPatchRequestFor(
  * eventId の組み立て規則は buildEventPatchRequest と全く同じ (rawGoogleEventId /
  * seriesInstanceEventId を再利用)。source !== 'google' や accountId/calendarId 欠落、
  * id のパース失敗時は null (呼び出し側で warn する)。
+ *
+ * ゲストへの通知 (2026-07-31) もここで確定させる ―― 削除の body を組み立てる口はここ1つ
+ * しかないので、ここで sendUpdates を必ず埋めておけば「付け忘れて Google の未文書の既定に
+ * 落ちる」経路が構造的に無くなる (更新側で buildScopedEventPatchRequest が果たしている役目と
+ * 同じ)。判定は**更新と同じ** sync/guestNotify.ts の resolveSendUpdates を使い、削除用の
+ * 規則は作らない。notify を渡さなくても値は必ず入る: 訊いていない相手 (ゲスト無し・
+ * 非主催者) には externalOnly が入り、知らせる相手がいないので実質的に何も起きない。
+ *
+ * @param notify 確認ダイアログで選ばれた値。訊いていない場合は省略でよい
  */
-export function buildEventDeleteRequest(occurrence: Occurrence): EventDeleteRequest | null {
+export function buildEventDeleteRequest(
+  occurrence: Occurrence,
+  notify?: GuestNotify,
+): EventDeleteRequest | null {
   if (occurrence.source !== "google" || !occurrence.accountId || !occurrence.calendarId) {
     return null;
   }
@@ -85,6 +98,7 @@ export function buildEventDeleteRequest(occurrence: Occurrence): EventDeleteRequ
       accountId: occurrence.accountId,
       calendarId: occurrence.calendarId,
       eventId,
+      sendUpdates: resolveSendUpdates(occurrence, notify),
     };
   } catch (err) {
     console.error("kichijitsu: failed to build EventDeleteRequest", err);

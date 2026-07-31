@@ -264,14 +264,25 @@ export class UserSyncDO extends DurableObject<Env> {
    * そのまま返すことはしない (delete-event.ts のコメント参照)。403/412/5xx 等は runRpc が
    * GoogleApiError として拾い、実 status のまま RpcResult に載せる。route 側でこれを見て
    * 409 等にマップする。
+   *
+   * sendUpdates (2026-07-31) は patchEvent と同じ扱いで、**未指定でも素通しにしない** ――
+   * resolveSendUpdates が既定 (externalOnly) を補ってから渡す。3引数で呼ぶ既存の
+   * 呼び出し元 (MCP の delete_event、カレンダーブロックのミラー掃除) は引数を変えずに
+   * そのまま動き、いずれも「利用者が全員へ知らせると明示的に言った」経路ではないので
+   * externalOnly が正しい ―― ミラーにそもそもゲストはいない。
    */
   async deleteEvent(
     accountId: string,
     calendarId: string,
     eventId: string,
+    sendUpdates?: EventSendUpdates,
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
-      deleteEventWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId }),
+      deleteEventWithRetry(this.buildEventWriteDeps(accountId), {
+        calendarId,
+        eventId,
+        sendUpdates: resolveSendUpdates(sendUpdates),
+      }),
     );
   }
 

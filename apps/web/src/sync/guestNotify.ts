@@ -3,8 +3,8 @@ import type { EventAttendee, Occurrence } from "../model/types";
 import { isEditableEventSubject } from "./eventEdit";
 
 /**
- * 予定を**変更**したときのゲストへの通知 (2026-07-31)。ドラッグ移動・編集フォームの保存が
- * Google に渡す `sendUpdates` を決める純関数群。
+ * 予定を**変更・削除**したときのゲストへの通知 (2026-07-31)。ドラッグ移動・編集フォームの
+ * 保存・削除が Google に渡す `sendUpdates` を決める純関数群。
  *
  * ## 何が問題だったか
  * それまで POST /api/event/patch の経路は `sendUpdates` を一切付けていなかった。公式の
@@ -32,6 +32,20 @@ import { isEditableEventSubject } from "./eventEdit";
  * (メールのドメインから推測することもしない ―― Gmail 以外のアドレスで Google カレンダーを
  * 使っている人も、その逆もいる)。判定できないからこそ `externalOnly` に任せるのであって、
  * この層は**ゲストがいるかどうか**しか見ない。
+ *
+ * ## 削除も同じ関数を通す (2026-07-31 追記)
+ * `events.delete` にも同名の `sendUpdates` があり ("Guests who should receive notifications
+ * about the deletion of the event")、やはり**省略時の既定は文書化されていない**。
+ * 削除でも「メールを送らない」と「相手のカレンダーから消えない」は別物である ――
+ * 主催者の削除はゲストの複製ごと取り消され、それは status='cancelled' として同期で届く
+ * (根拠の引用は shared の EventSendUpdates のコメントにまとめた)。メールでしか知りようが
+ * ないのは、更新と同じく Google カレンダー以外を使うゲストだけ。**構造が更新と全く同じ
+ * なので、削除用に別の規則は作らず、この3つの純関数をそのまま使う**
+ * (sync/eventPatch.ts の buildEventDeleteRequest)。
+ *
+ * 削除固有の事情は「取り消せない」ことだけで、それは**規則ではなく問いかけ方**に効く ――
+ * 削除の確認は、ゲストがいて自分が主催のときだけインライン2段階確認から確認ダイアログへ
+ * 格上げする (components/EventDetailCard.tsx の EventDeleteControl)。値の決め方は同じ。
  */
 
 /** 「送信する」「送信しない」の2択。値の意味は shared の EventSendUpdates 参照 */
@@ -82,11 +96,14 @@ export function hasNotifiableGuests(attendees: EventAttendee[] | undefined): boo
 
 /**
  * 通知の可否を**利用者に選ばせるべきか**。true のときだけ確認ダイアログに選択が増える。
+ * 変更 (移動・編集) と削除で**同じ判定を使う** ―― 条件が3つとも同じ意味を持つため。
  *
  *  - 編集可能な Google 予定であること (mirror・Busy プレースホルダ・ローカル予定は対象外)
  *  - **自分が主催**であること。主催者でない予定を patch しても、公式には
  *    "these changes are only reflected on their own copy" ―― 自分の複製しか変わらず、
- *    誰にも通知は飛ばない。訊く意味が無いので訊かない。
+ *    誰にも通知は飛ばない。訊く意味が無いので訊かない。**削除でも同じ**で、招かれた側が
+ *    予定を消す操作は「自分のカレンダーから消す (欠席の返答)」であって、他のゲストの
+ *    予定を取り消すわけではない ―― 誰に何を知らせるかを選ばせる場面ではない。
  *  - **知らせる相手がいる**こと (hasNotifiableGuests)。
  *
  * **false のときは何も増やさない**のが絶対条件 ―― ゲストのいない予定・主催者でない予定を
@@ -101,8 +118,8 @@ export function shouldAskGuestNotify(subject: GuestNotifySubject): boolean {
 }
 
 /**
- * この変更で Google に渡す `sendUpdates` を確定する。**必ず値を返す** (undefined を返さない)
- * ―― 未文書の既定に落ちる隙間を型の上で塞ぐのがこの関数の役目。
+ * この変更・削除で Google に渡す `sendUpdates` を確定する。**必ず値を返す**
+ * (undefined を返さない) ―― 未文書の既定に落ちる隙間を型の上で塞ぐのがこの関数の役目。
  *
  * 規則はひとつ: **`all` になるのは利用者が確認ダイアログで「送信する」を選んだときだけ**。
  * それ以外は全部 `externalOnly` に倒れる。倒れる先が2種類ある:
