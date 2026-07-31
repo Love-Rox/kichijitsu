@@ -20,6 +20,7 @@ import type {
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
+import { INVALID_JSON, readJsonBody } from "./guards";
 import { decryptToken, InvalidCiphertextError } from "../crypto";
 import { fetchGitHubActivity } from "../core/github-activity";
 import { fetchGitHubCiRuns } from "../core/github-ci";
@@ -132,12 +133,8 @@ githubRoutes.get("/api/github/ci", requireAuth, async (c) => {
 //   core/github-pr-commits.ts の fetchPullCommitsForItems が内部で握って継続するので、
 //   ここまで届くのはトークン失効など全体に関わる失敗のみ。
 githubRoutes.post("/api/github/pr-commits", requireAuth, async (c) => {
-  let body: PullCommitsRequest;
-  try {
-    body = await c.req.json<PullCommitsRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<PullCommitsRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (
     !Array.isArray(body?.items) ||
     body.items.some(

@@ -1,6 +1,13 @@
 import type { EventPatchRequest, EventSendUpdates } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { patchEventTime, type PatchEventTimeParams } from "../google/patch-event";
+import {
+  isNonEmptyString,
+  isOptionalBoundedString,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_LOCATION_LENGTH,
+  MAX_SUMMARY_LENGTH,
+} from "./validation";
 
 /**
  * クライアントから送ってよい sendUpdates。`none` は含めない (shared の EventSendUpdates 参照)。
@@ -35,25 +42,6 @@ export const DEFAULT_SEND_UPDATES: EventSendUpdates = "externalOnly";
  */
 export function resolveSendUpdates(requested: EventSendUpdates | undefined): EventSendUpdates {
   return requested ?? DEFAULT_SEND_UPDATES;
-}
-
-/**
- * POST /api/event/patch のボディ検証で使う上限。core/create-event.ts の同名定数と同じ根拠
- * (description は Google Calendar API の上限 8192、summary/location は UI の1行入力として
- * 現実的な 1024 で切る)。
- */
-const MAX_SUMMARY_LENGTH = 1024;
-const MAX_LOCATION_LENGTH = 1024;
-const MAX_DESCRIPTION_LENGTH = 8192;
-
-/** 非空文字列か (core/create-event.ts の同名関数と同じ) */
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-/** 未指定 (undefined) か、maxLength 以内の文字列か */
-function isOptionalBoundedString(value: unknown, maxLength: number): boolean {
-  return value === undefined || (typeof value === "string" && value.length <= maxLength);
 }
 
 /**

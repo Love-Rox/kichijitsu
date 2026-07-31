@@ -3,7 +3,8 @@
  * `/api/task/patch` (docs/google-tasks.md)。routes/api.ts から分割 (2026-07-25) — 挙動は
  * 変えていない。
  *
- * いずれも UserSyncDO への RPC 委譲 + 対象アカウントの所属検証 (isAccountInProfile) が骨格。
+ * いずれも UserSyncDO への RPC 委譲 + 対象アカウントの所属検証 (guards.ts の
+ * denyUnlessAccountInProfile) が骨格。
  * 読み取り系のエラーは respondFromRpcResult で実 status のまま返し、書き戻し (task/patch) だけは
  * /api/event/patch と同じ一律 409 にマップする。
  */
@@ -18,26 +19,19 @@ import type {
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
-import { isAccountInProfile } from "../accounts";
+import { denyUnlessAccountInProfile, INVALID_JSON, readJsonBody } from "./guards";
 import { respondFromRpcResult } from "./respond";
 
 export const calendarsTasksRoutes = new Hono<AppEnv>();
 
 calendarsTasksRoutes.get("/api/calendars", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
   const accountId = c.req.query("accountId");
   if (!accountId) {
     return c.json<ApiError>({ error: "missing_accountId" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    // 存在しない accountId と「他人のプロファイルの accountId」を区別せず 403 にする
-    // (存在有無を漏らさないため)。
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(accountId);
   const result = await stub.listCalendars(accountId);
@@ -51,18 +45,13 @@ calendarsTasksRoutes.get("/api/calendars", requireAuth, async (c) => {
 // google/oauth.ts の hasTasksScope のコメント参照)。それ以外のエラーは通常どおり
 // respondFromRpcResult で実 status のまま返す。
 calendarsTasksRoutes.get("/api/tasklists", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
   const accountId = c.req.query("accountId");
   if (!accountId) {
     return c.json<ApiError>({ error: "missing_accountId" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(accountId);
   const result = await stub.listTaskLists(accountId);
@@ -79,23 +68,14 @@ calendarsTasksRoutes.get("/api/tasklists", requireAuth, async (c) => {
 // design 参照)。エラーは respondFromRpcResult で実 status のまま返す (GET /api/calendars
 // や POST /api/sync と同じ流儀)。
 calendarsTasksRoutes.post("/api/tasks/sync", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: TasksSyncRequest;
-  try {
-    body = await c.req.json<TasksSyncRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<TasksSyncRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!body?.accountId || !body?.taskListId) {
     return c.json<ApiError>({ error: "missing_accountId_or_taskListId" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.syncTasks(body.accountId, body.taskListId);
@@ -108,13 +88,8 @@ calendarsTasksRoutes.post("/api/tasks/sync", requireAuth, async (c) => {
 // タスクの完了状態変更を Google へ書き戻す。エラーの一律 409 マッピング方針は
 // /api/event/patch と同じ (コメント参照) — 正本は次の /api/tasks/sync 再取得で還流する。
 calendarsTasksRoutes.post("/api/task/patch", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: TaskPatchRequest;
-  try {
-    body = await c.req.json<TaskPatchRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<TaskPatchRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (
     !body?.accountId ||
     !body?.taskListId ||
@@ -124,12 +99,8 @@ calendarsTasksRoutes.post("/api/task/patch", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.patchTask(body.accountId, body.taskListId, body.taskId, body.status);

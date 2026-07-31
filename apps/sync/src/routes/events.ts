@@ -8,15 +8,13 @@
  * クライアントに要求しない。
  */
 import { Hono } from "hono";
+// 検証を通していないボディは `unknown` のまま読む (readJsonBody<unknown>) ので、
+// リクエスト型はここには要らない ―― 型は core/*.ts の isValid*Request (型ガード) が付ける。
 import type {
   ApiError,
-  EventCreateRequest,
   EventCreateResponse,
-  EventDeleteRequest,
   EventDeleteResponse,
-  EventGuestsRequest,
   EventGuestsResponse,
-  EventPatchRequest,
   EventPatchResponse,
   EventRsvpRequest,
   EventRsvpResponse,
@@ -24,7 +22,7 @@ import type {
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
-import { isAccountInProfile } from "../accounts";
+import { denyUnlessAccountInProfile, INVALID_JSON, readJsonBody } from "./guards";
 import { isValidEventCreateRequest } from "../core/create-event";
 import { isValidEventPatchRequest } from "../core/patch-event";
 import { isValidEventDeleteRequest } from "../core/delete-event";
@@ -37,22 +35,14 @@ export const eventRoutes = new Hono<AppEnv>();
 
 eventRoutes.post("/api/sync", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: SyncRequest;
-  try {
-    body = await c.req.json<SyncRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<SyncRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!body?.accountId || !body?.calendarId) {
     return c.json<ApiError>({ error: "missing_accountId_or_calendarId" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.sync(body.accountId, body.calendarId, body.deviceId, body.forceFull);
@@ -86,23 +76,14 @@ eventRoutes.post("/api/sync", requireAuth, async (c) => {
 // なら startMs/endMs が省略される。サーバーは範囲そのものを知らない (web/src/sync/
 // recurrenceScope.ts 参照)。
 eventRoutes.post("/api/event/patch", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: unknown;
-  try {
-    body = await c.req.json<EventPatchRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidEventPatchRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.patchEvent(
@@ -132,19 +113,14 @@ eventRoutes.post("/api/event/patch", requireAuth, async (c) => {
 });
 
 // 自分の参加ステータス (RSVP) を Google へ書き戻す (2026-07-22)。認可チェック
-// (requireAuth + isAccountInProfile) は /api/event/patch と同じ。responseStatus は
+// (requireAuth + denyUnlessAccountInProfile) は /api/event/patch と同じ。responseStatus は
 // Google の4値のみ許可する。self attendee が見つからない予定は RpcResult.error ===
 // "not_an_attendee" (core/rsvp-event.ts → NotAnAttendeeError → rpc-result.ts) として
 // 422 で明確に区別して返す — それ以外の失敗は /api/event/patch と同じ一律 409
 // (理由ごとの分岐をクライアントに要求しない方針)。
 eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: EventRsvpRequest;
-  try {
-    body = await c.req.json<EventRsvpRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<EventRsvpRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (
     !body?.accountId ||
     !body?.calendarId ||
@@ -157,12 +133,8 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.rsvpEvent(
@@ -185,7 +157,7 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
 });
 
 // 予定のゲスト (参加者) を追加・削除する (2026-07-31)。認可チェック (requireAuth +
-// isAccountInProfile) は /api/event/patch と同じ。
+// denyUnlessAccountInProfile、routes/guards.ts) は /api/event/patch と同じ。
 //
 // **配列ではなく差分 (addEmails/removeEmails) を受け取る**: events.patch の attendees は
 // 全置換で、クライアントが持つ一覧は MAX_DTO_ATTENDEES (50) 件で打ち切られていることが
@@ -197,23 +169,14 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
 // not_an_attendee と同じ流儀で、UI が「この予定のゲストは変更できません」という専用の
 // 説明を出せるようにするため。それ以外の失敗は一律 409 (理由ごとの分岐を要求しない方針)。
 eventRoutes.post("/api/event/guests", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: unknown;
-  try {
-    body = await c.req.json<EventGuestsRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidEventGuestsRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.editEventGuests(
@@ -248,23 +211,14 @@ eventRoutes.post("/api/event/guests", requireAuth, async (c) => {
 // isValidBlockRuleUpsertRequest と同じ流儀)。location/description/isAllDay は optional なので
 // 未指定の旧クライアント (タイトルと時間帯だけ送るリクエスト) もそのまま通る (後方互換)。
 eventRoutes.post("/api/event/create", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: unknown;
-  try {
-    body = await c.req.json<EventCreateRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidEventCreateRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   const result = await stub.createEvent(
@@ -299,23 +253,14 @@ eventRoutes.post("/api/event/create", requireAuth, async (c) => {
 // 出してある (2026-07-31、/api/event/patch と同じ流儀) — sendUpdates が増え、値の集合まで
 // 見る必要が出たため。`none` は 400 に落とす (shared の EventSendUpdates のコメント参照)。
 eventRoutes.post("/api/event/delete", requireAuth, async (c) => {
-  const profileId = c.get("profileId")!;
-  let body: unknown;
-  try {
-    body = await c.req.json<EventDeleteRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (!isValidEventDeleteRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
-  const account = await c.env.DB.prepare("SELECT profile_id FROM accounts WHERE id = ?")
-    .bind(body.accountId)
-    .first<{ profile_id: string }>();
-  if (!isAccountInProfile(account, profileId)) {
-    return c.json<ApiError>({ error: "account_not_found" }, 403);
-  }
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
   // 未指定なら DO 側の resolveSendUpdates が既定 (externalOnly) を補う (2026-07-31)

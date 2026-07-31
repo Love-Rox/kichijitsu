@@ -1,5 +1,6 @@
 import { GoogleApiError } from "./errors";
 import { insertEvent } from "../google/insert-event";
+import { DEFAULT_SEND_UPDATES } from "./patch-event";
 
 /**
  * UserSyncDO.createMirrorEvent が実装すべき依存先。core/create-event.ts の
@@ -40,6 +41,17 @@ interface RawInsertedEvent {
  *
  * 作成された event の id を返す (mirror なら block_mirrors への保存、work-log なら
  * 呼び出し元へそのまま返す、という具合に用途は呼び出し元次第)。
+ *
+ * ## sendUpdates に既定値を入れる理由 (2026-07-31)
+ * この経路で作る予定は**参加者を持たない** ―― ミラーは時間帯だけを写した「予定あり」の箱で
+ * attendees を含む内容を一切写さず (buildMirrorEventBody、無内容原則 docs/blocking.md)、
+ * 作業実績も自分のカレンダーに置く記録でしかない。したがって現状はどの値を送っても Google
+ * 側の結果は同じで、利用者に見える挙動は変わらない。
+ *
+ * それでも値を固定するのは、**「この層では必ず値が入る」という不変条件を破らないため**。
+ * 選ぶのは kichijitsu 全体で一本の既定 (DEFAULT_SEND_UPDATES = externalOnly、
+ * core/patch-event.ts のコメント参照) ―― どちらも「利用者が明示的に全員へ知らせると
+ * 言った」経路ではないので `all` にはしない。OOO フォールバックの再試行も同じ値で送る。
  */
 export async function insertEventWithRetry<TBody extends { eventType?: "outOfOffice" }>(
   deps: InsertEventCoreDeps,
@@ -50,7 +62,11 @@ export async function insertEventWithRetry<TBody extends { eventType?: "outOfOff
   let retriedAuth = false;
 
   for (;;) {
-    const response = await insertEvent(deps.fetch, accessToken, { calendarId, body });
+    const response = await insertEvent(deps.fetch, accessToken, {
+      calendarId,
+      body,
+      sendUpdates: DEFAULT_SEND_UPDATES,
+    });
 
     if (response.status === 401 && !retriedAuth) {
       retriedAuth = true;
@@ -67,6 +83,7 @@ export async function insertEventWithRetry<TBody extends { eventType?: "outOfOff
         const fallbackResponse = await insertEvent(deps.fetch, accessToken, {
           calendarId,
           body: fallbackBody,
+          sendUpdates: DEFAULT_SEND_UPDATES,
         });
         if (!fallbackResponse.ok) {
           throw new GoogleApiError(fallbackResponse.status, await fallbackResponse.text());

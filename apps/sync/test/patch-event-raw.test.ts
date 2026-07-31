@@ -7,7 +7,9 @@ const PARAMS = {
   eventId: "mirror-1",
   start: { dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" },
   end: { dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" },
-};
+  // 2026-07-31: google 層は sendUpdates 必須 (google/patch-event-raw.ts のコメント参照)
+  sendUpdates: "externalOnly",
+} as const;
 
 describe("patchEventRaw", () => {
   it("PATCHes events/{eventId} with start/end passed through as-is", async () => {
@@ -18,7 +20,9 @@ describe("patchEventRaw", () => {
     await patchEventRaw(fetchImpl, "access-token", PARAMS);
 
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/mirror-1");
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/mirror-1?sendUpdates=externalOnly",
+    );
     const requestInit = init as RequestInit;
     expect(requestInit.method).toBe("PATCH");
     expect(JSON.parse(requestInit.body as string)).toEqual({

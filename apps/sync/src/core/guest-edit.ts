@@ -1,5 +1,6 @@
 import type { EventGuestsRequest } from "@kichijitsu/shared";
 import type { RawAttendee } from "../google/rsvp-raw";
+import { isNonEmptyString } from "./validation";
 
 /**
  * ゲスト (参加者) の追加・削除 (2026-07-31) の純関数層。POST /api/event/guests の
@@ -31,8 +32,7 @@ export function isValidEventGuestsRequest(body: unknown): body is EventGuestsReq
   const candidate = body as Record<string, unknown>;
 
   for (const key of ["accountId", "calendarId", "eventId"]) {
-    const value = candidate[key];
-    if (typeof value !== "string" || value.length === 0) return false;
+    if (!isNonEmptyString(candidate[key])) return false;
   }
 
   const add = candidate.addEmails;

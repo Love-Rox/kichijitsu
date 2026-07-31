@@ -8,7 +8,7 @@ import type {
   SyncResponse,
   TaskListDTO,
 } from "@kichijitsu/shared";
-import { fetchCalendarList } from "../google/calendar-list";
+import { listCalendarsWithRetry, type CalendarListCoreDeps } from "../core/calendar-list";
 import { refreshAccessToken } from "../google/oauth";
 import { hasUpdatesSince } from "../google/poll-check";
 import { syncCalendar, type SyncCoreDeps } from "../core/sync";
@@ -156,12 +156,13 @@ export class UserSyncDO extends DurableObject<Env> {
     return runRpc(() => syncCalendar(this.buildDeps(accountId, deviceId, forceFull), calendarId));
   }
 
+  /**
+   * GET /api/calendars: カレンダー一覧。他の Google 呼び出しと同じく 401 は
+   * core/calendar-list.ts が 1 回だけリトライする (2026-07-31 にこの経路にも入れた —
+   * それまでここだけリトライが無かった。理由は listCalendarsWithRetry のコメント参照)。
+   */
   async listCalendars(accountId: string): Promise<RpcResult<CalendarListEntryDTO[]>> {
-    return runRpc(async () => {
-      const deps = this.buildDeps(accountId);
-      const accessToken = await deps.getAccessToken();
-      return fetchCalendarList(fetch, accessToken);
-    });
+    return runRpc(() => listCalendarsWithRetry(this.buildEventWriteDeps(accountId)));
   }
 
   /** POST /api/watch (watch 登録) と Cron 更新が、Google 呼び出し用に有効な access_token を取るための RPC。 */
@@ -594,13 +595,15 @@ export class UserSyncDO extends DurableObject<Env> {
 
   /**
    * patch/create/delete (+ カレンダーブロック機能の listEventsInWindow/createMirrorEvent/
-   * patchEventRaw、2026-07-22 RSVP の rsvpEvent) の書き戻し RPC 共通の依存先。いずれも
+   * patchEventRaw、2026-07-22 RSVP の rsvpEvent、2026-07-31 から listCalendars も) の
+   * Google 呼び出し RPC 共通の依存先。いずれも
    * { fetch, getAccessToken, forceRefreshAccessToken } と構造的に同一なので、1つの実装を
    * 全員に渡す。
    */
   private buildEventWriteDeps(
     accountId: string,
   ): PatchEventCoreDeps &
+    CalendarListCoreDeps &
     CreateEventCoreDeps &
     DeleteEventCoreDeps &
     ListEventsInWindowCoreDeps &

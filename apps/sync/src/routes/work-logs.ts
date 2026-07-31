@@ -22,6 +22,7 @@ import type {
 } from "@kichijitsu/shared";
 import type { AppEnv } from "../types";
 import { requireAuth } from "../middleware";
+import { INVALID_JSON, readJsonBody } from "./guards";
 import {
   buildWorkLogRow,
   deleteWorkLog,
@@ -78,12 +79,8 @@ workLogsRoutes.get("/api/work-logs", requireAuth, async (c) => {
 workLogsRoutes.post("/api/work-logs", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  let body: WorkLogCreateRequest;
-  try {
-    body = await c.req.json<WorkLogCreateRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkLogCreateRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (
     typeof body?.start !== "string" ||
     typeof body?.end !== "string" ||
@@ -137,12 +134,8 @@ workLogsRoutes.post("/api/work-logs", requireAuth, async (c) => {
 workLogsRoutes.post("/api/work-logs/start", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  let body: WorkIntervalStartRequest;
-  try {
-    body = await c.req.json<WorkIntervalStartRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkIntervalStartRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (typeof body?.repo !== "string") {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -175,12 +168,8 @@ workLogsRoutes.post("/api/work-logs/start", requireAuth, async (c) => {
 workLogsRoutes.post("/api/work-logs/stop", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
 
-  let body: WorkIntervalStopRequest;
-  try {
-    body = await c.req.json<WorkIntervalStopRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkIntervalStopRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   if (typeof body?.repo !== "string") {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
@@ -249,12 +238,8 @@ workLogsRoutes.patch("/api/work-logs/:id", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
   const id = c.req.param("id");
 
-  let body: WorkLogUpdateRequest;
-  try {
-    body = await c.req.json<WorkLogUpdateRequest>();
-  } catch {
-    return c.json<ApiError>({ error: "invalid_json" }, 400);
-  }
+  const body = await readJsonBody<WorkLogUpdateRequest>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
   // 全フィールド任意だが、存在するなら string のみ許す (非文字列は下流の Date.parse/D1 bind で
   // 事故になるため、POST と同じく 400 missing_fields に落とす)。
   if (
