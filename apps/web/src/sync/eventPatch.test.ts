@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Temporal } from "@js-temporal/polyfill";
-import type { Occurrence } from "../model/types";
+import type { EventAttendee, Occurrence } from "../model/types";
 import {
   buildEventDeleteRequest,
   eventPatchRequestFor,
@@ -128,6 +128,7 @@ describe("buildEventDeleteRequest", () => {
       accountId: "acc-1",
       calendarId: "cal-1",
       eventId: "evt-1",
+      sendUpdates: "externalOnly",
     });
   });
 
@@ -142,6 +143,7 @@ describe("buildEventDeleteRequest", () => {
       accountId: "acc-1",
       calendarId: "cal-1",
       eventId: "series-evt_20260720T010000Z",
+      sendUpdates: "externalOnly",
     });
   });
 
@@ -158,5 +160,56 @@ describe("buildEventDeleteRequest", () => {
   it("id のパースに失敗したら null (console.error はするが throw しない)", () => {
     const occ = baseOccurrence({ id: "not-a-google-id" });
     expect(buildEventDeleteRequest(occ)).toBeNull();
+  });
+});
+
+/**
+ * 削除の sendUpdates (2026-07-31)。判定そのものは sync/guestNotify.ts の resolveSendUpdates
+ * (テストは guestNotify.test.ts) で、ここで確かめるのは**削除の body に必ず載ること**と、
+ * **更新と同じ結論になること** ―― 削除用に別の規則が生えていないことの歯止め。
+ */
+describe("buildEventDeleteRequest の sendUpdates", () => {
+  const me: EventAttendee = { email: "me@example.com", self: true, organizer: true };
+  const guest: EventAttendee = { email: "sato@example.com", responseStatus: "accepted" };
+
+  it("ゲストのいない予定: 選択に関わらず externalOnly (= 2026-07-31 以前と同じ結果)", () => {
+    // 知らせる相手がいないので Google 側では**どの値でも結果は同じ**。それでも値は必ず入る
+    // ―― 未文書の既定に落とさないのがこの実装の目的
+    const alone = baseOccurrence({ isOrganizer: true });
+    expect(buildEventDeleteRequest(alone)?.sendUpdates).toBe("externalOnly");
+    expect(buildEventDeleteRequest(alone, "all")?.sendUpdates).toBe("externalOnly");
+    const selfOnly = baseOccurrence({ isOrganizer: true, attendees: [me] });
+    expect(buildEventDeleteRequest(selfOnly, "all")?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("ゲスト有り・自分が主催: 選ばれた値をそのまま使う", () => {
+    const occ = baseOccurrence({ isOrganizer: true, attendees: [me, guest] });
+    expect(buildEventDeleteRequest(occ, "all")?.sendUpdates).toBe("all");
+    expect(buildEventDeleteRequest(occ, "externalOnly")?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("ゲスト有り・主催者でない: 訊いていないので externalOnly", () => {
+    // 招かれた側が予定を消すのは「自分のカレンダーから消す」操作で、他のゲストの予定を
+    // 取り消すわけではない ―― 通知を選ばせる場面ではないので choice は無視する
+    const occ = baseOccurrence({ isOrganizer: false, attendees: [me, guest] });
+    expect(buildEventDeleteRequest(occ, "all")?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("ゲスト有り・主催でも、選ばれていなければ externalOnly (訊いていないのに送らない)", () => {
+    const occ = baseOccurrence({ isOrganizer: true, attendees: [me, guest] });
+    expect(buildEventDeleteRequest(occ)?.sendUpdates).toBe("externalOnly");
+  });
+
+  it("どの入力でも none にはならない (外部ゲストに取り消しが届かなくなる値は使わない)", () => {
+    const cases: Occurrence[] = [
+      baseOccurrence({ isOrganizer: true }),
+      baseOccurrence({ isOrganizer: true, attendees: [me, guest] }),
+      baseOccurrence({ isOrganizer: false, attendees: [me, guest] }),
+    ];
+    for (const occ of cases) {
+      for (const choice of ["all", "externalOnly", undefined] as const) {
+        expect(buildEventDeleteRequest(occ, choice)?.sendUpdates).not.toBe("none");
+      }
+    }
   });
 });

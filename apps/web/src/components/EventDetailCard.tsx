@@ -86,8 +86,20 @@ export interface EventDetailCardProps {
    * 確定操作(「削除する」クリック)で onDelete() を呼んだ直後に onClose() でポップオーバーを
    * 閉じる — 削除は楽観的なので occurrence はすぐ画面から消え、失敗時の通知は
    * (このコンポーネントではなく) App.tsx 側の共通 saveError トーストが担う。
+   * deleteAsksGuestNotify が true のときだけ、確定操作はインライン確認ではなく
+   * 「削除」ボタンそのものになる (下の deleteAsksGuestNotify 参照)。
    */
   onDelete?: () => void;
+  /**
+   * 削除でゲストへの通知を訊くか (2026-07-31、sync/guestNotify.ts の shouldAskGuestNotify で
+   * 呼び出し側が判定済み)。true のとき「削除」はインライン2段階確認を**出さず**、
+   * その場で onDelete() を呼ぶ ―― 呼び出し側 (App.tsx) が確認ダイアログを開き、
+   * 「削除するか」と「通知を送るか」を一度に訊く。押す回数は2回のままで変わらない。
+   *
+   * **false/未指定なら従来どおりインライン2段階確認**。ゲストのいない予定・自分が主催で
+   * ない予定 (削除のほとんど) は 2026-07-31 以前と1pxも変わらない。
+   */
+  deleteAsksGuestNotify?: boolean;
   /**
    * 編集フォーム(フェーズ2、2026-07-22)。指定されていれば「編集」ボタンを表示する
    * (呼び出し側が sync/eventEdit.ts の isEditableEventSubject で判定済みの draft を渡す —
@@ -136,6 +148,7 @@ export function EventDetailCard({
   calendarLookup,
   onClose,
   onDelete,
+  deleteAsksGuestNotify,
   editDraft,
   timeZone,
   canToggleAllDay = false,
@@ -334,7 +347,13 @@ export function EventDetailCard({
                 編集
               </button>
             )}
-            {onDelete && <EventDeleteControl onDelete={onDelete} onDeleted={onClose} />}
+            {onDelete && (
+              <EventDeleteControl
+                onDelete={onDelete}
+                onDeleted={onClose}
+                askGuestNotify={deleteAsksGuestNotify}
+              />
+            )}
           </div>
         )}
       </div>
@@ -639,13 +658,24 @@ type DeleteControlState = "idle" | "confirming";
  * 削除自体は楽観的 (App.tsx の handleDeleteOccurrence が即座に occurrence を消す) なので、
  * このコンポーネントは非同期の完了を待たない — 確定操作で onDelete() を呼んだら
  * そのままポップオーバーを閉じる (onDeleted、失敗時の通知は App.tsx の saveError トースト)。
+ * (askGuestNotify のときだけ handleDeleteOccurrence はすぐには消さず、確認ダイアログを
+ * 開いてから消す ―― どちらにせよここは「呼んで閉じる」で変わらない。)
+ *
+ * askGuestNotify (2026-07-31) が true のときだけ、この**インライン確認を省いて**そのまま
+ * onDelete() を呼ぶ ―― 呼び出し側が確認ダイアログ (MoveConfirmDialog purpose='delete') を
+ * 開き、「削除するか」と「ゲストへの通知」をまとめて訊くため。ここで「削除しますか?」を
+ * 出してからダイアログでもう一度「削除しますか?」を出すと、同じ問いが2回続くうえ押す回数も
+ * 3回に増える。**問いかけの場所が変わるだけで、回数は2回のまま**にしてある。
+ * false のときは 2026-07-31 以前と1文字も変わらない (削除のほとんどがこちら)。
  */
 function EventDeleteControl({
   onDelete,
   onDeleted,
+  askGuestNotify = false,
 }: {
   onDelete: () => void;
   onDeleted: () => void;
+  askGuestNotify?: boolean;
 }) {
   const [state, setState] = useState<DeleteControlState>("idle");
 
@@ -674,7 +704,17 @@ function EventDeleteControl({
     <button
       type="button"
       className="event-detail-text-btn event-detail-delete-btn"
-      onClick={() => setState("confirming")}
+      onClick={() => {
+        if (!askGuestNotify) {
+          setState("confirming");
+          return;
+        }
+        // 確認はこのあと開く確認ダイアログが引き受ける (上のコメント参照)。
+        // ポップオーバーは先に閉じる ―― ダイアログはモーダルで画面中央に出るため、
+        // 背後にカードが残っていても操作できず、閉じたほうが読みやすい。
+        onDelete();
+        onDeleted();
+      }}
     >
       削除
     </button>

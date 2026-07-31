@@ -27,6 +27,7 @@ import { requireAuth } from "../middleware";
 import { isAccountInProfile } from "../accounts";
 import { isValidEventCreateRequest } from "../core/create-event";
 import { isValidEventPatchRequest } from "../core/patch-event";
+import { isValidEventDeleteRequest } from "../core/delete-event";
 import { isValidEventGuestsRequest } from "../core/guest-edit";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
@@ -293,15 +294,19 @@ eventRoutes.post("/api/event/create", requireAuth, async (c) => {
 // deleteEventWithRetry の中で成功扱いにしている (冪等) ので、ここに届く時点で ok:false は
 // 本当の失敗 (403/412/5xx や 401 リトライ失敗) のみ。エラーの一律 409 マッピング方針は
 // /api/event/patch と同じ (コメント参照)。
+//
+// ボディ検証は core/delete-event.ts の isValidEventDeleteRequest (純関数・テストあり) に
+// 出してある (2026-07-31、/api/event/patch と同じ流儀) — sendUpdates が増え、値の集合まで
+// 見る必要が出たため。`none` は 400 に落とす (shared の EventSendUpdates のコメント参照)。
 eventRoutes.post("/api/event/delete", requireAuth, async (c) => {
   const profileId = c.get("profileId")!;
-  let body: EventDeleteRequest;
+  let body: unknown;
   try {
     body = await c.req.json<EventDeleteRequest>();
   } catch {
     return c.json<ApiError>({ error: "invalid_json" }, 400);
   }
-  if (!body?.accountId || !body?.calendarId || !body?.eventId) {
+  if (!isValidEventDeleteRequest(body)) {
     return c.json<ApiError>({ error: "missing_fields" }, 400);
   }
 
@@ -313,7 +318,13 @@ eventRoutes.post("/api/event/delete", requireAuth, async (c) => {
   }
 
   const stub = c.env.USER_SYNC.getByName(body.accountId);
-  const result = await stub.deleteEvent(body.accountId, body.calendarId, body.eventId);
+  // 未指定なら DO 側の resolveSendUpdates が既定 (externalOnly) を補う (2026-07-31)
+  const result = await stub.deleteEvent(
+    body.accountId,
+    body.calendarId,
+    body.eventId,
+    body.sendUpdates,
+  );
   if (!result.ok) {
     console.warn(
       `event delete failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,

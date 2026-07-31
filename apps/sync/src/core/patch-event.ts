@@ -2,8 +2,12 @@ import type { EventPatchRequest, EventSendUpdates } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { patchEventTime, type PatchEventTimeParams } from "../google/patch-event";
 
-/** クライアントから送ってよい sendUpdates。`none` は含めない (shared の EventSendUpdates 参照) */
-const SEND_UPDATES_VALUES: readonly string[] = ["all", "externalOnly"];
+/**
+ * クライアントから送ってよい sendUpdates。`none` は含めない (shared の EventSendUpdates 参照)。
+ * 削除の検証 (core/delete-event.ts の isValidEventDeleteRequest) も**これを import して使う**
+ * ―― 更新と削除で通す値の集合を別々に書くと、片方だけ `none` が通る日が来るため。
+ */
+export const SEND_UPDATES_VALUES: readonly string[] = ["all", "externalOnly"];
 
 /**
  * リクエストが sendUpdates を持たないときに補う値 (2026-07-31)。
@@ -14,13 +18,20 @@ const SEND_UPDATES_VALUES: readonly string[] = ["all", "externalOnly"];
  * ここに来るのは (1) sendUpdates を知らない旧クライアント、(2) MCP の update_event の
  * ように問いかける相手がいない経路 ―― どちらも「利用者が明示的に全員へ知らせると
  * 言った」わけではないので、`all` を既定にはしない。
+ *
+ * **削除 (core/delete-event.ts、user-sync-do.ts の deleteEvent) も同じ既定を使う**
+ * (2026-07-31)。削除は取り消せない操作なので `all` に倒したくなるが、それをすると
+ * 「訊いてもいない経路 (MCP の delete_event、ブロック機能のミラー掃除) が勝手に
+ * 全員へキャンセルメールを出す」ことになる ―― 規則は更新と同じ一本、
+ * **利用者が明示的に選んだときだけ `all`** にしてある。
  */
 export const DEFAULT_SEND_UPDATES: EventSendUpdates = "externalOnly";
 
 /**
  * 送られてきた sendUpdates を、Google に渡す確定値へ解決する純関数。
  * **未指定を Google の未文書の既定に落とさない**ための、たった1行の砦
- * (google/patch-event.ts の PatchEventTimeParams.sendUpdates が必須なのと対になる)。
+ * (google/patch-event.ts の PatchEventTimeParams.sendUpdates、google/delete-event.ts の
+ * DeleteEventParams.sendUpdates が必須なのと対になる)。更新も削除もこの1つを通る。
  */
 export function resolveSendUpdates(requested: EventSendUpdates | undefined): EventSendUpdates {
   return requested ?? DEFAULT_SEND_UPDATES;

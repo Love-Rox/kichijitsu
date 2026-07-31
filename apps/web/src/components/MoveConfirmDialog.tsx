@@ -17,10 +17,11 @@ export interface MoveConfirmDialogProps {
   previous?: Occurrence;
   updated?: Occurrence;
   /**
-   * 用途 (2026-07-30)。'move' (既定) = ドラッグ移動の確認、'edit' = 編集内容の適用範囲確認。
-   * 見出しと確定ボタンの文言だけが変わる。
+   * 用途 (2026-07-30、2026-07-31 に 'delete' を追加)。'move' (既定) = ドラッグ移動の確認、
+   * 'edit' = 編集内容の適用範囲確認、'delete' = ゲストのいる予定の削除確認。
+   * 見出しと確定ボタンの文言、注記の言い回しだけが変わる。
    */
-  purpose?: "move" | "edit";
+  purpose?: "move" | "edit" | "delete";
   /**
    * 繰り返し予定で選ばせる適用範囲 (2026-07-30、sync/recurrenceScope.ts)。
    * **空/未指定なら選択 UI を一切描かない** ―― 繰り返しでない予定は 2026-07-30 以前と
@@ -41,6 +42,32 @@ export interface MoveConfirmDialogProps {
 const SCOPE_LABEL: Record<RecurrenceScope, string> = {
   this: "この予定のみ",
   all: "すべての予定",
+};
+
+/**
+ * 用途ごとに変わるのはこの3つの文言だけ (2026-07-31 に 'delete' を追加した際、
+ * 三項演算子の入れ子になっていたものを表に開いた ―― 用途が3つになると
+ * `purpose === "edit" ? A : B` の形では「残りはどっち」が読めなくなるため)。
+ */
+const PURPOSE_TEXT: Record<
+  NonNullable<MoveConfirmDialogProps["purpose"]>,
+  { ariaLabel: string; question: (title: string) => string; confirm: string }
+> = {
+  move: {
+    ariaLabel: "予定の移動確認",
+    question: (title) => `「${title}」を移動しますか?`,
+    confirm: "移動する",
+  },
+  edit: {
+    ariaLabel: "予定の変更の適用範囲",
+    question: (title) => `「${title}」の変更を保存しますか?`,
+    confirm: "保存する",
+  },
+  delete: {
+    ariaLabel: "予定の削除確認",
+    question: (title) => `「${title}」を削除しますか?`,
+    confirm: "削除する",
+  },
 };
 
 /**
@@ -75,6 +102,18 @@ const NOTIFY_OPTIONS: readonly { value: GuestNotify; label: string }[] = [
  * ここに相乗りすれば操作の回数は1回も増えない**。編集フォームの保存では、繰り返しでない
  * 予定でもゲストがいればこのダイアログが出るようになる (Google カレンダーと同じ挙動)。
  *
+ * 同じ日に purpose='delete' も足した。削除は元々ポップオーバー内のインライン2段階確認
+ * (「削除しますか? 削除する / やめる」) だけで、通知の選択を置く場所が無い ―― あの狭い
+ * 1行に fieldset と注記を押し込むと、同じ問いかけが移動のときと違う形で現れることになる。
+ * そこで**ゲストがいて自分が主催のときだけ**、インライン確認をこのダイアログに**格上げ**する
+ * (EventDetailCard.tsx の EventDeleteControl)。ダイアログ自身が「削除しますか?」の確認を
+ * 兼ねるので、押す回数は格上げ前と同じ2回のまま。格上げの根拠は**削除が取り消せない**こと
+ * ―― 移動なら選び間違えても動かし直せるが、削除して初めて「ゲストに伝わっていない」と
+ * 気付いても戻せない。狭い1行の中の小さなラジオではなく、画面中央で手を止めさせる。
+ * (Google カレンダーの削除がどう訊いてくるかは公式に文書化されていない ―― 更新については
+ * "you have the option to email them invitations" と書かれているが、削除の問いかけの文言も
+ * 選択肢も公式ヘルプに記述が無いので、真似ではなく上の理屈で決めた。)
+ *
  * BlockRulesOverlay.tsx と同じ画面中央のバックドロップ+カード構成。キーボード
  * Enter=確定/Esc=キャンセル(要件どおり)。適用範囲は <fieldset> + ラジオで、
  * 上下キーによる選択はブラウザ標準の挙動に任せる。
@@ -97,6 +136,7 @@ export function MoveConfirmDialog({
   // askNotify が false のときもこの値をそのまま返すが、受け手 (resolveSendUpdates) が
   // subject を見て安全側に倒すので影響しない。
   const [notify, setNotify] = useState<GuestNotify>(DEFAULT_GUEST_NOTIFY);
+  const text = PURPOSE_TEXT[purpose];
   // 選択肢が2つ以上あるときだけラジオを出す。1つきりのときは「なぜ1つなのか」を
   // 文章で伝える(押せない選択肢を並べて見せるのは、選べるように見えて紛らわしい)
   const hasChoice = (scopes?.length ?? 0) > 1;
@@ -130,13 +170,11 @@ export function MoveConfirmDialog({
         className="move-confirm-card"
         role="alertdialog"
         aria-modal="true"
-        aria-label={purpose === "edit" ? "予定の変更の適用範囲" : "予定の移動確認"}
+        aria-label={text.ariaLabel}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
-        <p className="move-confirm-title">
-          {purpose === "edit" ? `「${title}」の変更を保存しますか?` : `「${title}」を移動しますか?`}
-        </p>
+        <p className="move-confirm-title">{text.question(title)}</p>
         {previous && updated && (
           <p className="move-confirm-range">
             <span className="move-confirm-from">
@@ -202,8 +240,10 @@ export function MoveConfirmDialog({
             </fieldset>
             <p className="move-confirm-note">
               「送信しない」でも、Google カレンダー以外のゲストにはメールが届く ――
-              相手のカレンダーを直す手段が他に無いためだ。Google
-              カレンダーのゲストの予定は、メールが無くても同期で直る。
+              相手のカレンダーを
+              {purpose === "delete" ? "取り消す" : "直す"}手段が他に無いためだ。Google
+              カレンダーのゲストの予定は、メールが無くても
+              {purpose === "delete" ? "同期で消える" : "同期で直る"}。
             </p>
           </>
         )}
@@ -214,7 +254,7 @@ export function MoveConfirmDialog({
             className="move-confirm-confirm-btn"
             onClick={() => onConfirm(scope, notify)}
           >
-            {purpose === "edit" ? "保存する" : "移動する"}
+            {text.confirm}
           </button>
           <button type="button" className="move-confirm-cancel-btn" onClick={onCancel}>
             キャンセル

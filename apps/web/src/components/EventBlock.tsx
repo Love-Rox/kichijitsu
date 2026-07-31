@@ -28,6 +28,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { canDuplicateOccurrence } from "../sync/eventCreate";
 import {
   isSnapDisabledDuringDrag,
@@ -808,6 +809,9 @@ export function EventBlock({
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
             onDelete={occurrence.source === "google" ? () => onDelete(occurrence) : undefined}
+            // 削除でゲストへの通知を訊くか (2026-07-31)。移動の確認に選択を足すかどうかと
+            // 全く同じ判定 (sync/guestNotify.ts) ―― 削除用の条件は作らない
+            deleteAsksGuestNotify={shouldAskGuestNotify(occurrence)}
             timeZone={timeZone}
             editDraft={
               isEditableEventSubject(occurrence) ? draftFromOccurrence(occurrence) : undefined

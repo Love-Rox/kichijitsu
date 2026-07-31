@@ -17,6 +17,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   groupDuplicateAllDayOccurrences,
@@ -350,6 +351,9 @@ export function MonthView({
                   ? () => onDelete(detailSubject as Occurrence)
                   : undefined
               }
+              // 削除でゲストへの通知を訊くか (2026-07-31)。判定は WeekGrid (EventBlock.tsx) と
+              // 同じ sync/guestNotify.ts の純関数 ―― 週と月で挙動を変えない
+              deleteAsksGuestNotify={shouldAskGuestNotify(detailSubject as Occurrence)}
               timeZone={timeZone}
               editDraft={
                 isEditableEventSubject(detailSubject)
