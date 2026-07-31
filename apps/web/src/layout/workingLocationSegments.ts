@@ -67,10 +67,13 @@ import type { RailItem } from "./railItems";
  * layout/workingLocationRail.ts の splitWorkingLocationAllDayGroups を参照)。
  */
 
-/** 1日の分数。地 (終日の勤務場所) の区間はこの全長を占める */
-export const MINUTES_PER_DAY = 24 * 60;
-
-/** 塗り重ねの途中経過。source は「この断片の由来になった元の項目」 */
+/**
+ * 塗り重ねの途中経過。source は「この断片の由来になった元の項目」。
+ *
+ * RailItem(layout/railItems.ts)とは別の型のままにしてある ―― こちらは「元の項目 + 削り
+ * 取られた後の範囲」という中間表現で、id を持たない(最後に `${id}@${startMinutes}` で
+ * 組み立て直す)。同じ {startMinutes, endMinutes} を持つからといって同じものではない。
+ */
 interface Piece<S> {
   source: RailItem<S>;
   startMinutes: number;
@@ -100,7 +103,8 @@ function paint<S>(pieces: readonly Piece<S>[], next: RailItem<S>): Piece<S>[] {
 /**
  * 1日ぶんの勤務場所を重なりの無い区間列へ畳む。
  *
- * @param base 地(終日の勤務場所)。通常0〜1件で、範囲は [0, MINUTES_PER_DAY]。
+ * @param base 地(終日の勤務場所)。通常0〜1件で、範囲は [0, MINUTES_PER_DAY]
+ *             (定数の実体は layout/dayTime.ts、2026-07-31 に二重宣言を解消して移した)。
  *             2件以上あれば後ろのものが上に来る(配列順どおりに塗り重ねる)。
  * @param overrides 時刻付きの勤務場所。呼び出し元でその日へクリップ済みであること
  *             (layout/railItems.ts の railItemsForDay を通した形)。

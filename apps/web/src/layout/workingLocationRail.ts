@@ -1,8 +1,8 @@
-import { Temporal } from "@js-temporal/polyfill";
+import type { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
+import { allDayRangeCoversDate } from "./dayTime";
 import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
-import { railItemsForDay, type RailItem } from "./railItems";
-import { MINUTES_PER_DAY } from "./workingLocationSegments";
+import { allDayRailItemsForDay, railItemsForDay, type RailItem } from "./railItems";
 
 /**
  * 勤務場所 (workingLocation) レール表示の DOM/React に依存しない純関数層
@@ -116,15 +116,19 @@ export function splitWorkingLocationAllDayGroups(
   return { barGroups, segmentGroups };
 }
 
-/** 終日予定の startDate〜endDate(両端 inclusive)に dates のいずれかが含まれるか */
+/**
+ * 終日予定の startDate〜endDate(両端 inclusive)に dates のいずれかが含まれるか。
+ *
+ * 2026-07-31 に走査の向きを反転させた(横断レビュー B-4): 以前は予定の日付範囲を
+ * PlainDate で1日ずつ辿って dates.has() を引いていたが、dates 側を舐めて
+ * allDayRangeCoversDate(layout/dayTime.ts)で判定する方が同じ答えを安く出せる ――
+ * dates は「表示中の日」の集合なので高々 dayCount 件(週表示で7)なのに対し、
+ * 予定の範囲は理屈の上ではいくらでも長くなりうるため。ついでに、終日範囲の内包判定が
+ * アプリ全体で1つのプリミティブ(文字列比較)に揃った。
+ */
 function coversAnyDate(occ: AllDayOccurrence, dates: ReadonlySet<string>): boolean {
-  const end = Temporal.PlainDate.from(occ.endDate);
-  for (
-    let d = Temporal.PlainDate.from(occ.startDate);
-    Temporal.PlainDate.compare(d, end) <= 0;
-    d = d.add({ days: 1 })
-  ) {
-    if (dates.has(d.toString())) return true;
+  for (const dateStr of dates) {
+    if (allDayRangeCoversDate(occ, dateStr)) return true;
   }
   return false;
 }
@@ -156,9 +160,12 @@ export function timedWorkingLocationRailItems(
 
 /**
  * 終日の勤務場所 group のうち day を含むものを、その日の「地」(全日 [0, MINUTES_PER_DAY] の
- * 区間)としてレール項目化する(2026-07-29「1日の区間として描く」)。形は
- * oooRail.ts の allDayOooRailItems と同じ ―― 違うのは、この結果がそのまま帯として描かれるの
- * ではなく、foldWorkingLocationDay で時刻付きの区間に上書きされてから描かれる点だけ。
+ * 区間)としてレール項目化する(2026-07-29「1日の区間として描く」)。
+ *
+ * 計算本体は OOO レールと共通の allDayRailItemsForDay(layout/railItems.ts)。2026-07-31 まで
+ * ここと oooRail.ts の allDayOooRailItems は引数名以外が完全に同一だったので統合した ――
+ * 違うのは計算ではなく **結果の使われ方** だけで、こちらはそのまま帯にはならず
+ * foldWorkingLocationDay で時刻付きの区間に上書きされてから描かれる。
  *
  * 渡す group は splitWorkingLocationAllDayGroups の segmentGroups(= その日に時刻付きの
  * 勤務場所がある日の終日ぶん)に限ること。時刻付きが無い日の終日ぶんまでここへ回すと、
@@ -168,21 +175,5 @@ export function allDayWorkingLocationRailItems(
   segmentGroups: readonly AllDayOccurrenceGroup[],
   day: Temporal.PlainDate,
 ): WorkingLocationRailItem[] {
-  const out: WorkingLocationRailItem[] = [];
-  for (const g of segmentGroups) {
-    const occ = g.primary;
-    const start = Temporal.PlainDate.from(occ.startDate);
-    const end = Temporal.PlainDate.from(occ.endDate);
-    if (Temporal.PlainDate.compare(day, start) < 0 || Temporal.PlainDate.compare(day, end) > 0) {
-      continue; // day を含まない(startDate〜endDate は両端 inclusive)
-    }
-    out.push({
-      id: occ.id,
-      subject: occ,
-      groupMembers: g.members,
-      startMinutes: 0,
-      endMinutes: MINUTES_PER_DAY,
-    });
-  }
-  return out;
+  return allDayRailItemsForDay(segmentGroups, day);
 }

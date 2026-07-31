@@ -2,6 +2,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import type { EventPatchRequest } from "@kichijitsu/shared";
 import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
+import { plainDateOfMs } from "../layout/dayTime";
 import { eventPatchRequestFor, rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
 import { resolveSendUpdates, type GuestNotify } from "./guestNotify";
 
@@ -98,8 +99,7 @@ export function seriesDtstartMs(series: Pick<EventSeries, "dtstartIso" | "timeZo
 
 /** epoch ms を指定タイムゾーンのローカル日 (YYYY-MM-DD) にする。DTSTART の日付が動いたかの判定用 */
 function localDateOf(ms: number, timeZone: string): string {
-  return Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone).toPlainDate()
-    .toString();
+  return plainDateOfMs(ms, timeZone).toString();
 }
 
 /**

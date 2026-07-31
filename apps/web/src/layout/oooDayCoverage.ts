@@ -1,5 +1,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
+import { dayRangeMs, dayStartMs, plainDateOfMs } from "./dayTime";
+import type { TimeInterval } from "./gridMetrics";
 import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
 import { DEFAULT_OOO_ALLDAY_PLACEMENT, type OooAllDayPlacement } from "./oooAllDayPlacement";
 import { isOutOfOffice } from "./oooRail";
@@ -60,33 +62,24 @@ import { isOutOfOffice } from "./oooRail";
  * ので、射影後の日付が Google へ書き戻される経路は存在しない。
  */
 
-/** 判定に必要な最小の形(Occurrence の時刻2つだけ)。テストから素の値を渡せるようにしてある */
-export interface TimedRange {
-  startMs: number;
-  endMs: number;
-}
-
-/** day の 0:00 と翌日の 0:00 を epoch ms で返す(日の長さは Temporal に計算させる) */
-function dayBoundsMs(
-  day: Temporal.PlainDate,
-  timeZone: string,
-): { startMs: number; endMs: number } {
-  return {
-    startMs: day.toZonedDateTime({ timeZone }).epochMilliseconds,
-    endMs: day.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds,
-  };
-}
-
 /**
  * range が timeZone における day を **丸ごと** 覆うか(0:00 から翌 0:00 まで)。
  * 終了が翌日 0:00 ちょうどならその日は覆う / 翌日は覆わない(上記「境界の扱い」参照)。
+ *
+ * 引数の型は layout/gridMetrics.ts の TimeInterval(= {startMs, endMs} の半開区間)。
+ * 2026-07-31 まではここに TimedRange という **同じ形・同じディレクトリの別名** があったので
+ * 消して寄せた(横断レビュー B-5)。「判定に必要な最小の形だからテストから素の値を渡せる」
+ * という当時の意図は TimeInterval でもそのまま成り立つ。
+ *
+ * 日境界(day の 0:00 と翌 0:00)は layout/dayTime.ts の dayRangeMs に任せる ―― 以前は
+ * ここに非 export の dayBoundsMs を持っていたが、同じ計算が他に5箇所あった。
  */
 export function coversWholeDay(
-  range: TimedRange,
+  range: TimeInterval,
   day: Temporal.PlainDate,
   timeZone: string,
 ): boolean {
-  const bounds = dayBoundsMs(day, timeZone);
+  const bounds = dayRangeMs(day, 1, timeZone);
   return range.startMs <= bounds.startMs && range.endMs >= bounds.endMs;
 }
 
@@ -104,21 +97,15 @@ export function coversWholeDay(
  * 両方の条件を満たす(first が始まりの条件を、last が終わりの条件を代表するため)。
  */
 export function coveredDayRange(
-  range: TimedRange,
+  range: TimeInterval,
   timeZone: string,
 ): { startDate: string; endDate: string } | null {
-  const startDay = Temporal.Instant.fromEpochMilliseconds(range.startMs)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDate();
-  const endDay = Temporal.Instant.fromEpochMilliseconds(range.endMs)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDate();
+  const startDay = plainDateOfMs(range.startMs, timeZone);
+  const endDay = plainDateOfMs(range.endMs, timeZone);
 
   // 開始がちょうど日の始まりならその日から、そうでなければ翌日から
   const first =
-    range.startMs <= startDay.toZonedDateTime({ timeZone }).epochMilliseconds
-      ? startDay
-      : startDay.add({ days: 1 });
+    range.startMs <= dayStartMs(startDay, timeZone) ? startDay : startDay.add({ days: 1 });
   const last = endDay.subtract({ days: 1 });
 
   if (Temporal.PlainDate.compare(first, last) > 0) return null;

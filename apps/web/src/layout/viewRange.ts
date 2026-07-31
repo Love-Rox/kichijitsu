@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { View } from "../keyboard/shortcuts";
+import { dayRangeMs } from "./dayTime";
 import { mondayOf } from "./monthGrid";
 
 /**
@@ -52,13 +53,16 @@ export function initialTimelineStart(
  * [start, start+dayCount日) の epoch ms 範囲(timeZone の壁時計基準)。
  * week/day3/day1 のどのタイムラインビューでも共通で使う(モバイル対応フェーズ2で
  * dayCount=7 固定の weekRangeMs から一般化)。
+ *
+ * 日境界の計算そのものは layout/dayTime.ts の dayRangeMs に委ねる(2026-07-31、
+ * 横断レビュー B-4)。この関数が残っているのは fromMs/toMs という **呼び出し元
+ * (ensureExpanded/useOccurrences)の語彙** に合わせるためで、計算の実体ではない。
  */
 export function timelineRangeMs(
   start: Temporal.PlainDate,
   dayCount: number,
   timeZone: string,
 ): { fromMs: number; toMs: number } {
-  const fromMs = start.toZonedDateTime({ timeZone }).epochMilliseconds;
-  const toMs = start.add({ days: dayCount }).toZonedDateTime({ timeZone }).epochMilliseconds;
-  return { fromMs, toMs };
+  const { startMs, endMs } = dayRangeMs(start, dayCount, timeZone);
+  return { fromMs: startMs, toMs: endMs };
 }

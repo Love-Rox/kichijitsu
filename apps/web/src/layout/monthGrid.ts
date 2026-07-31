@@ -1,4 +1,5 @@
-import { Temporal } from "@js-temporal/polyfill";
+import type { Temporal } from "@js-temporal/polyfill";
+import { allDayRangeCoversDate, dayRangeMs } from "./dayTime";
 import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
 
 /**
@@ -57,11 +58,10 @@ export function monthGridRangeMs(
   timeZone: string,
 ): { fromMs: number; toMs: number } {
   const days = monthGridDays(monthAnchor);
-  const fromMs = days[0].date.toZonedDateTime({ timeZone }).epochMilliseconds;
-  const toMs = days[days.length - 1].date
-    .add({ days: 1 })
-    .toZonedDateTime({ timeZone }).epochMilliseconds;
-  return { fromMs, toMs };
+  // グリッドは常に連続した MONTH_GRID_DAYS 日ぶんなので、先頭日から日数を足せば末尾の翌 0:00
+  // に一致する(日境界の計算は layout/dayTime.ts に集約、2026-07-31 横断レビュー B-4)
+  const { startMs, endMs } = dayRangeMs(days[0].date, days.length, timeZone);
+  return { fromMs: startMs, toMs: endMs };
 }
 
 export type MonthChipKind = "allday" | "timed";
@@ -108,11 +108,13 @@ export function bucketMonthChips(
 ): MonthCellChips[] {
   return days.map(({ date }) => {
     const dateStr = date.toString();
-    const dayStartMs = date.toZonedDateTime({ timeZone }).epochMilliseconds;
-    const dayEndMs = date.add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds;
+    // 日境界も終日範囲の内包判定も共有ヘルパへ(2026-07-31 横断レビュー B-4)。
+    // 内包判定は元から文字列比較で、レール側の PlainDate.compare 版をこちらへ寄せた ――
+    // 月グリッドは 42日 × 終日予定の総当たりなので、安い側に揃えるのが理に適う
+    const { startMs: dayStartMs, endMs: dayEndMs } = dayRangeMs(date, 1, timeZone);
 
     const allDayChips: MonthChip[] = allDayGroups
-      .filter((g) => g.primary.startDate <= dateStr && g.primary.endDate >= dateStr)
+      .filter((g) => allDayRangeCoversDate(g.primary, dateStr))
       .map((g) => ({
         key: `allday:${g.primary.id}`,
         kind: "allday" as const,
