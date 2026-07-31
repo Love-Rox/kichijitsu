@@ -33,6 +33,12 @@ const sharp = resolveSharp();
 
 const TILE_SVG = path.join(__dirname, "tile.svg");
 const OUT_DIR = path.join(__dirname, "..", "apps", "web", "public", "icons");
+// 紹介サイト側にも apple-touch-icon の複製がある (apps/site は公式インスタンス専用
+// パッケージで、サイト単体ビルドでも画像切れにしないため。apps/site/vite.config.ts の
+// publicDir コメント参照)。**ここへも書かないと必ずズレる** ―― build:official は
+// site の dist を web の dist へ上書きコピーするので、site 側の古いアイコンが
+// アプリ側の新しいアイコンを潰して配信される (2026-07-31 に実際に発生していた)。
+const SITE_OUT_DIR = path.join(__dirname, "..", "apps", "site", "public", "icons");
 const KINARI = "#FAF7F2"; // ブランドトークン: 生成り (背景)
 
 // tile.svg (viewBox 0 0 96 96) を size x size px でラスタライズする。
@@ -76,12 +82,16 @@ async function generateAppleTouchIcon() {
     .flatten({ background: KINARI })
     .png()
     .toBuffer();
+  // 2箇所へ同じバイト列を書く (SITE_OUT_DIR のコメント参照)。片方だけ更新すると
+  // 公式ビルドの合流で古い方が勝つので、生成をここで揃えるのが唯一の防ぎ方。
   await fs.promises.writeFile(path.join(OUT_DIR, "apple-touch-icon.png"), buf);
-  console.log(`✓ apple-touch-icon.png (${SIZE}x${SIZE})`);
+  await fs.promises.writeFile(path.join(SITE_OUT_DIR, "apple-touch-icon.png"), buf);
+  console.log(`✓ apple-touch-icon.png (${SIZE}x${SIZE}) → apps/web, apps/site`);
 }
 
 async function main() {
   await fs.promises.mkdir(OUT_DIR, { recursive: true });
+  await fs.promises.mkdir(SITE_OUT_DIR, { recursive: true });
   await generatePlain(192, "icon-192.png");
   await generatePlain(512, "icon-512.png");
   await generateMaskable();
