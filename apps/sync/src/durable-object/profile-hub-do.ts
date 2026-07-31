@@ -186,7 +186,10 @@ export class ProfileHubDO extends DurableObject<Env> {
     };
     const deps: ReconcileDeps = {
       loadRulesForSource: (a, c) => this.loadRulesForSource(a, c),
-      listSourceEvents: (a, c, w) => this.listSourceEvents(a, c, w),
+      listSourceEvents: (a, c, w) => this.listEventsInWindow(a, c, w),
+      // 孤児ミラーの回収に使う target 側の一覧 (block-orchestrate.ts の reconcileRule 参照)。
+      // 取得手段は source 側とまったく同じ events.list なので同じ実装を共有する。
+      listTargetEvents: (ta, tc, w) => this.listEventsInWindow(ta, tc, w),
       loadMirrors: (ruleId) => this.loadMirrors(ruleId),
       createMirror: (ta, tc, body) => this.createMirror(ta, tc, body),
       patchMirrorTime: (ta, tc, mirrorEventId, start, end) =>
@@ -235,7 +238,8 @@ export class ProfileHubDO extends DurableObject<Env> {
     return aggregateBlockRules(ruleRows, sourceRows);
   }
 
-  private async listSourceEvents(
+  /** 任意のカレンダーの予定をウィンドウで取得する (source 側・target 側の双方から使う)。 */
+  private async listEventsInWindow(
     accountId: string,
     calendarId: string,
     window: ReconcileWindow,

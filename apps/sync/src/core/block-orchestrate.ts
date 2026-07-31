@@ -1,6 +1,7 @@
 import type { BlockMode, GoogleEventDTO } from "@kichijitsu/shared";
 import {
   buildMirrorEventBody,
+  indexMirrorsBySourceEvent,
   reconcileBlockRule,
   type BlockMirrorRow,
   type MirrorEventBody,
@@ -34,6 +35,16 @@ export interface ReconcileDeps {
   listSourceEvents(
     accountId: string,
     calendarId: string,
+    window: ReconcileWindow,
+  ): Promise<GoogleEventDTO[]>;
+  /**
+   * target カレンダーの予定を同じウィンドウで取得する (中身は listSourceEvents と同じ
+   * events.list)。孤児 mirror の回収 (reconcileRule のコメント参照) にだけ使うので、
+   * 呼ぶのは新規作成が必要な回に限る。
+   */
+  listTargetEvents(
+    targetAccountId: string,
+    targetCalendarId: string,
     window: ReconcileWindow,
   ): Promise<GoogleEventDTO[]>;
   loadMirrors(ruleId: string): Promise<BlockMirrorRow[]>;
@@ -124,6 +135,27 @@ export async function reconcileSourceChange(
   }
 }
 
+/**
+ * 1ルールぶんのリコンサイル。
+ *
+ * **ミラー作成の不変条件** (applyMirrorDeletions の doc と対になる): *Google 上にミラーが
+ * 存在するなら、それを指す block_mirrors の行が残っているか、そのミラーが確実に消えているか、
+ * どちらかである*。作成側でこれを破るのが「events.insert は成功したが D1 書き込みが失敗した」
+ * ケースで、放置すると行の無いミラーが残る。後始末の経路 (applyMirrorDeletions /
+ * deleteRuleMirrors) はどちらも block_mirrors を走査するので、その予定は二度と辿れない
+ * 孤児になり、しかも次のリコンサイルが同じ source をまた toCreate に載せるため
+ * **リコンサイルのたびに孤児が増える**。二段構えで防ぐ:
+ *
+ * 1. **補償削除** — 行が書けなかったら、今作ったミラーを Google から消して「行も予定も
+ *    無い」状態へ巻き戻す。次のリコンサイルが素直に作り直せる。
+ * 2. **採用 (回収)** — ミラー自身に由来 (rule_id / source_event_id) を書き込んである
+ *    (buildMirrorEventBody) ので、補償削除まで失敗した場合や、insert 直後にワーカーが
+ *    落ちて catch すら通らなかった場合でも、次のリコンサイルが target カレンダーを見て
+ *    孤児を見つけ、作り直す代わりにそれを指す行を書いて回収する。**孤児は増えず1件に収束する**。
+ *
+ * 採用のための target 一覧取得は toCreate が1件以上ある回だけ行う (何も作る必要が無い
+ * 定常状態では Google 呼び出しは増えない)。
+ */
 async function reconcileRule(
   rule: ReconcileRule,
   window: ReconcileWindow,
@@ -139,26 +171,80 @@ async function reconcileRule(
   const mirrors = await deps.loadMirrors(rule.id);
   const plan = reconcileBlockRule(sourceEvents, mirrors);
 
+  const adoptable: Map<string, string> =
+    plan.toCreate.length > 0 ? await loadAdoptableMirrors(rule, window, deps) : new Map();
+
   let anyOooFallback = false;
+  let created = 0;
   for (const source of plan.toCreate) {
+    // 回収 (採用): 行は無いが Google 側に前回作りかけた mirror が残っている場合は、
+    // 作り直さずにその mirror を指す行を書いて対応表に取り込む。
+    const orphanMirrorId = adoptable.get(source.id);
+    if (orphanMirrorId !== undefined) {
+      try {
+        await deps.saveMirrorRow({
+          rule_id: rule.id,
+          source_event_id: source.id,
+          mirror_event_id: orphanMirrorId,
+          // 孤児になった後に source の時刻が変わっている可能性があるので「未同期」として
+          // 記録する。次のリコンサイルで必ず toPatch に載り、時刻がそこで揃う。
+          source_updated: null,
+          created_at: deps.now(),
+        });
+      } catch (err) {
+        // 行が書けなければ孤児のまま。次のリコンサイルでまた採用を試みるだけなので、
+        // 予定が二重になることはない (何度採用しても同じ mirror を指す)。
+        console.error(
+          `reconcileSourceChange: adopting orphan mirror failed for rule=${rule.id} source=${source.id}`,
+          err,
+        );
+      }
+      continue;
+    }
+
     try {
-      const body = buildMirrorEventBody(source, rule.mode);
+      const body = buildMirrorEventBody(source, rule.mode, rule.id);
       const { id: mirrorEventId, oooFallback } = await deps.createMirror(
         rule.target.accountId,
         rule.target.calendarId,
         body,
       );
+      created += 1;
       if (oooFallback) {
         anyOooFallback = true;
       }
       // Google 作成が成功して初めて D1 に記録する (create 失敗時に行を残して不整合にしないため)。
-      await deps.saveMirrorRow({
-        rule_id: rule.id,
-        source_event_id: source.id,
-        mirror_event_id: mirrorEventId,
-        source_updated: source.updated ?? null,
-        created_at: deps.now(),
-      });
+      try {
+        await deps.saveMirrorRow({
+          rule_id: rule.id,
+          source_event_id: source.id,
+          mirror_event_id: mirrorEventId,
+          source_updated: source.updated ?? null,
+          created_at: deps.now(),
+        });
+      } catch (err) {
+        // 逆向きの失敗 (Google には出来たが行が書けない)。補償削除で「行も予定も無い」状態に
+        // 巻き戻す — ここで諦めると行の無い mirror = 孤児が残り、次のリコンサイルが同じ
+        // source をまた toCreate に載せるので毎回増える。
+        console.error(
+          `reconcileSourceChange: saving mirror row failed for rule=${rule.id} source=${source.id}, deleting the mirror just created`,
+          err,
+        );
+        try {
+          await deps.deleteMirror(
+            rule.target.accountId,
+            rule.target.calendarId,
+            mirrorEventId,
+          );
+        } catch (deleteErr) {
+          // 補償削除も失敗 = 孤児が1件残る。ただし mirror 自身が由来 (rule/source id) を
+          // 持っているので、次のリコンサイルが上の採用処理で回収する (増え続けはしない)。
+          console.error(
+            `reconcileSourceChange: compensating delete failed for rule=${rule.id} mirror=${mirrorEventId} (will be adopted on the next reconcile)`,
+            deleteErr,
+          );
+        }
+      }
     } catch (err) {
       console.error(
         `reconcileSourceChange: create mirror failed for rule=${rule.id} source=${source.id}`,
@@ -167,12 +253,14 @@ async function reconcileRule(
     }
   }
 
-  // 第4段階: outOfOffice ルールで toCreate が実際に1件以上あった回だけ ooo_fallback を
-  // 更新する。全 mirror が既存済みで toCreate が空の回は既存の DB 上の値を保持したまま
-  // 何もしない (すでに記録済みのフラグを不用意に上書きしないため)。busy ルールでは常に
-  // 呼ばない。D1 書き込みの失敗がリコンサイル全体を止めないよう try/catch で分離する
+  // 第4段階: outOfOffice ルールで実際に createMirror を呼んだ回だけ ooo_fallback を
+  // 更新する。全 mirror が既存済みで toCreate が空の回や、toCreate が全部「既存の孤児の
+  // 採用」で済んだ回は Google に body を送っていない = フォールバックしたか否かの新しい
+  // 情報が無いので、既存の DB 上の値を保持したまま何もしない (すでに記録済みのフラグを
+  // 不用意に上書きしないため)。busy ルールでは常に呼ばない。D1 書き込みの失敗が
+  // リコンサイル全体を止めないよう try/catch で分離する
   // (このファイルの他の箇所と同じエラー分離の流儀)。
-  if (rule.mode === "outOfOffice" && plan.toCreate.length > 0) {
+  if (rule.mode === "outOfOffice" && created > 0) {
     try {
       await deps.setRuleOooFallback(rule.id, anyOooFallback);
     } catch (err) {
@@ -199,6 +287,35 @@ async function reconcileRule(
   }
 
   await applyMirrorDeletions(rule.id, rule.target, plan.toDelete, deps);
+}
+
+/**
+ * target カレンダーに残っている「このルールのミラー」を source_event_id → mirror_event_id で
+ * 引ける形にする (対応表に載っていない孤児を回収するため)。
+ *
+ * 取得に失敗しても例外にしない: 採用は回収のための上積みであり、引けなければ最悪これまで
+ * 通り新規作成するだけ (孤児が1件残るが、次のリコンサイルで再び採用の機会がある)。ここで
+ * 投げるとルール全体のリコンサイルが止まってしまい、割に合わない。
+ */
+async function loadAdoptableMirrors(
+  rule: ReconcileRule,
+  window: ReconcileWindow,
+  deps: ReconcileDeps,
+): Promise<Map<string, string>> {
+  try {
+    const targetEvents = await deps.listTargetEvents(
+      rule.target.accountId,
+      rule.target.calendarId,
+      window,
+    );
+    return indexMirrorsBySourceEvent(targetEvents, rule.id);
+  } catch (err) {
+    console.error(
+      `reconcileSourceChange: listing target events failed for rule=${rule.id} (skipping orphan adoption)`,
+      err,
+    );
+    return new Map();
+  }
 }
 
 /** ミラー削除だけが要る経路 (ルール削除) 用に、ReconcileDeps から delete 系だけを切り出した部分集合。 */

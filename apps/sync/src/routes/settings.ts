@@ -552,6 +552,14 @@ function buildDisconnectDeps(env: Env, profileId: string): DisconnectDeps {
       ];
       await env.DB.batch(statements);
     },
+    // 残っている source カレンダーが変わったことにしてリコンサイルを起こす。webhook 経路
+    // (routes/webhook.ts) とまったく同じ RPC で、ProfileHubDO 側が waitUntil で実行するので
+    // ここではすぐ返る。SSE 接続中のクライアントにもこの calendarId の changed が届くが、
+    // 受け取った側は同期し直すだけなので害は無い。
+    reconcileFromSource: async (trigger) => {
+      const stub = env.PROFILE_HUB.getByName(profileId);
+      await stub.notifyChanged(trigger.accountId, trigger.calendarId, profileId);
+    },
   };
 }
 

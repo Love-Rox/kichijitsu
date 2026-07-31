@@ -218,15 +218,23 @@ export function useCalendarSync({
   // syncSchedulerRef (キー = `${accountId}:${calendarId}`) で直列化する。同一カレンダーの
   // 増分同期と全同期(410 フォールバック)が交錯して IndexedDB の削除→再投入が競合するのを防ぐ
   // (2026-07-21、sync/syncScheduler.ts 参照)。
-  // forceFull はそのまま syncCalendarOnce に通す — ただし schedule() は同一キーの走行中は
-  // 新しい run を無視して既存の run を再実行するだけ(sync/syncScheduler.ts の runLoop 参照)
-  // なので、理論上「非 forceFull の同期が走行中に forceFull の要求が来る」と forceFull が
-  // 無視されて通常の再実行になり得る。runSyncBackfillIfNeeded は起動時の runSync 完了を
-  // 待ってから呼ぶ設計にしてあるため実運用でこの競合はほぼ起きないが、完全に排除はしていない
+  //
+  // forceFull の要求は coalesce: false で予約する (2026-07-31)。走行中の同期があると、通常同期は
+  // 「最新に追いつければよい」ので他の要求に潰されて構わないが、forceFull はそうではない:
+  //  - runFullResync (設定モーダルの「再同期」) は利用者が明示的に押した脱出口で、結果を報告する。
+  //    走らなかったのに「再同期しました」と出るのが一番まずい。
+  //  - runSyncBackfillIfNeeded は全成功したらバックフィル版数を記録してしまうので、走らずに
+  //    成功扱いになると以後その世代が永久にバックフィルされない。
+  // どちらも「実行されたこと自体」に意味があるため、スケジューラ側に「forceFull は強い」という
+  // 知識を持たせるのではなく、呼び出し元のこの1行で「この要求は落とさないでほしい」と宣言する。
+  // これで、通常同期 ⇄ forceFull がどちらの順で来ても forceFull が黙って消えない
+  // (規則の詳細と、なぜ両方向に落ちないかは sync/syncScheduler.ts 冒頭のコメント参照)
   const syncCalendar = useCallback(
     (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
-      syncSchedulerRef.current.schedule(calendarKey(accountId, calendarId), () =>
-        syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
+      syncSchedulerRef.current.schedule(
+        calendarKey(accountId, calendarId),
+        () => syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
+        { coalesce: !forceFull },
       ),
     [syncCalendarOnce],
   );
@@ -326,6 +334,8 @@ export function useCalendarSync({
   //
   // 例外を握りつぶさず投げ直すのは runSync との意図的な差: 利用者が明示的に押した操作なので、
   // 「終わった/失敗した」を UI (SettingsModal の2段階確認) に伝えないと押し直す判断ができない。
+  // その報告が嘘にならないことは syncCalendar が forceFull を coalesce: false で予約することで
+  // 担保している(スケジューラが返す Promise は「その forceFull が実際に完走した」ことを表す)。
   const runFullResync = useCallback(async () => {
     if (!db) return;
     const targets = selectedTargets();

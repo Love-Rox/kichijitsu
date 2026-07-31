@@ -3,7 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type BlockMirrorRow,
   MIRROR_MARKER_KEY,
+  MIRROR_RULE_KEY,
+  MIRROR_SOURCE_KEY,
   buildMirrorEventBody,
+  indexMirrorsBySourceEvent,
   isMirrorEvent,
   reconcileBlockRule,
 } from "../src/core/block-reconcile";
@@ -179,7 +182,7 @@ describe("buildMirrorEventBody", () => {
       start: { dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" },
       end: { dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" },
     });
-    const body = buildMirrorEventBody(source, "busy");
+    const body = buildMirrorEventBody(source, "busy", "rule-1");
     expect(body.start).toEqual({ dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" });
     expect(body.end).toEqual({ dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" });
   });
@@ -189,31 +192,43 @@ describe("buildMirrorEventBody", () => {
       start: { date: "2026-07-20" },
       end: { date: "2026-07-21" },
     });
-    const body = buildMirrorEventBody(source, "busy");
+    const body = buildMirrorEventBody(source, "busy", "rule-1");
     expect(body.start).toEqual({ date: "2026-07-20" });
     expect(body.end).toEqual({ date: "2026-07-21" });
   });
 
   it("sets the fixed summary, transparency, and visibility", () => {
-    const body = buildMirrorEventBody(timedEvent(), "busy");
+    const body = buildMirrorEventBody(timedEvent(), "busy", "rule-1");
     expect(body.summary).toBe("予定あり");
     expect(body.transparency).toBe("opaque");
     expect(body.visibility).toBe("private");
   });
 
   it("does not set eventType for busy mode", () => {
-    const body = buildMirrorEventBody(timedEvent(), "busy");
+    const body = buildMirrorEventBody(timedEvent(), "busy", "rule-1");
     expect(body.eventType).toBeUndefined();
   });
 
   it("sets eventType='outOfOffice' for outOfOffice mode", () => {
-    const body = buildMirrorEventBody(timedEvent(), "outOfOffice");
+    const body = buildMirrorEventBody(timedEvent(), "outOfOffice", "rule-1");
     expect(body.eventType).toBe("outOfOffice");
   });
 
   it("attaches the mirror marker in extendedProperties.private", () => {
-    const body = buildMirrorEventBody(timedEvent(), "busy");
-    expect(body.extendedProperties).toEqual({ private: { [MIRROR_MARKER_KEY]: "1" } });
+    const body = buildMirrorEventBody(timedEvent(), "busy", "rule-1");
+    expect(body.extendedProperties.private[MIRROR_MARKER_KEY]).toBe("1");
+  });
+
+  // 対応表 (D1) を失っても Google 側だけで孤児を辿れるようにするための由来 (A-2 の回収経路)。
+  it("記録する由来は ID だけ: rule_id と source の id を private プロパティに書く", () => {
+    const body = buildMirrorEventBody(timedEvent({ id: "ev-42" }), "busy", "rule-7");
+    expect(body.extendedProperties).toEqual({
+      private: {
+        [MIRROR_MARKER_KEY]: "1",
+        [MIRROR_RULE_KEY]: "rule-7",
+        [MIRROR_SOURCE_KEY]: "ev-42",
+      },
+    });
   });
 
   it("does not copy location, description, or other content fields", () => {
@@ -222,9 +237,80 @@ describe("buildMirrorEventBody", () => {
       description: "confidential details",
       summary: "original private title",
     });
-    const body = buildMirrorEventBody(source, "busy");
+    const body = buildMirrorEventBody(source, "busy", "rule-1");
     expect(body).not.toHaveProperty("location");
     expect(body).not.toHaveProperty("description");
     expect(body.summary).toBe("予定あり");
+  });
+});
+
+/**
+ * 孤児ミラーの回収 (block-orchestrate.ts の採用処理) が使う索引。対応表 (D1) が無くても
+ * target カレンダーの予定だけで「この source のミラーは既にある」と言えるようにする。
+ */
+describe("indexMirrorsBySourceEvent", () => {
+  /** target カレンダーに実在する mirror 予定。 */
+  function mirrorEvent(
+    id: string,
+    ruleId: string,
+    sourceEventId: string,
+    overrides: Partial<GoogleEventDTO> = {},
+  ): GoogleEventDTO {
+    return timedEvent({
+      id,
+      extendedProperties: {
+        private: {
+          [MIRROR_MARKER_KEY]: "1",
+          [MIRROR_RULE_KEY]: ruleId,
+          [MIRROR_SOURCE_KEY]: sourceEventId,
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  it("このルールの mirror を source id で引ける形にする", () => {
+    const index = indexMirrorsBySourceEvent(
+      [mirrorEvent("mirror-a", "rule-1", "ev-a"), mirrorEvent("mirror-b", "rule-1", "ev-b")],
+      "rule-1",
+    );
+    expect([...index]).toEqual([
+      ["ev-a", "mirror-a"],
+      ["ev-b", "mirror-b"],
+    ]);
+  });
+
+  it("別ルールの mirror は拾わない (横取りして二重管理にしない)", () => {
+    const index = indexMirrorsBySourceEvent([mirrorEvent("mirror-x", "rule-2", "ev-a")], "rule-1");
+    expect(index.size).toBe(0);
+  });
+
+  it("目印の無い普通の予定は拾わない", () => {
+    const index = indexMirrorsBySourceEvent([timedEvent({ id: "ev-plain" })], "rule-1");
+    expect(index.size).toBe(0);
+  });
+
+  it("由来を持たない旧世代の mirror は拾わない", () => {
+    const legacy = timedEvent({
+      id: "mirror-legacy",
+      extendedProperties: { private: { [MIRROR_MARKER_KEY]: "1" } },
+    });
+    expect(indexMirrorsBySourceEvent([legacy], "rule-1").size).toBe(0);
+  });
+
+  it("cancelled の mirror は拾わない (Google 上は既に消えている)", () => {
+    const index = indexMirrorsBySourceEvent(
+      [mirrorEvent("mirror-gone", "rule-1", "ev-a", { status: "cancelled" })],
+      "rule-1",
+    );
+    expect(index.size).toBe(0);
+  });
+
+  it("同じ source に複数あるときは最初の1件を採る", () => {
+    const index = indexMirrorsBySourceEvent(
+      [mirrorEvent("mirror-first", "rule-1", "ev-a"), mirrorEvent("mirror-second", "rule-1", "ev-a")],
+      "rule-1",
+    );
+    expect(index.get("ev-a")).toBe("mirror-first");
   });
 });

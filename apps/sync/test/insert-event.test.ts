@@ -10,7 +10,7 @@ const SOURCE: GoogleEventDTO = {
   start: { dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" },
   end: { dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" },
 };
-const BODY = buildMirrorEventBody(SOURCE, "busy");
+const BODY = buildMirrorEventBody(SOURCE, "busy", "rule-1");
 
 describe("insertEvent", () => {
   it("POSTs the body as-is to events.insert with a bearer auth header", async () => {
@@ -58,7 +58,7 @@ const OOO_SOURCE: GoogleEventDTO = {
   start: { dateTime: "2026-07-20T10:00:00+09:00", timeZone: "Asia/Tokyo" },
   end: { dateTime: "2026-07-20T11:00:00+09:00", timeZone: "Asia/Tokyo" },
 };
-const OOO_BODY = buildMirrorEventBody(OOO_SOURCE, "outOfOffice");
+const OOO_BODY = buildMirrorEventBody(OOO_SOURCE, "outOfOffice", "rule-1");
 
 describe("insertEventWithRetry", () => {
   it("resolves with the created mirror event id on success", async () => {
