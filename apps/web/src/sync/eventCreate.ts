@@ -188,9 +188,9 @@ export function buildPendingOccurrenceId(): string {
  * 楽観的表示用の仮 occurrence を作る。POST /api/event/create の応答を待たずに
  * 即座に store/IndexedDB へ入れて表示するためのもの。
  * source は 'local' にしておく — まだ Google 側に存在しない予定を 'google' として
- * 扱うと、この仮 occurrence がドラッグされた際に buildEventPatchRequest が
- * (存在しない) event id で書き戻しを試みてしまうため。確定後 (finalizeCreatedOccurrence)
- * に初めて 'google' source・確定 id へ差し替える。
+ * 扱うと、この仮 occurrence がドラッグされた際に buildScopedEventPatchRequest
+ * (sync/recurrenceScope.ts) が (存在しない) event id で書き戻しを試みてしまうため。
+ * 確定後 (finalizeCreatedOccurrence) に初めて 'google' source・確定 id へ差し替える。
  * location/description も写す (2026-07-29 全項目入力) ―― 詳細フォームで入れた場所/説明が
  * 確定を待たずにホバー/詳細ポップオーバーへ出るように。
  */

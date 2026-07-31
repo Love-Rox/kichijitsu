@@ -24,7 +24,8 @@ import {
 /**
  * アカウントごとに選択中のカレンダー id 一覧。meta ストアに
  * key="visibleCalendars" で保存する(マルチアカウント対応 2026-07-19)。
- * 初回連携時はデフォルトで primary カレンダーのみが入る (App.tsx が設定)。
+ * 初回連携時はデフォルトで primary カレンダーのみが入る (hooks/useGoogleAccounts.ts の
+ * fetchCalendarsFor が設定)。
  */
 export interface VisibleCalendarsMap {
   [accountId: string]: string[];
@@ -63,7 +64,7 @@ export interface KichijitsuDB extends DBSchema {
    * GitHub 連携 (docs/github-integration.md フェーズ①Part B、2026-07-20) の
    * milestone/issue/PR アイテム。allDayOccurrences/tasks と同様、展開ウィンドウの概念が
    * 無いため全件を常時ロードする。サーバーが永続化しない(取得の都度スナップショット)ため、
-   * 取得成功のたびに丸ごと置き換える運用(App.tsx 参照)
+   * 取得成功のたびに丸ごと置き換える運用(hooks/useGitHubData.ts 参照)
    */
   githubItems: {
     key: string;
@@ -134,9 +135,9 @@ const META_DECLINED_VISIBILITY_KEY = "declinedVisibility";
  * isOrganizer/hasConference) の追加で「クライアント側だけで新フィールドを増やすたびに、
  * 過去に同期済みのイベントへ行き渡らせる」という同じ課題が再発したため、世代番号
  * (syncBackfillVersion) に一般化した ―― 新フィールドを追加するたびに CURRENT_SYNC_BACKFILL_VERSION
- * を1つ上げるだけで、App.tsx の runSyncBackfillIfNeeded が保存済み世代との差分を forceFull
- * 同期で埋める(旧 runOooBackfillIfNeeded と同じ仕組み、対象は常に「保存済み世代 → 現行世代」への
- * 1ジャンプ)。deviceId と同じく端末ごとの IndexedDB に保存する — 複数端末はそれぞれ自分の
+ * を1つ上げるだけで、hooks/useCalendarSync.ts の runSyncBackfillIfNeeded が保存済み世代との
+ * 差分を forceFull 同期で埋める(旧 runOooBackfillIfNeeded と同じ仕組み、対象は常に
+ * 「保存済み世代 → 現行世代」への 1ジャンプ)。deviceId と同じく端末ごとの IndexedDB に保存する — 複数端末はそれぞれ自分の
  * syncToken (v2) を持つ設計なので、バックフィルも各端末が自分の分を1回ずつ実施するのが正しい
  * (他端末の完了を「もう済んだ」と誤認してはいけない)。
  *
@@ -528,8 +529,8 @@ export async function getOrCreateDeviceId(db: IDBPDatabase<KichijitsuDB>): Promi
  * サーバー同期は行わない(v1、カレンダー選択と非対称。この端末のみのローカル設定 ――
  * 将来 PUT /api/visible-task-lists 相当を作って端末間同期する余地は残してあるが、
  * 今回はスコープ外)。表示フィルタのみで、タスクの同期(syncTaskList)自体はこの値と
- * 無関係に続行する(App.tsx の selectedTaskListTargets 参照 ―― 表示 OFF でも裏で最新化
- * しておくことで、再度 ON にした瞬間に古いデータが見えるのを防ぐ)。
+ * 無関係に続行する(hooks/useCalendarSync.ts の selectedTaskListTargets 参照 ―― 表示 OFF でも
+ * 裏で最新化しておくことで、再度 ON にした瞬間に古いデータが見えるのを防ぐ)。
  */
 export async function getHiddenTaskLists(db: IDBPDatabase<KichijitsuDB>): Promise<Set<string>> {
   const value = await db.get("meta", META_HIDDEN_TASK_LISTS_KEY);
@@ -585,7 +586,8 @@ export async function getSyncBackfillVersion(db: IDBPDatabase<KichijitsuDB>): Pr
 }
 
 /**
- * バックフィル完了を記録する。App.tsx 側は「選択中の全カレンダーへの forceFull 同期が
+ * バックフィル完了を記録する。呼び出し側 (hooks/useCalendarSync.ts の
+ * runSyncBackfillIfNeeded) は「選択中の全カレンダーへの forceFull 同期が
  * 1つも失敗せず終わった」ときのみこれを呼ぶ — 一部失敗した場合は呼ばずに次回起動時の
  * 再試行に委ねる (完了世代を早まって進めると、失敗したカレンダーだけ永久に
  * バックフィルされないままになるため)。

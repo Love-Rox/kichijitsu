@@ -102,7 +102,7 @@
     </header>
     <main>
       <h1>プライバシーポリシー <small>kichijitsu Privacy Policy</small></h1>
-      <p class="updated">最終更新: 2026-07-26</p>
+      <p class="updated">最終更新: 2026-07-31</p>
 
       <!--
         運営者名・連絡先・ホスト名はビルド時に差し込む (apps/web/build/legalText.ts)。
@@ -173,11 +173,18 @@
       <p>
         <b>カレンダーの予定の内容（タイトル・説明・参加者など）はサーバーに保存しません。</b>
         予定データは Google
-        から取得後、あなたのブラウザ内のローカルストレージ（IndexedDB）にのみ保存されます。
+        から取得後、あなたのブラウザ内のローカルストレージ（IndexedDB）に保存されます。
         上に挙げたもののうち予定に関わる情報は、いずれも ID・時刻・設定であって、予定の中身では
         ありません。ただし MCP
         連携では、エージェントへの応答を確実に届けるため、返した予定の要約が送達完了までのあいだ
         サーバー側の作業領域を経由します（送達後に破棄され、蓄積されません）。
+      </p>
+      <p>
+        また、デスクトップ版で予定のリマインダー通知を使う場合、同じ通知を二度出さないための記録が
+        <b>同じ端末のブラウザ内ストレージ（localStorage）</b>に残ります。この記録には
+        <b>カレンダーの ID（多くはメールアドレスの形をしています）・予定の ID・予定の開始時刻</b>
+        が含まれます（予定のタイトル・説明・参加者は含まれません）。この記録は端末の中だけに置かれ、
+        サーバーにも Google にも送信されず、開始時刻から24時間を過ぎたものは自動的に削除されます。
       </p>
 
       <h2>情報の利用目的</h2>
@@ -217,9 +224,9 @@
       </p>
       <p>
         なお、カレンダーブロック機能が Google
-        カレンダー上に作成した「予定あり」等のブロック予定は、解除後もそのカレンダーに残ります（サーバー側の対応表は削除されるため、アプリからは操作できなくなります）。不要な場合は
-        Google カレンダー側で削除してください。ブロック予定を Google
-        カレンダーから消せるのは、アプリ内でブロックのルールを削除するときに「作成済みのブロック予定も削除する」を選んだ場合だけです（連携解除やルールの書き込み先の変更では、作成済みのブロック予定は削除しません）。
+        カレンダー上に作成した「予定あり」等のブロック予定の扱いは、解除によってルールが残るかどうかで変わります。複数の参照元を持つルールの<b>一部だけを解除した場合</b>、ルールは残った参照元で生き続け、解除したカレンダー由来のブロック予定は解除の直後に削除されます。<b>ルールごと消える場合</b>（書き込み先を解除した場合や、参照元をすべて解除した場合）は、ブロック予定はそのカレンダーに残ります（サーバー側の対応表が削除されるため、アプリからは操作できなくなります）。不要な場合は
+        Google カレンダー側で削除してください。このほかにブロック予定を Google
+        カレンダーから消せるのは、アプリ内でブロックのルールを削除するときに「作成済みのブロック予定も削除する」を選んだ場合だけです（ルールの書き込み先を変更しただけでは、作成済みのブロック予定は削除しません）。
       </p>
 
       <h2>セキュリティ</h2>
@@ -299,6 +306,16 @@
           they are discarded and not accumulated.
         </p>
         <p>
+          In addition, if you use event reminder notifications in the desktop app, a record of
+          which notifications have already been shown is kept in
+          <b>that device's browser storage (localStorage)</b> so the same notification is not
+          shown twice. Each entry contains the <b>calendar ID (often in the form of an email
+          address), the event ID and the event's start time</b> — never the event's title,
+          description or attendees. This record stays on the device, is never sent to our servers
+          or to Google, and entries are discarded automatically 24 hours after the event's start
+          time.
+        </p>
+        <p>
           We use this information solely to provide calendar display, sync, and editing. We do not
           use it for advertising, sell it, or share it with third parties. kichijitsu's use of
           information received from Google APIs adheres to the
@@ -324,13 +341,16 @@
           clear local data by clearing the site's data in your browser.
         </p>
         <p>
-          Note that busy/out-of-office blocks the blocking feature already created in Google
-          Calendar remain in that calendar after disconnecting (the server-side mapping is deleted,
-          so the app can no longer manage them). Delete them in Google Calendar if you no longer
-          want them. The only case where the app deletes those blocks from Google Calendar is when
-          you delete a blocking rule in the app and leave "delete the blocks already created"
-          checked; disconnecting an account, or changing a rule's destination calendar, never
-          deletes blocks that were already created.
+          What happens to busy/out-of-office blocks the blocking feature already created in Google
+          Calendar depends on whether the rule survives the disconnect. If you disconnect only
+          <b>some</b> of a rule's source calendars, the rule lives on through the remaining sources
+          and the blocks derived from the disconnected calendar are deleted right away. If the
+          <b>rule itself goes away</b> — you disconnected its destination calendar, or all of its
+          sources — the blocks remain in that calendar (the server-side mapping is deleted, so the
+          app can no longer manage them); delete them in Google Calendar if you no longer want them.
+          Apart from that, the only case where the app deletes those blocks is when you delete a
+          blocking rule in the app and leave "delete the blocks already created" checked; changing a
+          rule's destination calendar alone never deletes blocks that were already created.
         </p>
         <p><!--KJ:OPERATOR_LINE_EN--></p>
         <p><!--KJ:CONTACT_LINE_EN--></p>

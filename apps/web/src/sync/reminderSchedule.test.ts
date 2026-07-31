@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  DEFAULT_FIXED_LEAD_MINUTES,
   DEFAULT_REMINDER_MODE,
   formatReminderBody,
   getNotifiedKeys,
@@ -480,9 +479,12 @@ describe("設定の永続化", () => {
     // 2026-07-30 の初版はこのキーに "0"/"5"/"10"/"15"/"30"/"60" を書いていた
     expect(parseReminderMode("0")).toEqual({ kind: "off" });
     expect(parseReminderMode("30")).toEqual({ kind: "fixed", minutes: 30 });
-    expect(
-      getReminderMode(fakeStorage({ "kichijitsu:reminderLead": String(DEFAULT_FIXED_LEAD_MINUTES) })),
-    ).toEqual({ kind: "fixed", minutes: DEFAULT_FIXED_LEAD_MINUTES });
+    // "10" は初版の既定値。設定画面を触らずにいた人にも書かれていた値なので、
+    // 旧形式のうちここだけは特に読めなくなると影響が大きい
+    expect(getReminderMode(fakeStorage({ "kichijitsu:reminderLead": "10" }))).toEqual({
+      kind: "fixed",
+      minutes: 10,
+    });
   });
 
   it("プリセットに無い値・壊れた値は既定 (Google に従う) に落ちる", () => {

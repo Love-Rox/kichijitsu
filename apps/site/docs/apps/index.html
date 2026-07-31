@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>デスクトップ版と PWA | kichijitsu</title>
-    <meta name="description" content="kichijitsu のデスクトップ版 (Tauri) と PWA。導入、更新のされかた、更新されないときのキャッシュ削除。" />
+    <meta name="description" content="kichijitsu のデスクトップ版 (Tauri) と PWA。導入、予定のリマインダー通知、更新のされかた、更新されないときのキャッシュ削除と再同期。" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#FAF7F2" />
     <meta property="og:title" content="デスクトップ版と PWA | kichijitsu" />
-    <meta property="og:description" content="Homebrew で入れるデスクトップ版と、ブラウザから入れる PWA。更新とキャッシュ削除まで。" />
+    <meta property="og:description" content="Homebrew で入れるデスクトップ版と、ブラウザから入れる PWA。デスクトップ版だけの予定のリマインダー通知、更新とキャッシュ削除まで。" />
     <meta property="og:type" content="article" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -479,6 +479,11 @@ gh auth login</code></pre>
             Google から<strong>全件取り直して手元の複製を作り直す</strong>。差分の取りこぼしが原因で残ってしまった予定も、これで消える。
           </p>
           <p>
+            取り直す対象には<strong>取得済みのタスクリスト (Google ToDo リスト) も含まれる</strong>。
+            タスクにはカレンダーのような差分の仕組みが無く、ふだんの「同期」でも毎回そのリストの全件で
+            置き換わるので、再同期でも同じように全件で入れ替わる。
+          </p>
+          <p>
             押すと「予定を全件取り直しますか？」と出るので「再同期する」を選ぶ。やめるときは「やめる」。取り直しが終わると「再同期しました」と出る
             ―― そのまま待てばよく、あとから「同期」を押し直す必要は無い。全件ぶんの通信になるので、回線が細いときは時間がかかる。
           </p>
@@ -490,7 +495,8 @@ gh auth login</code></pre>
               (予定データの取り直し)。
             </p>
             <p>
-              再同期で取り直すのは予定データだけ。作業実績・連携している Google / GitHub
+              再同期で取り直すのは、手元に複製してある<strong>予定とタスク</strong>だけ。作業実績・連携している
+              Google / GitHub
               アカウント・表示設定は消えず、サーバーに保存されているデータにも触らない (<a
                 href="/docs/data/"
                 >データの扱い</a

@@ -69,7 +69,7 @@ export function eventPatchRequestFor(
 
 /**
  * occurrence から POST /api/event/delete の body を組み立てる。
- * eventId の組み立て規則は buildEventPatchRequest と全く同じ (rawGoogleEventId /
+ * eventId の組み立て規則は上の eventPatchRequestFor と全く同じ (rawGoogleEventId /
  * seriesInstanceEventId を再利用)。source !== 'google' や accountId/calendarId 欠落、
  * id のパース失敗時は null (呼び出し側で warn する)。
  *
