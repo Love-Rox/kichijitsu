@@ -3,6 +3,7 @@ import type { GitHubItemDTO } from "@kichijitsu/shared";
 import type { GitHubItem } from "../model/types";
 import {
   GITHUB_MAX_VISIBLE_MILESTONES,
+  countGitHubDayItems,
   groupGitHubItemsByMilestone,
   layoutGitHubDay,
   mapGitHubItems,
@@ -248,5 +249,52 @@ describe("layoutGitHubDay", () => {
     const { visibleGroups, releases } = layoutGitHubDay([m, c, r], dayStart, dayEnd);
     expect(visibleGroups).toHaveLength(1);
     expect(releases).toEqual([r]);
+  });
+});
+
+describe("countGitHubDayItems", () => {
+  const dayStart = Date.UTC(2026, 6, 20);
+  const dayEnd = Date.UTC(2026, 6, 21);
+
+  it("項目が無い日は 0", () => {
+    expect(countGitHubDayItems(layoutGitHubDay([], dayStart, dayEnd))).toBe(0);
+  });
+
+  it("milestone 見出しと配下の issue/PR をどちらも数える", () => {
+    const items = [
+      milestone({ dateMs: dayStart }),
+      child({ id: "gh:acme/repo:issue:2", number: 2, dateMs: dayStart }),
+      child({ id: "gh:acme/repo:pr:3", number: 3, type: "pr", dateMs: dayStart }),
+    ];
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd))).toBe(3);
+  });
+
+  it("release も数に含める", () => {
+    const items = [milestone({ dateMs: dayStart }), release({ dateMs: dayStart })];
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd))).toBe(2);
+  });
+
+  it("milestone 見出しが無く issue/PR だけのグループも数えられる", () => {
+    const items = [
+      child({ id: "gh:acme/repo:issue:9", number: 9, milestoneTitle: "v9.0", dateMs: dayStart }),
+    ];
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd))).toBe(1);
+  });
+
+  it("表示上限で隠れたぶん (overflowCount) も含めた総数になる", () => {
+    // 上限 1 と 上限 4 で「見えている数」は変わるが、その日の実体の数は変わらない
+    const items = [
+      milestone({ id: "gh:acme/repo:milestone:1", number: 1, title: "v1.0", dateMs: dayStart }),
+      milestone({ id: "gh:acme/repo:milestone:2", number: 2, title: "v2.0", dateMs: dayStart }),
+      milestone({ id: "gh:acme/repo:milestone:3", number: 3, title: "v3.0", dateMs: dayStart }),
+      child({ id: "gh:acme/repo:issue:31", number: 31, milestoneTitle: "v3.0", dateMs: dayStart }),
+    ];
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd, 1))).toBe(4);
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd, 4))).toBe(4);
+  });
+
+  it("日範囲外の項目は数えない", () => {
+    const items = [milestone({ dateMs: dayStart }), milestone({ id: "x", dateMs: dayEnd })];
+    expect(countGitHubDayItems(layoutGitHubDay(items, dayStart, dayEnd))).toBe(1);
   });
 });

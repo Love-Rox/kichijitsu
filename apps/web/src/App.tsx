@@ -51,7 +51,11 @@ import {
   type PaneMode,
 } from "./layout/paneMode";
 import { calendarKey } from "./layout/keys";
-import { DEMO_GOOGLE_ACCOUNT_ID, DEMO_GOOGLE_CALENDAR_ID } from "./model/dummy";
+import {
+  DEMO_GOOGLE_ACCOUNT_ID,
+  DEMO_GOOGLE_CALENDAR_ID,
+  generateDummyGitHubItems,
+} from "./model/dummy";
 import { readStored, writeStored } from "./layout/localStore";
 import {
   getOooAllDayPlacement,
@@ -353,6 +357,22 @@ function App() {
     // 初回マウント時にのみ実行する。timelineStart/view はマウント時点の値で固定してよい
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /*
+   * GitHub レーンのデモ (2026-08-03、レーン折りたたみ)。GitHub 未連携では1件も出ないレーンなので、
+   * `?demo=1` のときだけダミーを載せて「伸びる/畳む」を目視できるようにする。
+   *
+   * bootstrapDatabase を通さない理由: サーバーが GitHub アイテムを永続化しない設計に合わせて
+   * IndexedDB 側も「取得のたびに全消し→全書き込み」で回っており、そこにデモを書き込むと
+   * 実データ運用へ戻したときに掃除対象の無い残骸になる。終日のデモ
+   * (generateDummyAllDayOccurrences) と同じく、メモリ上のストアにだけ載せる。
+   * githubStore.load() は加算 (既存 id を上書きするだけ) なので、bootstrap の
+   * load(allGitHubItems) とどちらが先に走っても結果は変わらない。
+   */
+  useEffect(() => {
+    if (!DEMO_SEED_ENABLED) return;
+    githubStore.load(generateDummyGitHubItems(Temporal.Now.plainDateISO(), timeZone));
+  }, [githubStore, timeZone]);
 
   // タイムライン/月ナビゲーション時: 表示範囲(view に応じて N日タイムライン or 6週グリッド全体)を
   // 賄うのに十分な展開が済んでいるか確認する

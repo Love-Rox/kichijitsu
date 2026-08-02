@@ -21,12 +21,16 @@ import type { GuestChange } from "../sync/eventGuests";
 import type { DroppedWorkItem } from "../sync/planned";
 import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
-import { layoutGitHubDay } from "../sync/mapGitHub";
+import { countGitHubDayItems, layoutGitHubDay } from "../sync/mapGitHub";
 import { layoutDayActivity } from "../sync/mapActivity";
 import { layoutDayCiRuns } from "../sync/mapCiRuns";
 import { packColumns } from "../layout/packColumns";
 import { buildAllDayPanels, clipToVisibleRows, resolveSharedRows } from "../layout/allDayPanels";
 import { calendarKeyOf, taskListKey } from "../layout/keys";
+import {
+  getGitHubLaneCollapsed,
+  setGitHubLaneCollapsed as saveGitHubLaneCollapsed,
+} from "../layout/githubLaneCollapse";
 import { dayStartMs, plainDateOfMs } from "../layout/dayTime";
 import {
   groupDuplicateAllDayOccurrences,
@@ -68,7 +72,7 @@ import { type CalendarInfo } from "./EventBlock";
 import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
 import { TaskRow } from "./TaskRow";
-import { GitHubLane } from "./GitHubLane";
+import { GitHubLane, GitHubLaneCollapsedDay } from "./GitHubLane";
 import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
@@ -902,16 +906,40 @@ export function WeekGrid({
 
   const githubPanels = useMemo(
     () =>
-      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => ({
-        panelStart,
-        dayLayouts: dayStarts.map((dayStart, i) =>
+      weekPanels.map(({ panelStart, dayStarts, dayEnds }) => {
+        const dayLayouts = dayStarts.map((dayStart, i) =>
           layoutGitHubDay(githubItemsRaw, dayStart, dayEnds[i]),
-        ),
-      })),
+        );
+        return {
+          panelStart,
+          dayLayouts,
+          // 折りたたみ中に各日列へ出す件数。展開時は使わないが、同じ dayLayouts から
+          // 一度に作っておく — 「畳んだときの件数」と「開いたときに出てくる中身」が
+          // 別の入力から計算されてズレる、という事故を構造的に避けるため
+          dayCounts: dayLayouts.map(countGitHubDayItems),
+        };
+      }),
     [weekPanels, githubItemsRaw],
   );
-  // 未連携・0件ならレーンごと非表示にする(終日/タスクレーンと同じ流儀)
+  // 未連携・0件ならレーンごと非表示にする(終日/タスクレーンと同じ流儀)。
+  // **折りたたみとは別の話**で、未連携なら畳む/開く以前にレーン自体(見出しごと)出さない
   const githubLaneHasContent = githubItemsRaw.length > 0;
+
+  /*
+   * GitHub レーンの折りたたみ (2026-08-03、ユーザー要望「GitHub の一覧が表示されるセクションが
+   * 広くなって予定の表示が見れなくなる」)。状態はこのコンポーネントに閉じ、永続化は
+   * layout/githubLaneCollapse.ts に任せる ―― CalendarPane のアカウント/グループ折りたたみと
+   * 同じ役割分担(App.tsx を経由しない、端末ごとの表示設定)。
+   */
+  const [githubLaneCollapsed, setGithubLaneCollapsed] = useState<boolean>(getGitHubLaneCollapsed);
+
+  const toggleGitHubLaneCollapsed = useCallback(() => {
+    setGithubLaneCollapsed((prev) => {
+      const next = !prev;
+      saveGitHubLaneCollapsed(next);
+      return next;
+    });
+  }, []);
 
   // ---- GitHub 実績オーバーレイ (docs/github-integration.md フェーズ③Part B) ----
   // githubPanels と同じ形だが、レーンではなく日列(weekPanels の dayData)に直接
@@ -1135,25 +1163,55 @@ export function WeekGrid({
       )}
 
       {githubLaneHasContent && (
-        <div className="week-grid-github">
-          <div className="week-grid-github-gutter">GitHub</div>
-          <div className="week-grid-github-viewport">
+        <div className={`week-grid-github${githubLaneCollapsed ? " is-collapsed" : ""}`}>
+          {/*
+            レーンの開閉の操作点は行ラベルそのもの(2026-08-03)。日列の中に別のボタンを置くと
+            アイテムのリンクと押し分けにくく、レーンの外(ツールバー等)に置くと「何のトグルか」が
+            離れてしまうため、既にレーンの見出しとして存在するこの位置を押せるようにした。
+            見た目は CalendarPane のアカウント見出しと同じ「▸/▾ + ラベル」に揃えてある。
+          */}
+          <button
+            type="button"
+            className="week-grid-github-gutter"
+            onClick={toggleGitHubLaneCollapsed}
+            aria-expanded={!githubLaneCollapsed}
+            aria-controls="week-grid-github-region"
+            title={githubLaneCollapsed ? "GitHub レーンを開く" : "GitHub レーンを畳む"}
+          >
+            <span className="week-grid-github-caret" aria-hidden="true">
+              {githubLaneCollapsed ? "▸" : "▾"}
+            </span>
+            <span className="week-grid-github-label">GitHub</span>
+          </button>
+          <div className="week-grid-github-viewport" id="week-grid-github-region">
             <div className="week-grid-github-strip" style={stripStyle}>
-              {githubPanels.map(({ panelStart, dayLayouts }) => (
+              {githubPanels.map(({ panelStart, dayLayouts, dayCounts }) => (
                 <div
                   className="week-grid-github-panel"
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {dayLayouts.map(({ visibleGroups, releases, overflowCount }, dayIndex) => (
-                    // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
-                    <GitHubLane
-                      key={dayIndex}
-                      groups={visibleGroups}
-                      releases={releases}
-                      overflowCount={overflowCount}
-                    />
-                  ))}
+                  {githubLaneCollapsed
+                    ? dayCounts.map((count, dayIndex) => {
+                        const date = panelStart.add({ days: dayIndex });
+                        return (
+                          <GitHubLaneCollapsedDay
+                            // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、展開時と同じ流儀)
+                            key={dayIndex}
+                            count={count}
+                            dateLabel={`${date.month}/${date.day}`}
+                          />
+                        );
+                      })
+                    : dayLayouts.map(({ visibleGroups, releases, overflowCount }, dayIndex) => (
+                        // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
+                        <GitHubLane
+                          key={dayIndex}
+                          groups={visibleGroups}
+                          releases={releases}
+                          overflowCount={overflowCount}
+                        />
+                      ))}
                 </div>
               ))}
             </div>

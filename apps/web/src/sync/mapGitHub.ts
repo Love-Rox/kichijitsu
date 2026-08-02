@@ -117,3 +117,23 @@ export function layoutGitHubDay(
 
   return { visibleGroups, releases, overflowCount };
 }
+
+/**
+ * GitHubDayLayout が表す1日ぶんの「GitHub 項目の総数」(2026-08-03、レーン折りたたみ)。
+ *
+ * 何に使うか: レーンを畳んだときに各日列へ出す件数バッジ。畳んだレーンが完全な空欄になると
+ * 「GitHub と連携しているのに1件も無い日」と見分けが付かなくなるため、**畳んでいても
+ * 「どの日に何件あるか」だけは残す**(GitHubLane.tsx の GitHubLaneCollapsedDay 参照)。
+ *
+ * 数え方は「その日にあった項目をひとつ残らず数える」―― 表示上限で隠れたぶん (overflowCount)
+ * も含める。展開時の「見えている数」ではなく **畳んだことで見えなくなった実体の数**を
+ * 出したいので、上限の有無に左右されない値にしてある(layoutGitHubDay に渡した
+ * maxVisibleGroups を変えてもこの数は変わらない、というのが仕様)。
+ */
+export function countGitHubDayItems(layout: GitHubDayLayout): number {
+  const visible = layout.visibleGroups.reduce(
+    (sum, g) => sum + (g.milestone ? 1 : 0) + g.children.length,
+    0,
+  );
+  return visible + layout.releases.length + layout.overflowCount;
+}

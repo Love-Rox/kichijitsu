@@ -296,14 +296,61 @@
   overflow-y: auto;
 }
 
+/*
+ * 行ラベル兼レーンの開閉ボタン (2026-08-03、GitHubLane の折りたたみ)。
+ * 終日/タスクレーンの gutter と同じ見た目(10px の薄墨・上寄せ)を保ったまま <button> に
+ * しただけ ―― ブラウザ既定の枠・地色・フォントを打ち消し、押せることはカレット (▸/▾) と
+ * ホバー/フォーカスで示す(CalendarPane のアカウント見出しと同じ流儀)。
+ *
+ * align-self: flex-start は見た目のためではなくフォーカスリングのため。既定の stretch のままだと
+ * ボタンがレーンの高さいっぱい(内容が多い週では 30vh)に伸び、フォーカスリングが 10px の
+ * ラベルではなく縦長の帯を囲ってしまう。地色も枠も持たない要素なので、縮めても見た目は変わらない。
+ */
 .week-grid-github-gutter {
   flex: 0 0 60px;
+  align-self: flex-start;
   display: flex;
   align-items: flex-start;
   justify-content: center;
+  gap: 2px;
   padding-top: 3px;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 10px;
   color: var(--c-ui-ink-faint);
+  cursor: pointer;
+}
+
+.week-grid-github-gutter:hover {
+  color: var(--c-ui-ink);
+}
+
+.week-grid-github-gutter:focus-visible {
+  outline: 2px solid var(--c-github);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+
+.week-grid-github-caret {
+  flex: 0 0 auto;
+  line-height: 1.2;
+}
+
+.week-grid-github-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 畳んでいるときは高さの上限を外す (中身は件数バッジ1行だけで、そもそも伸びない)。
+ * 上の max-height: 30vh を残すと、画面が極端に低いとき (30vh がバッジ1行より小さいとき) に
+ * 畳んだレーンまで切られてしまう ―― 畳んだ状態は「常に全部見えている」のが前提なので外す。
+ */
+.week-grid-github.is-collapsed {
+  max-height: none;
 }
 
 .week-grid-github-viewport {
