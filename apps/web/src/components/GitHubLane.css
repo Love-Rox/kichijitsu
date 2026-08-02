@@ -12,6 +12,46 @@
   padding: 0 2px;
 }
 
+/*
+ * 折りたたみ中の1日ぶん (GitHubLaneCollapsedDay、2026-08-03)。展開時 (.github-lane-day) と
+ * 同じ日ごとの列に、その日の件数バッジだけを1行で置く。畳んだレーン全体の高さがこの1行
+ * (バッジの line-height + panel の padding) に収まるのが要点 ―― 中身の量に一切左右されない。
+ */
+.github-lane-day-collapsed {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+/*
+ * 件数バッジ。GitHub というデータソースの識別色 (--c-github) を枠と文字に使い、
+ * 「畳んであるのは GitHub の何か」だと一目で分かるようにする(.github-item-chip と同じ流儀で、
+ * 朱のアクセントはここでは使わない)。地の色は --c-bg で、下の時刻グリッドから浮かせる。
+ */
+.github-collapsed-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  border: 1px solid var(--c-github);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--c-github);
+  background: var(--c-bg);
+  cursor: default;
+}
+
+/* 単位は数字より一段落として、パッと見は件数そのものが目に入るようにする */
+.github-collapsed-count-unit {
+  margin-left: 1px;
+  font-size: 9px;
+  font-weight: 400;
+}
+
 .github-milestone-group {
   display: flex;
   flex-direction: column;

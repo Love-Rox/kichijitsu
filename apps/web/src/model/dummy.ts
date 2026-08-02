@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { AllDayOccurrence, EventAttendee, Occurrence } from "./types";
+import type { AllDayOccurrence, EventAttendee, GitHubItem, Occurrence } from "./types";
 import type { EventSeries, InstanceOverride } from "./series";
 import { instanceId } from "./series";
 
@@ -644,6 +644,141 @@ export function generateDummyReminderOccurrences(nowMs: number): Occurrence[] {
     at("dummy-reminder-unsynced", "リマインダー未同期の予定", 13, undefined),
   ];
 }
+
+/**
+ * GitHub レーン (components/GitHubLane.tsx) 確認用のダミー (2026-08-03、レーン折りたたみ)。
+ *
+ * なぜ要るか: GitHub レーンは連携済みでないと1件も出ないため、`?demo=1` では
+ * 「レーンが縦に伸びてカレンダーを押し下げる」という当の症状も、その折りたたみも
+ * 目視できなかった。そこで **わざと背の高い日を作った** データを置く:
+ *
+ *   -1 日  release だけ1件 (milestone グループが無い日の見え方)
+ *    0 日  release 1件 + milestone 2件 (issue/PR 各6件ずつ) ―― レーンが最も伸びる日
+ *   +1 日  milestone 1件 (issue/PR 3件)
+ *   +2 日  milestone 4件 ―― GITHUB_MAX_VISIBLE_MILESTONES(3) を超え「+N」が出る日
+ *   +4 日  milestone なしの issue が2件 (milestoneTitle を持たない防御経路の見え方)
+ *
+ * 他のダミーと違い IndexedDB には書かない ―― 実データ用のストアにデモが残らないよう、
+ * App.tsx がメモリ上の githubStore にだけ載せる (generateDummyAllDayOccurrences と同じ扱い)。
+ * そのため id の "dummy-" 接頭辞は掃除のためではなく、実データの id と衝突させないためのもの。
+ *
+ * 時刻は 09:00 固定。GitHub レーンは日単位でしか振り分けない (layoutGitHubDay) ので、
+ * 時刻そのものに意味は無く、日付境界から十分離しておけばよい。
+ */
+export function generateDummyGitHubItems(
+  baseDate: Temporal.PlainDate,
+  timeZone: string,
+): GitHubItem[] {
+  const at = (offset: number): number =>
+    baseDate
+      .add({ days: offset })
+      .toZonedDateTime({ timeZone, plainTime: new Temporal.PlainTime(9, 0) }).epochMilliseconds;
+
+  const out: GitHubItem[] = [];
+
+  const milestone = (repo: string, title: string, offset: number, number: number) => {
+    out.push({
+      id: `dummy-gh-ms-${repo}-${number}`,
+      type: "milestone",
+      title,
+      dateMs: at(offset),
+      repo,
+      number,
+      url: `https://github.com/${repo}/milestone/${number}`,
+    });
+  };
+
+  /** milestone 配下の issue/PR を n 件。type は交互 (issue と PR の色分けを両方見せる) */
+  const children = (
+    repo: string,
+    milestoneTitle: string,
+    offset: number,
+    from: number,
+    n: number,
+  ) => {
+    for (let i = 0; i < n; i++) {
+      const number = from + i;
+      out.push({
+        id: `dummy-gh-item-${repo}-${number}`,
+        type: i % 2 === 0 ? "issue" : "pr",
+        title: GITHUB_ITEM_TITLES[number % GITHUB_ITEM_TITLES.length],
+        dateMs: at(offset),
+        repo,
+        number,
+        url: `https://github.com/${repo}/issues/${number}`,
+        milestoneTitle,
+      });
+    }
+  };
+
+  const release = (repo: string, tag: string, offset: number) => {
+    out.push({
+      id: `dummy-gh-rel-${repo}-${tag}`,
+      type: "release",
+      title: tag,
+      dateMs: at(offset),
+      repo,
+      number: 0, // release は issue 的な番号を持たない (model/types.ts のコメント参照)
+      url: `https://github.com/${repo}/releases/tag/${tag}`,
+    });
+  };
+
+  release("Love-Rox/kichijitsu", "v0.4.2", -1);
+
+  release("Love-Rox/kichijitsu", "v0.5.0", 0);
+  milestone("Love-Rox/kichijitsu", "v0.5 カレンダー基盤", 0, 5);
+  children("Love-Rox/kichijitsu", "v0.5 カレンダー基盤", 0, 101, 6);
+  milestone("Love-Rox/agentic-inbox", "受信箱 β", 0, 2);
+  children("Love-Rox/agentic-inbox", "受信箱 β", 0, 201, 6);
+
+  milestone("Love-Rox/kichijitsu", "v0.6 同期の安定化", 1, 6);
+  children("Love-Rox/kichijitsu", "v0.6 同期の安定化", 1, 301, 3);
+
+  milestone("Love-Rox/kichijitsu", "ドキュメント整備", 2, 7);
+  children("Love-Rox/kichijitsu", "ドキュメント整備", 2, 401, 2);
+  milestone("Love-Rox/agentic-inbox", "メール送信", 2, 3);
+  children("Love-Rox/agentic-inbox", "メール送信", 2, 411, 2);
+  milestone("sasagar/infra", "IaC フェーズ2", 2, 1);
+  children("sasagar/infra", "IaC フェーズ2", 2, 421, 2);
+  milestone("sasagar/infra", "監視の整理", 2, 2);
+  children("sasagar/infra", "監視の整理", 2, 431, 2);
+
+  // milestoneTitle を持たない issue (「milestone なし」グループに落ちる経路の確認)
+  out.push(
+    {
+      id: "dummy-gh-item-orphan-1",
+      type: "issue",
+      title: "マイルストーン未設定の課題",
+      dateMs: at(4),
+      repo: "Love-Rox/kichijitsu",
+      number: 501,
+      url: "https://github.com/Love-Rox/kichijitsu/issues/501",
+    },
+    {
+      id: "dummy-gh-item-orphan-2",
+      type: "pr",
+      title: "依存関係の更新",
+      dateMs: at(4),
+      repo: "Love-Rox/kichijitsu",
+      number: 502,
+      url: "https://github.com/Love-Rox/kichijitsu/pull/502",
+    },
+  );
+
+  return out;
+}
+
+/** generateDummyGitHubItems が使う issue/PR のタイトルプール (長短を混ぜて省略表示も見えるようにする) */
+const GITHUB_ITEM_TITLES = [
+  "終日レーンの高さ計算を見直す",
+  "同期のリトライ間隔を指数バックオフにする",
+  "月表示のチップが溢れる",
+  "検索オーバーレイのキーボード操作",
+  "タイムゾーン跨ぎの再現テストを追加する",
+  "設定モーダルのフォーカストラップ",
+  "通知の重複を防ぐ",
+  "ダークテーマのコントラスト調整",
+];
 
 /**
  * `?demo=1` のときに IndexedDB へ投入するデモデータ一式 (2026-07-30、db/bootstrap.ts から集約)。

@@ -25,7 +25,13 @@ interface GitHubLaneProps {
  * ネイティブリンクの挙動をそのまま活かすため onClick+window.open ではなくこちらを使う)。
  */
 export function GitHubLane({ groups, releases, overflowCount }: GitHubLaneProps) {
-  if (groups.length === 0 && releases.length === 0 && overflowCount === 0) return null;
+  // 中身が無い日でも器だけは必ず出す(2026-08-03)。親 (.week-grid-github-panel) は
+  // grid-template-columns: repeat(dayCount, 1fr) の暗黙配置なので、**null を返すと
+  // 以降の日が1列ずつ手前へ詰められて日付がずれる** ―― 実際、金曜だけ項目がある週で
+  // 木曜の列に金曜のアイテムが描かれていた。空の器(高さ0)を置けば列が固定される。
+  if (groups.length === 0 && releases.length === 0 && overflowCount === 0) {
+    return <div className="github-lane-day" />;
+  }
 
   return (
     <div className="github-lane-day">
@@ -94,6 +100,47 @@ export function GitHubLane({ groups, releases, overflowCount }: GitHubLaneProps)
           +{overflowCount}
         </div>
       )}
+    </div>
+  );
+}
+
+interface GitHubLaneCollapsedDayProps {
+  /** その日の GitHub 項目の総数 (sync/mapGitHub.ts の countGitHubDayItems)。0 なら何も出さない */
+  count: number;
+  /** 見出し(ツールチップ)に使う日付表記。例 "8/5" */
+  dateLabel: string;
+}
+
+/**
+ * レーンを畳んでいるときの1日ぶんの列(2026-08-03、ユーザー要望「GitHub の一覧が表示される
+ * セクションが広くなって予定の表示が見れなくなる」)。
+ *
+ * なぜ「完全に消す」ではなく件数を残すか: 畳んだレーンが空欄になると、**GitHub と連携して
+ * いるのに何も無い状態**と見分けが付かなくなる。かといって全体で1つの合計数を出すだけでは
+ * 「今日ぶんを見たいのか、週末ぶんなのか」が分からず、開くまで判断できない。展開時と同じ
+ * 日ごとの列構造をそのまま使って**日ごとの件数だけを残す**と、1行(レーン全体で 22px 前後)で
+ * 「どの日にどれだけあるか」が伝わり、目当ての日があるときだけ開けばよくなる
+ * (計測: 週表示・標準ズームで展開 215px → 折りたたみ 22px)。
+ *
+ * GitHubLane 本体と同じく、項目が無い日でも空の器を返して列のずれを防ぐ(上記コメント参照)。
+ * クリック可能な要素は置かない ―― 開閉の操作点はレーン見出し(week-grid-github-gutter)
+ * ひとつに絞り、「どこを押せば開くか」を1箇所にする。
+ */
+export function GitHubLaneCollapsedDay({ count, dateLabel }: GitHubLaneCollapsedDayProps) {
+  if (count === 0) return <div className="github-lane-day-collapsed" />;
+
+  return (
+    <div className="github-lane-day-collapsed">
+      {/*
+        単位「件」を DOM に出す(アイコンや装飾では代替しない)。数字だけのバッジは目では
+        件数と読めても、読み上げでは「15」としか読まれず何の数か分からないため。
+        日付は title(ツールチップ)側に添える ―― 列が日付と一対一に並ぶ画面で、
+        バッジ本文にまで日付を書くと横幅を食うわりに情報が重複する。
+      */}
+      <span className="github-collapsed-count" title={`${dateLabel} GitHub ${count} 件`}>
+        {count}
+        <span className="github-collapsed-count-unit">件</span>
+      </span>
     </div>
   );
 }
