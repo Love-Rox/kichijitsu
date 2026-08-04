@@ -1,0 +1,363 @@
+/*
+ * 「残ったブロック予定の掃除」オーバーレイ (docs/blocking.md「将来やるならこれ」)。
+ * BlockRulesOverlay.css と同じ画面中央モーダル構成・同じブランドトークン(墨 --c-ink・
+ * 杢 --c-ink-sub・罫線 --c-line・生成り --c-bg)を使う。色はすべて theme.css の var(--c-*)
+ * 経由(生の色値は書かない)。ダークモードは light-dark() で自動追従するのでここでは何もしない。
+ * z-index は他のオーバーレイと同じ 2000 台。
+ */
+.block-mirror-cleanup-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--c-scrim-rgb), 0.28);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.block-mirror-cleanup-card {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line-elevated);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(var(--c-shadow-rgb), 0.28);
+  padding: 20px;
+  text-align: left;
+}
+
+.block-mirror-cleanup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-line-warm);
+}
+
+.block-mirror-cleanup-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+.block-mirror-cleanup-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--c-ink-sub);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.block-mirror-cleanup-close:hover {
+  color: var(--c-ink);
+}
+
+.block-mirror-cleanup-description {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-ink-mute);
+}
+
+/* 走査の起動行 */
+.block-mirror-cleanup-scan-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.block-mirror-cleanup-scan-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.block-mirror-cleanup-scan-btn:disabled {
+  background: var(--c-masu);
+  color: var(--c-ink-sub);
+  cursor: default;
+}
+
+.block-mirror-cleanup-scan-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.block-mirror-cleanup-scanning {
+  font-size: 12px;
+  color: var(--c-ink-sub);
+}
+
+.block-mirror-cleanup-error {
+  font-size: 12px;
+  color: var(--c-danger);
+}
+
+/* 結果全体 */
+.block-mirror-cleanup-results {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--c-line-warm);
+}
+
+/*
+ * 走査に失敗したカレンダーの警告。0件表示と混同させないための独立ブロックで、
+ * orphans が0件でもこれが有れば必ず出す(BlockMirrorCleanupOverlay.tsx 参照)。
+ * --c-accent を使うのは SettingsModal の .settings-modal-mcp-warning と同じ「抑制的な警告」の
+ * 用法に揃えるため(--c-danger はここでは削除失敗などのより強い失敗表示に予約している)。
+ */
+.block-mirror-cleanup-scan-failures {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--c-accent-soft);
+  border: 1px solid var(--c-accent-soft-line);
+  border-radius: 8px;
+}
+
+.block-mirror-cleanup-scan-failures-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-accent-ink);
+}
+
+.block-mirror-cleanup-scan-failures ul,
+.block-mirror-cleanup-failed ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--c-accent-ink);
+  line-height: 1.7;
+}
+
+.block-mirror-cleanup-summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--c-ink-mute);
+}
+
+.block-mirror-cleanup-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--c-ink-sub);
+}
+
+/* すべて選択 行 */
+.block-mirror-cleanup-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.block-mirror-cleanup-select-count {
+  font-size: 11px;
+  color: var(--c-ink-sub);
+}
+
+/* 文字だけのボタン(SettingsModal の .settings-modal-text-btn と同じ見た目) */
+.block-mirror-cleanup-text-btn {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.block-mirror-cleanup-text-btn:hover:not(:disabled) {
+  color: var(--c-ink);
+}
+
+.block-mirror-cleanup-text-btn:disabled {
+  color: var(--c-ink-faint);
+  cursor: default;
+}
+
+.block-mirror-cleanup-text-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* カレンダーごとのグループ */
+.block-mirror-cleanup-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.block-mirror-cleanup-group {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.block-mirror-cleanup-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+.block-mirror-cleanup-group-count {
+  flex: none;
+  font-weight: 400;
+  color: var(--c-ink-sub);
+}
+
+.block-mirror-cleanup-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.block-mirror-cleanup-item + .block-mirror-cleanup-item {
+  border-top: 1px solid var(--c-line-faint);
+}
+
+.block-mirror-cleanup-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 13px;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.block-mirror-cleanup-item-label input[type="checkbox"] {
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  margin: 0;
+  flex: none;
+}
+
+/* 見出しは無内容原則により常に固定文言(「予定あり」) */
+.block-mirror-cleanup-item-title {
+  flex: none;
+  color: var(--c-ink-mute);
+}
+
+.block-mirror-cleanup-item-range {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-ink-sub);
+}
+
+/* 削除の実行行 */
+.block-mirror-cleanup-delete-row {
+  margin-top: 14px;
+  display: flex;
+}
+
+.block-mirror-cleanup-danger-btn {
+  border: none;
+  border-radius: 8px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.block-mirror-cleanup-danger-btn:disabled {
+  background: var(--c-masu);
+  color: var(--c-ink-sub);
+  cursor: default;
+}
+
+.block-mirror-cleanup-danger-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* 削除の確認(インライン2段階。BlockRulesOverlay の .block-rules-rule-confirm と同じ流儀) */
+.block-mirror-cleanup-confirm {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-mirror-cleanup-confirm-question {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--c-ink);
+}
+
+.block-mirror-cleanup-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 削除できなかった予定の一覧 */
+.block-mirror-cleanup-failed {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--c-accent-soft);
+  border: 1px solid var(--c-accent-soft-line);
+  border-radius: 8px;
+}
+
+.block-mirror-cleanup-failed-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-accent-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .block-mirror-cleanup-scan-btn,
+  .block-mirror-cleanup-danger-btn,
+  .block-mirror-cleanup-close {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+}
+
+@media (max-width: 640px) {
+  .block-mirror-cleanup-backdrop {
+    padding: 16px;
+  }
+
+  .block-mirror-cleanup-card {
+    padding: 14px;
+    max-height: min(92vh, 720px);
+  }
+}

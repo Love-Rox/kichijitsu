@@ -917,6 +917,86 @@ export interface BlockRuleDeleteRequest {
 }
 
 /**
+ * 孤児ミラー掃除 (docs/blocking.md「将来やるならこれ」、2026-08-04)。ルール削除・target 変更・
+ * 連携解除のいずれかで対応表 (block_mirrors) からはぐれ、コピー先カレンダーに残り続ける
+ * 「予定あり」ミラーを、対応表に頼らず target カレンダーの走査だけで見つけて片付ける独立した導線。
+ * 孤児の判定基準は apps/sync の core/block-orphans.ts の classifyMirrorState を参照
+ * (ルールの target + kichijitsuRule の一致だけで決める、block_mirrors は見ない)。
+ */
+
+/** GET /api/block-mirrors/orphans が走査した1カレンダーぶんの結果。失敗しても他のカレンダーは続行する。 */
+export interface BlockMirrorScanEntry {
+  accountId: string;
+  calendarId: string;
+  calendarSummary: string;
+  ok: boolean;
+  /** ok=false のときだけ入る (Google API のエラー文字列)。 */
+  error?: string;
+}
+
+/**
+ * 孤児ミラー掃除の start/end の形 (dateTime は RFC3339、date は終日予定 (YYYY-MM-DD))。
+ * GoogleEventDTO の start/end と違い timeZone を持たない (無内容原則寄りの最小化 ―― 掃除画面は
+ * 「いつの予定か」が読めれば十分で、Google へ書き戻す操作は無い)。web 側の一覧整形・表示
+ * ヘルパー (apps/web/src/sync/blockMirrorCleanup.ts) もこの形をそのまま使う。
+ */
+export interface BlockMirrorEventTime {
+  dateTime?: string;
+  date?: string;
+}
+
+/**
+ * 孤児と判定されたミラー予定1件。**予定の内容 (summary 等) は持たない** ―― 無内容原則
+ * (docs/blocking.md) により、ミラーの summary は常に固定文言「予定あり」なので web 側は
+ * 中身を問い合わせずその固定文言で描ける。**calendarSummary も持たない** ―― 走査した
+ * カレンダーの名前は BlockMirrorScanEntry 側に1カレンダーにつき1回だけ載るので、孤児ごとに
+ * 重複して運ぶ必要が無い (web 側は (accountId, calendarId) で BlockMirrorScanEntry を引く)。
+ */
+export interface OrphanMirrorDTO {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+  start: BlockMirrorEventTime;
+  end: BlockMirrorEventTime;
+  /** ミラー自身が持つ由来 (kichijitsuRule)。旧世代のミラーで無ければ null。 */
+  ruleId: string | null;
+  /** ミラー自身が持つ由来 (kichijitsuSource)。旧世代のミラーで無ければ null。 */
+  sourceEventId: string | null;
+}
+
+export interface BlockMirrorOrphansResponse {
+  scanned: BlockMirrorScanEntry[];
+  orphans: OrphanMirrorDTO[];
+}
+
+/** POST /api/block-mirrors/cleanup body。削除対象は GET /api/block-mirrors/orphans の結果から選ぶ想定。 */
+export interface BlockMirrorCleanupItem {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+}
+
+export interface BlockMirrorCleanupRequest {
+  items: BlockMirrorCleanupItem[];
+}
+
+/**
+ * 削除しなかった1件の理由。**再検証で「孤児でなくなっていた」と分かったものも失敗として返す**
+ * (削除しなかった、という結果は同じなので deleted 側には数えない) ―― 理由の文字列は
+ * apps/sync の routes/block-mirrors.ts が組み立てる (not_found / not_orphan:<state> /
+ * fetch_failed:<detail> / delete_failed:<detail>)。
+ */
+export interface BlockMirrorCleanupFailure {
+  eventId: string;
+  reason: string;
+}
+
+export interface BlockMirrorCleanupResponse {
+  deleted: number;
+  failed: BlockMirrorCleanupFailure[];
+}
+
+/**
  * kichijitsu 発行の MCP トークン (docs/mcp.md、2026-07-20)。Part A (このフェーズ) は
  * トークンのライフサイクル管理 (発行/一覧/失効) のみ — `/mcp` エンドポイント自体は Part B。
  * サーバーは生トークンをハッシュのみで保存するため、DTO にも生値は含まれない

@@ -3,6 +3,7 @@ import type { AccountDTO, McpTokenCreateResponse, McpTokenDTO } from "@kichijits
 import { isTauri } from "../sync/githubProvider";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { AccountsSection } from "./settings/AccountsSection";
+import { BlockMirrorCleanupSection } from "./settings/BlockMirrorCleanupSection";
 import { BlockRulesSection } from "./settings/BlockRulesSection";
 import { BuildInfoFooter } from "./settings/BuildInfoFooter";
 import { CacheClearControl } from "./settings/CacheClearControl";
@@ -34,6 +35,12 @@ export interface SettingsModalProps {
   onReconnectAccount?: (email: string) => void;
   /** カレンダーブロック設定オーバーレイ(docs/blocking.md)を開く導線。App.tsx 側で開閉制御する */
   onOpenBlockRules?: () => void;
+  /**
+   * 「残ったブロック予定の掃除」オーバーレイ(docs/blocking.md「将来やるならこれ」)を開く導線。
+   * onOpenBlockRules と同じく App.tsx 側で開閉制御する。ルール一覧を経由しない独立した導線
+   * なので、フラグも別に持つ(BlockRulesSection と同じ「呼び出し元が未対応なら隠す」パターン)。
+   */
+  onOpenBlockMirrorCleanup?: () => void;
   /**
    * GitHub 連携状態 (docs/github-integration.md フェーズ①Part B)。undefined/null は未連携
    * (「GitHub と連携」ボタンを出す)、文字列なら連携済みの login 名(「連携解除」導線を出す)
@@ -95,6 +102,7 @@ export function SettingsModal({
   tasksScopeMissingAccounts,
   onReconnectAccount,
   onOpenBlockRules,
+  onOpenBlockMirrorCleanup,
   githubLogin,
   githubAuthExpired,
   onConnectGitHub,
@@ -169,6 +177,17 @@ export function SettingsModal({
          * 幅に収める必要が無くなった今も、二重に持たせず単一の入口を保つ)。
          */}
         {onOpenBlockRules && <BlockRulesSection onOpenBlockRules={onOpenBlockRules} />}
+
+        {/*
+         * 残ったブロック予定の掃除(docs/blocking.md「将来やるならこれ」、2026-08-04)。
+         * BlockRulesSection のすぐ隣に置く ―― ルール一覧を経由しない独立した導線で、
+         * 「ルールを消した後もコピー先に残った予定あり」を対象とカレンダーを見ながら
+         * 直接片付けられる(target カレンダーを直接走査するので block_mirrors が既に無い
+         * 孤児も見つけられる)。
+         */}
+        {onOpenBlockMirrorCleanup && (
+          <BlockMirrorCleanupSection onOpen={onOpenBlockMirrorCleanup} />
+        )}
 
         {/*
          * 予定のリマインダー通知 (2026-07-30)。デスクトップ版 (Tauri) だけの機能なので

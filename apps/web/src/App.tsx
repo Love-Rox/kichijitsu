@@ -15,6 +15,7 @@ import { CalendarPane } from "./components/CalendarPane";
 import { GitHubPane } from "./components/GitHubPane";
 import type { CalendarInfo } from "./components/EventBlock";
 import { useBlockRules } from "./hooks/useBlockRules";
+import { useBlockMirrorCleanup } from "./hooks/useBlockMirrorCleanup";
 import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
 import { useEventReminders } from "./hooks/useEventReminders";
@@ -254,6 +255,10 @@ function App() {
   // カレンダーブロック設定 (docs/blocking.md、フェーズ7 第1段階の UI 部分) の開閉。
   // ルール一覧そのものは hooks/useBlockRules.ts が持つ(下の useBlockRules 呼び出し)
   const [blockOverlayOpen, setBlockOverlayOpen] = useState(false);
+  // 「残ったブロック予定の掃除」オーバーレイ (docs/blocking.md「将来やるならこれ」) の開閉。
+  // ルール一覧を経由しない独立した導線なので、上の blockOverlayOpen とは別の state にする。
+  // 走査結果・削除は hooks/useBlockMirrorCleanup.ts が持つ(下の useBlockMirrorCleanup 呼び出し)
+  const [blockMirrorCleanupOpen, setBlockMirrorCleanupOpen] = useState(false);
   // GitHub 情報ペイン(GitHubPane、増分1で WorkQueueDrawer から発展)の開閉。増分1では
   // セクションが作業キュー1つだけのため実質「作業キューが見えているか」と同義だが、
   // 名称はペイン全体のクロム(開閉・配置モード)を指すものとして paneOpen にしてある。
@@ -427,6 +432,18 @@ function App() {
     createBlockRule: handleCreateBlockRule,
     deleteBlockRule: handleDeleteBlockRule,
   } = useBlockRules({ connected: me.connected, checkedFetch });
+
+  // 「残ったブロック予定の掃除」(docs/blocking.md「将来やるならこれ」)。useBlockRules と違い
+  // connected になっても自動取得しない ―― 全カレンダーを叩く重い走査なので、
+  // オーバーレイ内の明示的なボタン押下からのみ scan() を呼ぶ(hooks/useBlockMirrorCleanup.ts 参照)
+  const {
+    scanState: blockMirrorScanState,
+    scanned: blockMirrorScanned,
+    orphans: blockMirrorOrphans,
+    lastFailures: blockMirrorLastFailures,
+    scan: handleScanBlockMirrors,
+    cleanup: handleCleanupBlockMirrors,
+  } = useBlockMirrorCleanup({ checkedFetch });
 
   // GitHub 連携 (docs/github-integration.md) のデータ取得は hooks/useGitHubData.ts へ移した
   // (リファクタリング フェーズ2 ③、2026-07-25)。アイテムレーン(①)・実績オーバーレイ(③)・
@@ -1103,6 +1120,14 @@ function App() {
           blockRules={blockRules}
           handleCreateBlockRule={handleCreateBlockRule}
           handleDeleteBlockRule={handleDeleteBlockRule}
+          blockMirrorCleanupOpen={blockMirrorCleanupOpen}
+          setBlockMirrorCleanupOpen={setBlockMirrorCleanupOpen}
+          blockMirrorScanState={blockMirrorScanState}
+          blockMirrorScanned={blockMirrorScanned}
+          blockMirrorOrphans={blockMirrorOrphans}
+          blockMirrorLastFailures={blockMirrorLastFailures}
+          handleScanBlockMirrors={handleScanBlockMirrors}
+          handleCleanupBlockMirrors={handleCleanupBlockMirrors}
           searchOpen={searchOpen}
           setSearchOpen={setSearchOpen}
           db={db}
