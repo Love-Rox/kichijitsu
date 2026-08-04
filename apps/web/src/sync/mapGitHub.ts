@@ -84,7 +84,18 @@ export interface GitHubDayLayout {
   overflowCount: number;
 }
 
-/** 1日に表示する milestone グループ数の既定上限(AllDayBar の ALLDAY_MAX_VISIBLE_ROWS と同じ考え方) */
+/**
+ * 1日に表示する milestone グループ数の既定上限(AllDayBar の ALLDAY_MAX_VISIBLE_ROWS と同じ考え方)。
+ *
+ * これは**グループ数の上限であって高さの上限ではない**(2026-08-04)。1グループに属する issue/PR は
+ * 何件でも展開されるので、3グループ以内でも1日の列が数十行になることはある(実測: 2グループ ×
+ * issue/PR 6件 = 15行で 313px)。レーン側にある max-height: 30vh はそこを受け止めるための別物で、
+ * **超えたぶんはスクロールで見る**(WeekGrid.css の .week-grid-github-viewport 参照)。
+ *
+ * 上限を「高さ」にせず「グループ数」に置いているのは、打ち切りを1箇所に閉じ込めるため ――
+ * 高さでも「+N」を出すと、日ごとの「+N」(グループ数由来)とレーン全体の高さ由来の打ち切りが
+ * 二重にかかり、どちらの N を見ているのか利用者にも実装にも分からなくなる。
+ */
 export const GITHUB_MAX_VISIBLE_MILESTONES = 3;
 
 /**
