@@ -17,7 +17,6 @@ import { AUTO_CLOSE_CAP_MS, autoCloseStaleOpenIntervals } from "./core/work-log"
 
 export { UserSyncDO } from "./durable-object/user-sync-do";
 export { ProfileHubDO } from "./durable-object/profile-hub-do";
-export { KichijitsuMcpAgent } from "./durable-object/mcp-agent";
 
 const app = new Hono<AppEnv>();
 

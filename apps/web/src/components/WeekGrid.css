@@ -248,10 +248,17 @@
   border-bottom: 1px solid var(--c-line);
   max-height: 30vh;
   overflow-y: auto;
+  /* 終日レーン・本体と同じく、スクロールバーのぶんを常に確保して日列の幅を揃える
+     (下の GitHub レーンのコメント参照) */
+  scrollbar-gutter: stable;
 }
 
+/* position: sticky は行ラベルがスクロールで消えないように (下の GitHub レーンのコメント参照) */
 .week-grid-tasks-gutter {
+  position: sticky;
+  top: 0;
   flex: 0 0 60px;
+  align-self: flex-start;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -260,9 +267,16 @@
   color: var(--c-ui-ink-faint);
 }
 
+/*
+ * align-self: flex-start は上の max-height を実際に効かせるためのもの (2026-08-04、GitHub レーンと共通)。
+ * 詳しい理屈は .week-grid-github-viewport のコメント参照 ―― 要約すると、既定の stretch のままだと
+ * この viewport がレーンの高さ (30vh) まで引き伸ばされ、overflow: hidden で中身を黙って切ってしまう。
+ * 縮めれば親の scrollHeight が伸び、親の overflow-y: auto が本来の意図どおりスクロールになる。
+ */
 .week-grid-tasks-viewport {
   position: relative;
   flex: 1;
+  align-self: flex-start;
   overflow: hidden;
 }
 
@@ -294,6 +308,14 @@
   border-bottom: 1px solid var(--c-line);
   max-height: 30vh;
   overflow-y: auto;
+  /*
+   * スクロールバーのぶんの幅を常に確保する (2026-08-04)。このレーンは max-height を超えると
+   * 実際にスクロールするようになった (viewport の align-self のコメント参照) ので、常時表示型の
+   * スクロールバーを使う環境 (Windows/Linux、macOS でも「常に表示」設定) では溢れた週だけ
+   * 日列が細くなり、終日レーン・時刻グリッドと**列がずれる**。それらは既に stable なので合わせる。
+   * オーバーレイ型 (macOS 既定) では確保幅が 0 なので何も変わらない。
+   */
+  scrollbar-gutter: stable;
 }
 
 /*
@@ -307,6 +329,14 @@
  * ラベルではなく縦長の帯を囲ってしまう。地色も枠も持たない要素なので、縮めても見た目は変わらない。
  */
 .week-grid-github-gutter {
+  /*
+   * position: sticky はレーンが縦スクロールするようになったため (2026-08-04)。align-self: flex-start
+   * で上端に縮んでいるこのボタンは、スクロールすると中身と一緒に上へ流れて画面から消える ――
+   * 「開いたレーンを畳みたい」ときに操作点そのものが見当たらなくなるので、上端に貼り付ける。
+   * 溢れていない週は scrollTop が常に 0 なので位置は変わらない。
+   */
+  position: sticky;
+  top: 0;
   flex: 0 0 60px;
   align-self: flex-start;
   display: flex;
@@ -353,9 +383,25 @@
   max-height: none;
 }
 
+/*
+ * align-self: flex-start が無いと、レーンの max-height: 30vh を超えたぶんが**スクロールもできずに
+ * 黙って消える** (2026-08-04 修正、実測: 週表示・高さ 718px の窓で中身 317px → 214px に切られ、
+ * issue 4件が完全に見えなくなっていた)。
+ *
+ * なぜそうなるか: この viewport はレーン (display: flex) の子なので、既定の align-self: stretch では
+ * **レーンの高さ (= 30vh に切り詰められた高さ) まで引き伸ばされる**。中身のほうが高くても viewport 自身は
+ * 「はみ出していない」状態になり、レーンの scrollHeight は clientHeight と等しいまま ―― つまり
+ * レーンに書いてある overflow-y: auto がスクロールバーを出す機会が無い。はみ出しは viewport の
+ * overflow: hidden (週送りスライドのための横方向のクリップ) が引き受けて、無言で捨てられていた。
+ *
+ * flex-start にすると viewport の高さは中身ぶんのまま (= 縦方向には何もクリップしない) になり、
+ * レーンの scrollHeight が中身ぶんに伸びて overflow-y: auto が本来の意図どおり効く。
+ * 30vh に収まっている週では stretch でも flex-start でも高さは同じなので、見た目は変わらない。
+ */
 .week-grid-github-viewport {
   position: relative;
   flex: 1;
+  align-self: flex-start;
   overflow: hidden;
 }
 

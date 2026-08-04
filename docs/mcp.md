@@ -6,8 +6,10 @@ Notion Calendar には無い差別化要素。
 
 ## 方針
 
-- Cloudflare の McpAgent（Durable Object ベース、Streamable HTTP）で実装。
-  既存の Workers + D1 + DO インフラに同居させる（apps/mcp or apps/sync に追加）
+- Cloudflare Agents SDK の `createMcpHandler`（`agents/mcp/server`、ステートレス、
+  Streamable HTTP）で実装。既存の Workers + D1 インフラに同居させる（apps/sync）
+  - 2026-07-28 仕様への追随で `McpAgent`（Durable Object ベース）から移行した。
+    → 「準拠している仕様バージョン」節を参照
 - エンドポイント: `https://kichijitsu.love-rox.cc/mcp`（同一オリジン維持）または
   `mcp.kichijitsu.love-rox.cc`
 - **read-through 原則**: ツールは DO 経由で Google から取得して返すだけ。
@@ -129,6 +131,77 @@ curl -sf -X POST https://kichijitsu.love-rox.cc/api/work-intervals/stop \
 いずれも `start`/`stop` は冪等に近い扱い (二重開始は既存を返す、孤立停止は何もしない) なので、
 hook の再実行やクラッシュ後の再送で偽の実績が増えることはない。
 
+## 準拠している仕様バージョン（2026-08-04 時点）
+
+**次に仕様が変わったときのために、ここを必ず更新すること。**
+
+| 項目                     | 値                                                                       |
+| ------------------------ | ------------------------------------------------------------------------ |
+| 対応する MCP 仕様        | **`2026-07-28`**（ステートレス）と **`2025-11-25` 以前**（`initialize`）の両方 |
+| トランスポート           | Streamable HTTP（単一エンドポイント `POST /mcp`）                        |
+| 実装                     | `agents/mcp/server` の `createMcpHandler` + MCP SDK v2 (`@modelcontextprotocol/server`) |
+| 公開している capability  | `tools` のみ（resources / prompts / logging / completion は未実装）      |
+
+出典（一次情報）:
+
+- 仕様本体: <https://modelcontextprotocol.io/specification/2026-07-28/changelog>
+- 適合性テスト: <https://github.com/modelcontextprotocol/conformance>（`npx @modelcontextprotocol/conformance server --url <url>`）
+
+`2026-07-28` は「MCP 史上最大の改訂」で、`initialize` ハンドシェイクとプロトコルレベルの
+セッション（`Mcp-Session-Id`）が**廃止**された。リクエストごとに `_meta` で
+プロトコルバージョンとクライアント capability を運び、サーバーは `server/discover` を
+**MUST** で実装する。旧世代の `McpAgent`（Durable Object + SDK v1）はこの形を話せず、
+agents 0.20.0 で deprecated / feature-frozen になったため乗り換えた。
+
+### 後方互換（既存クライアントは壊れない）
+
+`createMcpHandler` は 1 本のハンドラで**両世代を同時に**受ける。
+
+- 新世代（`2026-07-28`）: `_meta` エンベロープ付きのリクエスト＋`server/discover`
+- 旧世代（`〜2025-11-25`）: `legacy: "stateless"` レーンが `initialize` を受ける
+  （`apps/sync/src/routes/mcp.ts` で明示的に既定のまま指定している）
+
+`2026-07-28` は `initialize` からは**決して**ネゴシエートされない（SDK が
+旧世代の候補リストと新世代のリストを意図的に分離しているため）。設定済みの Claude 等は
+これまで通り `2025-11-25` で接続する。ローカル `wrangler dev` に対して
+`initialize` @ `2025-06-18` / `2025-11-25` と、新世代の `server/discover` /
+`tools/list` / `tools/call` の両方が通ることを確認済み。
+
+### 適合性テストの結果（ローカル `wrangler dev` に対して実施）
+
+⚠️ **適合性テストを本番エンドポイントに向けないこと。** ツールを実際に呼ぶため、
+本番に向けると利用者の実カレンダーに予定が作られ得る。検証は必ずローカルで行う。
+
+主要シナリオ（`--spec-version 2026-07-28 --suite all`）:
+
+| シナリオ                   | 結果                                            |
+| -------------------------- | ----------------------------------------------- |
+| `server-stateless`         | 24 / 24（テスト可能なチェックは全通過）         |
+| `http-header-validation`   | 13 / 13                                         |
+| `tools-list`               | 通過                                            |
+| `dns-rebinding-protection` | 2 / 2                                           |
+| `caching`                  | `tools/list` の `ttlMs`/`cacheScope` は通過     |
+| `sep-2164-resource-not-found` | 通過                                         |
+
+残りの不通過はすべて **"Not testable"**（適合性スイート側が要求する診断用の
+フィクスチャツール ―― `test_simple_text` / `test_missing_capability` など ―― を
+kichijitsu が実装していない、または resources/prompts/elicitation の capability 自体を
+公開していないため）。適合性スイートの server シナリオは**固定名のフィクスチャツールしか
+呼ばない**（`tools/list` で見つけたツールを呼ぶことはない）ので、`create_event` 等の
+副作用のあるツールが適合性テストで実行されることはない。
+
+### Origin 検証（DNS リバインディング対策）
+
+MCP の Streamable HTTP は「Origin ヘッダが**存在して**不正なら 403」を **MUST** で
+要求する。`apps/sync/src/mcp-origin.ts`（純関数 + テスト）が担当し、
+`routes/mcp.ts` で**認証より先に**評価する。
+
+- Origin **無し**は許可する ―― Claude Desktop / Claude Code 等の非ブラウザ
+  クライアントは Origin を送らない。ここを必須にすると既存クライアントが全滅する。
+- 同一オリジンと loopback のみ許可。opaque（`Origin: null`）と不正形式は拒否。
+- ハンドラ側の Origin 検証は `allowedOriginHostnames: "*"` で無効化している。
+  **これは `mcp-origin.ts` とセットで初めて安全** ―― 片方だけ消さないこと。
+
 ## 実装タイミング
 
 Google 同期の実 E2E → 書き戻し（フェーズ5）が動いてから。
@@ -139,8 +212,12 @@ Google 同期の実 E2E → 書き戻し（フェーズ5）が動いてから。
 
 `wrangler deploy` しても、**すでに接続中の MCP クライアントには新コードが即座には反映されない**。
 
-- McpAgent は Durable Object なので、**接続を保持している DO インスタンスは旧コードのまま動き続ける**。
-- **ツールのスキーマ（名前・説明・入力）もクライアントが接続時にキャッシュ**する。
+- **ツールのスキーマ（名前・説明・入力）はクライアントが接続時にキャッシュ**する。
+  `2026-07-28` ではさらに `tools/list` の応答が `ttlMs` / `cacheScope` の
+  キャッシュヒントを持つため、クライアント側がその間は再取得しないことがある。
+- ~~McpAgent は Durable Object なので、接続を保持している DO インスタンスは旧コードの
+  まま動き続ける~~ ―― **ステートレス化（2026-07-28 対応）で解消**。リクエストごとに
+  サーバーインスタンスを作り直すので、旧コードを掴んだ DO が residual に残ることは無い。
 - そのため、デプロイ後の検証は **MCP クライアント（Claude Code / Claude Desktop）を再起動**してから行うこと。
   再起動しないと「直したはずの挙動が変わらない」ように見える。
 
