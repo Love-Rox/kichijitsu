@@ -1,4 +1,5 @@
 import type { ComponentProps, Dispatch, SetStateAction } from "react";
+import { BlockMirrorCleanupOverlay } from "./BlockMirrorCleanupOverlay";
 import { BlockRulesOverlay } from "./BlockRulesOverlay";
 import { KeyboardHelpOverlay } from "./KeyboardHelpOverlay";
 import { SearchOverlay } from "./SearchOverlay";
@@ -8,7 +9,8 @@ import type { GoogleAccountsController } from "../hooks/useGoogleAccounts";
 
 /**
  * App 直下に並ぶオーバーレイ群 ―― ヘルプ / 設定モーダル / カレンダーブロック設定 /
- * 予定検索 / 予定 vs 実績レポート(リファクタリング フェーズ3b、2026-07-26 に App.tsx から切り出し)。
+ * 残ったブロック予定の掃除(docs/blocking.md「将来やるならこれ」) / 予定検索 /
+ * 予定 vs 実績レポート(リファクタリング フェーズ3b、2026-07-26 に App.tsx から切り出し)。
  *
  * AppToolbar と同じ理由・同じ方針での切り出し: 表示だけの塊なので JSX を1文字も変えずに移し、
  * 開閉フラグと各オーバーレイへ渡す値・ハンドラを props でそのまま受け取る。返すのは
@@ -39,6 +41,14 @@ export interface AppOverlaysProps {
   blockRules: ComponentProps<typeof BlockRulesOverlay>["rules"];
   handleCreateBlockRule: ComponentProps<typeof BlockRulesOverlay>["onCreate"];
   handleDeleteBlockRule: ComponentProps<typeof BlockRulesOverlay>["onDelete"];
+  blockMirrorCleanupOpen: boolean;
+  setBlockMirrorCleanupOpen: Dispatch<SetStateAction<boolean>>;
+  blockMirrorScanState: ComponentProps<typeof BlockMirrorCleanupOverlay>["scanState"];
+  blockMirrorScanned: ComponentProps<typeof BlockMirrorCleanupOverlay>["scanned"];
+  blockMirrorOrphans: ComponentProps<typeof BlockMirrorCleanupOverlay>["orphans"];
+  blockMirrorLastFailures: ComponentProps<typeof BlockMirrorCleanupOverlay>["lastFailures"];
+  handleScanBlockMirrors: ComponentProps<typeof BlockMirrorCleanupOverlay>["onScan"];
+  handleCleanupBlockMirrors: ComponentProps<typeof BlockMirrorCleanupOverlay>["onCleanup"];
   searchOpen: boolean;
   setSearchOpen: Dispatch<SetStateAction<boolean>>;
   db: ComponentProps<typeof SearchOverlay>["db"];
@@ -77,6 +87,14 @@ export function AppOverlays({
   blockRules,
   handleCreateBlockRule,
   handleDeleteBlockRule,
+  blockMirrorCleanupOpen,
+  setBlockMirrorCleanupOpen,
+  blockMirrorScanState,
+  blockMirrorScanned,
+  blockMirrorOrphans,
+  blockMirrorLastFailures,
+  handleScanBlockMirrors,
+  handleCleanupBlockMirrors,
   searchOpen,
   setSearchOpen,
   db,
@@ -123,6 +141,10 @@ export function AppOverlays({
             setPanelOpen(false);
             setBlockOverlayOpen(true);
           }}
+          onOpenBlockMirrorCleanup={() => {
+            setPanelOpen(false);
+            setBlockMirrorCleanupOpen(true);
+          }}
           githubLogin={me.github?.login ?? null}
           githubAuthExpired={githubAuthExpired}
           onConnectGitHub={() => {
@@ -144,6 +166,17 @@ export function AppOverlays({
           onCreate={handleCreateBlockRule}
           onDelete={handleDeleteBlockRule}
           onClose={() => setBlockOverlayOpen(false)}
+        />
+      )}
+      {blockMirrorCleanupOpen && me.connected && (
+        <BlockMirrorCleanupOverlay
+          scanState={blockMirrorScanState}
+          scanned={blockMirrorScanned}
+          orphans={blockMirrorOrphans}
+          lastFailures={blockMirrorLastFailures}
+          onScan={handleScanBlockMirrors}
+          onCleanup={handleCleanupBlockMirrors}
+          onClose={() => setBlockMirrorCleanupOpen(false)}
         />
       )}
       {searchOpen && (

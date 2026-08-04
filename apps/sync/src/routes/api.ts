@@ -10,6 +10,8 @@
  * - calendars-tasks.ts: /api/calendars, /api/tasklists, /api/tasks/sync, /api/task/patch
  * - settings.ts: /api/me, /api/visible-calendars, /api/block-rules*, /api/mcp-tokens*,
  *   /api/watch, /api/account
+ * - block-mirrors.ts: /api/block-mirrors/orphans, /api/block-mirrors/cleanup
+ *   (孤児ミラー掃除、docs/blocking.md「将来やるならこれ」、2026-08-04)
  * - respond.ts: respondFromRpcResult (github.ts 以外の複数ルーターで共有)
  * - ../watch-registration.ts: enableWatch/disableWatch/repairWatchIfNeeded
  *   (settings.ts の POST /api/watch と events.ts の自己修復の両方が使うため routes/ の外)
@@ -22,6 +24,7 @@ import { workLogsRoutes } from "./work-logs";
 import { eventRoutes } from "./events";
 import { calendarsTasksRoutes } from "./calendars-tasks";
 import { settingsRoutes } from "./settings";
+import { blockMirrorsRoutes } from "./block-mirrors";
 
 export const apiRoutes = new Hono<AppEnv>();
 
@@ -34,3 +37,4 @@ apiRoutes.route("/", workLogsRoutes);
 apiRoutes.route("/", eventRoutes);
 apiRoutes.route("/", calendarsTasksRoutes);
 apiRoutes.route("/", settingsRoutes);
+apiRoutes.route("/", blockMirrorsRoutes);

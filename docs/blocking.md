@@ -239,3 +239,31 @@ kichijitsu からは二度と消せない（対応表ごと消えるので、同
   連携解除のどれで出た孤児かを区別せず片付けられ、件数も実物から出せて、操作の主語が
   「この予定を消す」そのものになる**。解除の確認に選択肢を足すより上位互換で、
   解除済みアカウントについても「再連携 → 掃除 → 解除」で救える（今の設計では救えない）。
+
+### 孤児ミラー掃除 API の実装（2026-08-04）
+
+上の「将来やるならこれ」をサーバー側 API として実装した。web 側は別エージェントが並行実装
+（`apps/web/src/sync/blockMirrorCleanup.ts` 以下）。
+
+- **孤児の判定**（`apps/sync/src/core/block-orphans.ts` の `classifyMirrorState`、純関数・
+  単体テスト済み）: カレンダー C（アカウント A）で見つかった `kichijitsuMirror=1` の予定は、
+  「このプロファイルに `target_account_id===A` かつ `target_calendar_id===C` かつ
+  `id===その予定の kichijitsuRule` であるルールが存在する」場合にのみ「生きている」。
+  それ以外は孤児。**`block_mirrors` テーブルは一切見ない** — Google への insert 成功直後に
+  D1 書き込みが失敗したミラー（`block-orchestrate.ts` が次回「採用」して回収する対象）を
+  この定義なら「生きている」側に入れられ、掃除機能とリコンサイラが取り合いにならない。
+  `kichijitsuRule` を持たないミラー（旧世代・異常系）は誰も管理できないので孤児側になる。
+- **`GET /api/block-mirrors/orphans`**: 接続中の全アカウントの書き込み可能カレンダー
+  （accessRole owner/writer）を走査する。Google 側の絞り込みに
+  `privateExtendedProperty=kichijitsuMirror%3D1`（events.list、`singleEvents=false`、
+  timeMin/timeMax 無し）を使う — 公式リファレンスには対応が明記されているが、この
+  リポジトリには Google のテストアカウントが無く実アカウントでの動作確認はしていない。
+  取得結果は `isMirrorEvent` でもう一度確認する二重チェックにしてあるので、絞り込みが
+  実際には効かなかった場合でも孤児以外を誤って返すことはない（安全側に倒れる）。
+  1カレンダー・1アカウントの走査失敗は `scanned[].ok=false` に残し、他は続行する。
+- **`POST /api/block-mirrors/cleanup`**: 受け取った `eventId` を信用せず、削除の直前に必ず
+  `events.get` で取り直してから `classifyMirrorState` を再度通す（「ユーザーの予定を消す
+  操作なので、クライアントの言い分を信用しない」）。孤児と確認できたものだけ
+  `events.delete` する。1件ずつ直列・best-effort（`applyMirrorDeletions` と同じ流儀）。
+  件数上限は 500（`MAX_CLEANUP_ITEMS`）— 1件ごとに get+delete の最大2往復を直列で行うため、
+  上限を超える分はクライアント側で分割して呼ぶ想定。

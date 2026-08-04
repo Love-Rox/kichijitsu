@@ -34,6 +34,11 @@ import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patc
 import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
 import { editEventGuestsWithRetry } from "../core/guest-event";
 import type { MirrorEventBody } from "../core/block-reconcile";
+import {
+  scanMirrorEventsWithRetry,
+  type ScanMirrorEventsCoreDeps,
+} from "../core/scan-mirror-events";
+import { getEventWithRetry, type GetEventCoreDeps } from "../core/get-event";
 import type { RawEventTimeField } from "../google/patch-event-raw";
 import {
   listTaskLists as listTaskListsCore,
@@ -398,6 +403,38 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   /**
+   * 孤児ミラー掃除 (docs/blocking.md「将来やるならこれ」、GET /api/block-mirrors/orphans):
+   * 指定カレンダーの kichijitsuMirror=1 な予定を (ページングを内部で吸収して) 全件返す。
+   * listEventsInWindow (期間指定・リコンサイル用) とは別物 ―― こちらは timeMin/timeMax を
+   * 付けない全期間走査で、privateExtendedProperty で Google 側の絞り込みも試みる
+   * (core/scan-mirror-events.ts のコメント参照)。
+   */
+  async scanMirrorEvents(
+    accountId: string,
+    calendarId: string,
+  ): Promise<RpcResult<GoogleEventDTO[]>> {
+    return runRpc(() =>
+      scanMirrorEventsWithRetry(this.buildEventWriteDeps(accountId), calendarId),
+    );
+  }
+
+  /**
+   * 孤児ミラー掃除 (docs/blocking.md「将来やるならこれ」、POST /api/block-mirrors/cleanup):
+   * 削除前の再検証専用に予定を1件取り直す。404 は例外にせず data:null で返す
+   * (core/get-event.ts のコメント参照 ―― 「クライアントの一覧が古く、既に消えていた」ことを
+   * 表す。呼び出し元がこれを削除しない理由として failed に積む)。
+   */
+  async getEvent(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+  ): Promise<RpcResult<GoogleEventDTO | null>> {
+    return runRpc(() =>
+      getEventWithRetry(this.buildEventWriteDeps(accountId), calendarId, eventId),
+    );
+  }
+
+  /**
    * GET /api/tasklists (Google タスク連携、docs/google-tasks.md): アカウントのタスク
    * リスト一覧を取得する。tasks スコープ未付与は Google が 403 を返し、runRpc が
    * GoogleApiError としてそのまま status=403 で RpcResult に載せる — route 側でこれを
@@ -595,10 +632,10 @@ export class UserSyncDO extends DurableObject<Env> {
 
   /**
    * patch/create/delete (+ カレンダーブロック機能の listEventsInWindow/createMirrorEvent/
-   * patchEventRaw、2026-07-22 RSVP の rsvpEvent、2026-07-31 から listCalendars も) の
-   * Google 呼び出し RPC 共通の依存先。いずれも
-   * { fetch, getAccessToken, forceRefreshAccessToken } と構造的に同一なので、1つの実装を
-   * 全員に渡す。
+   * patchEventRaw、2026-07-22 RSVP の rsvpEvent、2026-07-31 から listCalendars も、
+   * 2026-08-04 から孤児ミラー掃除の scanMirrorEvents/getEvent も) の Google 呼び出し RPC
+   * 共通の依存先。いずれも { fetch, getAccessToken, forceRefreshAccessToken } と構造的に
+   * 同一なので、1つの実装を全員に渡す。
    */
   private buildEventWriteDeps(
     accountId: string,
@@ -609,7 +646,9 @@ export class UserSyncDO extends DurableObject<Env> {
     ListEventsInWindowCoreDeps &
     InsertEventCoreDeps &
     PatchEventRawCoreDeps &
-    RsvpEventCoreDeps {
+    RsvpEventCoreDeps &
+    ScanMirrorEventsCoreDeps &
+    GetEventCoreDeps {
     return {
       fetch,
       getAccessToken: () => this.getOrRefreshAccessToken(accountId, false),
