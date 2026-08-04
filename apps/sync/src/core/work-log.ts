@@ -17,7 +17,7 @@ import { isAccountInProfile } from "../accounts";
  * "2h 15m" / "45m" 形式。以前は apps/web/src/sync/timeTracking.ts と**バイト単位で同一の複製**を
  * ここに置いていた (「sync は web に依存していないため複製」) が、2026-07-25 に共通の置き場
  * (@kichijitsu/shared の work-log.ts) を作って寄せた。既存の呼び出し側 (durable-object/
- * mcp-agent.ts の work_summary) の import 元を変えずに済むよう、ここから再エクスポートする。
+ * mcp-server.ts の work_summary) の import 元を変えずに済むよう、ここから再エクスポートする。
  */
 export { formatDurationHm } from "@kichijitsu/shared";
 
@@ -68,7 +68,7 @@ export interface WorkLogRow {
 
 /**
  * 純関数。start<end・ISO パース可・repo 必須を検証する。routes/work-intervals.ts (400への
- * マッピング) と durable-object/mcp-agent.ts の log_work_interval ツールの両方が、
+ * マッピング) と mcp-server.ts の log_work_interval ツールの両方が、
  * buildWorkLogRow を呼ぶ前にこれを呼んで検証する。
  *
  * 判定本体は shared の validateWorkLogInterval (web の手動追加フォームと共通、2026-07-25)。

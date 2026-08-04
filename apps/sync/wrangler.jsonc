@@ -3,8 +3,8 @@
   "name": "kichijitsu-sync",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-19",
-  // agents (Cloudflare Agents SDK, McpAgent) が要求する。docs/mcp.md Part B の /mcp
-  // エンドポイント (KichijitsuMcpAgent) 用。
+  // agents (Cloudflare Agents SDK) と MCP SDK v2 が要求する。docs/mcp.md Part B の
+  // /mcp エンドポイント (createMcpHandler + createKichijitsuMcpServer) 用。
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
@@ -74,10 +74,6 @@
         "name": "PROFILE_HUB",
         "class_name": "ProfileHubDO",
       },
-      {
-        "name": "KICHIJITSU_MCP",
-        "class_name": "KichijitsuMcpAgent",
-      },
     ],
   },
   "migrations": [
@@ -92,6 +88,14 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["KichijitsuMcpAgent"],
+    },
+    // MCP を stateless (仕様 2026-07-28) へ移行し、Durable Object ベースの McpAgent を
+    // 廃止した (docs/mcp.md Part B)。KichijitsuMcpAgent は read-through 設計で
+    // 永続データを一切持っていなかったため、消えて困る状態は無い。
+    // クラスをコードから消すだけでは `wrangler deploy` が失敗するので明示的に削除する。
+    {
+      "tag": "v4",
+      "deleted_classes": ["KichijitsuMcpAgent"],
     },
   ],
   // watch channel の期限 (Google Calendar は最大 1 週間) が切れる前に再登録する。

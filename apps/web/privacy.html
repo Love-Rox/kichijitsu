@@ -175,9 +175,8 @@
         予定データは Google
         から取得後、あなたのブラウザ内のローカルストレージ（IndexedDB）に保存されます。
         上に挙げたもののうち予定に関わる情報は、いずれも ID・時刻・設定であって、予定の中身では
-        ありません。ただし MCP
-        連携では、エージェントへの応答を確実に届けるため、返した予定の要約が送達完了までのあいだ
-        サーバー側の作業領域を経由します（送達後に破棄され、蓄積されません）。
+        ありません。MCP
+        連携でエージェントに返す予定の要約も、その場の応答として返すだけで、サーバー側に保存されません。
       </p>
       <p>
         また、デスクトップ版で予定のリマインダー通知を使う場合、同じ通知を二度出さないための記録が
@@ -301,9 +300,8 @@
           >
           — events are synced directly to your browser's local storage (IndexedDB). Everything
           listed above that relates to events consists of IDs, timestamps and settings, not the
-          events themselves. One nuance: for MCP, summaries of the events returned to an agent
-          pass through a server-side delivery buffer until the response is delivered, after which
-          they are discarded and not accumulated.
+          events themselves. Summaries of the events MCP returns to an agent are likewise sent
+          straight back as the response and never stored on the server.
         </p>
         <p>
           In addition, if you use event reminder notifications in the desktop app, a record of

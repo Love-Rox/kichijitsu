@@ -81,6 +81,14 @@
         <section class="doc-section" id="connect" aria-labelledby="connect-title">
           <h2 id="connect-title">接続手順</h2>
           <p>MCP サーバーのエンドポイントは <code>https://kichijitsu.love-rox.cc/mcp</code> 。</p>
+          <p>
+            対応する MCP 仕様は <strong>2026-07-28</strong> (ステートレス) と
+            <strong>2025-11-25 以前</strong> (<code>initialize</code> ハンドシェイク)
+            の両方。トランスポートは Streamable HTTP
+            で、単一のエンドポイントを使う。クライアントがどちらの世代でも、この URL
+            に設定するだけでよい。公開しているのは
+            <code>tools</code> のみ (resources / prompts は未実装)。
+          </p>
 
           <ol class="steps">
             <li class="step">
@@ -241,9 +249,8 @@
           <h2 id="operations-title">運用の注意</h2>
           <p>
             <strong>デプロイ後・トークン再発行後は、MCP クライアントの再起動が必要</strong
-            >になる。McpAgent は Durable Object
-            なので、接続を保持しているインスタンスはデプロイ後も旧コードのまま動き続ける
-            (ツールのスキーマもクライアントが接続時にキャッシュする)。反映を確認するときは、まず
+            >になる。ツールのスキーマ (名前・説明・入力)
+            はクライアントが接続時にキャッシュするため、デプロイしただけでは反映されない。反映を確認するときは、まず
             Claude Code / Claude Desktop を再起動してから検証すること。
           </p>
           <p>
