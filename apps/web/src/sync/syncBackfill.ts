@@ -66,3 +66,53 @@ export function decideSyncBackfillTargets<T extends SyncBackfillTarget>(
   if (savedVersion >= currentVersion) return [];
   return selectedTargets;
 }
+
+/** excludeReauthPendingTargets の返り値。 */
+export interface BackfillTargetPlan<T extends SyncBackfillTarget> {
+  /** 実際に forceFull 同期すべき対象(reauth 待ちアカウント分は除外済み)。 */
+  targets: readonly T[];
+  /**
+   * true なら reauth 待ちアカウントの分を除外した(= decideSyncBackfillTargets が返した
+   * 全選択中カレンダーではない)ことを表す。呼び出し側 (hooks/useCalendarSync.ts の
+   * runSyncBackfillIfNeeded) はこれが true のとき、除外後の残りが全部成功しても
+   * バックフィル版数を記録してはいけない。
+   */
+  excludedReauthPending: boolean;
+}
+
+/**
+ * バックフィル対象から「再認証待ち (reauthRequired) なアカウント」を除外する
+ * (2026-08-07、本番実測を受けたレビュー指摘への対応)。
+ *
+ * # なぜ必要か
+ * このファイル冒頭の resolveEffectiveSyncBackfillVersion のコメントが警戒しているのと
+ * **同じ種類の「永久に欠ける」事故**を、reauth 待ちアカウントに対しても起こしてしまうため:
+ * 除外せずに forceFull を試みると sync/reauthSkip.ts の shouldSkipAutoSyncForReauth が
+ * その (accountId, calendarId) の同期を黙ってスキップする。スキップは Promise.allSettled から
+ * 見ると "fulfilled" (例外を投げない) なので、他の対象が全て成功していれば
+ * runSyncBackfillIfNeeded は「全成功」と誤認し、その世代を記録してしまう。すると
+ * 記録後は同じ世代の forceFull が二度と走らないため、そのアカウントが後で再認証されても
+ * この世代ぶんのバックフィル(新フィールドの取りこぼし解消)を**永久に受けられない**。
+ *
+ * # 対処
+ * 同期を試みる前に対象から reauth 待ちアカウント分を除外し、除外が発生したかどうかを
+ * `excludedReauthPending` として呼び出し側に返す。呼び出し側はこれが true の間は
+ * (残りが全部成功しても) 版数を記録しない ―― 結果として、そのアカウントが reauth 待ちの
+ * 間は毎起動バックフィルが再試行される(他アカウント分の forceFull を含めて繰り返す)。
+ * これは resolveEffectiveSyncBackfillVersion のコメントが既に受け入れている
+ * 「サーバーが追いついたら次回起動で残りが走る」という性質と同じで、この再試行コストより
+ * 「一生欠けたまま」の方が悪いという判断を踏襲している。
+ *
+ * reauthRequiredAccountIds が空 (=誰も reauth 待ちでない) なら selectedTargets をそのまま
+ * 返す(decideSyncBackfillTargets と同じく、変化が無ければ同じ参照を返す配慮)。
+ */
+export function excludeReauthPendingTargets<T extends SyncBackfillTarget>(
+  selectedTargets: readonly T[],
+  reauthRequiredAccountIds: ReadonlySet<string>,
+): BackfillTargetPlan<T> {
+  if (reauthRequiredAccountIds.size === 0) {
+    return { targets: selectedTargets, excludedReauthPending: false };
+  }
+  const targets = selectedTargets.filter((t) => !reauthRequiredAccountIds.has(t.accountId));
+  return { targets, excludedReauthPending: targets.length !== selectedTargets.length };
+}

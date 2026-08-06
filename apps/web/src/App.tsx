@@ -563,7 +563,10 @@ function App() {
       // アカウント連携解除(handleDisconnectAccount)のときだけ行う。
       if (nextChecked) {
         const cal = calendarsByAccount[accountId]?.find((c) => c.id === calendarId);
-        syncCalendar(accountId, calendarId, cal?.backgroundColor).catch((err) => {
+        // trigger: "auto" (2026-08-07) ―― 選択操作自体は利用者の操作だが、「いま同期しろ」と
+        // 明示したわけではない経路として扱う (hooks/useCalendarSync.ts 冒頭のコメント /
+        // sync/reauthSkip.ts 参照)。再認証待ちアカウントのカレンダーはここでスキップされる
+        syncCalendar(accountId, calendarId, cal?.backgroundColor, false, "auto").catch((err) => {
           console.error("kichijitsu: failed to sync newly selected calendar", err);
         });
       }

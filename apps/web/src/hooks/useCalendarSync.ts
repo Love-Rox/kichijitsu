@@ -24,8 +24,10 @@ import { applySyncResponse } from "../sync/applySync";
 import { applyTasksSyncResponse } from "../sync/applyTasksSync";
 import { resolveDefaultWriteTarget, type WriteTargetCandidate } from "../sync/eventCreate";
 import { sendJson, type CheckedFetch } from "../sync/httpJson";
+import { shouldSkipAutoSyncForReauth, type SyncTrigger } from "../sync/reauthSkip";
 import {
   decideSyncBackfillTargets,
+  excludeReauthPendingTargets,
   resolveEffectiveSyncBackfillVersion,
 } from "../sync/syncBackfill";
 import { buildSyncRequest } from "../sync/syncRequest";
@@ -50,6 +52,25 @@ import { useServerEvents } from "./useServerEvents";
  * hooks/useGoogleAccounts.ts が持ち、このフックは**引数として一方向に受け取るだけ**。
  * 「カレンダーを選択したら即そのカレンダーだけ同期する」という逆向きの結線は App.tsx の
  * グルー (handleToggleCalendar) に置いてある ―― フックを相互参照させないための構造。
+ *
+ * **再認証待ちアカウントの自動同期スキップ** (2026-08-07、本番実測での障害対応。
+ * sync/reauthSkip.ts 冒頭のコメント参照)。syncCalendar/syncTaskList/runSync は
+ * `trigger: "auto" | "manual"` を**省略不可**で受け取り、「自動経路 かつ そのアカウントが
+ * reauthRequired (accounts の AccountDTO.reauthRequired)」のときだけ実際の
+ * POST /api/sync・POST /api/tasks/sync を叩かずスキップする (shouldSkipAutoSyncForReauth)。
+ * 手動「同期」ボタン・「再同期」は常に trigger: "manual" で、reauthRequired に関わらず
+ * 必ず試す ―― 記録が誤っていた場合に利用者が永久に復帰できなくなるのを避けるため。
+ * 「省略時は auto」のような既定値を持たせていないのは、新しい呼び出し経路を足すたびに
+ * auto/manual のどちらかを意識して選ばせるため (書き忘れが黙って自動スキップ側に
+ * 倒れる事故を防ぐ)。
+ *
+ * runSyncBackfillIfNeeded だけは上のスキップに加えてもう一段構えている
+ * (excludeReauthPendingTargets、sync/syncBackfill.ts 参照): 対象からあらかじめ reauth 待ち
+ * アカウントを除外し、除外が発生していたらバックフィル版数を記録しない。単に
+ * shouldSkipAutoSyncForReauth のスキップ (fulfilled 扱い) に任せると、他が全部成功した時点で
+ * 「全成功」と誤認して版数を記録してしまい、そのアカウントが後で再認証されても当該世代の
+ * バックフィルを二度と受けられなくなる ―― resolveEffectiveSyncBackfillVersion が警戒している
+ * のと同じ「永久に欠ける」事故だったため(2026-08-07、レビュー指摘で追加)。
  *
  * 壊してはいけない点(移設前のコメントから引き継ぎ):
  *  - 起動時の `runSync().then(() => runSyncBackfillIfNeeded())` の**直列性**。並列化すると
@@ -78,24 +99,33 @@ export interface CalendarSyncController {
    * 利用者に選ばせるために、既定1件だけでなく一覧も出す。
    */
   writeTargetCandidates: readonly WriteTargetCandidate[];
-  /** ツールバーの「同期」ボタン。選択中カレンダー + 取得済みタスクリストを並行同期する */
-  runSync: () => Promise<void>;
+  /**
+   * ツールバーの「同期」ボタンと、起動時の自動同期の両方から呼ばれる共通処理
+   * (選択中カレンダー + 取得済みタスクリストを並行同期する)。`trigger` は呼び出し側が必ず
+   * 明示する ―― ボタンからは "manual"、起動時 useEffect からは "auto"
+   * (sync/reauthSkip.ts 参照。省略不可なのは意図的、このファイル冒頭のコメント参照)
+   */
+  runSync: (trigger: SyncTrigger) => Promise<void>;
   /**
    * 設定モーダルの「再同期」(2026-07-29、ユーザー要望)。runSync と同じ対象を、
    * カレンダーだけ forceFull で回す全件取り直し。失敗したら reject する
    * (呼び出し元の2段階確認 UI が「失敗」を出す) ―― runSync が握りつぶすのと違うのは、
-   * 利用者が明示的に押した操作で、結果を伝えないと押し直す判断ができないため
+   * 利用者が明示的に押した操作で、結果を伝えないと押し直す判断ができないため。
+   * 常に利用者が押した経路なので trigger は内部で "manual" 固定 ―― 外から渡す必要はない
    */
   runFullResync: () => Promise<void>;
   /**
    * 1カレンダーの同期(直列化つき)。App.tsx のグルーが「カレンダーを新規選択した直後の
-   * 即時同期」で呼ぶ。runSync / SSE / バックフィルからも同じ経路を通る
+   * 即時同期」で呼ぶ。runSync / SSE / バックフィルからも同じ経路を通る。
+   * `trigger` は省略不可 (sync/reauthSkip.ts、このファイル冒頭のコメント参照) ――
+   * 呼び出し元ごとに auto/manual を明示させる
    */
   syncCalendar: (
     accountId: string,
     calendarId: string,
-    defaultColor?: string,
-    forceFull?: boolean,
+    defaultColor: string | undefined,
+    forceFull: boolean,
+    trigger: SyncTrigger,
   ) => Promise<void>;
   /**
    * 端末ごと syncToken (2026-07-21) の deviceId を渡す。db/bootstrap.ts が DB を開いた直後に
@@ -174,6 +204,15 @@ export function useCalendarSync({
     deviceIdRef.current = deviceId;
   }, []);
 
+  // 再認証待ち (reauthRequired) なアカウント id 集合 (2026-08-07)。accounts (/api/me の
+  // AccountDTO.reauthRequired) から毎レンダー導出するだけの軽い派生値。
+  // syncCalendarOnce/syncTaskList が「auto 経路かつこの集合に入っている」ときだけ実際の
+  // fetch を止める (shouldSkipAutoSyncForReauth、sync/reauthSkip.ts 参照)
+  const reauthRequiredAccountIds = useMemo(
+    () => new Set(accounts.filter((a) => a.reauthRequired).map((a) => a.id)),
+    [accounts],
+  );
+
   const forgetAutoSyncedTaskLists = useCallback((accountId: string) => {
     for (const key of [...autoSyncedTaskListsRef.current]) {
       if (key.startsWith(`${accountId}:`)) autoSyncedTaskListsRef.current.delete(key);
@@ -182,11 +221,27 @@ export function useCalendarSync({
 
   // 1つの (accountId, calendarId) の同期の実処理。syncCalendar (下) から
   // syncSchedulerRef 経由でのみ呼ぶ(直接呼ばない — 多重実行ガードを迂回してしまうため)。
-  // forceFull (2026-07-22、同期バックフィル用) は通常同期では省略して
-  // false 扱いにする — runSyncBackfillIfNeeded だけが明示的に true を渡す
+  // forceFull (2026-07-22、同期バックフィル用) は通常同期では false を渡す —
+  // runSyncBackfillIfNeeded だけが true を渡す。trigger は省略不可 (このファイル冒頭の
+  // コメント / sync/reauthSkip.ts 参照)
   const syncCalendarOnce = useCallback(
-    async (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) => {
+    async (
+      accountId: string,
+      calendarId: string,
+      defaultColor: string | undefined,
+      forceFull: boolean,
+      trigger: SyncTrigger,
+    ) => {
       if (!db) return;
+      // 再認証待ちアカウントへの自動同期スキップ (2026-08-07)。本番実測: alarm を止めても
+      // クライアントの自動同期が毎分 POST /api/sync を叩き続け invalid_grant を積み上げていた。
+      // manual はここで弾かれない (常に false) ―― 握りつぶさずログだけ残す
+      if (shouldSkipAutoSyncForReauth(trigger, reauthRequiredAccountIds.has(accountId))) {
+        console.info(
+          `kichijitsu: skip auto sync for reauth-pending account (${accountId}/${calendarId})`,
+        );
+        return;
+      }
       // postJson ではなく sendJson なのは、失敗メッセージに (accountId/calendarId) を残すため
       // ―― どのカレンダーの同期が失敗したかが console から読めなくなるのを避ける
       const syncRes = await sendJson(
@@ -210,7 +265,7 @@ export function useCalendarSync({
         defaultColor,
       });
     },
-    [db, store, allDayStore, checkedFetch],
+    [db, store, allDayStore, checkedFetch, reauthRequiredAccountIds],
   );
 
   // 1つの (accountId, calendarId) を同期する共通処理。runSync のループ、SSE hello/changed、
@@ -229,11 +284,21 @@ export function useCalendarSync({
   // 知識を持たせるのではなく、呼び出し元のこの1行で「この要求は落とさないでほしい」と宣言する。
   // これで、通常同期 ⇄ forceFull がどちらの順で来ても forceFull が黙って消えない
   // (規則の詳細と、なぜ両方向に落ちないかは sync/syncScheduler.ts 冒頭のコメント参照)
+  //
+  // trigger は省略不可(このファイル冒頭のコメント / sync/reauthSkip.ts 参照)。
+  // ここではスケジューラに載せて syncCalendarOnce へそのまま渡すだけで、判定自体は
+  // syncCalendarOnce 側 (実際に fetch する直前) で行う
   const syncCalendar = useCallback(
-    (accountId: string, calendarId: string, defaultColor?: string, forceFull = false) =>
+    (
+      accountId: string,
+      calendarId: string,
+      defaultColor: string | undefined,
+      forceFull: boolean,
+      trigger: SyncTrigger,
+    ) =>
       syncSchedulerRef.current.schedule(
         calendarKey(accountId, calendarId),
-        () => syncCalendarOnce(accountId, calendarId, defaultColor, forceFull),
+        () => syncCalendarOnce(accountId, calendarId, defaultColor, forceFull, trigger),
         { coalesce: !forceFull },
       ),
     [syncCalendarOnce],
@@ -241,9 +306,16 @@ export function useCalendarSync({
 
   // 1つの (accountId, taskListId) を同期する共通処理(docs/google-tasks.md、syncCalendar のタスク版)。
   // Tasks API には syncToken が無く、応答は常にそのタスクリストの全件 (protocol.ts 参照)。
+  // trigger は syncCalendarOnce と同じ役割(省略不可、再認証待ちアカウントの auto スキップ判定用)
   const syncTaskList = useCallback(
-    async (accountId: string, taskListId: string) => {
+    async (accountId: string, taskListId: string, trigger: SyncTrigger) => {
       if (!db) return;
+      if (shouldSkipAutoSyncForReauth(trigger, reauthRequiredAccountIds.has(accountId))) {
+        console.info(
+          `kichijitsu: skip auto sync for reauth-pending account (${accountId}/${taskListId})`,
+        );
+        return;
+      }
       // syncCalendarOnce と同じ理由で sendJson 止まり(メッセージの (accountId/taskListId) を残す)
       const res = await sendJson(checkedFetch, "POST", "/api/tasks/sync", {
         accountId,
@@ -255,7 +327,7 @@ export function useCalendarSync({
       const data = (await res.json()) as TasksSyncResponse;
       await applyTasksSyncResponse(db, taskStore, data, { accountId, taskListId });
     },
-    [db, taskStore, checkedFetch],
+    [db, taskStore, checkedFetch, reauthRequiredAccountIds],
   );
 
   // 選択中の全 (accountId, calendarId) ペア一覧(+ カレンダーのデフォルト色・primary か)。
@@ -300,27 +372,33 @@ export function useCalendarSync({
   );
 
   // 「同期」ボタン・自動同期の共通処理: 選択中の全 (accountId, calendarId) ペア +
-  // 取得済みの全 (accountId, taskListId) ペアを並行に同期する(docs/google-tasks.md でタスクも合流)
-  const runSync = useCallback(async () => {
-    if (!db) return;
-    const targets = selectedTargets();
-    const taskTargets = selectedTaskListTargets();
-    if (targets.length === 0 && taskTargets.length === 0) return;
+  // 取得済みの全 (accountId, taskListId) ペアを並行に同期する(docs/google-tasks.md でタスクも合流)。
+  // trigger は呼び出し側が明示する ―― ツールバーの「同期」ボタンからは "manual"、
+  // 起動時 useEffect (下) からは "auto" (再認証待ちアカウントのスキップ判定に使う、
+  // sync/reauthSkip.ts 参照)。省略不可なのはこのファイル冒頭のコメントの通り
+  const runSync = useCallback(
+    async (trigger: SyncTrigger) => {
+      if (!db) return;
+      const targets = selectedTargets();
+      const taskTargets = selectedTaskListTargets();
+      if (targets.length === 0 && taskTargets.length === 0) return;
 
-    setSyncStatus("syncing");
-    const results = await Promise.allSettled([
-      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor)),
-      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
-    ]);
-    let hadError = false;
-    for (const result of results) {
-      if (result.status === "rejected") {
-        hadError = true;
-        console.error("kichijitsu: sync failed", result.reason);
+      setSyncStatus("syncing");
+      const results = await Promise.allSettled([
+        ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, false, trigger)),
+        ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId, trigger)),
+      ]);
+      let hadError = false;
+      for (const result of results) {
+        if (result.status === "rejected") {
+          hadError = true;
+          console.error("kichijitsu: sync failed", result.reason);
+        }
       }
-    }
-    setSyncStatus(hadError ? "error" : "idle");
-  }, [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList]);
+      setSyncStatus(hadError ? "error" : "idle");
+    },
+    [db, selectedTargets, syncCalendar, selectedTaskListTargets, syncTaskList],
+  );
 
   // 設定モーダルの「再同期」(2026-07-29、ユーザー要望)。runSync の全同期版で、
   // 対象の作り方も適用経路も runSync と同一 ―― 違いはカレンダーに forceFull: true を渡す点だけ。
@@ -336,6 +414,10 @@ export function useCalendarSync({
   // 「終わった/失敗した」を UI (SettingsModal の2段階確認) に伝えないと押し直す判断ができない。
   // その報告が嘘にならないことは syncCalendar が forceFull を coalesce: false で予約することで
   // 担保している(スケジューラが返す Promise は「その forceFull が実際に完走した」ことを表す)。
+  //
+  // trigger は常に "manual" 固定 (2026-08-07)。設定モーダルの「再同期」ボタンからしか
+  // 呼ばれない = 利用者が明示的に押した経路そのものなので、外から渡させる必要はない
+  // (再認証待ちアカウントでもここはスキップされない ―― sync/reauthSkip.ts 参照)
   const runFullResync = useCallback(async () => {
     if (!db) return;
     const targets = selectedTargets();
@@ -346,8 +428,8 @@ export function useCalendarSync({
     // タスクは syncToken を持たず毎回そのタスクリストの全件で置き換わる (applyTasksSync.ts) ので、
     // forceFull 相当の区別は不要 ―― 通常の syncTaskList をそのまま混ぜれば全件取り直しになる
     const results = await Promise.allSettled([
-      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
-      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId)),
+      ...targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true, "manual")),
+      ...taskTargets.map((t) => syncTaskList(t.accountId, t.taskListId, "manual")),
     ]);
     const failures = results.filter((result) => result.status === "rejected");
     for (const failure of failures) {
@@ -370,6 +452,16 @@ export function useCalendarSync({
   // 現行世代 (CURRENT_SYNC_BACKFILL_VERSION) を保存する。一部でも失敗したら保存せず、次回起動時に
   // また全対象を再試行する(部分的に古いままのカレンダーを残さないため — db/database.ts の
   // setSyncBackfillVersion コメント参照)。
+  //
+  // trigger は "auto" 固定 (2026-08-07)。起動シーケンスの一部として自動で走るだけで、
+  // 利用者がこの瞬間の実行を意図してはいないため。
+  //
+  // 再認証待ちアカウントは対象から除外し(excludeReauthPendingTargets、無駄に
+  // syncScheduler へ載せて即スキップさせるより先に弾く)、**除外が発生したらこの世代を
+  // 記録しない** (2026-08-07、レビュー指摘)。理由は下の resolveEffectiveSyncBackfillVersion と
+  // 同じ「永久に欠ける」事故 ―― 除外せずに版数を記録してしまうと、そのアカウントが後で
+  // 再認証されてもこの世代のバックフィルを二度と受けられない
+  // (sync/syncBackfill.ts の excludeReauthPendingTargets コメント参照)。
   const runSyncBackfillIfNeeded = useCallback(async () => {
     if (!db) return;
     const savedVersion = await getSyncBackfillVersion(db);
@@ -381,13 +473,26 @@ export function useCalendarSync({
       CURRENT_SYNC_BACKFILL_VERSION,
       serverSyncBackfillVersion,
     );
-    const targets = decideSyncBackfillTargets(savedVersion, targetVersion, selectedTargets());
+    const candidates = decideSyncBackfillTargets(savedVersion, targetVersion, selectedTargets());
+    if (candidates.length === 0) return;
+
+    const { targets, excludedReauthPending } = excludeReauthPendingTargets(
+      candidates,
+      reauthRequiredAccountIds,
+    );
+    if (excludedReauthPending) {
+      // 握りつぶさず、記録を見送ったことを開発者が追える形で残す(利用者への表示は不要 ――
+      // ツールバーの再認証警告が既に出ている)
+      console.info(
+        "kichijitsu: sync backfill excluded reauth-pending account(s); withholding version record, will retry next launch",
+      );
+    }
     if (targets.length === 0) return;
 
     const results = await Promise.allSettled(
-      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true)),
+      targets.map((t) => syncCalendar(t.accountId, t.calendarId, t.defaultColor, true, "auto")),
     );
-    const allOk = results.every((r) => r.status === "fulfilled");
+    const allOk = results.every((r) => r.status === "fulfilled") && !excludedReauthPending;
     if (allOk) {
       await setSyncBackfillVersion(db, targetVersion);
     } else {
@@ -397,10 +502,11 @@ export function useCalendarSync({
         }
       }
     }
-  }, [db, selectedTargets, syncCalendar, serverSyncBackfillVersion]);
+  }, [db, selectedTargets, syncCalendar, serverSyncBackfillVersion, reauthRequiredAccountIds]);
 
   // SSE hello 受信時(接続・再接続時): 取りこぼしがあり得るため選択中カレンダーを一巡 sync する。
-  // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す
+  // runSync と違い、同時多発を避けて直列(1件ずつ await)で回す。
+  // 利用者が意図していない経路なので trigger は "auto" 固定 (2026-08-07、sync/reauthSkip.ts 参照)
   const handleServerHello = useCallback(async () => {
     if (!db) return;
     const targets = selectedTargets();
@@ -410,7 +516,7 @@ export function useCalendarSync({
     let hadError = false;
     for (const t of targets) {
       try {
-        await syncCalendar(t.accountId, t.calendarId, t.defaultColor);
+        await syncCalendar(t.accountId, t.calendarId, t.defaultColor, false, "auto");
       } catch (err) {
         hadError = true;
         console.error("kichijitsu: SSE hello sync failed", err);
@@ -420,7 +526,8 @@ export function useCalendarSync({
   }, [db, selectedTargets, syncCalendar]);
 
   // SSE changed 受信時: 該当 (accountId, calendarId) が選択中の場合のみ sync する
-  // (通知のペイロード自体は信用せず、選択状態は常にクライアント側の visibleCalendars で判定する)
+  // (通知のペイロード自体は信用せず、選択状態は常にクライアント側の visibleCalendars で判定する)。
+  // handleServerHello と同じ理由で trigger は "auto" 固定
   const handleServerChanged = useCallback(
     (accountId: string, calendarId: string) => {
       if (!db) return;
@@ -430,7 +537,7 @@ export function useCalendarSync({
       )?.backgroundColor;
 
       setSyncStatus("syncing");
-      syncCalendar(accountId, calendarId, defaultColor)
+      syncCalendar(accountId, calendarId, defaultColor, false, "auto")
         .then(() => setSyncStatus("idle"))
         .catch((err) => {
           console.error("kichijitsu: SSE changed sync failed", err);
@@ -454,12 +561,14 @@ export function useCalendarSync({
   // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
   // 完了後に続けて runSyncBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
   // (runSync 自体)とバックフィルの forceFull 同期が同時に飛んで syncScheduler 上で
-  // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある
+  // 競合しないよう、意図的に「まず通常同期が完了してから」の直列にしてある。
+  // trigger は "auto" 固定 (2026-08-07) ―― ページ起動そのものであり利用者の操作ではないため
+  // (再認証待ちアカウントはここでスキップされる、sync/reauthSkip.ts 参照)
   useEffect(() => {
     if (!db || accounts.length === 0 || Object.keys(visibleCalendars).length === 0) return;
     if (autoSyncedRef.current) return;
     autoSyncedRef.current = true;
-    runSync().then(() => runSyncBackfillIfNeeded());
+    runSync("auto").then(() => runSyncBackfillIfNeeded());
   }, [db, accounts, visibleCalendars, runSync, runSyncBackfillIfNeeded]);
 
   // タスクリストが新たに見つかるたびに、その (accountId, taskListId) を1回だけ自動同期する
@@ -468,16 +577,26 @@ export function useCalendarSync({
   // タスクリスト単位で「初めて見つかった」ことを autoSyncedTaskListsRef で判定する。
   // Tasks API には push 通知が無い (docs/google-tasks.md) ため、以降の更新反映は「同期」ボタン
   // (runSync) 頼みになる — TODO: 定期ポーリングでの自動更新
+  // trigger は "auto" 固定 (2026-08-07) ―― タスクリストが見つかったことを検知して自動で
+  // 走るだけで、利用者の操作ではないため
   useEffect(() => {
     if (!db) return;
     const targets = selectedTaskListTargets();
     const toSync = targets.filter(
-      (t) => !autoSyncedTaskListsRef.current.has(taskListKey(t.accountId, t.taskListId)),
+      (t) =>
+        !autoSyncedTaskListsRef.current.has(taskListKey(t.accountId, t.taskListId)) &&
+        // 再認証待ちのアカウントは対象にすらしない。syncTaskList の中でスキップさせると、
+        // 下の autoSyncedTaskListsRef への記録だけが済んでしまい「同期済み」扱いになる。
+        // この effect は「初めて見つかったとき1回だけ」で、以降の更新反映は同期ボタン頼み
+        // (上のコメント参照) なので、再認証を済ませてもリロードするまでタスクが出てこない。
+        // バックフィルの世代記録 (runSyncBackfillIfNeeded) と同じ「スキップを成功として
+        // 記録しない」原則。
+        !reauthRequiredAccountIds.has(t.accountId),
     );
     if (toSync.length === 0) return;
     for (const t of toSync)
       autoSyncedTaskListsRef.current.add(taskListKey(t.accountId, t.taskListId));
-    Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId))).then(
+    Promise.allSettled(toSync.map((t) => syncTaskList(t.accountId, t.taskListId, "auto"))).then(
       (results) => {
         for (const result of results) {
           if (result.status === "rejected") {
@@ -486,7 +605,15 @@ export function useCalendarSync({
         }
       },
     );
-  }, [db, taskListsByAccount, selectedTaskListTargets, syncTaskList]);
+    // reauthRequiredAccountIds を依存に入れるのは、再認証が済んで集合から外れたときに
+    // この effect をもう一度走らせ、上でスキップしたタスクリストを拾い直すため。
+  }, [
+    db,
+    taskListsByAccount,
+    selectedTaskListTargets,
+    syncTaskList,
+    reauthRequiredAccountIds,
+  ]);
 
   return {
     syncStatus,
