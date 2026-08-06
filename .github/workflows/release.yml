@@ -44,6 +44,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
+        # 後段の cask 更新が artifactPaths 出力 (アップロードした実ファイルのパス) を
+        # 参照するため id を振る。
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -71,3 +74,83 @@ jobs:
             **DMG を直接ダウンロードする場合**
             下の `kichijitsu_*_universal.dmg` を使用してください。
           args: --target universal-apple-darwin
+
+      # Love-Rox/homebrew-tap の Casks/kichijitsu.rb を更新する。
+      # 手作業だと忘れたときに「リリースは出ているのに brew では古いまま」という、
+      # エラーも出ず原因も分からない状態になる (2026-08-07 の v0.1.9 で実際に発生) ため、
+      # DMG を作ったのと同じジョブで更新まで済ませる。
+      # ここが黙って落ちると自動化の意味が無いので、失敗は必ずジョブの失敗にする
+      # (`set -euo pipefail` + 各所の明示的な die/exit 1)。
+      - name: Update Homebrew cask
+        env:
+          # `${{ }}` を run: の中へ直接展開するとタグ名などの外部入力がシェルスクリプトの
+          # ソースとして解釈され、コマンドインジェクションの経路になる。値は必ず env で
+          # 環境変数として渡し、スクリプト側では "$VAR" として参照する。
+          # https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+          TAG_NAME: ${{ github.ref_name }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          # 別リポジトリ (Love-Rox/homebrew-tap) への push なので secrets.GITHUB_TOKEN では
+          # 権限が足りない (このリポジトリにしか効かない)。tap 側の contents:write を持つ
+          # PAT を別途登録して使う。
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_GITHUB_TOKEN}" ]; then
+            echo "::error::secrets.TAP_GITHUB_TOKEN が未設定です (tap への push に必要)"
+            exit 1
+          fi
+
+          # タグは v0.1.9 形式。cask の version は先頭の v を除いたもの。
+          # 想定外の ref (ブランチ名など) で走ったときに壊れた cask を push しないよう、
+          # ここで形を検証して弾く。
+          version="${TAG_NAME#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::タグ名が想定の v<x.y.z> 形式ではありません: ${TAG_NAME}"
+            exit 1
+          fi
+
+          # sha256 は「実際に配布される DMG」から取る必要がある。別物の値を書くと brew が
+          # checksum 不一致で失敗し、しかも原因が分かりにくい。
+          # tauri-action の artifactPaths はリリースへアップロードした実ファイルのパスなので、
+          # これを直接ハッシュすればリリース資産とバイト一致が保証される
+          # (再実行時も tauri-action は同名資産を消して貼り直すため、常に最新ビルドと一致)。
+          # ファイル名に version が含まれるため、tauri.conf.json のバージョンとタグがずれて
+          # いる場合はここでヒットせず落ちる ＝ cask の url が 404 になる事故も同時に防げる。
+          dmg_name="kichijitsu_${version}_universal.dmg"
+          dmg=$(
+            DMG_NAME="$dmg_name" jq -er '
+              [.[] | select(endswith("/" + env.DMG_NAME))]
+              | if length == 1 then .[0]
+                else error("\(env.DMG_NAME) に一致する成果物が \(length) 件 (1 件であるべき)")
+                end
+            ' <<<"$ARTIFACT_PATHS"
+          )
+          sha256=$(shasum -a 256 "$dmg" | cut -d ' ' -f 1)
+          echo "cask 更新: version=${version} sha256=${sha256} (${dmg})"
+
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/Love-Rox/homebrew-tap.git" \
+            "${RUNNER_TEMP}/homebrew-tap"
+          cd "${RUNNER_TEMP}/homebrew-tap"
+
+          # 更新するのは version と sha256 の2行だけ。url は #{version} から組み立てられるので
+          # 触らない。行頭2スペース + キー名でアンカーして、caveats 本文などを巻き込まない。
+          # 置換対象が無ければ die させる ― 黙って何もしないと「更新したつもり」で古い
+          # cask が残る、まさに避けたい失敗になる。
+          VERSION="$version" SHA256="$sha256" perl -0777 -i -pe '
+            s/^(  version ")[^"]*(")/$1$ENV{VERSION}$2/m or die "version 行が見つかりません\n";
+            s/^(  sha256 ")[^"]*(")/$1$ENV{SHA256}$2/m or die "sha256 行が見つかりません\n";
+          ' Casks/kichijitsu.rb
+
+          # 冪等性: 同じバージョンで再実行しても差分が無ければ何もしない。
+          # (ビルドし直して sha256 が変わった場合は差分が出るので、その場合は更新される)
+          if git diff --quiet; then
+            echo "cask は既に version=${version} sha256=${sha256} です。コミットしません。"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "kichijitsu ${version}"
+          git push
