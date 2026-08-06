@@ -146,6 +146,50 @@ export interface RefreshedTokens {
   expiresIn: number;
 }
 
+/**
+ * refreshAccessToken の失敗を表すエラー。呼び出し側 (UserSyncDO.getOrRefreshAccessToken) が
+ * 「恒久的な失敗 (再認証しない限り絶対に回復しない)」と「一時的な失敗 (待てば直る)」を
+ * 区別できるよう、Google の**応答**から抜き出した status と errorCode だけを持つ。
+ *
+ * 意図的にリクエスト本文 (refresh_token・client_secret) はもちろん、応答本文の生テキスト
+ * (error_description 等、内容が Google 側の仕様として保証されていない) も保持しない ――
+ * このエラーをログに出す側 (durable-object/user-sync-do.ts) が status/errorCode だけを
+ * 安全に出力できるようにするための設計。
+ */
+export class GoogleTokenRefreshError extends Error {
+  readonly status: number;
+  readonly errorCode: string | undefined;
+  /** isPermanentRefreshFailure の結果をキャッシュしたもの。呼び出し側の分岐用。 */
+  readonly permanent: boolean;
+
+  constructor(status: number, errorCode: string | undefined) {
+    super(
+      `Google token refresh failed: HTTP ${status}${errorCode ? ` (error=${errorCode})` : ""}`,
+    );
+    this.name = "GoogleTokenRefreshError";
+    this.status = status;
+    this.errorCode = errorCode;
+    this.permanent = isPermanentRefreshFailure(status, errorCode);
+  }
+}
+
+/**
+ * refresh_token の失効による「恒久的な失敗」かどうかを判定する純関数
+ * (2026-08-06、本番障害: あるアカウントの refreshAccessToken が2日以上失敗し続けたのに
+ * どこにも記録が残らなかった)。
+ *
+ * Google はリフレッシュトークンが失効・取り消し済みのとき **HTTP 400 + `{"error":"invalid_grant"}`**
+ * を返す。これは利用者が再認証 (OAuth 同意のやり直し) しない限り絶対に回復しない。
+ *
+ * それ以外 (5xx・429・その他のネットワークエラー・想定外の 4xx・本文が JSON として
+ * パースできない等) は一時的な障害として扱う ―― **判定に迷ったら一時的に倒す**。
+ * 誤って恒久判定すると、待てば直るはずの同期を (アラームの自動リトライ停止によって)
+ * 止めてしまうため、境界はこの1条件だけに絞ってある。
+ */
+export function isPermanentRefreshFailure(status: number, errorCode: string | undefined): boolean {
+  return status === 400 && errorCode === "invalid_grant";
+}
+
 export async function refreshAccessToken(
   fetchFn: typeof fetch,
   config: Pick<GoogleOAuthConfig, "clientId" | "clientSecret">,
@@ -163,12 +207,25 @@ export async function refreshAccessToken(
     body,
   });
   if (!response.ok) {
-    throw new Error(
-      `Google token refresh failed: HTTP ${response.status}: ${await response.text()}`,
-    );
+    throw new GoogleTokenRefreshError(response.status, await extractGoogleErrorCode(response));
   }
   const data = (await response.json()) as TokenResponse;
   return { accessToken: data.access_token, expiresIn: data.expires_in };
+}
+
+/**
+ * エラー応答本文の `error` フィールドだけを取り出す。本文丸ごとは (error_description に
+ * 何が入るか保証が無いため) 呼び出し側へは渡さない ―― GoogleTokenRefreshError のコメント参照。
+ * JSON でない/`error` が無い応答は undefined を返し、isPermanentRefreshFailure 側で
+ * 「一時的」として扱われる。
+ */
+async function extractGoogleErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const data = (await response.json()) as { error?: unknown };
+    return typeof data.error === "string" ? data.error : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface IdTokenPayload {

@@ -179,6 +179,13 @@ export interface GoogleEventDTO {
 export interface AccountDTO {
   id: string;
   email: string;
+  /**
+   * true なら Google 側でリフレッシュトークンが失効しており、再認証 (再連携) しない限り
+   * このアカウントの同期は止まったまま回復しない (2026-08-06、本番障害対応)。
+   * サーバー側は accounts.reauth_required_at (nullable epoch ms、migrations/0013 参照) を
+   * bool 化して返す ―― クライアントは時刻自体を必要としないため。未設定/false は「正常」。
+   */
+  reauthRequired?: boolean;
 }
 
 /**

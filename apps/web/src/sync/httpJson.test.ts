@@ -150,6 +150,12 @@ describe("postJsonVoid / patchJson / deleteJson", () => {
     expect(f.calls[0].init?.method).toBe("POST");
   });
 
+  it("postJsonVoid: body 省略時は Content-Type を付けない(deleteJson と同じ流儀、/auth/logout 向け)", async () => {
+    const f = fakeFetch(() => new Response(null, { status: 204 }));
+    await postJsonVoid(f.fetch, "/auth/logout");
+    expect(f.calls[0].init).toEqual({ method: "POST" });
+  });
+
   it("patchJson: PATCH で送り、応答ボディは読まない", async () => {
     const f = fakeFetch(() => new Response(null, { status: 204 }));
     await patchJson(f.fetch, "/api/work-logs/w1", { minutes: 30 });

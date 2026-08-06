@@ -117,13 +117,17 @@ export function putJson<TReq, TRes>(f: CheckedFetch, path: string, body: TReq): 
 /**
  * POST(JSON ボディ)するが応答ボディは読まない版。204 や「{id} しか返らないので使わない」
  * 書き込み系のため ―― json() を呼ばないので、空ボディで応答されても失敗しない。
+ *
+ * body 省略時は Content-Type ヘッダーも付けない(deleteJson と同じ流儀)。POST /auth/logout の
+ * ようにボディを一切持たない「叩くだけ」のエンドポイント向け(2026-08-06、ログアウト導線)。
  */
 export async function postJsonVoid<TReq>(
   f: CheckedFetch,
   path: string,
-  body: TReq,
+  body?: TReq,
 ): Promise<void> {
-  throwIfNotOk(await sendJson(f, "POST", path, body), "POST", path);
+  const init: RequestInit = body === undefined ? { method: "POST" } : jsonInit("POST", body);
+  throwIfNotOk(await f(path, init), "POST", path);
 }
 
 /** PATCH(JSON ボディ)。応答ボディは読まない。非 2xx は HttpError */

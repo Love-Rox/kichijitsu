@@ -1,0 +1,30 @@
+/**
+ * ツールバーの注意文言 (同期失敗・保存失敗・Google 再認証が必要) を組み立てる純ロジック。
+ * toolbarMenuItems.ts と同じ理由 (この web アプリにはコンポーネントテストの土台が無いため、
+ * React に依存しない .ts に切り出してテストで固定する) で AppToolbar.tsx から分離した。
+ *
+ * ここで作った文字列はそのまま2箇所で使われる: 広幅ヘッダーの `.sync-error` スパン、
+ * 狭幅の ToolbarMenu 内 `.toolbar-menu-note`(どちらも既存、AppToolbar.tsx 側の配線)。
+ * どちらも「設定モーダルを開かなくても気づける場所」―― Google 再認証待ちは同期が
+ * 完全に止まる深刻な状態 (2026-08-06 本番障害対応) なので、設定モーダルの中だけでなく
+ * ここにも出す。実際の再認証操作 (再連携ボタン) は設定モーダルの AccountsSection に
+ * 置いてある (対象アカウントが複数ありうる一覧 UI のほうが導線として自然なため)。
+ */
+export interface ToolbarErrorNotesInput {
+  /** useCalendarSync の syncStatus === "error" */
+  syncFailed: boolean;
+  /** useEventMutations の saveError (元に戻した保存失敗) */
+  saveFailed: boolean;
+  /** me.accounts のうち reauthRequired な (Google の再認証が必要な) アカウントのメール一覧 */
+  reauthRequiredEmails: readonly string[];
+}
+
+export function buildToolbarErrorNotes(input: ToolbarErrorNotesInput): string[] {
+  const notes: string[] = [];
+  if (input.syncFailed) notes.push("同期失敗");
+  if (input.saveFailed) notes.push("保存失敗（元に戻しました）");
+  for (const email of input.reauthRequiredEmails) {
+    notes.push(`Google の再認証が必要です (${email})`);
+  }
+  return notes;
+}

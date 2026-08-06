@@ -8,6 +8,7 @@ import { BlockRulesSection } from "./settings/BlockRulesSection";
 import { BuildInfoFooter } from "./settings/BuildInfoFooter";
 import { CacheClearControl } from "./settings/CacheClearControl";
 import { GitHubSection } from "./settings/GitHubSection";
+import { LogoutControl } from "./settings/LogoutControl";
 import { McpTokensSection } from "./settings/McpTokensSection";
 import { ReminderSection } from "./settings/ReminderSection";
 import { ResyncControl } from "./settings/ResyncControl";
@@ -67,6 +68,13 @@ export interface SettingsModalProps {
    * undefined なら再同期の導線を出さない(他の任意セクションと同じ流儀)
    */
   onResync?: () => Promise<void>;
+  /**
+   * ログアウト (2026-08-06、ユーザー要望)。確定で呼ぶ ―― 成功すれば解決 (呼び出し元
+   * LogoutControl が画面をリロードする)、失敗すれば reject する (他の確定系ハンドラと同じ
+   * 「成功/失敗を Promise で伝え、表示は呼び出し元が持つ」流儀)。undefined にはしない
+   * (他の任意セクションと違い、セッションを持つ以上ログアウト導線は常に必要なため必須 prop)。
+   */
+  onLogout: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -111,6 +119,7 @@ export function SettingsModal({
   onCreateMcpToken,
   onDeleteMcpToken,
   onResync,
+  onLogout,
   onClose,
 }: SettingsModalProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -229,6 +238,15 @@ export function SettingsModal({
          * 説明文どうしを読み比べて選べるようにしている。
          */}
         {onResync && <ResyncControl onResync={onResync} />}
+
+        {/*
+         * ログアウト (ユーザー要望、2026-08-06)。上の2つの脱出口 (キャッシュ削除・再同期) は
+         * どちらも連携アカウント・設定・予定データを一切消さない「立て直し」操作だが、
+         * ログアウトはセッションを終了したうえで端末内のデータも消す、性質の違う操作
+         * (LogoutControl.tsx 冒頭のコメント参照)。並びの最後に独立セクションとして置くことで
+         * 「それでも直らない/使い終わったときの最後の手段」という位置づけを保つ。
+         */}
+        <LogoutControl onLogout={onLogout} />
       </div>
     </div>
   );

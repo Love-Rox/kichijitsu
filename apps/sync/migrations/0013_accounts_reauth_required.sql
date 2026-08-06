@@ -1,0 +1,19 @@
+-- Google の再認証が必要になったことを記録する列 (2026-08-06)。
+--
+-- 背景の本番障害: あるアカウントの refreshAccessToken が2日以上 continuously 失敗していた
+-- (alarm 側 246回、RPC 側 66回) が、「このアカウントは再認証が必要」という状態が
+-- sync・web・shared のどこにも存在せず、利用者にもオペレーターにも一切伝わらなかった。
+-- google/oauth.ts の refreshAccessToken を、HTTP 400 + `{"error":"invalid_grant"}`
+-- (= refresh_token が失効・取り消し済みで、再認証しない限り絶対に回復しない) を
+-- 恒久的な失敗として区別できるよう改修した (isPermanentRefreshFailure、oauth.test.ts 参照)。
+--
+-- NULL = 正常 (既定値、既存行はすべてこちら)。非 NULL = 恒久的な失敗を最初に検知した epoch ms。
+-- durable-object/user-sync-do.ts の getOrRefreshAccessToken が:
+--   - 恒久的な失敗 (GoogleTokenRefreshError.permanent) を検知したらここに記録する
+--   - トークン更新に成功したら (再連携後を含む) 必ず NULL に戻す
+--   - 一時的な失敗 (5xx・429・ネットワークエラー等) では書き込まない
+-- alarm (同ファイルの alarm メソッド) はこの列が非 NULL のアカウントへの自動リトライを
+-- 止める ―― ただし利用者が明示的に操作する経路 (手動同期・再連携後の初回同期など、alarm を
+-- 経由しない他の RPC) はこの列を見ずに常に試す。記録が誤っていた場合に永久に復帰できなくなる
+-- のを避けるための意図的な非対称。
+ALTER TABLE accounts ADD COLUMN reauth_required_at INTEGER;
