@@ -19,7 +19,11 @@ import { isHttpsRequest } from "../http";
 import { isEmailAllowed } from "../allowlist";
 import { encryptToken } from "../crypto";
 import { encodeOAuthState, decodeOAuthState } from "../oauth-state";
-import { isProfileOwnerless, resolveLoginProfile } from "../profile-resolution";
+import {
+  isAddModeOwnerConflict,
+  isProfileOwnerless,
+  resolveLoginProfile,
+} from "../profile-resolution";
 import { shouldRejectStaleRefreshTokenReuse } from "../core/reauth";
 // デスクトップ版 (Tauri) の外部ブラウザ OAuth 経路 (2026-08-07)。既存の login/add の流れを
 // 壊さないため、新経路の実装は routes/desktop-auth.ts + core/desktop-auth.ts に切り出し、
@@ -105,6 +109,40 @@ export function renderReauthFailedPage(email: string, appUrl: string): string {
     <p>もう一度「再認証」をお試しください。それでも解決しない場合は、
       <a href="https://myaccount.google.com/permissions" target="_blank" rel="noreferrer">Google アカウントのアクセス権限の管理</a>
       からこのアプリへのアクセスを一度削除したうえで、改めて連携し直してください。</p>
+    <p><a href="${safeAppUrl}">トップページに戻る</a></p>
+  </body>
+</html>
+`;
+}
+
+/**
+ * add モード (`?add=1`、「+ アカウントを追加」) で選んだ Google アカウントが、既に
+ * 「別の」プロファイルのオーナーだったときに返す案内ページ (2026-08-07)。
+ *
+ * この拒否自体は正しい動作 (profile-resolution.ts の isAddModeOwnerConflict のコメント
+ * 参照): 通させると UNIQUE 制約違反で 500 になるか、衝突しなくても元のプロファイルが
+ * オーナー不在になる。以前は事前チェックが無く、UPSERT が例外を投げて生の
+ * `{"error":"internal_error"}` が表示されていた。ここでは UPSERT に到達する前に検出し、
+ * renderConnectionLoginRejectionPage / renderReauthFailedPage と同じ作法
+ * (エスケープ済み HTML、生の JSON を返さない) で「なぜ」と「どうすればよいか」を伝える。
+ *
+ * 利用者は「自分の Google アカウントなのになぜ追加できないのか」が直感的に分からない
+ * ため、「1つの Google アカウントは同時に1つのプロファイルのオーナーにしかなれない」
+ * という前提そのものを文中で明示する。
+ */
+export function renderAddModeOwnerConflictPage(email: string, appUrl: string): string {
+  const safeEmail = escapeHtml(email);
+  const safeAppUrl = escapeHtml(appUrl);
+  return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>接続アカウントとして追加できません - kichijitsu</title>
+  </head>
+  <body>
+    <h1>接続アカウントとして追加できません</h1>
+    <p>このアカウント (${safeEmail}) は、既に別のプロファイルのオーナーアカウントです。1つの Google アカウントは同時に1つのプロファイルのオーナーにしかなれないため、今開いているプロファイルへ接続アカウントとして追加することはできません。</p>
+    <p>このアカウントをこちらのプロファイルに追加したい場合は、まずオーナーになっている元のプロファイルにログインし、設定からこのアカウントの連携を解除してください。そのうえで、改めてこちらのプロファイルの「+ アカウントを追加」からやり直してください。</p>
     <p><a href="${safeAppUrl}">トップページに戻る</a></p>
   </body>
 </html>
@@ -260,18 +298,18 @@ authRoutes.get("/auth/callback", async (c) => {
   // (接続) を分ける。詳細は src/profile-resolution.ts のコメント参照):
   //
   // - add モード (`?add=1`、有効なセッションが必要): state に載っている (今ログイン中の)
-  //   プロファイルに、このアカウントを「接続」(is_owner=0) として追加する。既にこの
-  //   Google アカウントが別プロファイルのオーナーだった場合でも、今回の OAuth 同意で
-  //   本人確認は取れているのでそのまま付け替える (アカウントの持ち主が自分の意思で行う
-  //   操作として正当な移動として扱う)。
+  //   プロファイルに、このアカウントを「接続」(is_owner=0) として追加する。ただし、
+  //   選んだ Google アカウントが既に「別の」プロファイルのオーナーだった場合は追加せず、
+  //   案内ページを返して拒否する (下記 2026-08-07 参照)。同じプロファイルのオーナーを
+  //   選び直した場合 (再認証の経路) は矛盾しないのでそのまま通す。
   //   矛盾ケース: accounts.id (= Google sub) が PK のままなので、1つの Google アカウントは
   //   常にどこか1つのプロファイルにしか属せない。したがって、元プロファイルのオーナー
   //   だったアカウントを他プロファイルへ「接続」として付け替えると、元プロファイルは
   //   オーナー不在 (0 件) になり、元プロファイルに残っていた他の接続アカウントは
   //   宙に浮く (どのプロファイルにも属さないわけではないが、ログインで復元できるオーナーが
-  //   いなくなる)。今回のスコープでは検出・防止しない — 「同一 sub が複数プロファイルに
-  //   接続として存在し得る」設計 (=(profile_id, sub) 複合キー化) は別途の大改修が必要なため
-  //   最小変更に留める。
+  //   いなくなる)。「同一 sub が複数プロファイルに接続として存在し得る」設計
+  //   (=(profile_id, sub) 複合キー化) は別途の大改修が必要なため、今回もそこまでは
+  //   行わず、矛盾する付け替えそのものを拒否する最小変更に留める (下記 2026-08-07 参照)。
   //
   // - login モード (通常、add でない): このアカウントが「どこかのプロファイルのオーナー」
   //   なら、そのプロファイルへログインする (= 自分の身元で戻ってきた)。未連携の新規
@@ -304,8 +342,32 @@ authRoutes.get("/auth/callback", async (c) => {
   //   限り」許可してそのアカウントを昇格させる (`promote-to-owner`) セーフティネットを
   //   追加した。詳細と「2026-07-21 の事故を再発させない理由」は src/profile-resolution.ts
   //   のコメント参照。
+  //
+  //   2026-08-07 にさらに1件: MAX() 化 (上記) 自体は正しい防御だったが、「別の」
+  //   プロファイルのオーナーであるアカウントを add モードで選んだときに、UPSERT が
+  //   `idx_accounts_one_owner_per_profile` (部分ユニークインデックス) に衝突して例外を
+  //   投げ、`app.onError` 経由の生の 500 (`{"error":"internal_error"}`) が利用者に
+  //   見えてしまっていた。拒否自体は正しい (通せば 500 になるか、衝突しなくても元の
+  //   プロファイルがオーナー不在になる)。UPSERT や UNIQUE 制約の例外に頼ると SQLite の
+  //   エラーメッセージ文字列に結合してしまうため、below の isAddModeOwnerConflict で
+  //   UPSERT に到達する前に事前チェックし、意味の分かる案内ページ
+  //   (renderAddModeOwnerConflictPage) を返すようにした。
   let profileId: string;
   if (state.mode === "add") {
+    if (
+      existing &&
+      isAddModeOwnerConflict({
+        existingProfileId: existing.profile_id,
+        existingIsOwner: existing.is_owner === 1,
+        targetProfileId: state.profileId,
+      })
+    ) {
+      // 別プロファイルのオーナーだった場合のみここで止める。同じプロファイルの
+      // オーナーを選び直した場合 (existing.profile_id === state.profileId、再認証の
+      // 経路) は isAddModeOwnerConflict が false を返すのでここは通過し、従来どおり
+      // UPSERT まで進む。
+      return c.html(renderAddModeOwnerConflictPage(email, c.env.APP_URL), 409);
+    }
     profileId = state.profileId;
   } else {
     // 接続アカウント (is_owner=0) の場合だけ、接続先プロファイルにオーナーが

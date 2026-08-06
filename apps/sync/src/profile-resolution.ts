@@ -161,6 +161,48 @@ export function findOwnerlessProfileIds(accounts: readonly AccountOwnershipRow[]
 }
 
 /**
+ * add モード (`?add=1`、routes/auth.ts の /auth/callback) で選んだ Google アカウントが
+ * 「今追加しようとしているプロファイルとは別のプロファイルのオーナー」かどうかを判定する
+ * 純関数 (2026-08-07)。
+ *
+ * 背景: accounts.id (= Google sub) は PK なので、1つの Google アカウントは常にどこか
+ * 1つのプロファイルにしか属せない。add モードの UPSERT (ACCOUNTS_UPSERT_SQL) は
+ * `profile_id = excluded.profile_id` で無条件に上書きするため、既に別プロファイル A の
+ * オーナーであるアカウントを、プロファイル B へ「+ アカウントを追加」しようとすると、
+ * その行を A から B へ引き剥がしてしまう。これには2通りの実害がある:
+ * - B に既にオーナーがいる場合: is_owner は `MAX(is_owner, excluded.is_owner)` で
+ *   既存値 (1) を維持するため、B に is_owner=1 の行が2つできて部分ユニークインデックス
+ *   `idx_accounts_one_owner_per_profile` に衝突し、例外 → 生の 500 になる
+ *   (このバグ自体のきっかけ)。
+ * - B にオーナーがいない場合: 衝突せず成功するが、元のプロファイル A がオーナー不在に
+ *   なり、A の側で誰もログインできなくなる (2026-08-06 修正前に実際に本番で起きた事故で、
+ *   衝突する/しないに関わらずこの「元プロファイルを壊す」実害は同じ)。
+ *
+ * この関数は上記どちらのケースも「B が現在オーナーを持っているか」を見ずに一律で検出する
+ * ―― UPSERT や UNIQUE 制約のエラーに頼らず、SQL を実行する前に呼び出し側で弾くための
+ * 事前チェックとして使う (制約違反のメッセージ文字列に依存すると SQLite の実装詳細に
+ * 結合してしまい壊れやすいため)。
+ *
+ * **同じプロファイルのオーナーを選び直した場合 (targetProfileId === existingProfileId) は
+ * 衝突とみなさない** ―― これは「再認証」ボタン (常に add モードで遷移する) がオーナー
+ * 自身のアカウントを選び直す正当な経路であり、2026-08-06 に別の事故 (is_owner の
+ * 1→0 降格) を修正したばかりの経路でもある。ここを一緒に弾くと、その修正を無に
+ * 帰してしまう。
+ */
+export interface AddModeOwnerConflictCheck {
+  /** 選ばれた Google アカウントが現在オーナーになっているプロファイル ID (accounts.profile_id)。 */
+  existingProfileId: string;
+  /** 選ばれた Google アカウントが現在オーナーかどうか (accounts.is_owner === 1)。 */
+  existingIsOwner: boolean;
+  /** 今回の add モードでアカウントを追加しようとしているプロファイル ID (state.profileId)。 */
+  targetProfileId: string;
+}
+
+export function isAddModeOwnerConflict(check: AddModeOwnerConflictCheck): boolean {
+  return check.existingIsOwner && check.existingProfileId !== check.targetProfileId;
+}
+
+/**
  * migration 0004 の「各 profile_id グループで最古 (created_at 最小、同着なら id 昇順) の
  * アカウントを owner とする」という移行ルールを TypeScript 側でも表現した純関数。
  * 実際の移行は D1 上で生の SQL (migrations/0004_owner.sql) として実行されるため、この

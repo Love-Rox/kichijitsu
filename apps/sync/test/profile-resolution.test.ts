@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   findOwnerlessProfileIds,
+  isAddModeOwnerConflict,
   isProfileOwnerless,
   resolveLoginProfile,
   selectOwnerAccountId,
@@ -112,6 +113,52 @@ describe("findOwnerlessProfileIds (accounts 全体からのオーナー不在プ
 
   it("アカウントが1件も無ければ空配列", () => {
     expect(findOwnerlessProfileIds([])).toEqual([]);
+  });
+});
+
+describe("isAddModeOwnerConflict (add モードでの「別プロファイルのオーナー」検出)", () => {
+  it("別のプロファイルのオーナーを add モードで選ぶと衝突とみなす", () => {
+    expect(
+      isAddModeOwnerConflict({
+        existingProfileId: "profile-A",
+        existingIsOwner: true,
+        targetProfileId: "profile-B",
+      }),
+    ).toBe(true);
+  });
+
+  it(
+    "同じプロファイルのオーナーを選び直した場合 (再認証の経路) は衝突とみなさない " +
+      "(2026-08-06 に修正した is_owner 降格バグの経路を壊さないための境界)",
+    () => {
+      expect(
+        isAddModeOwnerConflict({
+          existingProfileId: "profile-A",
+          existingIsOwner: true,
+          targetProfileId: "profile-A",
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("接続アカウント (isOwner=false) は、別プロファイルに属していても衝突しない", () => {
+    expect(
+      isAddModeOwnerConflict({
+        existingProfileId: "profile-A",
+        existingIsOwner: false,
+        targetProfileId: "profile-B",
+      }),
+    ).toBe(false);
+  });
+
+  it("接続アカウントが自分の接続先プロファイルへ再度追加される場合も衝突しない", () => {
+    expect(
+      isAddModeOwnerConflict({
+        existingProfileId: "profile-B",
+        existingIsOwner: false,
+        targetProfileId: "profile-B",
+      }),
+    ).toBe(false);
   });
 });
 
