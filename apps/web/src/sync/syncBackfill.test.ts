@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   decideSyncBackfillTargets,
+  excludeReauthPendingTargets,
   resolveEffectiveSyncBackfillVersion,
 } from "./syncBackfill";
 
@@ -38,6 +39,52 @@ describe("decideSyncBackfillTargets", () => {
     ];
 
     expect(decideSyncBackfillTargets(0, 2, targets)).toEqual(targets);
+  });
+});
+
+// 再認証待ちアカウントの除外 (2026-08-07、レビュー指摘: 除外せず版数を記録すると
+// そのアカウントが後で再認証されてもこの世代のバックフィルを永久に受けられなくなる)。
+describe("excludeReauthPendingTargets", () => {
+  it("reauthRequiredAccountIds が空なら selectedTargets をそのまま返す (excludedReauthPending: false)", () => {
+    const targets = [
+      { accountId: "acc-1", calendarId: "cal-1" },
+      { accountId: "acc-2", calendarId: "cal-1" },
+    ];
+
+    const result = excludeReauthPendingTargets(targets, new Set());
+
+    expect(result).toEqual({ targets, excludedReauthPending: false });
+    expect(result.targets).toBe(targets); // 参照も温存する
+  });
+
+  it("reauth 待ちアカウントが対象に含まれていなければ excludedReauthPending は false", () => {
+    const targets = [{ accountId: "acc-1", calendarId: "cal-1" }];
+
+    const result = excludeReauthPendingTargets(targets, new Set(["acc-2"]));
+
+    expect(result).toEqual({ targets, excludedReauthPending: false });
+  });
+
+  it("reauth 待ちアカウント分だけ除外し、除外が起きたことを報告する", () => {
+    const targets = [
+      { accountId: "acc-1", calendarId: "cal-1" },
+      { accountId: "acc-2", calendarId: "cal-1" },
+      { accountId: "acc-2", calendarId: "cal-2" },
+    ];
+
+    const result = excludeReauthPendingTargets(targets, new Set(["acc-2"]));
+
+    expect(result.targets).toEqual([{ accountId: "acc-1", calendarId: "cal-1" }]);
+    expect(result.excludedReauthPending).toBe(true);
+  });
+
+  it("全アカウントが reauth 待ちなら空配列を返し、excludedReauthPending は true", () => {
+    const targets = [{ accountId: "acc-1", calendarId: "cal-1" }];
+
+    const result = excludeReauthPendingTargets(targets, new Set(["acc-1"]));
+
+    expect(result.targets).toEqual([]);
+    expect(result.excludedReauthPending).toBe(true);
   });
 });
 

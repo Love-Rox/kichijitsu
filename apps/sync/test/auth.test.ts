@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { authRoutes, renderConnectionLoginRejectionPage } from "../src/routes/auth";
+import {
+  authRoutes,
+  renderAddModeOwnerConflictPage,
+  renderConnectionLoginRejectionPage,
+} from "../src/routes/auth";
 import {
   createSessionCookieValue,
   SESSION_COOKIE_NAME,
@@ -23,6 +27,30 @@ describe("renderConnectionLoginRejectionPage", () => {
 
   it("email に HTML 特殊文字が含まれていてもエスケープしてページを壊さない", () => {
     const html = renderConnectionLoginRejectionPage(
+      "<script>alert(1)</script>@example.com",
+      "https://kichijitsu.love-rox.cc",
+    );
+
+    expect(html).not.toContain("<script>alert(1)</script>@example.com");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;@example.com");
+  });
+});
+
+describe("renderAddModeOwnerConflictPage", () => {
+  it("別プロファイルのオーナー衝突ページに email と APP_URL リンクを含む", () => {
+    const html = renderAddModeOwnerConflictPage(
+      "owner-of-another-profile@example.com",
+      "https://kichijitsu.love-rox.cc",
+    );
+
+    expect(html).toContain("owner-of-another-profile@example.com");
+    expect(html).toContain('href="https://kichijitsu.love-rox.cc"');
+    expect(html).toContain("別のプロファイルのオーナーアカウント");
+    expect(html).toContain("連携を解除");
+  });
+
+  it("email に HTML 特殊文字が含まれていてもエスケープしてページを壊さない", () => {
+    const html = renderAddModeOwnerConflictPage(
       "<script>alert(1)</script>@example.com",
       "https://kichijitsu.love-rox.cc",
     );
@@ -433,6 +461,81 @@ describe("GET /auth/login?add=1 → GET /auth/callback (本番ロックアウト
       };
       // 既存の (暗号化済み) トークンがそのまま書き戻されている (従来どおり)。
       expect(row.refresh_token).toBe("rt-old-encrypted");
+    },
+  );
+
+  /**
+   * このタスクの本題 (2026-08-07): 別のプロファイル (PROFILE_ID) のオーナーである
+   * アカウントを、別のプロファイル (PROFILE_ID_B) に「+ アカウントを追加」で追加しようと
+   * すると、以前は ACCOUNTS_UPSERT_SQL の UPSERT が
+   * idx_accounts_one_owner_per_profile (部分ユニークインデックス、PROFILE_ID_B に既に
+   * 別のオーナーがいる) に衝突して例外を投げ、app.onError 経由の生の 500
+   * (`{"error":"internal_error"}`) が返っていた。事前チェック (isAddModeOwnerConflict)
+   * で UPSERT に到達する前に検出し、案内 HTML を 409 で返すことを確認する。
+   */
+  it(
+    "別のプロファイルのオーナーであるアカウントを add モードで追加しようとすると、" +
+      "500 ではなく 409 の案内ページを返し、DB は一切変更しない",
+    async () => {
+      const PROFILE_ID_B = "profile-B";
+      const { db, d1 } = makeSqliteD1();
+      // OWNER_SUB は PROFILE_ID (A) のオーナー。
+      db.prepare(
+        "INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run(OWNER_SUB, PROFILE_ID, OWNER_EMAIL, "rt-owner-a-encrypted", 1, 1000);
+      // PROFILE_ID_B (B) には別のオーナーが既にいる
+      // (UNIQUE 制約に実際に衝突する状況を再現する)。
+      db.prepare(
+        "INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run("owner-b-sub", PROFILE_ID_B, "owner-b@example.com", "rt-owner-b-encrypted", 1, 1000);
+
+      const env = makeEnv(d1);
+      // 利用者は今プロファイル B にログイン中で、「+ アカウントを追加」から
+      // (別プロファイル A のオーナーである) OWNER_SUB を選ぶ。
+      const sid = await createSessionCookieValue(SESSION_SECRET, PROFILE_ID_B);
+
+      const loginRes = await authRoutes.request(
+        `/auth/login?add=1&login_hint=${encodeURIComponent(OWNER_EMAIL)}`,
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${sid}` } },
+        env,
+      );
+      expect(loginRes.status).toBe(302);
+      const stateValue = extractCookieValue(loginRes.headers.get("set-cookie"), STATE_COOKIE_NAME);
+
+      stubTokenFetch(OWNER_SUB, OWNER_EMAIL);
+      let callbackRes: Response;
+      try {
+        callbackRes = await authRoutes.request(
+          `/auth/callback?code=fake-code&state=${encodeURIComponent(stateValue)}`,
+          { headers: { Cookie: `${STATE_COOKIE_NAME}=${stateValue}` } },
+          env,
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      // 生の 500/JSON ではなく、意味の分かる 409 の案内ページ。
+      expect(callbackRes.status).toBe(409);
+      const body = await callbackRes.text();
+      expect(body).toContain("別のプロファイルのオーナーアカウント");
+      expect(body).toContain(OWNER_EMAIL);
+
+      // DB は一切変更されていない: A のオーナー行も B のオーナー行もそのまま。
+      const ownerARow = db.prepare("SELECT * FROM accounts WHERE id = ?").get(OWNER_SUB) as {
+        profile_id: string;
+        is_owner: number;
+        refresh_token: string;
+      };
+      expect(ownerARow.profile_id).toBe(PROFILE_ID);
+      expect(ownerARow.is_owner).toBe(1);
+      expect(ownerARow.refresh_token).toBe("rt-owner-a-encrypted");
+
+      const ownerBRow = db.prepare("SELECT * FROM accounts WHERE id = ?").get("owner-b-sub") as {
+        profile_id: string;
+        is_owner: number;
+      };
+      expect(ownerBRow.profile_id).toBe(PROFILE_ID_B);
+      expect(ownerBRow.is_owner).toBe(1);
     },
   );
 });

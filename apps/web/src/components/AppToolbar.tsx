@@ -283,7 +283,11 @@ export function AppToolbar({
                 <button
                   type="button"
                   className="toolbar-sync-btn"
-                  onClick={runSync}
+                  // trigger: "manual" ―― 利用者が押したボタンなので、再認証待ちアカウントでも
+                  // 常に試す (hooks/useCalendarSync.ts の runSync コメント参照)
+                  onClick={() => {
+                    void runSync("manual");
+                  }}
                   disabled={syncStatus === "syncing"}
                   aria-label="同期"
                   title="同期"
@@ -427,7 +431,11 @@ export function AppToolbar({
             onToggleLeftPane={toggleLeftPane}
             onToggleGitHubPane={toggleGitHubPane}
             onOpenSettings={() => setPanelOpen((open) => !open)}
-            onSync={runSync}
+            // trigger: "manual" ―― 狭幅メニュー内の「同期」項目も広幅ボタンと同じく
+            // 利用者が明示的に押した経路 (上の toolbar-sync-btn と同じ理由)
+            onSync={() => {
+              void runSync("manual");
+            }}
             onToggleHelp={() => setHelpOpen((v) => !v)}
             onConnectGoogle={() => {
               // 広幅の「Google 連携」ボタンと同じ経路 (上のコメント参照)。
