@@ -5,6 +5,7 @@ import { MasuIndicator } from "./MasuIndicator";
 import { RunningTimersIndicator } from "./RunningTimersIndicator";
 import { ToolbarMenu } from "./ToolbarMenu";
 import { buildToolbarErrorNotes } from "./toolbarErrorNotes";
+import { startGoogleAuth } from "../sync/desktopAuth";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./icons";
 import type { TimelineNavigation } from "../hooks/useTimelineNavigation";
 import type { MasuVisibleState } from "../hooks/useMasuVisible";
@@ -312,7 +313,11 @@ export function AppToolbar({
               <button
                 type="button"
                 onClick={() => {
-                  window.location.href = "/auth/login";
+                  // ブラウザ/PWA では従来どおり `/auth/login` へ同一ウィンドウ遷移する。
+                  // デスクトップ版 (Tauri) だけ外部ブラウザで開く ―― Google が埋め込み
+                  // webview からの OAuth を禁止しており 401: disabled_client になるため
+                  // (sync/desktopAuth.ts の冒頭コメント参照)。
+                  void startGoogleAuth({ kind: "login" });
                 }}
               >
                 Google 連携
@@ -425,7 +430,8 @@ export function AppToolbar({
             onSync={runSync}
             onToggleHelp={() => setHelpOpen((v) => !v)}
             onConnectGoogle={() => {
-              window.location.href = "/auth/login";
+              // 広幅の「Google 連携」ボタンと同じ経路 (上のコメント参照)。
+              void startGoogleAuth({ kind: "login" });
             }}
             hourHeight={hourHeight}
             onHourHeightChange={handleHourHeightChange}

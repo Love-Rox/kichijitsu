@@ -446,3 +446,93 @@ push → CI ビルド → DMG 公開 → `Love-Rox/homebrew-tap/Casks/kichijitsu
    && gh auth login` を先に行う）
 7. 以降のバージョンアップも 1〜6 を繰り返す（cask 自動更新 job は無いため、
    tap 側の更新は毎回手動）
+
+## 増分2d: Google 連携を **外部ブラウザ** で行う（2026-08-07）
+
+### 背景（本番で確認した事象）
+
+デスクトップ版から Google 連携しようとすると **`401: disabled_client`** で弾かれる
+（2026-08-06 に本番で確認）。ブラウザ版では**同じクライアント ID・同じ URL** で通る
+ので原因は環境側で確定していて、Google が「埋め込みブラウザ (embedded user-agent)
+からの OAuth」を禁止していることによる。Google Cloud Console のプロジェクト診断にも
+「レガシー ブラウザ: アプリは、安全でない可能性のある古いブラウザで実行されています」
+という警告が出ていた。
+
+### なぜ「外部ブラウザで開く」だけでは足りないのか
+
+このアプリは本番 URL を webview で読むだけの薄いガワ（増分1）で、セッションは
+**その webview の Cookie**。外部ブラウザで OAuth を完了させると `Set-Cookie` は
+外部ブラウザ側に付いてしまい、アプリの webview は未ログインのままになる。
+そこで**使い捨てチケット**を介して webview 側へセッションを渡す3段構えにした。
+
+### 流れ
+
+```
+[アプリ webview]  「Google 連携」クリック（apps/web/src/sync/desktopAuth.ts）
+       │  (add モードのみ) POST /auth/desktop/add-intent → 署名付き add_token
+       ▼  invoke("open_external_login", { path: "/auth/login?..." })
+[Rust]  verifier(32バイト乱数) を自分の中に保持し、challenge=SHA-256(verifier) を
+       │  URL に足して OS の既定ブラウザで開く
+       ▼
+[外部ブラウザ]  /auth/login?...&desktop=1&dc=<challenge> → Google 同意 → /auth/callback
+       │  チケットを発行し kichijitsu:// へ橋渡しするページを返す
+       ▼
+[OS]   kichijitsu://auth?ticket=... をアプリへ配送（tauri-plugin-deep-link）
+       ▼
+[Rust]  保持していた verifier を添えて webview を
+       │  /auth/desktop/exchange?ticket=..&verifier=.. へナビゲートする
+       ▼
+[Worker] チケットを消費し、**webview の Cookie として** sid を発行して APP_URL へ戻す
+```
+
+最後を「webview のナビゲーション」にしているのは、`Set-Cookie` がレスポンスを
+受け取った Cookie ジャーにしか入らないため。webview 自身にこの GET を踏ませるのが、
+webview の Cookie ジャーへ sid を入れる一番素直な方法。
+
+### チケットの仕様
+
+| 項目 | 内容 |
+| --- | --- |
+| 保管先 | **D1**（`desktop_auth_tickets`、migrations/0014）。発行も交換も同じ Worker 内で完結し、単回使用は `DELETE` の `meta.changes === 1` で表現できるので Durable Object の直列実行は要らない |
+| 生値 | 32 バイト CSPRNG → base64url 43文字。**サーバーはハッシュしか持たない**（mcp_tokens と同じ） |
+| 寿命 | 3分（`DESKTOP_TICKET_TTL_MS`）。覆うのは「OAuth 完了 → OS がアプリへ配送 → 交換」だけで、同意画面の待ち時間は手前の state cookie(10分)が持つ |
+| 単回使用 | 交換要求が来たら**検証の前に必ず行を DELETE** する。成功/失敗にかかわらず1回で死ぬので、verifier の総当たりもできない |
+| 取り違え防止 | PKCE 相当。アプリが持つ verifier の SHA-256 を challenge として行に焼き込み、交換時に照合する。悪意ある `kichijitsu://` リンクを踏まされても、そのアプリの verifier とは一致しないため他人のアカウントでログインしない |
+
+add モードだけは別に **署名付き `add_token`**（10分・HMAC・署名対象に
+`kichijitsu-desktop-add` の前置き）を使う。外部ブラウザには webview の sid が無く、
+これが無いと「アカウント追加のつもりが新規プロファイル作成」になるため。
+前置きを混ぜているのは、鍵と形式が sid と同じなので、そのままでは 30 日有効な
+セッションとして通ってしまうから。
+
+### 追加したライブラリ（通常方針の例外）
+
+このリポジトリは「新しいライブラリを追加しない」方針だが、Google 側の制約への対処
+としてユーザー承認のうえ以下を追加した（詳細な理由は `src-tauri/Cargo.toml` のコメント）。
+
+- `tauri-plugin-deep-link`: `kichijitsu://` の OS 登録と受信。登録の作法が OS ごとに
+  全く違うため自前実装は非現実的
+- `tauri-plugin-opener`: 既定ブラウザで URL を開く。**プラグイン登録はせず** Rust の
+  自由関数 `open_url` だけ使う（JS 側へ「任意 URL を開く」コマンドを生やさないため）
+- `sha2` / `getrandom`: challenge の計算と verifier の生成。ハッシュと CSPRNG の自前実装は避ける
+- `serde_json`: 直接は使わない。`tauri.conf.json` に `plugins` セクションを書くと
+  `generate_context!` の展開先が要求するため
+
+いずれも既に tauri の依存グラフに推移的に入っており、新しい供給元は増えていない。
+
+### ブラウザ版/PWA は無変更
+
+分岐は既存の `isTauri()`（`window.__TAURI__` の有無）1箇所だけ。ブラウザでは必ず
+false になり、`location.href = "/auth/login…"` の**文字列も従来と完全に同一**
+（`buildGoogleLoginPath` のテストで固定）。Worker 側も `desktop=1` + `dc` が
+そろわない限り従来の分岐をそのまま流れ、state の JSON も1バイトも変わらない。
+
+### 実機確認の注意
+
+- **macOS ではスキーム登録がバンドル済みアプリに対して行われる**ため、`tauri dev`
+  ではディープリンクが届かないことがある。`pnpm build:desktop` で作った `.app` から
+  確認すること
+- Windows/Linux ではディープリンクがアプリの**新しいインスタンス**として起動する
+  （プラグインの README）。同じ挙動にそろえるには `tauri-plugin-single-instance` の
+  `deep-link` feature が要るが、現状の配布対象は macOS なので今回は入れていない
+- 本番へは `apps/sync/migrations/0014_desktop_auth_tickets.sql` の適用が必要

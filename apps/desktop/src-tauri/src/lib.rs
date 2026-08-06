@@ -32,11 +32,27 @@
 // Homebrew 配布・他 GitHub データ(items/activity/ci/pr-commits)の gh 化は別増分
 // （docs/desktop.md「次の増分」参照）。
 
+// 増分2d: Google 連携を **外部ブラウザ** で行う（2026-08-07）。
+// Google は埋め込みブラウザ(embedded user-agent)からの OAuth を禁止しており、この
+// webview の中で /auth/login へ遷移すると 401: disabled_client で弾かれる
+// （2026-08-06 に本番で確認。Console のプロジェクト診断にも「レガシー ブラウザ」警告）。
+// そこで OAuth 自体は OS の既定ブラウザで完了させ、カスタム URL スキーム
+// `kichijitsu://` でこのアプリへ戻り、使い捨てチケットを webview のセッション Cookie に
+// 交換する。全体の流れと安全性の設計は apps/sync/src/routes/desktop-auth.ts と
+// apps/sync/src/core/desktop-auth.ts の冒頭コメントにまとめてある。
+// Rust 側の担当は「verifier を持つ」「外部ブラウザを開く」「戻ってきた ticket と
+// verifier を webview に踏ませる」の3つだけ（下記 open_external_login /
+// handle_auth_deep_link）。
+
+use std::sync::Mutex;
+
+use sha2::{Digest, Sha256};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Manager, Url, WindowEvent,
 };
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 /// `gh api` に渡してよい `endpoint` かどうかを判定するホワイトリスト。
@@ -491,6 +507,242 @@ fn notify(app: tauri::AppHandle, title: String, body: String) -> Result<(), Stri
         .map_err(|e| format!("通知の送出に失敗しました: {e}"))
 }
 
+// ============================================================================
+// 外部ブラウザ OAuth（増分2d、2026-08-07）
+// ============================================================================
+
+/// アプリへ戻ってくるためのカスタム URL スキーム。
+/// `tauri.conf.json` の `plugins.deep-link.desktop.schemes` と、Worker 側の
+/// `apps/sync/src/core/desktop-auth.ts` の `DESKTOP_DEEP_LINK_SCHEME` の**3箇所**が
+/// 一致していないと、認証が無言で詰まる（OS がアプリを見つけられない / アプリが
+/// 受け取っても自分宛だと判定しない）。
+const DEEP_LINK_SCHEME: &str = "kichijitsu";
+
+/// 外部ブラウザで始めた認証の verifier を1件だけ保持する。
+///
+/// # なぜアプリ（Rust）側に持つのか
+/// この値は「いま開いている認証を始めたのは、まさにこのアプリだ」という証明に使う
+/// （PKCE 相当。詳細は apps/sync/src/core/desktop-auth.ts のコメント）。外部ブラウザには
+/// SHA-256 を取ったもの（challenge）しか渡さないので、URL が履歴やブラウザ同期経由で
+/// 漏れても、この verifier は復元できない。
+///
+/// webview の JS 側ではなく Rust に置いているのは (1) webview がリロードされても失われない、
+/// (2) リモート URL 側に XSS が刺さっても読み出せない、の2点のため。
+///
+/// **ディスクには保存しない。** 認証の途中でアプリを完全終了 (トレイの「終了」) すると
+/// verifier は失われ、戻ってきたディープリンクは無視される (利用者はもう一度
+/// 「Google 連携」を押すだけでよい)。数分だけ生きる秘密をファイルに書いて残す方が
+/// リスクが大きく、しかもウィンドウの「閉じる」ではプロセスは終わらない (下記
+/// on_window_event) ため、実際にこの経路に落ちるのは稀。
+///
+/// 常に**最後に開始した1件**だけを保持する。認証を2回続けて始めたら古い方は捨てられ、
+/// 古い方のディープリンクが後から届いても verifier が合わずに失敗する ―― 認証は
+/// ユーザーが1つずつ行う操作なので、これで困ることは無い。
+#[derive(Default)]
+struct PendingExternalLogin(Mutex<Option<String>>);
+
+/// バイト列を小文字 hex にする（Worker 側の bytesToHex と同じ表現）。
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// 32 バイトの暗号論的乱数を小文字 hex（64文字）で返す。
+///
+/// `std` には CSPRNG が無いため getrandom を使う。ここで推測可能な値を使うと、
+/// 「アプリと認証の結び付け」という PendingExternalLogin の目的そのものが崩れる。
+fn random_hex_32() -> Result<String, String> {
+    let mut buf = [0u8; 32];
+    getrandom::fill(&mut buf).map_err(|e| format!("乱数の生成に失敗しました: {e}"))?;
+    Ok(to_hex(&buf))
+}
+
+/// SHA-256 を小文字 hex で返す。Worker 側の `hashDesktopSecret` と同じ表現
+/// （テストで SHA-256("abc") の既知ベクタを両側に置いて突き合わせている）。
+fn sha256_hex(input: &str) -> String {
+    to_hex(&Sha256::digest(input.as_bytes()))
+}
+
+/// web 側から渡された相対パスを、外部ブラウザで開く絶対 URL に組み立てる**純関数**。
+///
+/// # 脅威モデル
+/// `path` の出所はリモート URL を読む webview（＝ XSS が刺さりうる、lib.rs 冒頭と
+/// `gh_api` のコメント参照）なので、そのまま既定ブラウザへ渡してはいけない。
+/// `is_allowed_gh_endpoint` と同じ考え方で、**web 側が実際に使う形だけを許可する**:
+///
+/// 1. 制御文字を含まないこと（URL/ヘッダの行インジェクション対策）
+/// 2. `"/auth/login"` そのもの、または `"/auth/login?"` で始まること
+///    （`//evil.example.com/...` のようなプロトコル相対 URL もここで落ちる）
+/// 3. 解決後のオリジンが、webview が今読んでいるオリジンと同一であること（二重の保険）
+///
+/// この3つを通すと、XSS が open_external_login を叩けても「自分のサイトのログイン画面を
+/// 既定ブラウザで開く」以上のことはできない。
+///
+/// オリジンを web 側で組み立てず webview の現在 URL から取るのは、公式インスタンスの
+/// ホスト名を `apps/web` に書かないため（セルフホスト時に漏れる）。この関数が使う
+/// `current` は tauri.conf.json のウィンドウ URL に由来する＝既存の設定経路そのもの。
+fn build_external_login_url(current: &Url, path: &str, challenge: &str) -> Result<String, String> {
+    if path.chars().any(|c| c.is_ascii_control()) {
+        return Err("ログイン URL に制御文字が含まれています".to_string());
+    }
+    if path != "/auth/login" && !path.starts_with("/auth/login?") {
+        return Err(format!("許可されていないログイン URL です: {path}"));
+    }
+    let joined = current
+        .join(path)
+        .map_err(|e| format!("ログイン URL を解決できませんでした: {e}"))?;
+    if joined.origin() != current.origin() {
+        return Err("ログイン URL のオリジンがアプリのものと一致しません".to_string());
+    }
+    // `desktop=1` と `dc`（challenge）は**アプリだけ**が足す。web 側に足させると、
+    // XSS が自分で作った challenge を仕込めてしまい結び付けの意味が無くなる。
+    let separator = if joined.query().is_some() { '&' } else { '?' };
+    Ok(format!("{joined}{separator}desktop=1&dc={challenge}"))
+}
+
+/// チケットの形式（Worker 側の `isValidDesktopTicketFormat` と同じ規則: base64url 43文字）。
+/// ディープリンクは誰でも投げられるので、webview に踏ませる前にここで形を確かめる。
+fn is_valid_ticket(value: &str) -> bool {
+    value.len() == 43
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+/// 受け取ったディープリンクが自分宛の認証コールバックなら、チケットを取り出す**純関数**。
+///
+/// 期待する形は `kichijitsu://auth?ticket=<43文字>`。ホストの扱いは OS/URL パーサによって
+/// `host = "auth"` にも `path = "/auth"` にもなりうるため、どちらも受け付ける。
+/// スキーム・宛先・チケット形式のどれかが違えば `None`（＝何もしない）。
+fn extract_ticket_from_deep_link(url: &Url) -> Option<String> {
+    if url.scheme() != DEEP_LINK_SCHEME {
+        return None;
+    }
+    let targets_auth = url.host_str() == Some("auth")
+        || (url.host_str().is_none() && matches!(url.path().trim_matches('/'), "auth"));
+    if !targets_auth {
+        return None;
+    }
+    let ticket = url
+        .query_pairs()
+        .find(|(k, _)| k == "ticket")
+        .map(|(_, v)| v.into_owned())?;
+    if !is_valid_ticket(&ticket) {
+        return None;
+    }
+    Some(ticket)
+}
+
+/// チケットとverifierを webview に踏ませる交換 URL を組み立てる**純関数**。
+///
+/// なぜ webview を**ナビゲート**させるのか: セッション Cookie は「そのレスポンスを受け取った
+/// Cookie ジャー」にしか入らない。Rust から fetch して Cookie を手で移す細工をするより、
+/// webview 自身にこの GET を踏ませるのが確実かつ単純。
+fn build_exchange_url(current: &Url, ticket: &str, verifier: &str) -> Result<String, String> {
+    if !is_valid_ticket(ticket) {
+        return Err("チケットの形式が正しくありません".to_string());
+    }
+    if verifier.len() != 64 || !verifier.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("verifier の形式が正しくありません".to_string());
+    }
+    let base = current
+        .join("/auth/desktop/exchange")
+        .map_err(|e| format!("交換 URL を解決できませんでした: {e}"))?;
+    // ticket は base64url、verifier は hex なので、いずれも URL エスケープ不要
+    // （形式検査を通っている＝ `&`/`?`/空白などは含まれない）。
+    Ok(format!("{base}?ticket={ticket}&verifier={verifier}"))
+}
+
+/// メインウィンドウが今読んでいる URL（＝ tauri.conf.json のウィンドウ URL に由来する
+/// 本番/セルフホストのオリジン）を返す。
+fn main_window_url(app: &tauri::AppHandle) -> Result<Url, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "メインウィンドウが見つかりません".to_string())?;
+    window
+        .url()
+        .map_err(|e| format!("webview の URL を取得できませんでした: {e}"))
+}
+
+/// Google 連携を **OS の既定ブラウザ** で開始する（web 側 sync/desktopAuth.ts から invoke）。
+///
+/// `path` は `/auth/login` または `/auth/login?...`（add モードの `add_token` / `login_hint`）
+/// の相対パスだけを受け付ける（`build_external_login_url` の脅威モデル参照）。
+/// verifier はここで作ってアプリ内に保持し、外部ブラウザへは SHA-256 を取った
+/// challenge しか渡さない。
+///
+/// 注: `gh_api` と同じくリモートコンテンツから invoke されるため capabilities/remote.json の
+/// `allow-open-external-login` が必要。
+#[tauri::command]
+fn open_external_login(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let current = main_window_url(&app)?;
+    let verifier = random_hex_32()?;
+    let url = build_external_login_url(&current, &path, &sha256_hex(&verifier))?;
+
+    // ブラウザを開く前に保存する。開いた後だと、極端に速い復帰（ブラウザが既にその
+    // サイトにログイン済みで即リダイレクトする場合）でディープリンクの方が先に届き、
+    // 「verifier がまだ無い」で自分の認証を取りこぼしうる。
+    //
+    // 保存できなかった場合はブラウザを**開かずに**エラーを返す。開いてしまうと、
+    // 利用者は同意画面まで進んだのに最後の交換だけが必ず失敗する（何が悪いのか
+    // 分からない）という一番たちの悪い失敗になる。
+    {
+        let state = app.state::<PendingExternalLogin>();
+        let mut pending = state
+            .0
+            .lock()
+            .map_err(|_| "認証の状態を保存できませんでした".to_string())?;
+        *pending = Some(verifier);
+    }
+
+    tauri_plugin_opener::open_url(url, None::<&str>)
+        .map_err(|e| format!("既定のブラウザを開けませんでした: {e}"))
+}
+
+/// `kichijitsu://auth?ticket=...` を受け取ったときの処理。
+///
+/// 保持していた verifier を **take（取り出して即座に消す）** ことで、アプリ側でも
+/// 1回のディープリンクにつき1回しか交換を試みない。verifier が無い状態で届いた
+/// ディープリンクは「このアプリが始めた認証ではない」＝ 悪意あるリンクを踏まされた
+/// 可能性があるので、何もせずログだけ残す（サーバー側でも challenge 照合で弾かれる）。
+fn handle_auth_deep_link(app: &tauri::AppHandle, url: &Url) {
+    let Some(ticket) = extract_ticket_from_deep_link(url) else {
+        eprintln!("kichijitsu: 認証コールバックとして解釈できないディープリンクを無視しました");
+        return;
+    };
+    let verifier = app
+        .state::<PendingExternalLogin>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.take());
+    let Some(verifier) = verifier else {
+        eprintln!("kichijitsu: 進行中の認証が無いのにディープリンクを受け取りました（無視します）");
+        return;
+    };
+
+    let Ok(current) = main_window_url(app) else {
+        return;
+    };
+    match build_exchange_url(&current, &ticket, &verifier) {
+        Ok(exchange_url) => match Url::parse(&exchange_url) {
+            Ok(parsed) => {
+                if let Some(window) = app.get_webview_window("main") {
+                    // 外部ブラウザから戻ってきた直後はアプリが背面/トレイにいることが多い。
+                    // 交換の結果（成功なら通常画面、失敗なら理由のページ）が見えるように前へ出す。
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    if let Err(e) = window.navigate(parsed) {
+                        eprintln!("kichijitsu: 認証の仕上げに失敗しました: {e}");
+                    }
+                }
+            }
+            Err(e) => eprintln!("kichijitsu: 交換 URL を組み立てられませんでした: {e}"),
+        },
+        Err(e) => eprintln!("kichijitsu: 交換 URL を組み立てられませんでした: {e}"),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -504,13 +756,46 @@ pub fn run() {
         // 呼び出しが別途必要(on_window_event の CloseRequested 分岐と
         // on_menu_event の "quit" 分岐のコメント参照)。
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 外部ブラウザ OAuth（増分2d、2026-08-07）。`kichijitsu://` の OS への登録は
+        // tauri.conf.json の plugins.deep-link.desktop.schemes が担い、このプラグインは
+        // 受け取ったディープリンクをアプリへ届ける。
+        //
+        // ブラウザを開く側の tauri-plugin-opener は**あえて登録しない** ―― Rust の自由関数
+        // `open_url` だけを使う。登録すると webview（リモート URL）から「任意の URL や
+        // ローカルファイルを開く」コマンドが叩けるようになってしまい、gh_api と同じ脅威モデル
+        // （ファイル冒頭のコメント）で晒す面が増えるため。
+        .plugin(tauri_plugin_deep_link::init())
+        // 進行中の認証の verifier 置き場（PendingExternalLogin のコメント参照）。
+        .manage(PendingExternalLogin::default())
         .invoke_handler(tauri::generate_handler![
             gh_api,
             app_version,
             validate_gh_path,
-            notify
+            notify,
+            open_external_login
         ])
         .setup(|app| {
+            // --- 外部ブラウザ OAuth の復帰口 ---
+            // `kichijitsu://auth?ticket=...` を受け取ったら、保持している verifier を添えて
+            // webview を /auth/desktop/exchange へナビゲートする（handle_auth_deep_link）。
+            //
+            // 注意（macOS）: スキームの登録は **バンドルされたアプリ** に対して行われるため、
+            // `tauri dev` で起動した状態ではディープリンクが届かないことがある。動作確認は
+            // `pnpm build:desktop` で作った .app から行うこと。
+            // 注意（Windows/Linux）: これらの OS ではディープリンクがアプリの**新しい
+            // インスタンス**として起動される（プラグインの README 参照）。同じ挙動に
+            // そろえるには tauri-plugin-single-instance の deep-link feature が要るが、
+            // 現状の配布対象は macOS（apps/desktop/homebrew/kichijitsu.rb）なので、
+            // ライブラリを増やさない方針を優先して今回は入れていない。
+            {
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        handle_auth_deep_link(&handle, &url);
+                    }
+                });
+            }
+
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
             let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
@@ -917,5 +1202,149 @@ mod tests {
         assert_eq!(clamp_notify_text("abc", 1), "…");
         assert_eq!(clamp_notify_text("abc", 0), "…");
         assert_eq!(clamp_notify_text("", 0), "");
+    }
+
+    // --- 外部ブラウザ OAuth (増分2d、2026-08-07) ---
+
+    fn app_origin() -> Url {
+        // 実際の webview は tauri.conf.json のウィンドウ URL (…/app) を読んでいる。
+        Url::parse("https://kichijitsu.example.test/app").unwrap()
+    }
+
+    #[test]
+    fn sha256_hex_matches_the_worker_side() {
+        // apps/sync/test/desktop-auth.test.ts に置いてある既知ベクタと同じ値。
+        // ここが食い違うと challenge の照合が永久に通らない (認証が無言で失敗する)。
+        assert_eq!(
+            sha256_hex("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn random_hex_32_is_64_lowercase_hex_and_not_repeated() {
+        let a = random_hex_32().unwrap();
+        let b = random_hex_32().unwrap();
+        assert_eq!(a.len(), 64);
+        assert!(a
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn build_external_login_url_appends_desktop_markers() {
+        let challenge = "a".repeat(64);
+        // クエリなし: `?` で始める。
+        assert_eq!(
+            build_external_login_url(&app_origin(), "/auth/login", &challenge).unwrap(),
+            format!("https://kichijitsu.example.test/auth/login?desktop=1&dc={challenge}")
+        );
+        // 既にクエリがある (add モード): `&` で継ぎ足す。
+        assert_eq!(
+            build_external_login_url(
+                &app_origin(),
+                "/auth/login?add=1&login_hint=a%40b.c&add_token=t",
+                &challenge
+            )
+            .unwrap(),
+            format!(
+                "https://kichijitsu.example.test/auth/login?add=1&login_hint=a%40b.c&add_token=t&desktop=1&dc={challenge}"
+            )
+        );
+    }
+
+    #[test]
+    fn build_external_login_url_rejects_anything_but_the_login_path() {
+        let challenge = "a".repeat(64);
+        for path in [
+            // 別オリジンへ誘導しようとするもの (XSS が最も狙う形)
+            "https://evil.example.com/auth/login",
+            "//evil.example.com/auth/login",
+            // ログイン以外のパス (既定ブラウザで勝手に開かせない)
+            "/auth/logout",
+            "/app",
+            "/auth/loginX",
+            "file:///etc/passwd",
+            // 相対パス・空
+            "auth/login",
+            "",
+            // 制御文字混入
+            "/auth/login?add=1\r\nX-Evil: 1",
+        ] {
+            assert!(
+                build_external_login_url(&app_origin(), path, &challenge).is_err(),
+                "許可されてはいけない path が通った: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_ticket_from_deep_link_accepts_the_expected_shape() {
+        let ticket = "a".repeat(43);
+        let url = Url::parse(&format!("kichijitsu://auth?ticket={ticket}")).unwrap();
+        assert_eq!(
+            extract_ticket_from_deep_link(&url).as_deref(),
+            Some(&ticket[..])
+        );
+        // base64url の記号 (- と _) を含むチケットも通る。
+        let symbolic = format!("{}-_", "b".repeat(41));
+        let url = Url::parse(&format!("kichijitsu://auth?ticket={symbolic}")).unwrap();
+        assert_eq!(
+            extract_ticket_from_deep_link(&url).as_deref(),
+            Some(&symbolic[..])
+        );
+    }
+
+    #[test]
+    fn extract_ticket_from_deep_link_rejects_foreign_or_malformed_links() {
+        let ticket = "a".repeat(43);
+        for raw in [
+            // 別スキーム (他アプリ向けのリンクを拾わない)
+            &format!("https://kichijitsu.example.test/auth?ticket={ticket}"),
+            &format!("evil://auth?ticket={ticket}"),
+            // 宛先が auth ではない
+            &format!("kichijitsu://other?ticket={ticket}"),
+            // チケットが無い / 形式が違う
+            "kichijitsu://auth",
+            "kichijitsu://auth?ticket=",
+            &format!("kichijitsu://auth?ticket={}", "a".repeat(42)),
+            &format!("kichijitsu://auth?ticket={}", "a".repeat(44)),
+            "kichijitsu://auth?ticket=aaaa+aaaa",
+        ] {
+            let url = Url::parse(raw).unwrap();
+            assert!(
+                extract_ticket_from_deep_link(&url).is_none(),
+                "受け付けてはいけないディープリンクが通った: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_exchange_url_uses_the_app_origin_and_validates_both_secrets() {
+        let ticket = "a".repeat(43);
+        let verifier = "1".repeat(64);
+        assert_eq!(
+            build_exchange_url(&app_origin(), &ticket, &verifier).unwrap(),
+            format!(
+                "https://kichijitsu.example.test/auth/desktop/exchange?ticket={ticket}&verifier={verifier}"
+            )
+        );
+        // 形式が違うものは URL を組み立てない (webview に踏ませない)。
+        assert!(build_exchange_url(&app_origin(), "short", &verifier).is_err());
+        assert!(build_exchange_url(&app_origin(), &ticket, "short").is_err());
+        assert!(build_exchange_url(&app_origin(), &ticket, &"z".repeat(64)).is_err());
+        // クエリ/フラグメント混入で URL を壊そうとする値も形式検査で落ちる。
+        assert!(
+            build_exchange_url(&app_origin(), &format!("{}&x=1", "a".repeat(39)), &verifier)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn deep_link_scheme_is_shared_with_the_config_and_the_worker() {
+        // tauri.conf.json の plugins.deep-link.desktop.schemes と
+        // apps/sync/src/core/desktop-auth.ts の DESKTOP_DEEP_LINK_SCHEME と同じ値であること。
+        assert_eq!(DEEP_LINK_SCHEME, "kichijitsu");
     }
 }

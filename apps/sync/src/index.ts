@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./types";
 import { authRoutes } from "./routes/auth";
+import { desktopAuthRoutes } from "./routes/desktop-auth";
 import { githubAuthRoutes } from "./routes/github-auth";
 import { apiRoutes } from "./routes/api";
 import { webhookRoutes } from "./routes/webhook";
@@ -21,6 +22,8 @@ export { ProfileHubDO } from "./durable-object/profile-hub-do";
 const app = new Hono<AppEnv>();
 
 app.route("/", authRoutes);
+// デスクトップ版 (Tauri) の外部ブラウザ OAuth 用 (/auth/desktop/*、2026-08-07)。
+app.route("/", desktopAuthRoutes);
 app.route("/", githubAuthRoutes);
 app.route("/", apiRoutes);
 app.route("/", webhookRoutes);
