@@ -46,18 +46,52 @@
    - 承認済みドメイン: love-rox.cc
 3. **公開ステータスを「本番」へ** → 審査提出
 
-## 審査提出時の説明文（下書き）
+## 審査提出時の説明文
 
-> kichijitsu is a calendar client application. It requests:
+**先に「データアクセス」画面へ3スコープを登録すること** — 登録しないと「機密性の高い
+スコープをリクエストしていないため検証は必要ありません」と判定され、申請自体ができない
+（2026-08-06 の障害記録を参照）。
+
+各スコープについて「読み取りに何が要るか」「書き込みに何が要るか」を分けて書く。
+Google は抽象的な説明を嫌うので、**UI 上のどの操作が API のどの呼び出しになるか**まで
+書き下す。以下は実装 (apps/sync/src/google/) と一致していることを確認済みの文面。
+
+> **kichijitsu** is a personal calendar client for Google Calendar. It displays the
+> user's events on a week/day timeline, lets them create and edit events directly by
+> dragging, and shows their Google Tasks alongside the calendar.
 >
-> - `calendar.events` — to read the user's calendar events for display in the app,
->   and to create/update events when the user edits them in the app.
-> - `calendar.calendarlist.readonly` — to list the user's calendars so they can
->   choose which calendar to display.
+> **`https://www.googleapis.com/auth/calendar.events`**
+> - *Read*: fetch the user's events to render the calendar timeline.
+> - *Write*: create, update and delete events when the user adds, drags, resizes,
+>   duplicates or deletes them in the UI, and respond to invitations (RSVP).
+>   Additionally, when — and only when — the user configures a "block" rule, we create
+>   placeholder "busy" events on a destination calendar they choose, so that time
+>   already booked on one calendar is visible as busy on another.
+> - We request `calendar.events` rather than the full `calendar` scope because we never
+>   need to create, delete or modify calendars themselves.
 >
-> Event data is synced directly to the user's browser (IndexedDB) and is never
-> stored on our servers. Our servers store only encrypted OAuth tokens and sync
-> cursors. See https://kichijitsu.love-rox.cc/privacy.html
+> **`https://www.googleapis.com/auth/calendar.calendarlist.readonly`**
+> - *Read only*: list the user's calendars so they can choose which ones to display and
+>   which calendar to write to. We never modify the calendar list.
+>
+> **`https://www.googleapis.com/auth/tasks`**
+> - *Read*: `tasklists.list` and `tasks.list`, to show the user's task lists and tasks
+>   next to their calendar.
+> - *Write*: `tasks.patch`, restricted to the `status` field only, so the user can tick
+>   a task complete (or undo it) from the calendar UI. We do not create, delete or
+>   rename tasks.
+> - `tasks.readonly` is not sufficient because completing a task is a write.
+>   `https://www.googleapis.com/auth/tasks` is the narrowest scope that allows it.
+>
+> **`openid`, `email`**
+> - To identify which Google account signed in, so the app can associate it with the
+>   right tokens and let the user connect several Google accounts at once.
+>
+> **Data handling.** Event and task content is never stored on our servers. It is
+> delivered to the user's browser and kept in IndexedDB on their own device. Our servers
+> (Cloudflare Workers + D1) store only encrypted OAuth refresh tokens, account
+> identifiers, sync cursors and user settings. Our Limited Use disclosure is at
+> https://kichijitsu.love-rox.cc/privacy.html
 
 ## デモ動画の構成（YouTube 限定公開でよい）
 
@@ -65,7 +99,13 @@
 2. 「Google 連携」→ OAuth 同意画面（**スコープが表示される画面を必ず映す**）→ 許可
 3. カレンダーが表示される（スコープの利用目的 = 表示）
 4. 予定をドラッグで編集 → Google カレンダー本体にも反映されることを見せる（= 書き込みの利用目的）
-5. 「連携解除」を実行（`DELETE /api/account`）→ ログアウト状態に戻ることを見せる。
+5. **タスク**（`tasks` スコープの使途。申請したスコープは全部映す必要がある）:
+   右ペインにタスク一覧が出ること（= `tasklists.list` / `tasks.list` の用途 = 表示）→
+   枡チェックボックスを押して完了にする → Google ToDo リスト側でも完了になっていることを
+   見せる（= `tasks.patch` の用途 = 完了状態の書き戻し）。
+   **書き込みが status だけであることが伝わるよう、タスクの新規作成や削除は映さない**
+   （実際に実装していない機能を期待させないため）
+6. 「連携解除」を実行（`DELETE /api/account`）→ ログアウト状態に戻ることを見せる。
    可能なら Google アカウントの「サードパーティ製アプリとサービス」ページ
    (https://myaccount.google.com/connections) から kichijitsu が消えている
    (= 実際に revoke された) ことも合わせて見せると、より説得力がある
@@ -97,6 +137,26 @@ This app has not been verified yet by Google」。
 全アカウントが毎週再連携を要求される。恒久対応は審査提出。
 **「テストへ戻して復旧 → 並行して審査提出 → 承認後に本番へ」が最短。**
 
-**教訓**: 「本番にする」と「審査を通す」は別。前者だけを先に行うと、
-以前ここに書いてあった「本番化で100ユーザー制限が撤廃される」という誤解のまま、
-**動いていたものが後から止まる**。切り替えは審査承認とセットで行うこと。
+**真の原因 (同日、追調査で判明)**: 上は症状であって原因ではなかった。
+**「データアクセス」画面に sensitive スコープが1つも登録されていなかった。**
+検証センターの Data access status が
+「アプリは機密性の高いスコープや制限付きスコープをリクエストしていないため、
+検証は必要ありません」と表示されており、Google は**このアプリが sensitive スコープを
+要求していないと認識**していた。一方コードは calendar.events /
+calendar.calendarlist.readonly / tasks の3つ (すべて sensitive) を実行時に要求していた。
+
+申告されていない機密スコープを要求するアプリは未確認アプリとして扱われ、警告表示・
+トークン失効・アカウントによってはハードブロックの対象になる。
+
+**「検証済み」の読み違いに注意**: 概要画面の「アプリの検証 ✅ アプリが Google によって
+検証されました」は**ブランディングの検証**であって、スコープの検証ではない。
+検証センターでは Branding status と Data access status が別々に表示される。
+**この2つを混同すると「審査は通っているのに未確認警告が出る」という矛盾に見える。**
+
+**正しい対処**: データアクセス画面に3スコープを登録する → Data access status が
+「検証が必要」に変わる → 申請する。登録しない限り申請自体ができない。
+
+**教訓**: 「本番にする」「ブランディングが検証される」「スコープの検証が通る」は**全部別**。
+以前ここに書いてあった「本番化で100ユーザー制限が撤廃される」という誤解も含め、
+段階を1つにまとめて考えると原因を見失う。**実行時に要求しているスコープと、
+コンソールに登録されているスコープが一致しているか**を最初に確かめること。
