@@ -361,6 +361,19 @@
         margin-inline: auto;
       }
 
+      /* タグライン。h1 はアプリ名 (kichijitsu) 固定 ―― OAuth 同意画面に設定した
+         アプリ名とホームページ上の表記が一致していないと Google の審査で差し戻される
+         (2026-08-06 に実際に指摘された)。ワードマークは SVG のパスで文字が
+         テキストとして読めないため、見出しをアプリ名にするのが確実。
+         タグラインは h1 の座を降りるが、display-s で従来に近い存在感を保つ。 */
+      .hero__tagline {
+        margin: var(--space-sm) auto 0;
+        font-size: var(--text-display-s);
+        letter-spacing: -0.01em;
+        max-width: 16ch;
+        color: var(--ink);
+      }
+
       .hero__sub {
         margin: var(--space-md) auto 0;
         max-width: 40ch;
@@ -918,7 +931,8 @@
             <span class="masu-strip__cell"></span>
           </span>
         </div>
-        <h1 class="hero__title">思い立ったが吉日。</h1>
+        <h1 class="hero__title">kichijitsu</h1>
+        <p class="hero__tagline">思い立ったが吉日。</p>
         <p class="hero__sub">
           Google
           カレンダーを、あなたの手元に。予定はブラウザに置く、ローカルファーストの新しいカレンダー。
