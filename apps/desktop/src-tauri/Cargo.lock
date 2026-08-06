@@ -1909,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "kichijitsu-desktop"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "getrandom 0.3.4",
  "serde_json",
