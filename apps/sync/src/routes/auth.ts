@@ -20,6 +20,7 @@ import { isEmailAllowed } from "../allowlist";
 import { encryptToken } from "../crypto";
 import { encodeOAuthState, decodeOAuthState } from "../oauth-state";
 import { isProfileOwnerless, resolveLoginProfile } from "../profile-resolution";
+import { shouldRejectStaleRefreshTokenReuse } from "../core/reauth";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -68,6 +69,37 @@ export function renderConnectionLoginRejectionPage(email: string, appUrl: string
     <h1>ログインできません</h1>
     <p>このアカウント (${safeEmail}) は既存プロファイルの接続アカウントです。プロファイルのオーナーアカウントでログインしてください。</p>
     <p>このアカウントを独立したプロファイルにしたい場合は、先にオーナーでログインして設定からこのアカウントの接続を解除してください。</p>
+    <p><a href="${safeAppUrl}">トップページに戻る</a></p>
+  </body>
+</html>
+`;
+}
+
+/**
+ * 再認証待ち (accounts.reauth_required_at 非 NULL、core/reauth.ts の
+ * shouldRejectStaleRefreshTokenReuse を参照) のアカウントで、Google から新しい
+ * refresh_token を受け取れなかったときに返す案内ページ (2026-08-07)。
+ *
+ * ここで生の JSON エラーを返すと「同意画面は完走したのに何が起きたか分からない」まま
+ * 終わってしまう (実際に本番でこの状態が「直ったように見えて数分後にまた壊れる」
+ * ループとして観測された)。renderConnectionLoginRejectionPage と同じ作法で、
+ * 何が起きたか・次に何を試せばよいかが分かる HTML を返す。
+ */
+export function renderReauthFailedPage(email: string, appUrl: string): string {
+  const safeEmail = escapeHtml(email);
+  const safeAppUrl = escapeHtml(appUrl);
+  return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>再認証できませんでした - kichijitsu</title>
+  </head>
+  <body>
+    <h1>再認証できませんでした</h1>
+    <p>このアカウント (${safeEmail}) について、Google から新しいアクセス許可を取得できませんでした。同意画面を完了したように見えても、Google が新しい許可の発行をスキップした可能性があります。</p>
+    <p>もう一度「再認証」をお試しください。それでも解決しない場合は、
+      <a href="https://myaccount.google.com/permissions" target="_blank" rel="noreferrer">Google アカウントのアクセス権限の管理</a>
+      からこのアプリへのアクセスを一度削除したうえで、改めて連携し直してください。</p>
     <p><a href="${safeAppUrl}">トップページに戻る</a></p>
   </body>
 </html>
@@ -184,11 +216,18 @@ authRoutes.get("/auth/callback", async (c) => {
   // 再連携で Google が refresh_token を返さないことがある (通常は最初の同意時のみ発行)。
   // その場合は既存の (暗号化済み) refresh_token をそのまま再利用する。is_owner も
   // 「このアカウントが既にどこかのプロファイルのオーナーか」の判定に使う。
+  // reauth_required_at もここで併せて取得する (2026-08-07): 下の refreshTokenToStore
+  // フォールバック判定 (shouldRejectStaleRefreshTokenReuse) に必要。
   const existing = await c.env.DB.prepare(
-    "SELECT profile_id, refresh_token, is_owner FROM accounts WHERE id = ?",
+    "SELECT profile_id, refresh_token, is_owner, reauth_required_at FROM accounts WHERE id = ?",
   )
     .bind(accountId)
-    .first<{ profile_id: string; refresh_token: string; is_owner: number }>();
+    .first<{
+      profile_id: string;
+      refresh_token: string;
+      is_owner: number;
+      reauth_required_at: number | null;
+    }>();
 
   // プロファイルの決め方 (2026-07-20, アカウント設計の分離: 身元(オーナー) と 同期アカウント
   // (接続) を分ける。詳細は src/profile-resolution.ts のコメント参照):
@@ -279,9 +318,34 @@ authRoutes.get("/auth/callback", async (c) => {
   // add モードで追加されるアカウントは常に「接続」(is_owner=0)。
   const isOwner = state.mode === "add" ? 0 : 1;
 
+  // 再認証待ち (reauth_required_at 非 NULL) のアカウントで、Google が新しい
+  // refresh_token を返さなかった場合はここで打ち切る (2026-08-07、核心の修正)。
+  // 詳しい経緯は core/reauth.ts の shouldRejectStaleRefreshTokenReuse を参照。
+  // UPSERT (ACCOUNTS_UPSERT_SQL、reauth_required_at を無条件 NULL に戻す) に到達させず、
+  // 死んでいると分かっている既存トークンも書き戻さない ―― どちらもここで止めないと
+  // 「再認証したように見えて実は直っていない」まま reauth_required_at だけ消えてしまう。
+  const reauthRequiredAt = existing?.reauth_required_at ?? null;
+  const hasNewRefreshToken = Boolean(tokens.refreshToken);
+  if (shouldRejectStaleRefreshTokenReuse(hasNewRefreshToken, reauthRequiredAt)) {
+    // accountId と「新しい refresh_token が返らなかった」事実のみ記録する。
+    // トークン (既存値・新規値とも) やその一部は絶対に出さない。
+    console.warn(
+      `auth callback: reauth required for account ${accountId} but Google did not return a new refresh_token; refusing to reuse the stale stored token`,
+    );
+    return c.html(renderReauthFailedPage(email, c.env.APP_URL), 409);
+  }
+
   // Google から新しい平文 refresh_token を受け取った時だけ暗号化する。既存行を使い回す
   // 場合は D1 に入っている値 (= 既に v1 暗号文、または移行対象外の旧平文) をそのまま書き戻す
   // だけなので、ここで復号する必要はない。
+  if (!hasNewRefreshToken && existing?.refresh_token) {
+    // このフォールバック自体が黙って動くと発見が遅れる (今回の不具合そのもの) ので、
+    // 使われたことを常にログへ残す。ここに来る時点で reauthRequiredAt は null
+    // (非 null は上のガードで既に弾いている) ―― 正常系のフォールバックであることの記録。
+    console.warn(
+      `auth callback: no new refresh_token from Google for account ${accountId}; reusing the stored token`,
+    );
+  }
   const refreshTokenToStore = tokens.refreshToken
     ? await encryptToken(c.env.TOKEN_ENC_KEY, tokens.refreshToken)
     : existing?.refresh_token;

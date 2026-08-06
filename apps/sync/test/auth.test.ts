@@ -142,6 +142,28 @@ describe("GET /auth/login?add=1 → GET /auth/callback (本番ロックアウト
     );
   }
 
+  /** stubTokenFetch と同じだが、再連携で Google がよく行う「refresh_token を含めない」
+   *  応答を再現する (google/oauth.ts の ExchangedTokens.refreshToken は optional)。 */
+  function stubTokenFetchWithoutRefreshToken(sub: string, email: string): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          access_token: "at",
+          expires_in: 3600,
+          id_token: fakeIdToken(sub, email),
+          scope: [
+            "openid",
+            "email",
+            "https://www.googleapis.com/auth/calendar.events",
+            "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+            "https://www.googleapis.com/auth/tasks",
+          ].join(" "),
+        }),
+      ),
+    );
+  }
+
   it(
     "オーナーが自分自身を「再認証」/「+アカウントを追加」で選び直しても " +
       "(?add=1 → callback) is_owner=1 のまま。以前は 1→0 に降格し、オーナー不在の " +
@@ -291,6 +313,126 @@ describe("GET /auth/login?add=1 → GET /auth/callback (本番ロックアウト
       };
       expect(row.is_owner).toBe(0);
       expect(row.profile_id).toBe(PROFILE_ID);
+    },
+  );
+
+  /**
+   * 「再認証したように見えて実は直っていない」バグの再現・修正確認 (2026-08-07)。
+   * reauth_required_at が既に立っているアカウントで、Google が新しい refresh_token を
+   * 返さなかった (再連携でよくある挙動) 場合に、死んだトークンの書き戻し・
+   * reauth_required_at の消去を止められているかを、実際の /auth/login?add=1 →
+   * /auth/callback 経路で確認する (「再認証」ボタンは常に add モードを使う、
+   * AppOverlays.tsx 参照)。
+   */
+  it(
+    "reauth_required_at が立っているアカウントで新しい refresh_token が得られなかった場合、" +
+      "既存トークンを書き戻さず reauth_required_at も消さずにエラーページを返す",
+    async () => {
+      const { db, d1 } = makeSqliteD1();
+      db.prepare(
+        "INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at, reauth_required_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(OWNER_SUB, PROFILE_ID, OWNER_EMAIL, "rt-dead-encrypted", 1, 1000, 1_700_000_000_000);
+
+      const env = makeEnv(d1);
+      const sid = await createSessionCookieValue(SESSION_SECRET, PROFILE_ID);
+
+      const loginRes = await authRoutes.request(
+        `/auth/login?add=1&login_hint=${encodeURIComponent(OWNER_EMAIL)}`,
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${sid}` } },
+        env,
+      );
+      const stateValue = extractCookieValue(loginRes.headers.get("set-cookie"), STATE_COOKIE_NAME);
+
+      // 「再認証」の同意画面は完走するが、Google は refresh_token を返さない
+      // (最初の同意時以外は省略されることが多い)。
+      stubTokenFetchWithoutRefreshToken(OWNER_SUB, OWNER_EMAIL);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let callbackRes: Response;
+      try {
+        callbackRes = await authRoutes.request(
+          `/auth/callback?code=fake-code&state=${encodeURIComponent(stateValue)}`,
+          { headers: { Cookie: `${STATE_COOKIE_NAME}=${stateValue}` } },
+          env,
+        );
+      } finally {
+        // fetch のスタブはここで剥がすが、warnSpy はこの後の呼び出し内容の検証に使うため、
+        // mockRestore (= 記録された calls もクリアしてしまう) はまだ呼ばない。
+        vi.unstubAllGlobals();
+      }
+
+      // 成功 (302) 扱いにしない。生の JSON でもなく、案内 HTML を返す。
+      expect(callbackRes.status).toBe(409);
+      const body = await callbackRes.text();
+      expect(body).toContain("再認証できませんでした");
+      expect(body).toContain(OWNER_EMAIL);
+      // secret はログにもレスポンスにも出さない。
+      expect(body).not.toContain("rt-dead-encrypted");
+
+      // DB は一切変更されていない: 死んだトークンは書き戻されず、
+      // reauth_required_at も NULL に戻っていない。
+      const row = db.prepare("SELECT * FROM accounts WHERE id = ?").get(OWNER_SUB) as {
+        refresh_token: string;
+        reauth_required_at: number | null;
+      };
+      expect(row.refresh_token).toBe("rt-dead-encrypted");
+      expect(row.reauth_required_at).toBe(1_700_000_000_000);
+
+      // フォールバックが使われたことをログに残す (accountId とその事実のみ、秘密情報は出さない)。
+      const warnedWithAccountId = warnSpy.mock.calls.some((args) =>
+        String(args[0]).includes(OWNER_SUB),
+      );
+      expect(warnedWithAccountId).toBe(true);
+      for (const args of warnSpy.mock.calls) {
+        expect(String(args[0])).not.toContain("rt-dead-encrypted");
+      }
+      warnSpy.mockRestore();
+    },
+  );
+
+  /**
+   * 対照実験: reauth_required_at が立っていないアカウントでは、新しい refresh_token が
+   * 得られなくても従来どおり既存トークンを再利用してログインが成立する (壊してはいけない
+   * 既存の正常な挙動 ―― スコープ追加時の再同意など)。
+   */
+  it(
+    "reauth_required_at が NULL のアカウントでは、新しい refresh_token が得られなくても" +
+      "従来どおり既存トークンを再利用して成功する (回帰確認)",
+    async () => {
+      const { db, d1 } = makeSqliteD1();
+      db.prepare(
+        "INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run(OWNER_SUB, PROFILE_ID, OWNER_EMAIL, "rt-old-encrypted", 1, 1000);
+
+      const env = makeEnv(d1);
+      const sid = await createSessionCookieValue(SESSION_SECRET, PROFILE_ID);
+
+      const loginRes = await authRoutes.request(
+        `/auth/login?add=1&login_hint=${encodeURIComponent(OWNER_EMAIL)}`,
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${sid}` } },
+        env,
+      );
+      const stateValue = extractCookieValue(loginRes.headers.get("set-cookie"), STATE_COOKIE_NAME);
+
+      stubTokenFetchWithoutRefreshToken(OWNER_SUB, OWNER_EMAIL);
+      let callbackRes: Response;
+      try {
+        callbackRes = await authRoutes.request(
+          `/auth/callback?code=fake-code&state=${encodeURIComponent(stateValue)}`,
+          { headers: { Cookie: `${STATE_COOKIE_NAME}=${stateValue}` } },
+          env,
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(callbackRes.status).toBe(302);
+      expect(callbackRes.headers.get("location")).toBe(env.APP_URL);
+
+      const row = db.prepare("SELECT * FROM accounts WHERE id = ?").get(OWNER_SUB) as {
+        refresh_token: string;
+      };
+      // 既存の (暗号化済み) トークンがそのまま書き戻されている (従来どおり)。
+      expect(row.refresh_token).toBe("rt-old-encrypted");
     },
   );
 });
