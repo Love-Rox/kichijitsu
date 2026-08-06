@@ -31,9 +31,40 @@
  *   プロファイルを作らず・アカウント行も一切書き換えず、ログインを拒否する
  *   (`reject-connection-login`)。呼び出し側 (auth.ts) はこの場合、ユーザーへ
  *   「オーナーアカウントでログインしてほしい」旨のエラーページを返す。
+ *   ただし、呼び出し側が「その接続先プロファイルには現在オーナーが1人もいない」ことを
+ *   確認できている場合は `promote-to-owner` を返す (2026-08-06、下記参照)。
  *
  * newProfileId は呼び出し側 (crypto.randomUUID()) で生成して渡す — この関数自体は
  * ランダム性に依存しない純関数のまま保つため。
+ *
+ * --- 2026-08-06 の追加修正: オーナー不在プロファイルからのセルフ復旧 ---
+ *
+ * 本番で2回、「あるプロファイルのオーナーが is_owner=0 に降格し、オーナー不在の
+ * プロファイルができる」事故が起きた (直接の原因は routes/auth.ts の UPSERT が
+ * add モードで既存オーナー行を上書きしていたこと。これ自体は auth.ts 側の UPSERT を
+ * 修正済み)。オーナー不在になると、上の分岐ルールでは**そのプロファイルの誰も二度と
+ * ログインできない** (接続アカウントは常に reject-connection-login) ため、D1 を直接
+ * 触る以外に復旧手段が無かった。
+ *
+ * そこで、接続アカウント (isOwner === false) でのログイン試行時に「その接続先
+ * プロファイルに現在オーナーが1人もいない」ことが確認できた場合に限り、ログインを
+ * 許可してそのアカウントをオーナーに昇格させる (`promote-to-owner`)。呼び出し側は
+ * このとき `state.mode !== "add"` なので isOwner=1 で UPSERT され、実際に昇格する
+ * (routes/auth.ts 参照)。
+ *
+ * **2026-07-21 の事故を再発させないと言える理由**: 2026-07-21 の事故は「接続
+ * アカウントでのログインが、別プロファイルの束を丸ごと新プロファイルへ引き剥がす
+ * (= 他のプロファイルを破壊する)」ことだった。今回の `promote-to-owner` は
+ * - オーナーが**存在する**プロファイルへの接続アカウントログインは今までどおり
+ *   reject-connection-login のまま (呼び出し側は「オーナー不在」を確認できた
+ *   ときだけ true を渡す設計にする) ―― 健全なプロファイルの isOwner を書き換える
+ *   経路は一切増えない。
+ * - 昇格は「そのアカウントが元々属していた同じ profile_id」の中で is_owner フラグを
+ *   0→1 にするだけで、profile_id 自体は変更しない・新規プロファイルも作らない・
+ *   他のアカウント行にも一切触れない。つまり「別のプロファイルを巻き込む」余地が
+ *   構造的に無い (2026-07-21 のバグの本質だった「束の引き剥がし」が起こり得ない)。
+ * したがって「異なるプロファイル間でアカウントを移動させる/束を破壊する」という
+ * 2026-07-21 のバグのパターンには当てはまらない。
  */
 export interface ExistingAccountOwnership {
   profileId: string;
@@ -43,11 +74,20 @@ export interface ExistingAccountOwnership {
 export type LoginProfileResolution =
   | { kind: "restore-owner-profile"; profileId: string }
   | { kind: "new-profile"; profileId: string }
+  | { kind: "promote-to-owner"; profileId: string }
   | { kind: "reject-connection-login" };
 
+/**
+ * @param connectedProfileHasNoOwner `existing.isOwner === false` のときだけ意味を持つ。
+ *   呼び出し側が `existing.profileId` に属する全アカウントを見て
+ *   `isProfileOwnerless` で判定した結果を渡す (この関数自体は D1 を見ないので、
+ *   判定結果を注入してもらう形にしてある)。省略時は false 扱い = 常に拒否
+ *   (これまでどおりの安全側)。
+ */
 export function resolveLoginProfile(
   existing: ExistingAccountOwnership | null,
   newProfileId: string,
+  connectedProfileHasNoOwner = false,
 ): LoginProfileResolution {
   if (existing === null) {
     return { kind: "new-profile", profileId: newProfileId };
@@ -58,8 +98,66 @@ export function resolveLoginProfile(
   // existing.isOwner === false: 他プロファイルへの接続に過ぎないアカウント。
   // ここで安易に新規プロファイルを作ると、呼び出し側の UPSERT がこのアカウント行を
   // 元プロファイルから引き剥がしてしまう (2026-07-21 のバグ本体)。プロファイルも
-  // アカウント行も一切変更せず、呼び出し側にログイン拒否を委ねる。
+  // アカウント行も一切変更せず、呼び出し側にログイン拒否を委ねる ―― ただし、
+  // その接続先プロファイルに現在オーナーが1人もいないと確認できているなら、
+  // 唯一の例外としてこのアカウントをそのプロファイルのオーナーに昇格させてログインを
+  // 許す (2026-08-06、上記コメント参照。他プロファイルへは一切波及しない)。
+  if (connectedProfileHasNoOwner) {
+    return { kind: "promote-to-owner", profileId: existing.profileId };
+  }
   return { kind: "reject-connection-login" };
+}
+
+/**
+ * accounts テーブルの1行から「オーナー不在プロファイル検出」に必要な最小情報。
+ * D1 の行 (id, profile_id, is_owner) をそのまま渡せる形にはせず、判定に要る
+ * profileId/isOwner だけを持たせている (呼び出し側で row.is_owner === 1 に変換する)。
+ */
+export interface AccountOwnershipRow {
+  profileId: string;
+  isOwner: boolean;
+}
+
+/**
+ * 「同じプロファイルに属するアカウント行の集合」を渡し、その中にオーナー
+ * (isOwner === true) が1人もいなければ true を返す純関数。
+ *
+ * 空配列 (= そのプロファイルにアカウントが1件も無い) は false 扱い ―― そもそも
+ * 存在しないプロファイルであり、「オーナー不在」として復旧を試みる対象ではない
+ * (findOwnerlessProfileIds は accounts 全体から実在する profile_id だけを見るので、
+ * この関数を直接使う場合も呼び出し側は実在する profile_id の行に絞って渡すこと)。
+ *
+ * accounts (profile_id) WHERE is_owner = 1 の部分ユニークインデックスは「オーナーは
+ * 多くとも1人」しか保証しないため (0件は許される)、「ちょうど1人」であることは
+ * こちらのコード側で検出する必要がある ―― この関数がその検出ロジック本体。
+ */
+export function isProfileOwnerless(
+  accounts: readonly Pick<AccountOwnershipRow, "isOwner">[],
+): boolean {
+  return accounts.length > 0 && accounts.every((account) => !account.isOwner);
+}
+
+/**
+ * accounts テーブル全体 (複数プロファイルにまたがってよい) から、オーナー不在の
+ * profile_id 一覧を求める。運用時の調査・監視や、将来ダッシュボードに出す用途を
+ * 想定した汎用版 (routes/auth.ts の昇格判定は単一プロファイルだけ見れば十分なので
+ * isProfileOwnerless を直接使う)。
+ */
+export function findOwnerlessProfileIds(accounts: readonly AccountOwnershipRow[]): string[] {
+  const byProfile = new Map<string, AccountOwnershipRow[]>();
+  for (const account of accounts) {
+    const bucket = byProfile.get(account.profileId);
+    if (bucket) {
+      bucket.push(account);
+    } else {
+      byProfile.set(account.profileId, [account]);
+    }
+  }
+  const ownerless: string[] = [];
+  for (const [profileId, rows] of byProfile) {
+    if (isProfileOwnerless(rows)) ownerless.push(profileId);
+  }
+  return ownerless;
 }
 
 /**

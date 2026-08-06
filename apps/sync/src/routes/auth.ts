@@ -19,9 +19,27 @@ import { isHttpsRequest } from "../http";
 import { isEmailAllowed } from "../allowlist";
 import { encryptToken } from "../crypto";
 import { encodeOAuthState, decodeOAuthState } from "../oauth-state";
-import { resolveLoginProfile } from "../profile-resolution";
+import { isProfileOwnerless, resolveLoginProfile } from "../profile-resolution";
 
 export const authRoutes = new Hono<AppEnv>();
+
+/**
+ * accounts の UPSERT 本体 (/auth/callback の最後で使う)。export しているのは
+ * test/accounts-owner-upsert.test.ts が node:sqlite 上でこの文字列そのものを実行し、
+ * D1 (SQLite) 上で `is_owner = MAX(is_owner, excluded.is_owner)` が意図どおり
+ * (既存行が既にオーナーなら降格しない) 動くことを検証するため ―― テスト側で SQL 文字列を
+ * 手で複製すると、将来ここを直したときにテストだけが古い書き方のまま通ってしまう
+ * (=検証が形骸化する) ので、必ずこの定数を import させて一致を強制する。
+ */
+export const ACCOUNTS_UPSERT_SQL = `
+  INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    profile_id = excluded.profile_id,
+    email = excluded.email,
+    refresh_token = excluded.refresh_token,
+    is_owner = MAX(is_owner, excluded.is_owner),
+    reauth_required_at = NULL
+`;
 
 function escapeHtml(value: string): string {
   return value
@@ -207,13 +225,42 @@ authRoutes.get("/auth/callback", async (c) => {
   //   そのため 2026-07-21 に再修正: 接続アカウントでの login はプロファイル解決自体を
   //   せず (`reject-connection-login`)、UPSERT にも到達させずにここでエラーページを返す。
   //   詳細な分岐ルールは src/profile-resolution.ts のコメント参照。
+  //
+  //   2026-08-06 に本番でさらに別の事故が2回発生した: add モードの UPSERT (下記) が
+  //   `is_owner = excluded.is_owner` で既存のオーナー行を無条件に上書きしていたため、
+  //   「+ アカウントを追加」や「再認証」でオーナー自身の Google アカウントを選ぶと
+  //   is_owner が 1→0 に降格し、オーナー不在のプロファイルができていた。オーナー不在に
+  //   なると、上の分岐ルール (reject-connection-login) により**そのプロファイルの誰も
+  //   二度とログインできなくなる** (D1 を直接触る以外に復旧手段が無い)。
+  //   これを受けて (1) UPSERT 側で is_owner を「既存値と新しい値の MAX」に変更し
+  //   そもそも降格が起きないようにし、(2) 万一オーナー不在のプロファイルが存在しても
+  //   利用者が自力で復旧できるよう、接続アカウントでの login を「オーナー不在の場合に
+  //   限り」許可してそのアカウントを昇格させる (`promote-to-owner`) セーフティネットを
+  //   追加した。詳細と「2026-07-21 の事故を再発させない理由」は src/profile-resolution.ts
+  //   のコメント参照。
   let profileId: string;
   if (state.mode === "add") {
     profileId = state.profileId;
   } else {
+    // 接続アカウント (is_owner=0) の場合だけ、接続先プロファイルにオーナーが
+    // 1人もいないかを確認する (promote-to-owner の判定材料。オーナーが既にいる
+    // プロファイルではこの問い合わせ自体が無駄なので、その場合はスキップする)。
+    let connectedProfileHasNoOwner = false;
+    if (existing && existing.is_owner === 0) {
+      const { results: siblingAccounts } = await c.env.DB.prepare(
+        "SELECT is_owner FROM accounts WHERE profile_id = ?",
+      )
+        .bind(existing.profile_id)
+        .all<{ is_owner: number }>();
+      connectedProfileHasNoOwner = isProfileOwnerless(
+        siblingAccounts.map((row) => ({ isOwner: row.is_owner === 1 })),
+      );
+    }
+
     const resolution = resolveLoginProfile(
       existing ? { profileId: existing.profile_id, isOwner: existing.is_owner === 1 } : null,
       crypto.randomUUID(),
+      connectedProfileHasNoOwner,
     );
     if (resolution.kind === "reject-connection-login") {
       // 接続アカウント (is_owner=0) での直接ログインは拒否する。refresh_token の
@@ -221,6 +268,10 @@ authRoutes.get("/auth/callback", async (c) => {
       // から取得済みの値をそのまま案内に使うだけ)。
       return c.html(renderConnectionLoginRejectionPage(email, c.env.APP_URL), 409);
     }
+    // resolution.kind は restore-owner-profile / new-profile / promote-to-owner のいずれか。
+    // promote-to-owner でも profileId は既存の (= このアカウントが元々属していた)
+    // プロファイルのままで、下の isOwner 計算 (login モードは常に 1) が実際の昇格
+    // (is_owner 0→1) を行う。他のアカウント行やプロファイルには一切触れない。
     profileId = resolution.profileId;
   }
   // login モードでは、ログインに使ったアカウント自身が常にそのプロファイルのオーナー
@@ -244,10 +295,29 @@ authRoutes.get("/auth/callback", async (c) => {
   // getOrRefreshAccessToken でも成功時に同じ列を消すが、DO の access_token キャッシュが
   // まだ有効な間はそちらを通らずに再連携が完了してしまい、その間 UI に警告が残り続ける
   // (再連携直後に「同期が止まっています」が消えない) ため、ここで即座に消すのが主経路。
-  await c.env.DB.prepare(
-    `INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token, is_owner = excluded.is_owner, reauth_required_at = NULL`,
-  )
+  //
+  // is_owner だけ他の列と非対称な扱いをしている (2026-08-06、本番で2回発生した
+  // ロックアウト事故の修正): `is_owner = MAX(is_owner, excluded.is_owner)` にして、
+  // 既存行が既にオーナー (1) なら新しい値が 0 でもそのまま 1 を維持する。
+  // - profile_id / email / refresh_token は「常に最新の値で上書きしてよい」列 ――
+  //   add モードは「このアカウントをこのプロファイルへ接続として足す/繋ぎ直す」意図で、
+  //   その意図どおり最新の入力値をそのまま反映するのが正しい。
+  // - is_owner は逆で、「挿入時 (INSERT) は正しい値だが、更新時 (UPDATE) には
+  //   呼び出し元の isOwner がそのまま正しいとは限らない」列。add モードは常に
+  //   isOwner=0 を渡すが、それは「(このアカウントがオーナーでなければ) 接続として
+  //   足す」という意図であって、「既にオーナーである行の身分を奪う」意図では断じてない。
+  //   ところが `is_owner = excluded.is_owner` という素直な上書きは、まさにその意図しない
+  //   降格を機械的に行ってしまっていた ―― オーナー自身が「再認証」や「+ アカウントを
+  //   追加」ボタンを押すだけ (画面上は何の警告も出ない) で is_owner が 1→0 になり、
+  //   オーナー不在のプロファイル (誰もログインできない = D1 を直接叩く以外に復旧手段が
+  //   無い) が本番で2回できてしまった。MAX() は「一度オーナーになった行は、この UPSERT
+  //   経由では絶対に降格しない」を SQL レベルでそのまま表現できる、最小かつ意図の
+  //   明確な書き方として採用した (login モードで新規プロファイルを作る/オーナーに
+  //   昇格させるときは isOwner=1 を渡すので、MAX() でも 0→1 の昇格は問題なく起きる)。
+  //   D1 (SQLite) の UPSERT で `DO UPDATE SET col = MAX(col, excluded.col)` の
+  //   `col`(無修飾) が「上書き前の既存行の値」を指すことは test/accounts-owner-upsert.test.ts
+  //   で node:sqlite を使い実際に検証している。
+  await c.env.DB.prepare(ACCOUNTS_UPSERT_SQL)
     .bind(accountId, profileId, email, refreshTokenToStore, isOwner, Date.now())
     .run();
 
