@@ -6,6 +6,7 @@ import { SearchOverlay } from "./SearchOverlay";
 import { SettingsModal } from "./SettingsModal";
 import { TimeReportOverlay } from "./TimeReportOverlay";
 import type { GoogleAccountsController } from "../hooks/useGoogleAccounts";
+import { startGoogleAuth } from "../sync/desktopAuth";
 
 /**
  * App 直下に並ぶオーバーレイ群 ―― ヘルプ / 設定モーダル / カレンダーブロック設定 /
@@ -129,7 +130,10 @@ export function AppOverlays({
           accounts={me.accounts}
           onDisconnectAccount={handleDisconnectAccount}
           onAddAccount={() => {
-            window.location.href = "/auth/login?add=1";
+            // ブラウザ/PWA では従来どおり `/auth/login?add=1` へ同一ウィンドウ遷移する。
+            // デスクトップ版 (Tauri) だけ外部ブラウザで開き、add_token でプロファイルを
+            // 引き継ぐ (sync/desktopAuth.ts の冒頭コメント参照)。
+            void startGoogleAuth({ kind: "add" });
           }}
           tasksScopeMissingAccounts={tasksScopeMissingAccounts}
           onReconnectAccount={(email) => {
@@ -137,7 +141,7 @@ export function AppOverlays({
             // 同意画面が再表示され、2026-07-20 追加の tasks スコープが付与される。
             // 遷移先は「+ アカウントを追加」と同じ /auth/login?add=1 だが、login_hint に
             // 対象アカウントのメールを載せて Google 側でそのアカウントを事前選択させる。
-            window.location.href = `/auth/login?add=1&login_hint=${encodeURIComponent(email)}`;
+            void startGoogleAuth({ kind: "add", loginHint: email });
           }}
           onOpenBlockRules={() => {
             setPanelOpen(false);

@@ -10,6 +10,7 @@ fn main() {
                 "app_version",
                 "validate_gh_path",
                 "notify",
+                "open_external_login",
             ])),
     )
     .expect("failed to run tauri-build");

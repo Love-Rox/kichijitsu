@@ -21,6 +21,11 @@ import { encryptToken } from "../crypto";
 import { encodeOAuthState, decodeOAuthState } from "../oauth-state";
 import { isProfileOwnerless, resolveLoginProfile } from "../profile-resolution";
 import { shouldRejectStaleRefreshTokenReuse } from "../core/reauth";
+// デスクトップ版 (Tauri) の外部ブラウザ OAuth 経路 (2026-08-07)。既存の login/add の流れを
+// 壊さないため、新経路の実装は routes/desktop-auth.ts + core/desktop-auth.ts に切り出し、
+// このファイルからは「challenge を state に載せる」「callback の最後を委ねる」だけ呼ぶ。
+import { parseDesktopLoginChallenge, verifyDesktopAddToken } from "../core/desktop-auth";
+import { issueDesktopTicket, renderDesktopHandoffPage } from "./desktop-auth";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -123,19 +128,41 @@ authRoutes.get("/auth/login", async (c) => {
   // 再連携の導線 (SettingsModal → App.tsx) が対象アカウントのメールを login_hint に載せてくる。
   // Google 側でそのアカウントを事前選択させるため buildAuthorizationUrl へ渡す (値があるときだけ)。
   const loginHint = c.req.query("login_hint");
+  // デスクトップ版 (Tauri) が**外部ブラウザ**で始めた OAuth かどうか (2026-08-07)。
+  // `desktop=1` + 正しい形式の `dc` が両方そろったときだけ非 null になる。ブラウザ版/PWA は
+  // このクエリを一切付けないので常に null = 以下の分岐はすべて従来どおりに流れる。
+  // 経緯とチケット設計は core/desktop-auth.ts / routes/desktop-auth.ts の冒頭コメント参照。
+  const desktopChallenge = parseDesktopLoginChallenge(c.req.query("desktop"), c.req.query("dc"));
   let addModeProfileId: string | null = null;
   if (wantsAddMode) {
-    const sid = getCookie(c, SESSION_COOKIE_NAME);
-    if (sid) {
-      addModeProfileId = await verifySessionCookieValue(c.env.SESSION_SECRET, sid);
+    if (desktopChallenge) {
+      // 外部ブラウザには webview の sid cookie が無い。代わりに webview 側で
+      // POST /auth/desktop/add-intent から取った短命の署名付きトークンでプロファイルを決める
+      // (これが無いと「add のつもりが新規プロファイル作成」= アカウント取り違えになる)。
+      addModeProfileId = await verifyDesktopAddToken(
+        c.env.SESSION_SECRET,
+        c.req.query("add_token") ?? "",
+      );
+    } else {
+      const sid = getCookie(c, SESSION_COOKIE_NAME);
+      if (sid) {
+        addModeProfileId = await verifySessionCookieValue(c.env.SESSION_SECRET, sid);
+      }
     }
   }
 
   const nonce = crypto.randomUUID();
+  // desktopChallenge が null のときは JSON.stringify がキーごと落とすので、ブラウザ版が
+  // 発行する state は従来と完全に同じ (oauth-state.ts のコメント参照)。
   const state = encodeOAuthState(
     addModeProfileId
-      ? { nonce, mode: "add", profileId: addModeProfileId }
-      : { nonce, mode: "login" },
+      ? {
+          nonce,
+          mode: "add",
+          profileId: addModeProfileId,
+          desktopChallenge: desktopChallenge ?? undefined,
+        }
+      : { nonce, mode: "login", desktopChallenge: desktopChallenge ?? undefined },
   );
 
   // 本番 (https://kichijitsu.love-rox.cc) では Secure を付け、ローカル `wrangler dev`
@@ -384,6 +411,17 @@ authRoutes.get("/auth/callback", async (c) => {
   await c.env.DB.prepare(ACCOUNTS_UPSERT_SQL)
     .bind(accountId, profileId, email, refreshTokenToStore, isOwner, Date.now())
     .run();
+
+  // デスクトップ版 (外部ブラウザ経路、2026-08-07): ここは**外部ブラウザ**なので、
+  // sid cookie を張ってもアプリの webview には届かない (Cookie ジャーが別)。
+  // 代わりに使い捨てチケットを発行し、kichijitsu:// でアプリへ橋渡しする。
+  // 実際に sid を発行するのは、アプリの webview 自身が踏む /auth/desktop/exchange。
+  // login/add どちらのモードでも同じ ―― add モードでも webview 側は同じプロファイルの
+  // sid を張り直すだけなので、既存セッションと矛盾しない。
+  if (state.desktopChallenge) {
+    const deepLink = await issueDesktopTicket(c.env.DB, profileId, state.desktopChallenge);
+    return c.html(renderDesktopHandoffPage(deepLink));
+  }
 
   if (state.mode !== "add") {
     // add モードでは既存セッションをそのまま使うので、新しい sid は発行しない

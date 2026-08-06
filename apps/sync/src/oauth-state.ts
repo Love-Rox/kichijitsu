@@ -1,3 +1,5 @@
+import { isValidDesktopHex32 } from "./core/desktop-auth";
+
 /**
  * /auth/login → /auth/callback の間で `state` パラメータ (= state cookie の値でもある)
  * に載せる構造化ペイロード。
@@ -19,10 +21,22 @@
 // (routes/github-auth.ts の GITHUB_STATE_COOKIE_NAME) を使うので、この型自体が
 // Google の state と混ざることは無い — mode を分けるのは「callback 側で意図を
 // 取り違えない」ための型安全性のためであり、CSRF 対策そのものではない。
+//
+// desktopChallenge (2026-08-07) は「この OAuth はデスクトップ版が外部ブラウザで
+// 始めたもの」という印で、値は SHA-256(アプリが保持する verifier) の hex
+// (core/desktop-auth.ts 参照)。callback 側は、これが載っていれば sid cookie を
+// 張らずに使い捨てチケットを発行してアプリへ返す。
+// **省略可能** にしてあるのが要点 ―― ブラウザ版/PWA は常に undefined を渡し、
+// JSON.stringify は undefined のキーを落とすので、従来と1バイトも変わらない state が
+// 生成される (= ブラウザ経路の挙動は不変)。
 export type OAuthState =
-  | { nonce: string; mode: "login" }
-  | { nonce: string; mode: "add"; profileId: string }
-  | { nonce: string; mode: "github"; profileId: string };
+  | { nonce: string; mode: "login"; desktopChallenge?: string }
+  | { nonce: string; mode: "add"; profileId: string; desktopChallenge?: string }
+  // GitHub 連携はデスクトップ版でも従来どおり webview 内で完結する (今回の
+  // disabled_client は Google 固有の制約で、GitHub は埋め込みブラウザを禁じていない)。
+  // 型として `desktopChallenge?: undefined` を明示しているのは、`state.desktopChallenge`
+  // をユニオン全体に対して素直に参照できるようにするため ―― 値は常に undefined。
+  | { nonce: string; mode: "github"; profileId: string; desktopChallenge?: undefined };
 
 export function encodeOAuthState(state: OAuthState): string {
   return base64UrlEncode(new TextEncoder().encode(JSON.stringify(state)));
@@ -37,19 +51,28 @@ export function decodeOAuthState(value: string): OAuthState | null {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const { nonce, mode, profileId } = parsed as Record<string, unknown>;
+  const { nonce, mode, profileId, desktopChallenge } = parsed as Record<string, unknown>;
   if (typeof nonce !== "string" || !nonce) return null;
+
+  // desktopChallenge は「無い」か「正しい形式の hex 64 文字」のどちらかしか許さない。
+  // 中途半端な値を素通しすると callback 側の分岐 (`state.desktopChallenge` の有無) が
+  // 意図せず立ってしまうため、形が違えば state ごと不正扱いにして落とす (fail closed)。
+  let challenge: string | undefined;
+  if (desktopChallenge !== undefined) {
+    if (typeof desktopChallenge !== "string" || !isValidDesktopHex32(desktopChallenge)) return null;
+    challenge = desktopChallenge;
+  }
 
   if (mode === "add") {
     if (typeof profileId !== "string" || !profileId) return null;
-    return { nonce, mode: "add", profileId };
+    return { nonce, mode: "add", profileId, desktopChallenge: challenge };
   }
   if (mode === "github") {
     if (typeof profileId !== "string" || !profileId) return null;
     return { nonce, mode: "github", profileId };
   }
   if (mode === "login") {
-    return { nonce, mode: "login" };
+    return { nonce, mode: "login", desktopChallenge: challenge };
   }
   return null;
 }

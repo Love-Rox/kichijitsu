@@ -26,6 +26,39 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 
+# --- 外部ブラウザ OAuth (増分2d、2026-08-07) 用に追加した依存 ---
+#
+# このリポジトリの通常方針は「新しいライブラリを追加しない」だが、今回は
+# Google が埋め込み webview からの OAuth を禁止している (401: disabled_client、
+# docs/desktop.md「増分2d」参照) という**外部の制約**に対処するために、例外として
+# 追加を承認してもらっている。以下はそれぞれ自前実装で置き換える価値が無いもの:
+#
+# - tauri-plugin-deep-link: `kichijitsu://` を OS に登録し、外部ブラウザからの復帰を
+#   受け取る。macOS では Info.plist の CFBundleURLTypes、Windows ではレジストリ、
+#   Linux では .desktop エントリと、登録の作法が OS ごとに全く違う。これを自前で
+#   書くのは非現実的で、しかも tauri.conf.json の設定1つで済むのはこのプラグインだけ。
+# - tauri-plugin-opener: OS の既定ブラウザで URL を開く (macOS `open` / Windows
+#   `ShellExecute` / Linux `xdg-open` の差を吸収する)。**プラグインとしては登録せず**、
+#   Rust の自由関数 `open_url` だけを使う ―― 登録すると JS 側へ「任意の URL/ファイルを
+#   開く」コマンドが生えてしまい、リモート URL を読むこのアプリの脅威モデル
+#   (lib.rs 冒頭・gh_api のコメント参照) では晒したくない面が増えるため。
+# - sha2: チケットとアプリを結び付ける challenge = SHA-256(verifier) の計算 (PKCE 相当)。
+#   ハッシュを自前実装するのは避けるべきの筆頭。Worker 側は WebCrypto で同じことをする。
+# - getrandom: verifier の生成に使う暗号論的乱数。`std` には CSPRNG が無く、ここで
+#   推測可能な値を使うと結び付け自体が無意味になる。
+#
+# いずれも既に tauri の依存グラフに (推移的に) 入っており、直接依存にしても
+# 新しい供給元が増えるわけではない (Cargo.lock 参照)。
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+sha2 = "0.10"
+getrandom = "0.3"
+# serde_json は自分では使わないが、tauri.conf.json に `plugins` セクション
+# (deep-link のスキーム設定) を書いた時点で `tauri::generate_context!` が展開する
+# コードがプラグイン設定を serde_json::Value として埋め込むため、直接依存として
+# 必要になる (無いと "could not find `serde_json`" でビルドが落ちる)。
+serde_json = "1"
+
 # global-shortcut はデスクトップ専用プラグイン（モバイルには存在しない）。
 # 公式ドキュメント (v2.tauri.app/plugin/global-shortcut) 通りに target cfg で限定する。
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
