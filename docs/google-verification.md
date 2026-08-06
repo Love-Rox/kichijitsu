@@ -19,9 +19,13 @@
 - [x] **連携解除（アカウント削除）**: `DELETE /api/account` — Google の revoke エンドポイントで
       トークン失効 → DO の同期状態クリア → D1 の行削除 → sid cookie 削除、の順で実行
       (この順序は revoke 前に行を消して復号不能にする事故を防ぐため)。
-      **API 実装のみ完了。UI に「連携解除」ボタンを置く作業は apps/web 側で別途必要
-      (未着手)**
-- [ ] アプリ内（ツールバー等）からプライバシーポリシーへのリンク
+      UI も完了 (設定モーダルの「アカウント」セクション、
+      apps/web/src/components/settings/AccountsSection.tsx。インライン2段階確認つき)
+- [x] アプリ内からプライバシーポリシーへのリンク: ツールバー (AppToolbar.tsx /
+      toolbarMenuItems.ts)・カレンダーペイン (CalendarPane.tsx)・設定モーダル
+      (SettingsModal.tsx) の3箇所
+
+**コード側の準備は完了しており、審査はいつでも提出できる (2026-08-06 時点)。**
 
 ## Google Cloud Console での手作業
 
@@ -70,5 +74,29 @@
 
 - 本番公開後も `ALLOWED_EMAILS` は有効なまま使える（同意はできるが登録は拒否される）。
   「審査は通しておき、開放のタイミングは allowlist で制御」が可能
-- 100 ユーザー制限はテストモード特有のもので、本番化で撤廃される
+- **100 ユーザー制限が外れるのは「審査を通したとき」であって「本番にしたとき」ではない。**
+  未審査のまま本番へ切り替えても上限は残り、しかも sensitive scope を要求していると
+  **Sign in with Google 自体が無効化されうる** (下の障害記録を参照)
 - 審査中もテストユーザーは従来どおり利用可能
+
+## 障害記録: 未審査のまま本番化して Sign In が無効化された (2026-08-06)
+
+**症状**: 特定アカウントの同期が2日以上止まり (`refreshAccessToken` が
+alarm 側 246回・RPC 側 66回失敗)、再連携しようとすると
+`401: disabled_client` /「Sign in with Google temporarily disabled for this app.
+This app has not been verified yet by Google」。
+
+**原因**: 同意画面が **「本番」かつ未審査**だった。カレンダーは sensitive scope なので、
+この状態では Google が Sign In を無効化する。既存のリフレッシュトークンも順次失効する
+ため、放置すると**全アカウントが止まる** (他アカウントが当初動いていたのは、
+まだトークンが生きていただけ)。
+
+**対処**: 「テスト」へ戻せば即座に復旧するが、テスト状態では
+[リフレッシュトークンが7日で失効する](https://developers.google.com/identity/protocols/oauth2#expiration)
+(basic profile scope のみの場合を除く。kichijitsu は該当しない) ため、
+全アカウントが毎週再連携を要求される。恒久対応は審査提出。
+**「テストへ戻して復旧 → 並行して審査提出 → 承認後に本番へ」が最短。**
+
+**教訓**: 「本番にする」と「審査を通す」は別。前者だけを先に行うと、
+以前ここに書いてあった「本番化で100ユーザー制限が撤廃される」という誤解のまま、
+**動いていたものが後から止まる**。切り替えは審査承認とセットで行うこと。
