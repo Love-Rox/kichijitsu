@@ -84,11 +84,18 @@ settingsRoutes.get("/api/me", async (c) => {
     });
   }
   const { results } = await c.env.DB.prepare(
-    "SELECT id, email FROM accounts WHERE profile_id = ? ORDER BY created_at ASC",
+    "SELECT id, email, reauth_required_at FROM accounts WHERE profile_id = ? ORDER BY created_at ASC",
   )
     .bind(profileId)
-    .all<{ id: string; email: string }>();
-  const accounts: AccountDTO[] = results.map((row) => ({ id: row.id, email: row.email }));
+    .all<{ id: string; email: string; reauth_required_at: number | null }>();
+  // reauthRequired (2026-08-06): reauth_required_at (nullable epoch ms) を bool 化するだけ。
+  // web 側は「いつから」ではなく「今どうか」だけを見るため、時刻そのものは渡さない
+  // (protocol.ts の AccountDTO.reauthRequired コメント参照)。
+  const accounts: AccountDTO[] = results.map((row) => ({
+    id: row.id,
+    email: row.email,
+    reauthRequired: row.reauth_required_at !== null,
+  }));
   const visibleCalendars = await loadVisibleCalendars(
     c.env,
     accounts.map((account) => account.id),

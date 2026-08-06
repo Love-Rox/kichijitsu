@@ -23,8 +23,13 @@ export type ThemePref = "auto" | "light" | "dark";
 /**
  * テーマ設定の localStorage キー。他の設定 (kichijitsu:view, kichijitsu:ghPath 等) と
  * 同じ `kichijitsu:` 名前空間に揃える。
+ *
+ * export しているのはログアウト時の端末データ削除 (sync/logoutLocalStorage.ts) が
+ * 「`kichijitsu:` 接頭辞のうちこのキーだけは残す」唯一の例外として参照するため ――
+ * 文字列を再度書き写すと、将来ここを改名したときに向こうだけ古いキーを見続ける
+ * (=消えるべきでないテーマ設定が誤って消される) 事故になりうる。
  */
-const THEME_STORAGE_KEY = "kichijitsu:theme";
+export const THEME_STORAGE_KEY = "kichijitsu:theme";
 
 /**
  * 保存値を ThemePref に正規化する。想定外の値はすべて既定の "auto" に倒す。

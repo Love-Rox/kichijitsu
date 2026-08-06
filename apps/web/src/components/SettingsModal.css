@@ -176,6 +176,22 @@
   color: var(--c-accent);
 }
 
+/*
+ * Google 再認証が必要 (2026-08-06、本番障害対応: refresh_token 失効でアカウントの同期が
+ * 完全に止まっている状態)。レイアウトは .settings-modal-tasks-scope-missing と揃えつつ、
+ * こちらは「カレンダーごと同期しない」度合いの深刻さを伝えるため danger 色にしてある
+ * (--c-danger、.settings-modal-error / .sync-error と同じ強さ)。
+ */
+.settings-modal-reauth-required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-danger);
+}
+
 /* GitHub 連携セクション本体 */
 .settings-modal-github-connected {
   display: flex;

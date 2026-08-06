@@ -238,9 +238,15 @@ authRoutes.get("/auth/callback", async (c) => {
     return c.json({ error: "missing_refresh_token" }, 502);
   }
 
+  // reauth_required_at (2026-08-06、恒久的なリフレッシュ失敗の記録、migrations/0013 参照) は
+  // ここで無条件に NULL へ戻す。ここに来ている時点で Google の OAuth 同意フローを新しく
+  // 完走できている = 再認証は成功しているので、確実に消してよい。UserSyncDO 側の
+  // getOrRefreshAccessToken でも成功時に同じ列を消すが、DO の access_token キャッシュが
+  // まだ有効な間はそちらを通らずに再連携が完了してしまい、その間 UI に警告が残り続ける
+  // (再連携直後に「同期が止まっています」が消えない) ため、ここで即座に消すのが主経路。
   await c.env.DB.prepare(
     `INSERT INTO accounts (id, profile_id, email, refresh_token, is_owner, created_at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token, is_owner = excluded.is_owner`,
+     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, email = excluded.email, refresh_token = excluded.refresh_token, is_owner = excluded.is_owner, reauth_required_at = NULL`,
   )
     .bind(accountId, profileId, email, refreshTokenToStore, isOwner, Date.now())
     .run();

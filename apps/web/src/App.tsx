@@ -4,6 +4,7 @@ import type { IDBPDatabase } from "idb";
 import { canNotifyNatively } from "./sync/desktopNotify";
 import { hookActualByLinkedItem } from "./sync/hookActual";
 import { deleteJson } from "./sync/httpJson";
+import { performLogout } from "./sync/logout";
 import { DEFAULT_HOUR_HEIGHT, normalizeHourHeight } from "./layout/gridMetrics";
 import { WeekGrid } from "./components/WeekGrid";
 import { MasuIndicator } from "./components/MasuIndicator";
@@ -41,6 +42,7 @@ import { GitHubStore } from "./store/githubStore";
 import { PlannedStore, useAllPlannedBlocks } from "./store/plannedStore";
 import { TimeEntryStore, useTimeEntries } from "./store/timeEntryStore";
 import { bootstrapDatabase } from "./db/bootstrap";
+import { clearLogoutTargetStores, openKichijitsuDB } from "./db/database";
 import type { KichijitsuDB } from "./db/database";
 import { ensureExpanded } from "./expansion/ensureExpanded";
 import { resolveJumpDate, type SearchJumpTarget } from "./search/searchOccurrences";
@@ -597,6 +599,35 @@ function App() {
   }, [checkedFetch, clearGitHubConnection, clearGitHubData]);
 
   /**
+   * ログアウト (ユーザー要望、2026-08-06)。実体 (順序・失敗の扱い) は sync/logout.ts の
+   * performLogout に切り出してあり、ここは window.localStorage / IndexedDB (openKichijitsuDB +
+   * db/database.ts の clearLogoutTargetStores) / checkedFetch というブラウザ側の実体を
+   * 注ぎ込むだけの配線 ―― performLogout 自体は window/IndexedDB に触れないので、テストは
+   * フェイクを渡すだけで済む(handleDisconnectGitHub と同じ「フックの外側だけを App.tsx に
+   * 残す」方針)。
+   *
+   * clearLogoutTargetStores は plannedBlocks/timeEntries (この端末にしか無く、サーバーに
+   * 対応が無いローカル専用データ) には触れない ―― DB ごと削除していた旧実装から
+   * ストア単位に変えたのはこの区別のため(db/database.ts の LOGOUT_KEPT_STORES 参照)。
+   *
+   * 失敗時の表示は呼び出し元 (settings/LogoutControl.tsx の ConfirmActionControl) が持つので、
+   * ここでは reject をそのまま伝播するだけ。成功時の画面リロードも LogoutControl 側の責務
+   * (CacheClearControl と同じ流儀)。
+   */
+  const handleLogout = useCallback(
+    () =>
+      performLogout({
+        storage: window.localStorage,
+        clearLocalDb: async () => {
+          const kichijitsuDb = await openKichijitsuDB();
+          await clearLogoutTargetStores(kichijitsuDb);
+        },
+        checkedFetch,
+      }),
+    [checkedFetch],
+  );
+
+  /**
    * 予定・タスクの変更系(hooks/useEventMutations.ts)。ドラッグ/リサイズの確定・新規作成・
    * 削除・編集フォーム保存・RSVP・移動確認ダイアログ・タスクの完了トグルと、それらの
    * ロールバック通知 (saveError) が入っている。楽観更新→失敗時ロールバックの順序、
@@ -1115,6 +1146,7 @@ function App() {
           handleCreateMcpToken={handleCreateMcpToken}
           handleDeleteMcpToken={handleDeleteMcpToken}
           runFullResync={runFullResync}
+          handleLogout={handleLogout}
           blockOverlayOpen={blockOverlayOpen}
           calendarsByAccount={calendarsByAccount}
           blockRules={blockRules}

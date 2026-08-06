@@ -1,5 +1,5 @@
 import { openDB } from "idb";
-import type { DBSchema, IDBPDatabase } from "idb";
+import type { DBSchema, IDBPDatabase, StoreNames } from "idb";
 import type {
   AllDayOccurrence,
   GitHubItem,
@@ -236,6 +236,95 @@ export async function openKichijitsuDB(): Promise<IDBPDatabase<KichijitsuDB>> {
     });
   }
   return dbPromise;
+}
+
+/**
+ * ログアウト時に IndexedDB から消すストア名 (2026-08-06)。
+ *
+ * 当初は DB ごと削除する設計だったが、plannedBlocks/timeEntries (下の LOGOUT_KEPT_STORES)
+ * には**サーバーに対応するテーブルが無く、API 送信の経路も無い**ため、DB ごと消すと
+ * この端末にしか存在しないデータを恒久的に失わせてしまうことが分かり、ストア単位の削除に
+ * 変更した(ユーザー確認済みの仕様変更)。
+ *
+ * ここに挙げるのは Google/GitHub 由来の写し、または同期用のメタデータ ―― どれも
+ * サーバー(または Google/GitHub 本体)に元データがあり、再ログイン後の同期で取り直せる。
+ *
+ * `as const satisfies readonly StoreNames<KichijitsuDB>[]` にしているのは、ここに存在しない
+ * ストア名を書いたら型エラーで気付けるようにするため(逆方向 = ストアを足したのに
+ * どちらの配列にも入れ忘れる、は下の型チェックと database.test.ts のテストで守る)。
+ */
+export const LOGOUT_CLEARED_STORES = [
+  "occurrences", // Google カレンダーの時刻予定(繰り返し展開済みのインスタンスも含む)
+  "allDayOccurrences", // Google カレンダーの終日予定
+  "tasks", // Google タスク
+  "series", // 繰り返し予定の親(RRULE 等)
+  "overrides", // 繰り返し予定の単一インスタンス上書き
+  "githubItems", // GitHub milestone/issue/PR。サーバーも永続化せず取得の都度スナップショットを
+  // 返す設計 (docs/github-integration.md) なので、端末側もいつでも消してよい
+  "meta", // deviceId・表示設定 (visibleCalendars 等)・同期バックフィル世代などの雑多な設定。
+  // deviceId が消えても実害は無い ―― サーバーの sync_tokens_v2 は端末単位なので、
+  // 次回ログイン時に新しい端末として扱われ、また最初から同期し直すだけで済む
+] as const satisfies readonly StoreNames<KichijitsuDB>[];
+
+/**
+ * ログアウトでも**消さない**ストア名 (2026-08-06)。
+ *
+ * **サーバーに対応するテーブルが無く、API 送信の経路も無い = この端末にしか存在しない
+ * データ**なので、消すと恒久的に失われる。plannedBlocks/timeEntries はどちらもドラッグ操作や
+ * 手動タイマーで作るローカル専用の記録で、Google への書き戻しも無い(各ストアの
+ * upgradeKichijitsuSchema 側コメント、および store/plannedStore.ts・store/timeEntryStore.ts 参照)。
+ *
+ * 新しいストアを追加するときは、必ずこの2定数のどちらかに分類すること。分類し忘れると
+ * database.test.ts の「実際のストア一覧と食い違ったら気付ける」テストが落ちる。
+ */
+export const LOGOUT_KEPT_STORES = [
+  "plannedBlocks", // ドラッグで作る予定タイムブロック。Google への書き戻しが無い(ローカル専用)。
+  // 現役で読み書きされている(usePlannedBlockHandlers.ts 等)
+  "timeEntries", // 手動タイマーの実績エントリ。実績 UX 刷新フェーズ5b (2026-07-23) で
+  // 読み書きの経路がサーバー開区間 (work_logs) 側に一本化され、この IndexedDB ストア自体への
+  // 読み書きヘルパは削除済み(このファイル末尾のコメント参照)―― 現状は事実上使われていない
+  // 過去データの置き場だが、サーバーに対応が無い以上「復元できない」ことに変わりは無いので
+  // 消す側には入れない
+] as const satisfies readonly StoreNames<KichijitsuDB>[];
+
+/**
+ * コンパイル時の網羅性チェック: KichijitsuDB にストアを追加したのに LOGOUT_CLEARED_STORES /
+ * LOGOUT_KEPT_STORES のどちらにも入れ忘れると、この行が型エラーになる
+ * (`_MissingFromLogoutClassification` が never にならず、`true` を代入できなくなる)。
+ * 実行時の裏付けは database.test.ts 側 (db.objectStoreNames との突き合わせ) にある。
+ */
+type _ClassifiedStoreName =
+  | (typeof LOGOUT_CLEARED_STORES)[number]
+  | (typeof LOGOUT_KEPT_STORES)[number];
+type _MissingFromLogoutClassification = Exclude<StoreNames<KichijitsuDB>, _ClassifiedStoreName>;
+// `[T] extends [never]` にタプルで包むのは、T が never のときに素の `T extends never` だと
+// distributive conditional type の性質上 (never に対する分配は空集合になる) 判定結果自体が
+// never に潰れてしまい、"true" を代入できるはずの成功時にまで型エラーになるため。
+type _AssertNoUnclassifiedStore = [_MissingFromLogoutClassification] extends [never]
+  ? true
+  : [
+      "LOGOUT_CLEARED_STORES/LOGOUT_KEPT_STORES に分類し忘れたストアがあります",
+      _MissingFromLogoutClassification,
+    ];
+const _assertNoUnclassifiedStore: _AssertNoUnclassifiedStore = true;
+void _assertNoUnclassifiedStore;
+
+/**
+ * ログアウト時の端末データ削除の本体 (2026-08-06)。LOGOUT_CLEARED_STORES を単一の
+ * トランザクションで clear する ―― LOGOUT_KEPT_STORES (plannedBlocks/timeEntries) には
+ * 一切触れない。
+ *
+ * DB ごと削除する旧実装と違い、この関数は接続を閉じない・indexedDB.deleteDatabase() も
+ * 呼ばない ―― openKichijitsuDB() が返す既存の接続をそのまま使い、対象ストアだけを clear する
+ * ので、他タブの接続を気にした onblocked 対応も不要になった(store.clear() は他ストアの
+ * 読み書きと独立しており、接続を閉じ直す理由が無い)。
+ */
+export async function clearLogoutTargetStores(db: IDBPDatabase<KichijitsuDB>): Promise<void> {
+  const tx = db.transaction(LOGOUT_CLEARED_STORES, "readwrite");
+  await Promise.all([
+    ...LOGOUT_CLEARED_STORES.map((name) => tx.objectStore(name).clear()),
+    tx.done,
+  ]);
 }
 
 export async function getAllSeries(db: IDBPDatabase<KichijitsuDB>): Promise<EventSeries[]> {

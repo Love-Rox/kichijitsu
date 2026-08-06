@@ -4,6 +4,7 @@ import { LogoMark, LogoWordmark } from "./Logo";
 import { MasuIndicator } from "./MasuIndicator";
 import { RunningTimersIndicator } from "./RunningTimersIndicator";
 import { ToolbarMenu } from "./ToolbarMenu";
+import { buildToolbarErrorNotes } from "./toolbarErrorNotes";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./icons";
 import type { TimelineNavigation } from "../hooks/useTimelineNavigation";
 import type { MasuVisibleState } from "../hooks/useMasuVisible";
@@ -111,10 +112,18 @@ export function AppToolbar({
       : `設定 (${me.accounts.length}アカウント連携中)`;
   // 広幅ではヘッダーに赤字で出していた失敗表示。狭幅ではメニューの中に文言を出し、
   // ⋯ ボタンには注意ドットだけを付ける(ToolbarMenu.tsx 参照)。
-  const errorNotes = [
-    syncStatus === "error" ? "同期失敗" : null,
-    saveError ? "保存失敗（元に戻しました）" : null,
-  ].filter((note): note is string => note !== null);
+  //
+  // Google 再認証が必要 (2026-08-06、本番障害対応) もここに混ぜる ―― refresh_token 失効は
+  // そのアカウントの同期が完全に止まる深刻な状態なのに、設定モーダルを開かない限り
+  // 気づけないのでは遅い。文言の組み立て自体は React 非依存の純関数
+  // (toolbarErrorNotes.ts) に切り出してテストしてある。実際に再認証する導線 (再連携ボタン)
+  // は設定モーダルの AccountsSection に置く ―― 複数アカウントがありうるので一覧 UI の
+  // ほうが導線として自然なため、ここでは「気づく」だけを担う。
+  const errorNotes = buildToolbarErrorNotes({
+    syncFailed: syncStatus === "error",
+    saveFailed: Boolean(saveError),
+    reauthRequiredEmails: me.accounts.filter((a) => a.reauthRequired).map((a) => a.email),
+  });
 
   return (
     <header className="toolbar">

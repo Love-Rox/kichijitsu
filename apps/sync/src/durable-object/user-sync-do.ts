@@ -9,8 +9,9 @@ import type {
   TaskListDTO,
 } from "@kichijitsu/shared";
 import { listCalendarsWithRetry, type CalendarListCoreDeps } from "../core/calendar-list";
-import { refreshAccessToken } from "../google/oauth";
+import { GoogleTokenRefreshError, refreshAccessToken, type RefreshedTokens } from "../google/oauth";
 import { hasUpdatesSince } from "../google/poll-check";
+import { shouldSkipAlarmRetry } from "../core/reauth";
 import { syncCalendar, type SyncCoreDeps } from "../core/sync";
 import {
   resolveSyncTokenRead,
@@ -525,6 +526,17 @@ export class UserSyncDO extends DurableObject<Env> {
     const accountId = state.account_id;
     const profileId = state.profile_id;
 
+    // 恒久的な失敗 (再認証待ち) を記録済みのアカウントは、alarm 由来の自動リトライを
+    // 止める (2026-08-06、本番障害: 2日間で246回、回復しないと分かっている更新を
+    // 叩き続けていた)。shouldSkipAlarmRetry の判定は alarm 専用 ―― 手動同期等の他の RPC は
+    // これを経由せず常に試す (core/reauth.ts のコメント参照)。次回の alarm でも同じ判定に
+    // なるので、再スケジュールだけして今回のポーリングは何もせず終える。
+    const reauthRequiredAt = await this.readReauthRequiredAt(accountId);
+    if (shouldSkipAlarmRetry(reauthRequiredAt)) {
+      await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS);
+      return;
+    }
+
     // 端末ごと syncToken (2026-07-21) 以降、レガシー sync_tokens には新規カレンダーの行が
     // 増えなくなった (writeSyncToken が凍結、seed 専用) ので、sync_tokens_v2 側の
     // calendar_id も合わせて見ないと、v2 のみで同期されているカレンダーがポーリング
@@ -539,8 +551,13 @@ export class UserSyncDO extends DurableObject<Env> {
     let accessToken: string;
     try {
       accessToken = await this.getOrRefreshAccessToken(accountId, false);
-    } catch (err) {
-      console.error(`UserSyncDO alarm: failed to get access token for account ${accountId}`, err);
+    } catch {
+      // Google 側の理由 (status/errorCode) は getOrRefreshAccessToken 内で既にログ済み
+      // (恒久/一時の判定とあわせて1箇所にまとめてある)。ここでは err を再ダンプしない ――
+      // NotConnectedError 等 Google 由来でない例外を含め、再掲しても情報は増えない。
+      console.error(
+        `UserSyncDO alarm: failed to get access token for account ${accountId}, will retry next poll`,
+      );
       await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS);
       return;
     }
@@ -665,6 +682,18 @@ export class UserSyncDO extends DurableObject<Env> {
     };
   }
 
+  /**
+   * アクセストークンの取得・更新の唯一の choke point (sync・カレンダー/タスク書き込み・
+   * alarm ポーリングなど、Google を呼ぶ全ての RPC がここを通る)。恒久的な失敗
+   * (accounts.reauth_required_at) の記録・解除もここに集約する:
+   *
+   *  - refreshAccessToken が GoogleTokenRefreshError.permanent=true で失敗したら記録する。
+   *  - 成功したら (再連携直後の初回呼び出しを含め) 必ず消す ―― 再連携後に警告が
+   *    画面に残り続けないようにするため。auth.ts の /auth/callback でも同じ列を
+   *    即座にクリアしている (そちらはこの関数が呼ばれるまで — 最大で access_token の
+   *    キャッシュ有効期間ぶん — 待たずに UI へ反映するため)。
+   *  - 一時的な失敗 (5xx・429・ネットワークエラー等) では一切書き込まない。
+   */
   private async getOrRefreshAccessToken(accountId: string, forceRefresh: boolean): Promise<string> {
     if (!forceRefresh) {
       const cached = this.readCachedToken();
@@ -673,9 +702,11 @@ export class UserSyncDO extends DurableObject<Env> {
       }
     }
 
-    const row = await this.env.DB.prepare("SELECT refresh_token FROM accounts WHERE id = ?")
+    const row = await this.env.DB.prepare(
+      "SELECT refresh_token, reauth_required_at FROM accounts WHERE id = ?",
+    )
       .bind(accountId)
-      .first<{ refresh_token: string }>();
+      .first<{ refresh_token: string; reauth_required_at: number | null }>();
     if (!row) {
       throw new NotConnectedError();
     }
@@ -693,15 +724,67 @@ export class UserSyncDO extends DurableObject<Env> {
       throw err;
     }
 
-    const refreshed = await refreshAccessToken(
-      fetch,
-      { clientId: this.env.GOOGLE_CLIENT_ID, clientSecret: this.env.GOOGLE_CLIENT_SECRET },
-      refreshToken,
-    );
+    let refreshed: RefreshedTokens;
+    try {
+      refreshed = await refreshAccessToken(
+        fetch,
+        { clientId: this.env.GOOGLE_CLIENT_ID, clientSecret: this.env.GOOGLE_CLIENT_SECRET },
+        refreshToken,
+      );
+    } catch (err) {
+      if (err instanceof GoogleTokenRefreshError) {
+        // ログに出すのは Google の**応答**由来の status と errorCode だけ。リクエスト本文に
+        // 含まれる refresh_token・client_secret はもちろん、応答本文の生テキスト
+        // (error_description 等) も出さない ―― GoogleTokenRefreshError 自体がそれらを
+        // 保持しない設計にしてある (google/oauth.ts のコメント参照)。これで
+        // invalid_grant (恒久) なのか 5xx/429 (一時的) なのかがログから判別できるようになる。
+        console.error(
+          `UserSyncDO: Google token refresh failed for account ${accountId}: ` +
+            `status=${err.status} errorCode=${err.errorCode ?? "(none)"} permanent=${err.permanent}`,
+        );
+        if (err.permanent) {
+          await this.markReauthRequired(accountId);
+        }
+      }
+      throw err;
+    }
+
+    // トークン更新に成功したので、恒久的な失敗の記録が残っていれば消す (再連携直後に
+    // まだキャッシュ済みトークンが有効で、この分岐を通らないまま UI の警告だけが
+    // 残ってしまうケースの保険 — 主経路は /auth/callback 側の即時クリア)。
+    if (row.reauth_required_at !== null) {
+      await this.clearReauthRequired(accountId);
+    }
 
     // 先に永続化してからメモリ上の呼び出し元へ返す (persist first, cache second)
     this.writeCachedToken(refreshed.accessToken, Date.now() + refreshed.expiresIn * 1000);
     return refreshed.accessToken;
+  }
+
+  /** alarm がこのアカウントへの自動リトライをスキップすべきか判定するための読み取り専用ヘルパー。 */
+  private async readReauthRequiredAt(accountId: string): Promise<number | null> {
+    const row = await this.env.DB.prepare("SELECT reauth_required_at FROM accounts WHERE id = ?")
+      .bind(accountId)
+      .first<{ reauth_required_at: number | null }>();
+    return row?.reauth_required_at ?? null;
+  }
+
+  /**
+   * 恒久的な失敗を記録する。既に記録済みなら上書きしない (WHERE ... IS NULL) ――
+   * 最初に検知した時刻を保ち、以後の失敗のたびに時刻が進んでしまわないようにするため。
+   */
+  private async markReauthRequired(accountId: string): Promise<void> {
+    await this.env.DB.prepare(
+      "UPDATE accounts SET reauth_required_at = ? WHERE id = ? AND reauth_required_at IS NULL",
+    )
+      .bind(Date.now(), accountId)
+      .run();
+  }
+
+  private async clearReauthRequired(accountId: string): Promise<void> {
+    await this.env.DB.prepare("UPDATE accounts SET reauth_required_at = NULL WHERE id = ?")
+      .bind(accountId)
+      .run();
   }
 
   private readCachedToken(): TokenCacheRow | null {
