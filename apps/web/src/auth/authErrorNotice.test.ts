@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { describeAuthError, readAuthErrorCode } from "./authErrorNotice";
+import { describeAuthError, isSafeAuthErrorCode, readAuthErrorCode } from "./authErrorNotice";
 
 describe("readAuthErrorCode", () => {
   it("returns null when there is no query string", () => {
@@ -54,5 +54,39 @@ describe("describeAuthError", () => {
     const result = describeAuthError("some_future_code");
     expect(result).not.toBeNull();
     expect(result).toContain("some_future_code");
+  });
+
+  // auth_error は URL クエリなので攻撃者が任意の値を入れられる。細工したリンクを踏ませて
+  // 偽の案内をアプリ公式の文言として表示させる経路を塞ぐ ―― ただし「何も出ない」には
+  // しない (それがこの機能の存在理由なので)。
+  it("does not echo a code containing Japanese text, but still shows a message", () => {
+    const result = describeAuthError("パスワードを再入力してください");
+    expect(result).toBe("連携に失敗しました");
+  });
+
+  it("does not echo a code containing a URL", () => {
+    const result = describeAuthError("see https://evil.example");
+    expect(result).toBe("連携に失敗しました");
+  });
+
+  it("does not echo an over-long code", () => {
+    expect(describeAuthError("a".repeat(65))).toBe("連携に失敗しました");
+  });
+});
+
+describe("isSafeAuthErrorCode", () => {
+  it("accepts the codes the server actually sends", () => {
+    expect(isSafeAuthErrorCode("github_token_exchange_failed")).toBe(true);
+    expect(isSafeAuthErrorCode("github_oauth_error: access_denied")).toBe(true);
+  });
+
+  it("rejects non-ASCII, slashes and over-long values", () => {
+    expect(isSafeAuthErrorCode("日本語")).toBe(false);
+    expect(isSafeAuthErrorCode("https://evil.example")).toBe(false);
+    expect(isSafeAuthErrorCode("a".repeat(65))).toBe(false);
+  });
+
+  it("accepts a code of exactly the maximum length", () => {
+    expect(isSafeAuthErrorCode("a".repeat(64))).toBe(true);
   });
 });
