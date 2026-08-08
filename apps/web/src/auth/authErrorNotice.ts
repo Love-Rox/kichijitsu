@@ -31,6 +31,12 @@ export function readAuthErrorCode(search: string): string | null {
  * コードや、将来サーバー側に新しいコードを足したときに、web 側を直し忘れても「コードを含む
  * 汎用メッセージ」までは必ず出る安全側のフォールバックにするため、コードそのものを文中に
  * 含めて返す。
+ *
+ * ただし `auth_error` は URL クエリなので **誰でも任意の値を入れられる**。コードをそのまま
+ * 文中に出すと、細工したリンクを踏ませるだけで攻撃者の文章をアプリ公式の案内として表示
+ * できてしまう (React がエスケープするのでスクリプト実行は無いが、文面そのものが偽装に使える)。
+ * そこで「未知コードでも必ず何か出す」は保ったまま、出すコードのほうを isSafeAuthErrorCode
+ * で絞る ―― 沈黙を避ける目的は満たしつつ、任意文の表示経路は塞ぐ。
  */
 export function describeAuthError(code: string | null): string | null {
   if (code === null) return null;
@@ -42,6 +48,25 @@ export function describeAuthError(code: string | null): string | null {
     case "login_required":
       return "GitHub 連携には先に Google でログインする必要があります。ログインしてから改めてお試しください。";
     default:
-      return `連携に失敗しました (${code})`;
+      return isSafeAuthErrorCode(code)
+        ? `連携に失敗しました (${code})`
+        : "連携に失敗しました";
   }
+}
+
+/**
+ * 未知コードを画面にそのまま出してよいか。サーバー側が実際に送るコードは
+ * `github_oauth_error: access_denied` のような ASCII の識別子だけなので、それを通せる
+ * 最小限の文字種に限る。
+ *
+ * 意図的に落としているもの:
+ * - 非 ASCII (日本語など) ―― 日本語 UI に日本語の偽メッセージを混ぜるのが一番効く手口
+ * - `/` ―― 許すと `https://evil.example` のような誘導先を丸ごと表示できてしまう
+ * - 長い文字列 ―― 文章を流し込む余地とレイアウト破壊の両方を防ぐ
+ *
+ * 弾いた場合もコード抜きの汎用メッセージは必ず出す (null にはしない)。表示が消えると
+ * 「弾かれたのに何も出ない」という、この機能が生まれた原因そのものに戻ってしまうため。
+ */
+export function isSafeAuthErrorCode(code: string): boolean {
+  return code.length <= 64 && /^[A-Za-z0-9_.: -]+$/.test(code);
 }
