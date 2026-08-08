@@ -63,6 +63,8 @@ export interface AppToolbarProps {
   syncStatus: CalendarSyncController["syncStatus"];
   syncIndicator: MasuVisibleState;
   saveError: EventMutationsController["saveError"];
+  /** OAuth 連携が却下された直後の案内文言 (App.tsx の auth/authErrorNotice.ts 参照)。無ければ null */
+  authErrorNote: string | null;
   leftPaneOpen: boolean;
   toggleLeftPane: () => void;
   paneOpen: boolean;
@@ -93,6 +95,7 @@ export function AppToolbar({
   syncStatus,
   syncIndicator,
   saveError,
+  authErrorNote,
   leftPaneOpen,
   toggleLeftPane,
   paneOpen,
@@ -120,10 +123,15 @@ export function AppToolbar({
   // (toolbarErrorNotes.ts) に切り出してテストしてある。実際に再認証する導線 (再連携ボタン)
   // は設定モーダルの AccountsSection に置く ―― 複数アカウントがありうるので一覧 UI の
   // ほうが導線として自然なため、ここでは「気づく」だけを担う。
+  //
+  // authErrorNote (2026-08-08) もここに混ぜる ―― OAuth 連携が却下された直後の案内。
+  // not_invited/login_required は連携前(= まだアカウントが0件)に起きうるため、下の
+  // JSX では他の3種と違い hasAccounts に関わらず表示する。
   const errorNotes = buildToolbarErrorNotes({
     syncFailed: syncStatus === "error",
     saveFailed: Boolean(saveError),
     reauthRequiredEmails: me.accounts.filter((a) => a.reauthRequired).map((a) => a.email),
+    authErrorNote,
   });
 
   return (
@@ -307,11 +315,6 @@ export function AppToolbar({
                     "同期"
                   )}
                 </button>
-                {errorNotes.map((note) => (
-                  <span className="sync-error" key={note}>
-                    {note}
-                  </span>
-                ))}
               </>
             ) : (
               <button
@@ -327,6 +330,17 @@ export function AppToolbar({
                 Google 連携
               </button>
             )}
+            {/*
+             * 2026-08-08: errorNotes の表示を hasAccounts の分岐から外に出した。
+             * not_invited/login_required は「まだアカウントが無い(=hasAccounts が false)」
+             * ときにこそ起きる却下理由なので、hasAccounts の内側(旧: 同期ボタンの直後)に
+             * 置いたままだと、まさに一番見せたいケースで表示できなかった。
+             */}
+            {errorNotes.map((note) => (
+              <span className="sync-error" key={note}>
+                {note}
+              </span>
+            ))}
           </div>
         )}
         {/*

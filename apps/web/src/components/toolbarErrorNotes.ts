@@ -1,7 +1,8 @@
 /**
- * ツールバーの注意文言 (同期失敗・保存失敗・Google 再認証が必要) を組み立てる純ロジック。
- * toolbarMenuItems.ts と同じ理由 (この web アプリにはコンポーネントテストの土台が無いため、
- * React に依存しない .ts に切り出してテストで固定する) で AppToolbar.tsx から分離した。
+ * ツールバーの注意文言 (同期失敗・保存失敗・Google 再認証が必要・OAuth 連携拒否) を
+ * 組み立てる純ロジック。toolbarMenuItems.ts と同じ理由 (この web アプリにはコンポーネント
+ * テストの土台が無いため、React に依存しない .ts に切り出してテストで固定する) で
+ * AppToolbar.tsx から分離した。
  *
  * ここで作った文字列はそのまま2箇所で使われる: 広幅ヘッダーの `.sync-error` スパン、
  * 狭幅の ToolbarMenu 内 `.toolbar-menu-note`(どちらも既存、AppToolbar.tsx 側の配線)。
@@ -17,6 +18,16 @@ export interface ToolbarErrorNotesInput {
   saveFailed: boolean;
   /** me.accounts のうち reauthRequired な (Google の再認証が必要な) アカウントのメール一覧 */
   reauthRequiredEmails: readonly string[];
+  /**
+   * OAuth (Google/GitHub) の却下理由 (auth/authErrorNotice.ts の describeAuthError の
+   * 戻り値をそのまま渡す)。連携が却下された直後に APP_URL へ戻ってきたときだけ非 null で、
+   * その後は次のリロードまで出しっぱなしになる (App.tsx が持つ1回きりの state)。
+   *
+   * 他の3つと同じく **optional にしない** ―― この項目が生まれた原因が「サーバーは理由を
+   * 送っていたのに受け手がどこにも無かった」ことなので、省略できる形にすると、新しい
+   * 呼び出し側が黙って渡し忘れて同じ沈黙が再発する。渡さないなら null と明示させる。
+   */
+  authErrorNote: string | null;
 }
 
 export function buildToolbarErrorNotes(input: ToolbarErrorNotesInput): string[] {
@@ -26,5 +37,6 @@ export function buildToolbarErrorNotes(input: ToolbarErrorNotesInput): string[] 
   for (const email of input.reauthRequiredEmails) {
     notes.push(`Google の再認証が必要です (${email})`);
   }
+  if (input.authErrorNote) notes.push(input.authErrorNote);
   return notes;
 }
