@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { IDBPDatabase } from "idb";
+import { describeAuthError, readAuthErrorCode } from "./auth/authErrorNotice";
 import { canNotifyNatively } from "./sync/desktopNotify";
 import { hookActualByLinkedItem } from "./sync/hookActual";
 import { deleteJson } from "./sync/httpJson";
@@ -249,6 +250,32 @@ function App() {
   // (リファクタリング フェーズ2 ⑥、2026-07-25。下の useGoogleAccounts 呼び出し参照)。
   // 同期(POST /api/sync)側は hooks/useCalendarSync.ts で、両者を繋ぐグルーだけがここに残る。
   const [panelOpen, setPanelOpen] = useState(false);
+
+  /**
+   * OAuth (Google/GitHub) 連携が却下されたときの案内文言 (2026-08-08)。apps/sync は却下理由を
+   * `?auth_error=...` を付けて APP_URL へ 302 で返しているが、これまで web 側に読む場所が無く
+   * 「弾かれたのに何のメッセージも出ない」事故が本番で起きた。マウント時に一度だけ読む
+   * (auth/authErrorNotice.ts、React に依存しない純関数)。初期化関数の中は読むだけの純粋な
+   * 処理に留め、URL の書き換え(history.replaceState)は副作用なので下の effect でだけ行う
+   * ―― 初期化関数内でやると StrictMode の二重実行や再レンダリングで壊れるため。
+   */
+  const [authErrorNote] = useState<string | null>(() =>
+    describeAuthError(readAuthErrorCode(window.location.search)),
+  );
+
+  useEffect(() => {
+    // auth_error が無ければ何もしない(通常の起動・auth_error 以外のクエリのみの起動)。
+    // 他のクエリパラメータ(?demo=1 等)はそのまま残す ―― 消すのは auth_error だけ。
+    if (readAuthErrorCode(window.location.search) === null) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_error");
+    window.history.replaceState(window.history.state, "", url);
+    // authErrorNote の state 自体はここでは戻さない ―― 表示は App.tsx が持つこの1回きりの
+    // state のままでよく、消えるのは次にリロードしたとき(URL から既に auth_error が無い)。
+    // マウント時に一度だけ実行する
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // '?' キーでトグルするキーボードショートカット ヘルプオーバーレイ(フェーズ6)
   const [helpOpen, setHelpOpen] = useState(false);
   // 予定検索オーバーレイ(フェーズ6)の開閉。ツールバーの検索ボタンからのみ開く
@@ -914,6 +941,7 @@ function App() {
           syncStatus={syncStatus}
           syncIndicator={syncIndicator}
           saveError={saveError}
+          authErrorNote={authErrorNote}
           leftPaneOpen={leftPaneOpen}
           toggleLeftPane={toggleLeftPane}
           paneOpen={paneOpen}
