@@ -25,6 +25,8 @@ export default function Home() {
    * 古い読み込みが終わって、前のユーザーの予定が画面やデータベースに戻ってしまう。
    */
   const controller = useRef<AbortController | null>(null);
+  /** 進行中の読み込みの完了を待つため(ログアウトが、書き込みの完了を待ってから全消去する)。 */
+  const inflight = useRef<Promise<unknown> | null>(null);
 
   const refresh = useCallback(async () => {
     controller.current?.abort();
@@ -33,10 +35,14 @@ export default function Home() {
     const isCurrent = () => !mine.signal.aborted;
     setState({ kind: "loading" });
     try {
-      if (!(await getToken())) return isCurrent() && setState({ kind: "signedOut" });
+      if (!(await getToken())) {
+        // 未ログイン: 手元に予定が残っていれば消す(他人のものかもしれない)
+        await clearAll();
+        return isCurrent() && setState({ kind: "signedOut" });
+      }
       // 手元のデータがあれば即座に表示し、同期できたカレンダーから順に反映する
       let latest: LoadProgress | null = null;
-      const data = await loadCalendarData({
+      const run = loadCalendarData({
         signal: mine.signal,
         onProgress: (progress) => {
           if (!isCurrent()) return;
@@ -49,6 +55,8 @@ export default function Home() {
           if (isCurrent()) setState({ kind: "ready", data: partial, syncing: latest });
         },
       });
+      inflight.current = run.catch(() => undefined);
+      const data = await run;
       if (!isCurrent()) return;
       setState(data ? { kind: "ready", data, syncing: null } : { kind: "signedOut" });
     } catch (e) {
@@ -62,6 +70,8 @@ export default function Home() {
 
   const onSignIn = async () => {
     try {
+      // ログインの前に、手元の予定を消す(別のユーザーのものを引き継がない)
+      await clearAll();
       if (await signIn()) await refresh();
     } catch (e) {
       setState({ kind: "signedOut", error: String(e) });
@@ -121,8 +131,14 @@ export default function Home() {
             onPress={async () => {
               // 進行中の読み込みを中止してから、保存済みの予定とセッションを消す
               controller.current?.abort();
-              await clearAll();
-              await signOut();
+              // 進行中の書き込みが終わるのを待ってから消す(待たないと、消した後に書き込みが残りうる)。
+              // 消去で失敗しても、セッションは必ず捨てる。
+              await inflight.current;
+              try {
+                await clearAll();
+              } finally {
+                await signOut();
+              }
               await refresh();
             }}
           />
