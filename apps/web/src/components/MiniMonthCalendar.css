@@ -52,7 +52,7 @@
 
 .mini-month-weekday {
   text-align: center;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--c-ink-sub);
   padding-bottom: 2px;
 }
@@ -90,7 +90,7 @@
 }
 
 .mini-month-day-num {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--c-ink);
 }
 

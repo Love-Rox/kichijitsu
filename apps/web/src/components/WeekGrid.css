@@ -211,8 +211,8 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 3px;
-  font-size: 10px;
-  color: var(--c-ui-ink-faint);
+  font-size: 11px;
+  color: var(--c-ui-ink-mute);
 }
 
 .week-grid-allday-viewport {
@@ -263,8 +263,8 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 3px;
-  font-size: 10px;
-  color: var(--c-ui-ink-faint);
+  font-size: 11px;
+  color: var(--c-ui-ink-mute);
 }
 
 /*
@@ -347,8 +347,8 @@
   border: 0;
   background: none;
   font: inherit;
-  font-size: 10px;
-  color: var(--c-ui-ink-faint);
+  font-size: 11px;
+  color: var(--c-ui-ink-mute);
   cursor: pointer;
 }
 
@@ -446,7 +446,7 @@
   right: 8px;
   transform: translateY(-50%);
   font-size: 11px;
-  color: var(--c-ui-ink-faint);
+  color: var(--c-ui-ink-mute);
   white-space: nowrap;
 }
 
@@ -504,7 +504,7 @@
 
   .hour-label {
     right: 4px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .week-grid-day-header {
@@ -513,7 +513,7 @@
   }
 
   .week-grid-day-header .weekday {
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .week-grid-day-header .date {

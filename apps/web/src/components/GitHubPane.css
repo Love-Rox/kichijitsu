@@ -185,7 +185,7 @@
 
 .github-pane-section-caret {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-sub);
   width: 10px;
 }
@@ -349,7 +349,7 @@
 .github-pane-item-kind {
   flex: none;
   margin-top: 1px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-github);
 }
@@ -455,7 +455,7 @@
 
 .github-pane-timer-kind {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-on-color);
   border-radius: 4px;
@@ -687,7 +687,7 @@
 .github-pane-group-caret {
   flex: none;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-sub);
   width: 10px;
 }
@@ -803,7 +803,7 @@
 
 .github-pane-history-badge {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--c-ink-sub);
   background: var(--c-surface-2);
