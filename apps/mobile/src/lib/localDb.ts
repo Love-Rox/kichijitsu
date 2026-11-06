@@ -22,6 +22,19 @@ export const calKey = (accountId: string, calendarId: string) => `${accountId}\u
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+/**
+ * トランザクションを伴う書き込みを、1 つずつ順番に実行するキュー。
+ * 同じ接続で複数のトランザクションを同時に開くと "cannot start a transaction within a transaction" に
+ * なる。複数のアカウント/カレンダーを並行して同期すると、書き込みの完了が重なるため、必ず通す。
+ * 失敗しても後続を止めない(エラーは呼び出し側へ返す)。
+ */
+let writeQueue: Promise<unknown> = Promise.resolve();
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(task, task);
+  writeQueue = run.catch(() => undefined);
+  return run;
+}
+
 export function getDb(): Promise<SQLite.SQLiteDatabase> {
   dbPromise ??= (async () => {
     const db = await SQLite.openDatabaseAsync("kichijitsu.db");
@@ -164,7 +177,17 @@ async function deleteCalendar(db: SQLite.SQLiteDatabase, accountId: string, cale
  * 1 カレンダーぶんの同期結果を適用する。全体を 1 つのトランザクションにして、途中で失敗しても
  * 「消しただけで入れ直していない」状態を残さない(Web の applyFullSyncAtomic と同じ理由)。
  */
-export async function applySync(
+export function applySync(
+  accountId: string,
+  calendarId: string,
+  mapped: MappedSync,
+  isFullSync: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
+  return serialized(() => applySyncNow(accountId, calendarId, mapped, isFullSync, signal));
+}
+
+async function applySyncNow(
   accountId: string,
   calendarId: string,
   mapped: MappedSync,
@@ -227,7 +250,11 @@ export async function applySync(
 }
 
 /** 表示対象から外れたカレンダーのデータを消す(残すキー以外を削除)。 */
-export async function dropCalendarsExcept(keep: Set<string>): Promise<void> {
+export function dropCalendarsExcept(keep: Set<string>): Promise<void> {
+  return serialized(() => dropCalendarsExceptNow(keep));
+}
+
+async function dropCalendarsExceptNow(keep: Set<string>): Promise<void> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ account_id: string; calendar_id: string }>(
     `SELECT DISTINCT account_id, calendar_id FROM singles
@@ -244,7 +271,11 @@ export async function dropCalendarsExcept(keep: Set<string>): Promise<void> {
 }
 
 /** ログアウト時: 保存した予定とメタ情報をすべて消す(端末に他人の予定を残さない)。 */
-export async function clearAll(): Promise<void> {
+export function clearAll(): Promise<void> {
+  return serialized(clearAllNow);
+}
+
+async function clearAllNow(): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
     for (const table of ["singles", "all_days", "series", "overrides", "meta"]) {

@@ -29,11 +29,18 @@ import {
  * 表示用の Occurrence に変換する。スパイクなので、手元への保存 (IndexedDB 相当) はまだ無く、
  * 毎回全件を取る(forceFull)。ローカルファースト化は次の段階。
  */
-export interface CalendarData {
-  email: string;
-  /** 予定の作成先の候補 (書き込める表示中のカレンダー)。 */
+/** 1 つのアカウントと、そのアカウントの表示中(同期対象)のカレンダー。 */
+export interface AccountCalendars {
   accountId: string;
+  email: string;
   calendars: CalendarListEntryDTO[];
+}
+
+export interface CalendarData {
+  /** 連携しているアカウント(複数可)。予定の作成先の候補にもなる。 */
+  accounts: AccountCalendars[];
+  /** 同期できなかったカレンダー/アカウントの説明(一部の失敗で、全体を止めないため)。 */
+  warnings: string[];
   singles: Occurrence[];
   allDays: AllDayOccurrence[];
   series: EventSeries[];
@@ -66,15 +73,13 @@ export interface LoadOptions {
 }
 
 function compose(
-  email: string,
-  accountId: string,
-  calendars: CalendarListEntryDTO[],
+  accounts: AccountCalendars[],
   partitions: Map<string, Partition>,
+  warnings: string[] = [],
 ): CalendarData {
   const data: CalendarData = {
-    email,
-    accountId,
-    calendars,
+    accounts,
+    warnings,
     singles: [],
     allDays: [],
     series: [],
@@ -113,12 +118,10 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
     await setMeta("cacheSession", fingerprint);
   }
   let partitions = await readAll();
-  let cachedEmail = await getMeta("email");
+  let cachedAccounts = JSON.parse((await getMeta("accounts")) ?? "[]") as AccountCalendars[];
   if (aborted()) return null;
-  let cachedOwner = (await getMeta("ownerId")) ?? "";
-  let cachedCalendars = JSON.parse((await getMeta("calendars")) ?? "[]") as CalendarListEntryDTO[];
-  if (cachedEmail && partitions.size > 0) {
-    onPartial?.(compose(cachedEmail, cachedOwner, cachedCalendars, partitions));
+  if (cachedAccounts.length > 0 && partitions.size > 0) {
+    onPartial?.(compose(cachedAccounts, partitions));
   }
 
   try {
@@ -130,74 +133,108 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
       await clearAll();
       return null;
     }
-    const account = me.accounts[0];
-    // 保存済みのデータの持ち主と、いま答えたアカウントが違うなら、全消去してやり直す
-    const storedOwner = await getMeta("ownerId");
-    if (storedOwner && storedOwner !== account.id) {
+    // 保存済みのデータの持ち主と、いま答えたアカウントの集まりに、共通するものが1つも無いなら、
+    // 別のユーザーのデータなので全消去してやり直す(アカウントを足した・外しただけなら、残りは有効)
+    const currentIds = new Set(me.accounts.map((a) => a.id));
+    if (cachedAccounts.length > 0 && !cachedAccounts.some((a) => currentIds.has(a.accountId))) {
       await clearAll();
       await setMeta("cacheSession", fingerprint);
       partitions = new Map();
-      cachedEmail = null;
-      cachedOwner = "";
-      cachedCalendars = [];
+      cachedAccounts = [];
     }
-    await setMeta("ownerId", account.id);
-    await setMeta("email", account.email);
+
+    // 再連携が必要(リフレッシュトークンが失効した)アカウントは同期できないので、飛ばして知らせる
+    const warnings: string[] = [];
+    const usable = me.accounts.filter((a) => {
+      if (a.reauthRequired) warnings.push(`${a.email}: 再ログイン(再連携)が必要です`);
+      return !a.reauthRequired;
+    });
 
     onProgress?.({ phase: "calendars", done: 0, total: 0 });
-    const calendars =
-      (await timed("calendars", () =>
-        apiFetch<CalendarListEntryDTO[]>(`/api/calendars?accountId=${encodeURIComponent(account.id)}`, {
-          signal,
-        }),
-      )) ?? [];
-    if (aborted()) return null;
-    await setMeta("calendars", JSON.stringify(calendars));
-    const visibleIds = me.visibleCalendars[account.id];
-    const targets = calendars.filter((c) =>
-      visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
+    // アカウントごとのカレンダー一覧は独立なので並行して取る。1つ失敗しても、他は続ける
+    const accounts: AccountCalendars[] = [];
+    await Promise.all(
+      usable.map(async (account) => {
+        try {
+          const calendars =
+            (await timed(`calendars ${account.email}`, () =>
+              apiFetch<CalendarListEntryDTO[]>(
+                `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
+                { signal },
+              ),
+            )) ?? [];
+          const visibleIds = me.visibleCalendars[account.id];
+          const targets = calendars.filter((c) =>
+            visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
+          );
+          accounts.push({ accountId: account.id, email: account.email, calendars: targets });
+        } catch (e) {
+          if (!aborted()) warnings.push(`${account.email}: カレンダーの一覧を取得できませんでした`);
+          // 取得できなかったアカウントは、保存済みの分を、そのまま見せ続ける
+          const kept = cachedAccounts.find((a) => a.accountId === account.id);
+          if (kept) accounts.push(kept);
+        }
+      }),
     );
+    if (aborted()) return null;
+    // 元の並び(サーバーが答えたアカウントの順)に揃える
+    accounts.sort(
+      (x, y) =>
+        me.accounts.findIndex((a) => a.id === x.accountId) -
+        me.accounts.findIndex((a) => a.id === y.accountId),
+    );
+    await setMeta("accounts", JSON.stringify(accounts));
 
-    // 表示対象から外れたカレンダーは、保存済みのデータも画面からも外す
-    const keep = new Set(targets.map((c) => calKey(account.id, c.id)));
+    // 表示対象から外れたカレンダー(外れたアカウントを含む)は、保存済みのデータも画面からも外す
+    const keep = new Set(accounts.flatMap((a) => a.calendars.map((c) => calKey(a.accountId, c.id))));
     for (const key of [...partitions.keys()]) if (!keep.has(key)) partitions.delete(key);
     await dropCalendarsExcept(keep);
 
     const deviceId = await getDeviceId();
+    const jobs = accounts.flatMap((a) => a.calendars.map((cal) => ({ account: a, cal })));
     let done = 0;
-    onProgress?.({ phase: "sync", done, total: targets.length });
-    // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる)
+    onProgress?.({ phase: "sync", done, total: jobs.length });
+    // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる)。
+    // 1 つ失敗しても全体は止めず、警告として知らせる。
     await Promise.all(
-      targets.map(async (cal) => {
-        const sync = await timed(`sync ${cal.summary}`, () =>
-          apiFetch<SyncResponse>("/api/sync", {
-            method: "POST",
-            body: JSON.stringify({ accountId: account.id, calendarId: cal.id, deviceId }),
-            signal,
-          }),
-        );
-        if (aborted() || !sync) return;
-        const mapped = await timed(`map ${cal.summary} (${sync.events.length} events)`, () =>
-          mapGoogleEvents(sync.events, {
-            accountId: account.id,
-            calendarId: cal.id,
-            defaultColor: cal.backgroundColor,
-          }),
-        );
-        if (aborted()) return;
-        await applySync(account.id, cal.id, mapped, sync.isFullSync, signal);
-        if (aborted()) return;
-        partitions.set(calKey(account.id, cal.id), await readPartition(account.id, cal.id));
+      jobs.map(async ({ account, cal }) => {
+        try {
+          const sync = await timed(`sync ${cal.summary}`, () =>
+            apiFetch<SyncResponse>("/api/sync", {
+              method: "POST",
+              body: JSON.stringify({ accountId: account.accountId, calendarId: cal.id, deviceId }),
+              signal,
+            }),
+          );
+          if (aborted() || !sync) return;
+          const mapped = await timed(`map ${cal.summary} (${sync.events.length} events)`, () =>
+            mapGoogleEvents(sync.events, {
+              accountId: account.accountId,
+              calendarId: cal.id,
+              defaultColor: cal.backgroundColor,
+            }),
+          );
+          if (aborted()) return;
+          await applySync(account.accountId, cal.id, mapped, sync.isFullSync, signal);
+          if (aborted()) return;
+          partitions.set(
+            calKey(account.accountId, cal.id),
+            await readPartition(account.accountId, cal.id),
+          );
+        } catch (e) {
+          if (__DEV__) console.log(`SYNCERR ${cal.summary} ${String(e)}`);
+          if (!aborted()) warnings.push(`${cal.summary}(${account.email}): 同期できませんでした`);
+        }
         done += 1;
-        onProgress?.({ phase: "sync", done, total: targets.length });
-        onPartial?.(compose(account.email, account.id, targets, partitions));
+        onProgress?.({ phase: "sync", done, total: jobs.length });
+        onPartial?.(compose(accounts, partitions, [...warnings]));
       }),
     );
-    return aborted() ? null : compose(account.email, account.id, targets, partitions);
+    return aborted() ? null : compose(accounts, partitions, warnings);
   } catch (e) {
     // 通信に失敗しても、手元のデータがあればそれを見せる(オフライン)
-    if (!aborted() && cachedEmail && partitions.size > 0) {
-      return compose(cachedEmail, cachedOwner, cachedCalendars, partitions);
+    if (!aborted() && cachedAccounts.length > 0 && partitions.size > 0) {
+      return compose(cachedAccounts, partitions);
     }
     throw e;
   }
