@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useMemo } from "react";
+import { ScrollView, Text, View } from "react-native";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
 import { allDaysOnDate, occurrencesInRange, type CalendarData } from "../lib/calendarData";
@@ -17,10 +17,17 @@ const HEADER_WINDOW_MS = 36 * 60_000;
 const ACCENT = "#c13625";
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
-export function ThreeDayTimeline({ data }: { data: CalendarData }) {
-  const timeZone = useMemo(() => Temporal.Now.timeZoneId(), []);
-  const today = useMemo(() => Temporal.Now.plainDateISO(timeZone), [timeZone]);
-  const [start, setStart] = useState(today);
+export function ThreeDayTimeline({
+  data,
+  start,
+  today,
+  timeZone,
+}: {
+  data: CalendarData;
+  start: Temporal.PlainDate;
+  today: Temporal.PlainDate;
+  timeZone: string;
+}) {
 
   const days = useMemo(
     () => Array.from({ length: DAYS }, (_, i) => start.add({ days: i })),
@@ -49,21 +56,6 @@ export function ThreeDayTimeline({ data }: { data: CalendarData }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 6, gap: 8 }}>
-        <Pressable onPress={() => setStart(start.subtract({ days: DAYS }))} hitSlop={8}>
-          <Text style={{ fontSize: 20 }}>‹</Text>
-        </Pressable>
-        <Pressable onPress={() => setStart(today)} hitSlop={8}>
-          <Text style={{ fontSize: 14, color: ACCENT }}>今日</Text>
-        </Pressable>
-        <Pressable onPress={() => setStart(start.add({ days: DAYS }))} hitSlop={8}>
-          <Text style={{ fontSize: 20 }}>›</Text>
-        </Pressable>
-        <Text style={{ marginLeft: "auto", color: "#666" }}>
-          {days[0].year}年{days[0].month}月
-        </Text>
-      </View>
-
       <View style={{ flexDirection: "row", marginLeft: GUTTER }}>
         {columns.map(({ date, allDay }) => {
           const isToday = date.equals(today);

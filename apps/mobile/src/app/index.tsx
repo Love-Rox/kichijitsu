@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Button, Text, View } from "react-native";
-import { ThreeDayTimeline } from "../components/ThreeDayTimeline";
+import { CalendarScreen } from "../components/CalendarScreen";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { loadCalendarData, type CalendarData } from "../lib/calendarData";
 
@@ -48,7 +48,7 @@ export default function Home() {
       {state.kind === "ready" && (
         <>
           <View style={{ flex: 1 }}>
-            <ThreeDayTimeline data={state.data} />
+            <CalendarScreen data={state.data} />
           </View>
           <Button
             title="ログアウト"
