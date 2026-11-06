@@ -15,15 +15,23 @@ export default function Home() {
   const [state, setState] = useState<
     | { kind: "loading"; progress?: LoadProgress }
     | { kind: "signedOut"; error?: string }
-    | { kind: "ready"; data: CalendarData }
+    | { kind: "ready"; data: CalendarData; syncing: LoadProgress | null }
   >({ kind: "loading" });
 
   const refresh = useCallback(async () => {
     setState({ kind: "loading" });
     try {
       if (!(await getToken())) return setState({ kind: "signedOut" });
-      const data = await loadCalendarData((progress) => setState({ kind: "loading", progress }));
-      setState(data ? { kind: "ready", data } : { kind: "signedOut" });
+      // 最初のカレンダーが読めた時点で画面を出し、残りは表示したまま順に反映する
+      let latest: LoadProgress | null = null;
+      const data = await loadCalendarData(
+        (progress) => {
+          latest = progress;
+          setState((s) => (s.kind === "ready" ? { ...s, syncing: progress } : { kind: "loading", progress }));
+        },
+        (partial) => setState({ kind: "ready", data: partial, syncing: latest }),
+      );
+      setState(data ? { kind: "ready", data, syncing: null } : { kind: "signedOut" });
     } catch (e) {
       setState({ kind: "signedOut", error: String(e) });
     }
@@ -70,6 +78,22 @@ export default function Home() {
       )}
       {state.kind === "ready" && (
         <>
+          {state.syncing && state.syncing.total > 0 && state.syncing.done < state.syncing.total && (
+            <View style={{ marginBottom: 4 }}>
+              <Text style={{ fontSize: 11, color: "#888" }}>
+                同期しています… ({state.syncing.done}/{state.syncing.total})
+              </Text>
+              <View style={{ height: 2, backgroundColor: "#eee" }}>
+                <View
+                  style={{
+                    height: 2,
+                    width: `${(state.syncing.done / state.syncing.total) * 100}%`,
+                    backgroundColor: "#c13625",
+                  }}
+                />
+              </View>
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             <CalendarScreen data={state.data} />
           </View>

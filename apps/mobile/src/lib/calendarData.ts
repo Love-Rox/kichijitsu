@@ -43,8 +43,13 @@ export interface LoadProgress {
   total: number;
 }
 
+/**
+ * `onPartial` は、カレンダーが1つ読み終わるたびに、そこまでのデータ(新しいオブジェクト)で呼ばれる。
+ * 画面は全部の完了を待たず、取れたものから順に表示を更新できる。
+ */
 export async function loadCalendarData(
   onProgress?: (p: LoadProgress) => void,
+  onPartial?: (data: CalendarData) => void,
 ): Promise<CalendarData | null> {
   onProgress?.({ phase: "account", done: 0, total: 0 });
   const me = await timed("me", () => apiFetch<MeResponse>("/api/me"));
@@ -72,7 +77,7 @@ export async function loadCalendarData(
   onProgress?.({ phase: "sync", done, total: targets.length });
   // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる。
   // 計測: 9 カレンダーの合計 約 17 秒のうち、サーバーの同期が約 14 秒で、最大の 1 件が約 6 秒)。
-  const results = await Promise.all(
+  await Promise.all(
     targets.map(async (cal) => {
       const sync = await timed(`sync ${cal.summary}`, () =>
         apiFetch<SyncResponse>("/api/sync", {
@@ -93,17 +98,22 @@ export async function loadCalendarData(
           defaultColor: cal.backgroundColor,
         }),
       );
+      // 読み終わったカレンダーから順にデータへ足し、画面へ知らせる(JS は単一スレッドなので競合しない)
+      data.singles.push(...mapped.singles);
+      data.allDays.push(...mapped.allDays);
+      data.series.push(...mapped.series);
+      data.overrides.push(...mapped.overrides);
       done += 1;
       onProgress?.({ phase: "sync", done, total: targets.length });
-      return mapped;
+      onPartial?.({
+        email: data.email,
+        singles: [...data.singles],
+        allDays: [...data.allDays],
+        series: [...data.series],
+        overrides: [...data.overrides],
+      });
     }),
   );
-  for (const mapped of results) {
-    data.singles.push(...mapped.singles);
-    data.allDays.push(...mapped.allDays);
-    data.series.push(...mapped.series);
-    data.overrides.push(...mapped.overrides);
-  }
   return data;
 }
 
