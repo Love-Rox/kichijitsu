@@ -100,3 +100,9 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - ログアウトでは `clearWidget()` で空にする(ロック画面・ホーム画面に予定の題が残らないように)。
 - サイズは小(直近 2 件)・中(直近 4 件)。予定の開始・終了の時刻で表示が切り替わる。
 - 署名: ウィジェット用の App ID(`cc.love-rox.kichijitsu.widget`)と App Group の登録が要る。Apple ID でサインインした Xcode に任せる(`xcodebuild ... -allowProvisioningUpdates`、API キー無し)と自動で登録される。**権限の低い API キーでは作れない**。
+
+## 検索
+- ヘッダーの 🔍 から開く(`components/SearchSheet.tsx`、ロジックは `lib/search.ts`)。手元のデータだけで探す(通信なし)。
+- タイトル・場所・説明・ゲスト(名前とメール)に、空白区切りの全部の語を含む予定(AND)。全角/半角・大文字小文字は区別しない。
+- 繰り返しの予定は、全件を展開せず、一致したシリーズだけを過去 90 日〜先 180 日で展開する。結果は最大 100 件、「これから」(近い順)→「過去」(新しい順)。
+- 結果をタップすると、検索のシートを閉じてから詳細を開く(iOS はモーダルを重ねて出せないことがあるため、450ms 待つ)。

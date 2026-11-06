@@ -316,6 +316,18 @@ function overridesOf(data: CalendarData, seriesId: string): InstanceOverride[] {
   return index.get(seriesId) ?? [];
 }
 
+/** 指定したシリーズだけを、[startMs, endMs) で展開する(検索用。全シリーズは展開しない)。 */
+export function seriesOccurrencesInRange(
+  data: CalendarData,
+  series: EventSeries,
+  startMs: number,
+  endMs: number,
+): Occurrence[] {
+  return expandCached(series, overridesOf(data, series.id), startMs, endMs).filter(
+    (o) => o.startMs < endMs && o.endMs > startMs,
+  );
+}
+
 /** [startMs, endMs) に重なる時刻予定 (単発 + 繰り返しの展開結果) を開始順に返す。 */
 export function occurrencesInRange(data: CalendarData, startMs: number, endMs: number): Occurrence[] {
   const t0 = Date.now();
