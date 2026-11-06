@@ -6,12 +6,18 @@
     "version": "0.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite"
+    ],
     "ios": {
       "bundleIdentifier": "cc.love-rox.kichijitsu",
       "appleTeamId": "M296DX39G6",
       "supportsTablet": false
     },
-    "experiments": { "typedRoutes": true }
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
