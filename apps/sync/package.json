@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vp test run",
-    "typecheck": "wrangler types && tsgo --noEmit"
+    "typecheck": "wrangler types --env-file .dev.vars.example && tsgo --noEmit"
   },
   "dependencies": {
     "@kichijitsu/shared": "workspace:*",
