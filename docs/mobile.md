@@ -52,6 +52,27 @@ npx expo start --dev-client                        # metro.config.js を変え�
 ```
 Xcode 27 ではシミュレータの画面は `DeviceHub.app` (Xcode.app/Contents/Applications) になっている。
 
+## TestFlight への配布
+手元の Mac (Xcode 27) から、アーカイブ → アップロードする(EAS は使っていない)。
+前提: Xcode の Settings → Accounts に Apple ID を追加済み(自動署名が証明書とプロファイルを作る)。
+App Store Connect に Bundle ID `cc.love-rox.kichijitsu` の App を作成済み。
+
+```
+cd apps/mobile
+npx expo prebuild --platform ios --clean          # ios/ を作り直す(.gitignore 済み)
+xcodebuild -workspace ios/kichijitsu.xcworkspace -scheme kichijitsu -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath /tmp/kichijitsu.xcarchive \
+  DEVELOPMENT_TEAM=M296DX39G6 CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates archive
+xcodebuild -exportArchive -archivePath /tmp/kichijitsu.xcarchive \
+  -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates      # アップロードまで行う
+```
+ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `teamID` /
+`signingStyle: automatic` / `uploadSymbols: true`。
+- **同じ version で再アップロードするときは `ios.buildNumber` を上げる**(app.json。重複は拒否される)。
+- dSYM の警告(React.framework など)は、クラッシュ報告の記号化にだけ効く。配布には影響しない。
+- アイコンは `node brand/gen-ios-icon.js` で再生成する。
+- 初回は 2026-11-06 に build 1 (version 0.1.0) をアップロード。
+
 ## 次にやること
 作成・編集・削除 (楽観的更新 + 書き戻し) → 不在・勤務場所の表示 → 引っ張って更新 →
 通知・ウィジェット。
