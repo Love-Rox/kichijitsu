@@ -43,7 +43,11 @@
   color: var(--c-ui-ink-strong);
 }
 
+/*
+ * 完了は左のマス(masu--kichi)と文字色の淡色化で示す。取り消し線は付けない:
+ * 予定側の「辞退」(event--rsvp-declined 等)が取り消し線を使っており、同じ見た目が
+ * 「辞退した予定」と「終わったタスク」の2つを意味してしまうため。取り消し線は辞退専用。
+ */
 .task-title--done {
   color: var(--c-ink-sub);
-  text-decoration: line-through;
 }
