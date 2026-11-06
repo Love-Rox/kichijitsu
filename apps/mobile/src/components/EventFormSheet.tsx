@@ -1,5 +1,5 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
-import type { CalendarListEntryDTO, OutOfOfficeAutoDecline } from "@kichijitsu/shared";
+import type { OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_AUTO_DECLINE,
   resolveDefaultWriteTarget,
+  writeTargetKey,
   type EventCreateDraft,
   type WriteTargetCandidate,
 } from "@kichijitsu/web/sync/eventCreate";
@@ -27,6 +28,9 @@ import {
 } from "@kichijitsu/web/sync/eventEdit";
 
 const ACCENT = "#c13625";
+
+/** 作成先の候補 (WriteTargetCandidate + 表示名)。 */
+export type FormTarget = WriteTargetCandidate & { label: string };
 
 const DECLINE_OPTIONS: { value: OutOfOfficeAutoDecline; label: string }[] = [
   { value: "declineOnlyNewConflictingInvitations", label: "新しい招待だけ辞退する" },
@@ -41,8 +45,7 @@ export function EventFormSheet({
   initialDraft,
   canToggleAllDay,
   timeZone,
-  accountId,
-  calendars,
+  targets: allTargets,
   onClose,
   onSubmit,
 }: {
@@ -53,8 +56,8 @@ export function EventFormSheet({
   /** 終日への切り替えを出すか(繰り返しの1回分は終日にできない)。作成では常に出す。 */
   canToggleAllDay: boolean;
   timeZone: string;
-  accountId: string;
-  calendars: CalendarListEntryDTO[];
+  /** 作成先の候補(書き込める表示中のカレンダー。複数アカウントぶん)。label は表示名。 */
+  targets: FormTarget[];
   onClose: () => void;
   /**
    * 保存の実行。作成は「シートをすぐ閉じて楽観的に反映」なので、呼び出し側が閉じて何も返さない。
@@ -64,34 +67,22 @@ export function EventFormSheet({
   onSubmit: (draft: EventCreateDraft, target: WriteTargetCandidate | null) => void | Promise<void>;
 }) {
   const isEdit = mode === "edit";
-  // 書き込めるカレンダーだけ(オーナー/編集者)。祝日や購読などの読み取り専用は出さない
-  const targets = useMemo<WriteTargetCandidate[]>(
-    () =>
-      calendars
-        .filter((c) => c.accessRole === "owner" || c.accessRole === "writer")
-        .map((c) => ({
-          accountId,
-          calendarId: c.id,
-          primary: c.primary,
-          defaultColor: c.backgroundColor,
-        })),
-    [calendars, accountId],
-  );
-  const nameOf = (calendarId: string) =>
-    calendars.find((c) => c.id === calendarId)?.summary ?? calendarId;
+  const targets = allTargets;
 
   // シートを開くたびに作り直す(key で初期化する想定 — 呼び出し側が visible 切り替えで再マウントする)
   const [draft, setDraft] = useState<EventCreateDraft>(initialDraft);
   const [saving, setSaving] = useState(false);
-  const [calendarId, setCalendarId] = useState<string>(
-    () => resolveDefaultWriteTarget(targets)?.calendarId ?? "",
-  );
+  // 作成先は「アカウント + カレンダー」の組(別のアカウントに同じ id のカレンダーがありうる)
+  const [targetKey, setTargetKey] = useState<string>(() => {
+    const t = resolveDefaultWriteTarget(targets);
+    return t ? writeTargetKey(t) : "";
+  });
   const [error, setError] = useState<string | null>(null);
 
   const isOoo = draft.eventType === "outOfOffice";
   // 不在は Google の制約で、メインのカレンダーにだけ作れる
   const choices = isOoo ? targets.filter((t) => t.primary) : targets;
-  const target = choices.find((t) => t.calendarId === calendarId) ?? choices[0] ?? null;
+  const target = choices.find((t) => writeTargetKey(t) === targetKey) ?? choices[0] ?? null;
 
   const set = (patch: Partial<EventCreateDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -118,8 +109,9 @@ export function EventFormSheet({
       autoDecline: draft.autoDecline ?? DEFAULT_AUTO_DECLINE,
     });
     if (kind === "outOfOffice") {
+      // 不在は、メインのカレンダーにだけ作れる。選択中が違うなら、最初のメインのカレンダーへ寄せる
       const primary = targets.find((t) => t.primary);
-      if (primary) setCalendarId(primary.calendarId);
+      if (primary && !(target?.primary)) setTargetKey(writeTargetKey(primary));
     }
   };
 
@@ -304,16 +296,16 @@ export function EventFormSheet({
               <View style={{ marginTop: 14 }}>
                 <Text style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>カレンダー</Text>
                 {choices.map((t) => {
-                  const selected = target?.calendarId === t.calendarId;
+                  const selected = target !== null && writeTargetKey(target) === writeTargetKey(t);
                   return (
                     <Pressable
-                      key={t.calendarId}
-                      onPress={() => setCalendarId(t.calendarId)}
+                      key={writeTargetKey(t)}
+                      onPress={() => setTargetKey(writeTargetKey(t))}
                       style={{ paddingVertical: 6, flexDirection: "row", gap: 8, alignItems: "center" }}
                     >
                       <Text style={{ color: selected ? ACCENT : "#999" }}>{selected ? "●" : "○"}</Text>
                       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: t.defaultColor }} />
-                      <Text>{nameOf(t.calendarId)}</Text>
+                      <Text>{t.label}</Text>
                     </Pressable>
                   );
                 })}

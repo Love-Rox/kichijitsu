@@ -123,6 +123,11 @@ export default function Home() {
               </View>
             </View>
           )}
+          {state.data.warnings.length > 0 && (
+            <Text style={{ fontSize: 11, color: "#b45309", marginBottom: 4 }}>
+              {state.data.warnings.join(" / ")}
+            </Text>
+          )}
           <View style={{ flex: 1 }}>
             <CalendarScreen
               data={state.data}

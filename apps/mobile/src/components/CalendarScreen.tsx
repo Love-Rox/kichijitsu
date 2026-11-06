@@ -18,7 +18,7 @@ import {
   type EventSubject,
 } from "../lib/mutations";
 import { EventDetailSheet } from "./EventDetailSheet";
-import { EventFormSheet } from "./EventFormSheet";
+import { EventFormSheet, type FormTarget } from "./EventFormSheet";
 import { MonthAgenda } from "./MonthAgenda";
 import { ThreeDayTimeline } from "./ThreeDayTimeline";
 
@@ -61,6 +61,24 @@ export function CalendarScreen({
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
   const [detail, setDetail] = useState<EventSubject | null>(null);
+  // 作成先の候補: 書き込める(オーナー/編集者)表示中のカレンダー。祝日や購読などの読み取り専用は出さない。
+  // アカウントが複数あるときは、表示名にメールアドレスを添える。
+  const formTargets = useMemo<FormTarget[]>(
+    () =>
+      data.accounts.flatMap((a) =>
+        a.calendars
+          .filter((c) => c.accessRole === "owner" || c.accessRole === "writer")
+          .map((c) => ({
+            accountId: a.accountId,
+            calendarId: c.id,
+            primary: c.primary,
+            defaultColor: c.backgroundColor,
+            label: data.accounts.length > 1 ? `${c.summary} (${a.email})` : c.summary,
+          })),
+      ),
+    [data.accounts],
+  );
+
   /** 作成/編集フォームの状態 (null = 閉じている)。 */
   const [form, setForm] = useState<
     { mode: "create"; startMs: number } | { mode: "edit"; subject: EventSubject } | null
@@ -150,8 +168,7 @@ export function CalendarScreen({
           // 繰り返しの1回分は終日にできない(Web 版と同じ)
           canToggleAllDay={form.mode === "create" || !isSeriesInstance(form.subject)}
           timeZone={timeZone}
-          accountId={data.accountId}
-          calendars={data.calendars}
+          targets={formTargets}
           onClose={() => setForm(null)}
           onSubmit={(draft, target) => {
             if (form.mode === "create") {
