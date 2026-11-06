@@ -3,7 +3,7 @@
     "name": "kichijitsu",
     "slug": "kichijitsu",
     "scheme": "kichijitsu",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "plugins": [
@@ -15,10 +15,16 @@
     "ios": {
       "bundleIdentifier": "cc.love-rox.kichijitsu",
       "appleTeamId": "M296DX39G6",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#FAF7F2"
   }
 }
