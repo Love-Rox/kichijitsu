@@ -39,6 +39,12 @@ interface RailBandCommonProps {
   timeZone: string;
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventDetailCard の全所属列挙に使う */
   calendarLookup: Map<string, CalendarInfo>;
+  /**
+   * 詳細カードの「削除」から呼ばれる(2026-11-06)。**時刻つきの不在だけ**が対象で、勤務場所と
+   * 終日の不在には出さない ―― 削除の仕組み(useDeleteOccurrence)が時刻予定 (Occurrence) だけを
+   * 扱うため。以前は不在の詳細カードが表示専用で、作った不在を消す手段が無かった。
+   */
+  onDelete?: (occurrence: Occurrence) => void;
 }
 
 /**
@@ -101,6 +107,7 @@ export function RailBand({
   left,
   timeZone,
   calendarLookup,
+  onDelete,
 }: RailBandProps) {
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
@@ -178,6 +185,17 @@ export function RailBand({
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
+            onDelete={
+              // カレンダーブロックの自動生成ミラーは消しても作り直される(isMirror)ので出さない。
+              // EventBlock と同じく、Google 由来の予定だけが対象
+              isOoo &&
+              onDelete &&
+              isTimedSubject(subject) &&
+              subject.source === "google" &&
+              subject.isMirror !== true
+                ? () => onDelete(subject)
+                : undefined
+            }
           />,
           document.body,
         )}
