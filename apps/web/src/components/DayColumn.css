@@ -426,3 +426,14 @@
   border-radius: 50%;
   background: var(--c-danger);
 }
+
+/* 選択した時間帯の目印(入力はクイック作成ポップオーバーへ移した、2026-11-06) */
+.day-column-create-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--c-ui-ink-strong);
+}

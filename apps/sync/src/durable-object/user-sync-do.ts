@@ -4,6 +4,7 @@ import type {
   GoogleEventDTO,
   EventSendUpdates,
   GoogleTaskDTO,
+  OutOfOfficeAutoDecline,
   RsvpResponseStatus,
   SyncResponse,
   TaskListDTO,
@@ -249,6 +250,8 @@ export class UserSyncDO extends DurableObject<Env> {
       location?: string;
       description?: string;
       isAllDay?: boolean;
+      eventType?: "outOfOffice";
+      outOfOffice?: { autoDeclineMode: OutOfOfficeAutoDecline; declineMessage?: string };
     },
   ): Promise<RpcResult<string>> {
     return runRpc(() =>
@@ -414,9 +417,7 @@ export class UserSyncDO extends DurableObject<Env> {
     accountId: string,
     calendarId: string,
   ): Promise<RpcResult<GoogleEventDTO[]>> {
-    return runRpc(() =>
-      scanMirrorEventsWithRetry(this.buildEventWriteDeps(accountId), calendarId),
-    );
+    return runRpc(() => scanMirrorEventsWithRetry(this.buildEventWriteDeps(accountId), calendarId));
   }
 
   /**

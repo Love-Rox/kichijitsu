@@ -800,7 +800,25 @@ export interface EventCreateRequest {
    * (startMs/endMs を timeZone で日付に変換する)。false/未指定は `dateTime` (時刻予定)。
    */
   isAllDay?: boolean;
+  /**
+   * `outOfOffice` なら Google の「不在」予定として作る (終日は不可、isAllDay と併用すると 400)。
+   * 未指定は通常の予定。不在は Google 側の制約で、作れないカレンダー (primary 以外など) では
+   * Google が拒否する ―― 黙って通常の予定にはせず、そのまま作成失敗(409)として返す
+   * (カレンダーブロックのミラーと違い、利用者が明示的に選んだ種別を勝手に変えないため)。
+   */
+  eventType?: "outOfOffice";
+  /** eventType==='outOfOffice' のときの自動辞退の設定。未指定なら新しい招待だけを辞退する */
+  outOfOffice?: {
+    autoDeclineMode?: OutOfOfficeAutoDecline;
+    declineMessage?: string;
+  };
 }
+
+/** Google の outOfOfficeProperties.autoDeclineMode と同じ値 */
+export type OutOfOfficeAutoDecline =
+  | "declineNone"
+  | "declineOnlyNewConflictingInvitations"
+  | "declineAllConflictingInvitations";
 
 export interface EventCreateResponse {
   ok: boolean;

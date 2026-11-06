@@ -232,6 +232,15 @@ eventRoutes.post("/api/event/create", requireAuth, async (c) => {
       location: body.location,
       description: body.description,
       isAllDay: body.isAllDay,
+      eventType: body.eventType,
+      outOfOffice:
+        body.eventType === "outOfOffice"
+          ? {
+              autoDeclineMode:
+                body.outOfOffice?.autoDeclineMode ?? "declineOnlyNewConflictingInvitations",
+              declineMessage: body.outOfOffice?.declineMessage,
+            }
+          : undefined,
     },
   );
   if (!result.ok) {
