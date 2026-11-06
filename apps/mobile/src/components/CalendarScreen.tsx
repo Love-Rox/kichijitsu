@@ -21,6 +21,7 @@ import {
   type EventSubject,
 } from "../lib/mutations";
 import { EventDetailSheet } from "./EventDetailSheet";
+import { SearchSheet } from "./SearchSheet";
 import { EventFormSheet, type FormTarget } from "./EventFormSheet";
 import { MonthAgenda } from "./MonthAgenda";
 import { mondayOf } from "@kichijitsu/web/layout/monthGrid";
@@ -77,6 +78,7 @@ export function CalendarScreen({
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
   const [detail, setDetail] = useState<EventSubject | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   // 作成先の候補: 書き込める(オーナー/編集者)表示中のカレンダー。祝日や購読などの読み取り専用は出さない。
   // アカウントが複数あるときは、表示名にメールアドレスを添える。
   const formTargets = useMemo<FormTarget[]>(
@@ -178,7 +180,10 @@ export function CalendarScreen({
         <Text style={{ fontSize: 15, fontWeight: "600" }}>
           {timelineStart.year}年{timelineStart.month}月
         </Text>
-        <Pressable onPress={openForm} hitSlop={8} style={{ marginLeft: "auto" }}>
+        <Pressable onPress={() => setSearchOpen(true)} hitSlop={8} style={{ marginLeft: "auto" }}>
+          <Text style={{ fontSize: 18 }}>🔍</Text>
+        </Pressable>
+        <Pressable onPress={openForm} hitSlop={8}>
           <Text style={{ fontSize: 24, color: t.accent }}>＋</Text>
         </Pressable>
         <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: t.line, overflow: "hidden" }}>
@@ -294,6 +299,17 @@ export function CalendarScreen({
         />
       )}
 
+      <SearchSheet
+        visible={searchOpen}
+        data={data}
+        timeZone={timeZone}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(subject) => {
+          // 検索のシートを閉じてから詳細を開く(iOS は、モーダルを重ねて出せないことがある)
+          setSearchOpen(false);
+          setTimeout(() => setDetail(subject), 450);
+        }}
+      />
       <EventDetailSheet
         subject={detail}
         timeZone={timeZone}
