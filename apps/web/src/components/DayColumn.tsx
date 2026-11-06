@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import type { Occurrence, PlannedBlock } from "../model/types";
+import type { AllDayOccurrence, Occurrence, PlannedBlock } from "../model/types";
 import {
   buildCreateDraft,
   DEFAULT_AUTO_DECLINE,
@@ -155,7 +155,7 @@ interface DayColumnProps {
   onCommit: (updated: Occurrence, kind: "move" | "resize") => void;
   /** Option(Alt)+ドラッグでの複製 (EventBlockProps.onDuplicate、2026-07-29) */
   onDuplicate: (source: Occurrence, startMs: number, endMs: number) => void;
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */

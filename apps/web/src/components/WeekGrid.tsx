@@ -176,7 +176,7 @@ interface WeekGridProps {
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventBlock の詳細ポップオーバーが「どのカレンダーか」を出すのに使う */
   calendarLookup: Map<string, CalendarInfo>;
   /** 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5、google 由来の occurrence のみ) */
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   /** 終日レーンの詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
@@ -1112,6 +1112,7 @@ export function WeekGrid({
                       colEnd={b.endDayIndex + 2}
                       calendarLookup={calendarLookup}
                       timeZone={timeZone}
+                      onDelete={onDelete}
                       onSaveEdit={onSaveAllDayEdit}
                       onRsvp={onAllDayRsvp}
                       onEditGuests={onAllDayEditGuests}

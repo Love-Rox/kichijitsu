@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import type { Occurrence } from "../model/types";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { snapEndMs, snapStartMs } from "../layout/snap";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
 import { useHourHeight } from "../hooks/useHourHeight";
@@ -126,7 +126,7 @@ interface EventBlockProps {
    * ときだけ EventDetailCard に削除ボタンを渡す(呼び出しは常にこの occurrence 自身)。
    * ローカル予定は当面削除 UI を出さない(将来対応)。
    */
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /**
    * 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22)。
    * 成功で resolve、失敗で reject(EventEditForm がエラー表示してフォームを開いたままにする)。

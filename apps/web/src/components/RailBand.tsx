@@ -44,7 +44,7 @@ interface RailBandCommonProps {
    * 終日の不在には出さない ―― 削除の仕組み(useDeleteOccurrence)が時刻予定 (Occurrence) だけを
    * 扱うため。以前は不在の詳細カードが表示専用で、作った不在を消す手段が無かった。
    */
-  onDelete?: (occurrence: Occurrence) => void;
+  onDelete?: (occurrence: Occurrence | AllDayOccurrence) => void;
 }
 
 /**
@@ -190,7 +190,6 @@ export function RailBand({
               // EventBlock と同じく、Google 由来の予定だけが対象
               isOoo &&
               onDelete &&
-              isTimedSubject(subject) &&
               subject.source === "google" &&
               subject.isMirror !== true
                 ? () => onDelete(subject)

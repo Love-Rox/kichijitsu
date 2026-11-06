@@ -18,6 +18,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { shouldAskGuestNotify } from "../sync/guestNotify";
 import "./AllDayBar.css";
 
 /** 終日レーンの勤務場所バー先頭に置く地図ピンの大きさ(px)。時刻予定側の帯上端ピンと揃える */
@@ -39,6 +40,8 @@ interface AllDayBarProps {
   /** IANA タイムゾーン。編集フォームの日時入力の変換に使う(フェーズ2、2026-07-22) */
   timeZone: string;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる。EventBlock.onSaveEdit と同じ流儀 */
+  /** 詳細カードの「削除」から呼ばれる(2026-11-06。以前は終日予定を消す導線が無かった) */
+  onDelete: (occurrence: AllDayOccurrence) => void;
   onSaveEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる。EventBlock.onRsvp と同じ流儀 */
   onRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
@@ -60,6 +63,7 @@ export function AllDayBar({
   colEnd,
   calendarLookup,
   timeZone,
+  onDelete,
   onSaveEdit,
   onRsvp,
   onEditGuests,
@@ -210,6 +214,14 @@ export function AllDayBar({
             groupMembers={groupMembers}
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
+            // 勤務場所とカレンダーブロックのミラーは消さない(前者は日の既定の場所、後者は
+            // 消しても作り直される)。それ以外の Google 由来の終日予定は消せる
+            onDelete={
+              occurrence.source === "google" && !isWorkingLoc && occurrence.isMirror !== true
+                ? () => onDelete(occurrence)
+                : undefined
+            }
+            deleteAsksGuestNotify={shouldAskGuestNotify(occurrence)}
             timeZone={timeZone}
             editDraft={
               // 不在 (2026-07-28): 詳細カードは表示のみにする ―― タイムライン側の不在

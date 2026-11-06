@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Temporal } from "@js-temporal/polyfill";
-import type { EventAttendee, Occurrence } from "../model/types";
+import type { AllDayOccurrence, EventAttendee, Occurrence } from "../model/types";
 import {
   buildEventDeleteRequest,
   eventPatchRequestFor,
@@ -211,5 +211,32 @@ describe("buildEventDeleteRequest の sendUpdates", () => {
         expect(buildEventDeleteRequest(occ, choice)?.sendUpdates).not.toBe("none");
       }
     }
+  });
+});
+
+describe("buildEventDeleteRequest: 終日予定", () => {
+  const allDay: AllDayOccurrence = {
+    id: "g:acc-1:cal-1:evt-allday",
+    seriesId: null,
+    title: "休暇",
+    startDate: "2026-11-10",
+    endDate: "2026-11-10",
+    color: "#3b82f6",
+    source: "google",
+    accountId: "acc-1",
+    calendarId: "cal-1",
+  };
+
+  it("Google 由来の終日予定は eventId を取り出して削除リクエストにする", () => {
+    expect(buildEventDeleteRequest(allDay)).toEqual({
+      accountId: "acc-1",
+      calendarId: "cal-1",
+      eventId: "evt-allday",
+      sendUpdates: "externalOnly",
+    });
+  });
+
+  it("Google 由来でない終日予定は null", () => {
+    expect(buildEventDeleteRequest({ ...allDay, source: "local" })).toBeNull();
   });
 });
