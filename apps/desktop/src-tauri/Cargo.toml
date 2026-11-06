@@ -18,13 +18,12 @@ name = "kichijitsu_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2" }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # tray-icon: 増分2a のトレイ常駐 (TrayIconBuilder) に必要。既定では無効な feature。
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
-tauri-plugin-window-state = "2"
 
 # --- 外部ブラウザ OAuth (増分2d、2026-08-07) 用に追加した依存 ---
 #
@@ -66,3 +65,5 @@ tauri-plugin-global-shortcut = "2"
 # 自動アップデート(src/updater.rs)。デスクトップ専用。webview から呼べる IPC は
 # 使わない(Rust 側だけで完結)ので、capabilities へ updater:* は与えていない。
 tauri-plugin-updater = "2"
+# ウィンドウの位置・大きさの保存。モバイルでは空の crate になるため、デスクトップ限定にする。
+tauri-plugin-window-state = "2"

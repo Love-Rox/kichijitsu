@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  UIScene ライフサイクルへの対応 (2026-11-06)。iOS 27 SDK (Xcode 27) でビルドしたアプリは、
+	  この宣言が無いと起動直後に終了させられる ("UIScene life cycle is required for apps built
+	  with this SDK")。ウィンドウは1つだけなので複数シーンは有効にしない。
+	  シーンの delegate クラス (TaoSceneDelegate) は tao (Tauri のウィンドウ層) が実行時に設定する。
+	  `tauri ios init` で gen/apple を作り直しても、このファイルが Info.plist に併合される。
+	-->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+</dict>
+</plist>

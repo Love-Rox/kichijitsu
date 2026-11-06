@@ -51,12 +51,18 @@ mod updater;
 use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
+// トレイ・メニュー・ウィンドウ位置の保存は**デスクトップ専用**(iOS には存在しない)。
+// iOS 版 (2026-11-06〜) でも同じ crate を使うため、ここから先のデスクトップ専用の部分は
+// #[cfg(desktop)] で囲んである。
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, Url, WindowEvent,
+    WindowEvent,
 };
+use tauri::{Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
+#[cfg(desktop)]
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 /// 新しいウィンドウ(`target="_blank"` / `window.open`)として開こうとされた URL を、
@@ -383,6 +389,7 @@ const RELOAD_SHORTCUT: &str = "CmdOrCtrl+R";
 /// 隠れている（または最小化されている）場合は表示して前面に出し、
 /// 表示中なら隠す。トレイの左クリックとグローバルショートカットの
 /// 両方から呼ばれる共通処理。
+#[cfg(desktop)]
 fn toggle_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -412,6 +419,7 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 /// プレフィックスのキャッシュ(将来 SW が増えた場合など)には触れない。
 /// `caches` 不在や削除失敗は無視して(best-effort)必ず `location.reload()`
 /// まで到達させる。
+#[cfg(desktop)]
 const RELOAD_JS: &str = r#"(async () => { try { if (self.caches) { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('kichijitsu-')).map(k => caches.delete(k))); } } catch (e) {} location.reload(); })()"#;
 
 /// メインウィンドウの webview をリロードする。
@@ -423,6 +431,7 @@ const RELOAD_JS: &str = r#"(async () => { try { if (self.caches) { const ks = aw
 /// 取得し直させる。ウィンドウが見つからない場合は何もしない(best-effort。
 /// トレイメニュー/グローバルショートカットのどちらから呼ばれても失敗時に
 /// パニックさせたくない)。
+#[cfg(desktop)]
 fn reload_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -744,6 +753,7 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &Url) {
                 if let Some(window) = app.get_webview_window("main") {
                     // 外部ブラウザから戻ってきた直後はアプリが背面/トレイにいることが多い。
                     // 交換の結果（成功なら通常画面、失敗なら理由のページ）が見えるように前へ出す。
+                    #[cfg(desktop)]
                     let _ = window.unminimize();
                     let _ = window.show();
                     let _ = window.set_focus();
@@ -760,17 +770,19 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &Url) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
-        // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
-        // width/height (1200x800) は保存済み状態が無い初回起動時のみの
-        // デフォルトで、このプラグインが起動時に自動でウィンドウへ適用する
-        // (保存済み状態があれば以降はそちらが優先される)。保存タイミングは
-        // 既定でウィンドウ破棄(destroy)時だが、このアプリは「閉じる」で
-        // ウィンドウを破棄せず隠すだけなので、明示的な save_window_state
-        // 呼び出しが別途必要(on_window_event の CloseRequested 分岐と
-        // on_menu_event の "quit" 分岐のコメント参照)。
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    // ウィンドウサイズ/位置の永続化(デスクトップのみ)。以下、元のコメント:
+    // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
+    // width/height (1200x800) は保存済み状態が無い初回起動時のみの
+    // デフォルトで、このプラグインが起動時に自動でウィンドウへ適用する
+    // (保存済み状態があれば以降はそちらが優先される)。保存タイミングは
+    // 既定でウィンドウ破棄(destroy)時だが、このアプリは「閉じる」で
+    // ウィンドウを破棄せず隠すだけなので、明示的な save_window_state
+    // 呼び出しが別途必要(on_window_event の CloseRequested 分岐と
+    // on_menu_event の "quit" 分岐のコメント参照)。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    builder
         // 外部ブラウザ OAuth（増分2d、2026-08-07）。`kichijitsu://` の OS への登録は
         // tauri.conf.json の plugins.deep-link.desktop.schemes が担い、このプラグインは
         // 受け取ったディープリンクをアプリへ届ける。
@@ -790,7 +802,8 @@ pub fn run() {
             open_external_login
         ])
         .setup(|app| {
-            // --- メインウィンドウ ---
+            // --- メインウィンドウ(デスクトップのみ。iOS は tauri.ios.conf.json の設定から自動で作る) ---
+            #[cfg(desktop)]
             // 設定ファイルではなくここで作るのは、`target="_blank"` のリンクを既定のブラウザへ
             // 渡す口 (on_new_window) を付けるため ―― ウィンドウ設定を宣言的に書く
             // tauri.conf.json からは付けられない。内容は設定ファイルの windows[0]
@@ -809,7 +822,8 @@ pub fn run() {
                     .on_new_window(|url, _features| {
                         if is_openable_external_url(&url) {
                             // 失敗しても、リンクが効かないだけでアプリは止めない
-                            if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>)
+                            if let Err(e) =
+                                tauri_plugin_opener::open_url(url.as_str(), None::<&str>)
                             {
                                 eprintln!("kichijitsu: 既定のブラウザを開けませんでした: {e}");
                             }
@@ -840,48 +854,51 @@ pub fn run() {
                 });
             }
 
-            // --- トレイ常駐 ---
-            let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
-            let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
-            let update_i =
-                MenuItem::with_id(app, "update", "アップデートを確認", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
+            // --- トレイ常駐(デスクトップのみ) ---
+            #[cfg(desktop)]
+            {
+                let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
+                let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
+                let update_i =
+                    MenuItem::with_id(app, "update", "アップデートを確認", true, None::<&str>)?;
+                let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
 
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                // メニューは右クリックのみで開く。左クリックは表示/隠すトグル専用
-                // にするため、メニューの自動表示はオフにする
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "toggle" => toggle_main_window(app),
-                    "reload" => reload_main_window(app),
-                    "update" => updater::spawn_manual_check(app.clone()),
-                    // アプリの唯一の真の終了経路。tauri-plugin-window-state は
-                    // 既定でウィンドウ破棄時にしか状態を保存しないが、この
-                    // アプリは「閉じる」でウィンドウを破棄しない(下記
-                    // on_window_event 参照)ため、破棄イベントが一度も
-                    // 発生しないまま app.exit(0) でプロセスごと終了しうる。
-                    // 終了直前に明示 save しないとウィンドウ位置/サイズが
-                    // 一切永続化されないため、exit の前に必ず保存する。
-                    "quit" => {
-                        let _ = app.save_window_state(StateFlags::all());
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        toggle_main_window(tray.app_handle());
-                    }
-                })
-                .build(app)?;
+                TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    // メニューは右クリックのみで開く。左クリックは表示/隠すトグル専用
+                    // にするため、メニューの自動表示はオフにする
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "toggle" => toggle_main_window(app),
+                        "reload" => reload_main_window(app),
+                        "update" => updater::spawn_manual_check(app.clone()),
+                        // アプリの唯一の真の終了経路。tauri-plugin-window-state は
+                        // 既定でウィンドウ破棄時にしか状態を保存しないが、この
+                        // アプリは「閉じる」でウィンドウを破棄しない(下記
+                        // on_window_event 参照)ため、破棄イベントが一度も
+                        // 発生しないまま app.exit(0) でプロセスごと終了しうる。
+                        // 終了直前に明示 save しないとウィンドウ位置/サイズが
+                        // 一切永続化されないため、exit の前に必ず保存する。
+                        "quit" => {
+                            let _ = app.save_window_state(StateFlags::all());
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            toggle_main_window(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
 
             // --- 自動アップデート ---
             // プラグインの登録・状態の保持・定期確認。webview から呼べる IPC は作らず、
@@ -899,7 +916,9 @@ pub fn run() {
                     .plugin(tauri_plugin_updater::Builder::new().build())
                 {
                     Ok(()) => updater::spawn_periodic_check(app.handle().clone()),
-                    Err(e) => eprintln!("kichijitsu: 自動アップデートを有効にできませんでした: {e}"),
+                    Err(e) => {
+                        eprintln!("kichijitsu: 自動アップデートを有効にできませんでした: {e}")
+                    }
                 }
             }
 
@@ -919,12 +938,14 @@ pub fn run() {
                 app.handle()
                     .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
 
-                app.global_shortcut()
-                    .on_shortcut(TOGGLE_WINDOW_SHORTCUT, |app, _shortcut, event| {
+                app.global_shortcut().on_shortcut(
+                    TOGGLE_WINDOW_SHORTCUT,
+                    |app, _shortcut, event| {
                         if event.state() == ShortcutState::Pressed {
                             toggle_main_window(app);
                         }
-                    })?;
+                    },
+                )?;
 
                 // CmdOrCtrl+R (RELOAD_SHORTCUT のコメント参照): 誤爆防止のため
                 // フォーカス/表示ガード付きの reload_main_window_if_focused を通す。
@@ -951,6 +972,9 @@ pub fn run() {
             // アプリの終了はトレイメニューの「終了」(app.exit(0)) からのみ。
             // macOS でも Dock から閉じるボタンを押した際に同じ挙動になる
             // （デスクトップ全体で同一の常駐アプリとして振る舞わせる方針）。
+            #[cfg(mobile)]
+            let _ = (window, event);
+            #[cfg(desktop)]
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 // tauri-plugin-window-state はウィンドウ破棄(destroy)時に
@@ -973,7 +997,10 @@ mod tests {
 
     #[test]
     fn opens_only_http_and_https_externally() {
-        for ok in ["https://www.google.com/calendar/event?eid=abc", "http://example.test/"] {
+        for ok in [
+            "https://www.google.com/calendar/event?eid=abc",
+            "http://example.test/",
+        ] {
             assert!(is_openable_external_url(&Url::parse(ok).unwrap()), "{ok}");
         }
         for ng in [
@@ -1017,7 +1044,9 @@ mod tests {
 
     #[test]
     fn allows_repos_owner_repo_milestones() {
-        assert!(is_allowed_gh_endpoint("repos/Love-Rox/kichijitsu/milestones"));
+        assert!(is_allowed_gh_endpoint(
+            "repos/Love-Rox/kichijitsu/milestones"
+        ));
         assert!(is_allowed_gh_endpoint(
             "repos/Love-Rox/kichijitsu/milestones?state=open"
         ));
@@ -1106,16 +1135,16 @@ mod tests {
     fn rejects_endpoint_with_control_characters() {
         assert!(!is_allowed_gh_endpoint("search/issues?q=foo\r\nX-Evil: 1"));
         assert!(!is_allowed_gh_endpoint("user/repos\n"));
-        assert!(!is_allowed_gh_endpoint("repos/Love-Rox/kichijitsu/issues\r"));
+        assert!(!is_allowed_gh_endpoint(
+            "repos/Love-Rox/kichijitsu/issues\r"
+        ));
     }
 
     // --- 6. 9形状の外 ---
 
     #[test]
     fn rejects_endpoints_outside_the_nine_shapes() {
-        assert!(!is_allowed_gh_endpoint(
-            "repos/owner/repo/contents/secret"
-        ));
+        assert!(!is_allowed_gh_endpoint("repos/owner/repo/contents/secret"));
         assert!(!is_allowed_gh_endpoint("user/keys"));
         assert!(!is_allowed_gh_endpoint("orgs/acme/members"));
         assert!(!is_allowed_gh_endpoint("graphql"));
@@ -1276,7 +1305,10 @@ mod tests {
         // String::truncate のバイト単位切りだと境界の途中で panic する。
         assert_eq!(clamp_notify_text("あいうえおかきくけこ", 5), "あいうえ…");
         // 末尾は省略記号1文字を含めて上限ぴったり
-        assert_eq!(clamp_notify_text("あいうえおかきくけこ", 5).chars().count(), 5);
+        assert_eq!(
+            clamp_notify_text("あいうえおかきくけこ", 5).chars().count(),
+            5
+        );
     }
 
     #[test]

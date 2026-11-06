@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "デスクトップ専用の capability(2026-11-06 に default.json から分離)。グローバルショートカットはモバイルに存在しないプラグインなので、iOS/Android のビルドで権限名の解決に失敗しないよう、対象 OS を限定している。内容は従来どおり ―― 実際のショートカット登録は Rust の setup() から直接行い、webview からの invoke は経由しない。",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "permissions": [
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
+  ]
+}

@@ -1,13 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "kichijitsu デスクトップシェルの既定 capability。トレイ/グローバルショートカットは Rust の setup() から直接呼んでおり webview からの invoke を経由しないため、capability による許可が無くても動く。ここでの追加は将来フロントから呼ぶ場合に備えた最小限の明示。core:tray:* は core:default に含まれるため未追加（gen/schemas/acl-manifests.json の core.default 参照）。notification:default も同様に「土台の明示」であって実際の経路ではない ―― 予定のリマインダー通知は web (リモート URL) が自前コマンド notify を invoke する形で出しており、その許可は remote.json 側の allow-notify が担う。プラグイン API そのものを webview へ晒さないため、こちらをリモートへ広げてはいけない（remote.json の description 参照）。",
-  "windows": ["main"],
+  "description": "kichijitsu シェルの既定 capability(デスクトップ・iOS 共通)。グローバルショートカットの許可はデスクトップ専用なので desktop.json に分けてある(モバイルにはそのプラグインが無く、同じ capability に書くとビルドが落ちる)。トレイ/グローバルショートカットは Rust の setup() から直接呼んでおり webview からの invoke を経由しないため、capability による許可が無くても動く。ここでの追加は将来フロントから呼ぶ場合に備えた最小限の明示。core:tray:* は core:default に含まれるため未追加（gen/schemas/acl-manifests.json の core.default 参照）。notification:default も同様に「土台の明示」であって実際の経路ではない ―― 予定のリマインダー通知は web (リモート URL) が自前コマンド notify を invoke する形で出しており、その許可は remote.json 側の allow-notify が担う。プラグイン API そのものを webview へ晒さないため、こちらをリモートへ広げてはいけない（remote.json の description 参照）。",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
     "notification:default"
   ]
 }
