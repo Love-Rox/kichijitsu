@@ -90,7 +90,9 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - サーバーからのプッシュは使わず、手元(SQLite)の予定から端末内のローカル通知を予約する(`src/lib/notifications.ts`、expo-notifications)。Apple のプッシュ設定は不要。
 - 同期完了・編集・前面復帰・設定変更のたびに、予約を丸ごと作り直す(1.5 秒待ってから)。14 日先まで、iOS の上限 64 件に収まるよう直近 60 件。
 - 終日・不在・不参加の予定は通知しない。通知時刻が過ぎた予定は予約しない。ログアウトで予約を全消去。
-- 設定(オン/オフ、何分前か)はこの端末だけ(meta: `notifyEnabled` / `notifyLeadMinutes`)。既定はオフ、オンにした時に許可を求める。
+- 設定(オン/オフ、タイミング)はこの端末だけ(meta: `notifyEnabled` / `notifyLeadMinutes`)。既定はオフ、オンにした時に許可を求める。
+- タイミングの既定は「予定の設定に従う」: Web/デスクトップ版と同じ `resolveLeadMinutes`(`@kichijitsu/web/sync/reminderSchedule`)で、予定ごとの Google の通知設定(複数あれば全部)、「既定を使う」予定はカレンダーの既定(`defaultReminderMinutes`)に従う。通知が 1 つも無い予定には出さない。固定(開始時刻 / 5〜30 分前)も選べる。
+- Google 側で通知設定が変わると、次の同期で予定・カレンダーのデータが差し替わり、予約が作り直されるので追随する(値はキャッシュしない)。
 
 ## ホーム画面ウィジェット
 - `apps/mobile/targets/widget/`(Swift / WidgetKit)。`@bacons/apple-targets` の config plugin が、`prebuild --clean` のたびに ios/ へターゲットを生成する(ios/ は生成物でコミットしない)。
