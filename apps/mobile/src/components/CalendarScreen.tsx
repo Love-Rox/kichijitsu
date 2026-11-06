@@ -3,7 +3,20 @@ import { useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import type { CalendarData } from "../lib/calendarData";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
-import { createEvent, deleteEvent, type ApplyChange, type EventSubject } from "../lib/mutations";
+import {
+  buildCreateDraft,
+} from "@kichijitsu/web/sync/eventCreate";
+import { draftFromAllDayOccurrence, draftFromOccurrence } from "@kichijitsu/web/sync/eventEdit";
+import { isSeriesInstance, type RecurrenceScope } from "@kichijitsu/web/sync/recurrenceScope";
+import {
+  createEvent,
+  deleteEvent,
+  isTimed,
+  saveEdit,
+  type ApplyChange,
+  type AskScope,
+  type EventSubject,
+} from "../lib/mutations";
 import { EventDetailSheet } from "./EventDetailSheet";
 import { EventFormSheet } from "./EventFormSheet";
 import { MonthAgenda } from "./MonthAgenda";
@@ -11,6 +24,26 @@ import { ThreeDayTimeline } from "./ThreeDayTimeline";
 
 type View3 = "3day" | "month";
 const ACCENT = "#c13625";
+
+const SCOPE_LABELS: Record<RecurrenceScope, string> = { this: "この予定のみ", all: "すべての予定" };
+
+/** 編集の保存で、適用範囲とゲストへの通知を Alert で訊く。キャンセルは null。 */
+const askScope: AskScope = ({ title, scopes, askNotify }) =>
+  new Promise((resolve) => {
+    const askNotifyStep = (scope: RecurrenceScope) => {
+      if (!askNotify) return resolve({ scope, notify: undefined });
+      Alert.alert("ゲストに通知しますか?", title, [
+        { text: "キャンセル", style: "cancel", onPress: () => resolve(null) },
+        { text: "通知しない", onPress: () => resolve({ scope, notify: "externalOnly" }) },
+        { text: "通知する", onPress: () => resolve({ scope, notify: "all" }) },
+      ]);
+    };
+    if (scopes.length === 0) return askNotifyStep("this");
+    Alert.alert("繰り返しの予定を変更", title, [
+      { text: "キャンセル", style: "cancel", onPress: () => resolve(null) },
+      ...scopes.map((scope) => ({ text: SCOPE_LABELS[scope], onPress: () => askNotifyStep(scope) })),
+    ]);
+  });
 
 /** ログイン後のメイン画面。3日表示と月表示を、共通のヘッダー(移動・今日・切り替え)で切り替える。 */
 export function CalendarScreen({
@@ -28,8 +61,10 @@ export function CalendarScreen({
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
   const [detail, setDetail] = useState<EventSubject | null>(null);
-  /** 作成フォームを開いているときの、開始の初期値 (null = 閉じている)。 */
-  const [formStartMs, setFormStartMs] = useState<number | null>(null);
+  /** 作成/編集フォームの状態 (null = 閉じている)。 */
+  const [form, setForm] = useState<
+    { mode: "create"; startMs: number } | { mode: "edit"; subject: EventSubject } | null
+  >(null);
 
   /** 作成の初期の開始: 表示中の日が今日なら次の正時、それ以外ならその日の 9 時。 */
   const openForm = () => {
@@ -38,7 +73,7 @@ export function CalendarScreen({
     const start = day.equals(today)
       ? Math.ceil(now / 3_600_000) * 3_600_000
       : dayStartMs(day, timeZone) + 9 * 3_600_000;
-    setFormStartMs(start);
+    setForm({ mode: "create", startMs: start });
   };
 
   const move = (dir: 1 | -1) => {
@@ -100,18 +135,37 @@ export function CalendarScreen({
         />
       )}
 
-      {formStartMs !== null && (
+      {form !== null && (
         <EventFormSheet
+          key={form.mode === "edit" ? form.subject.id : "create"}
           visible
-          initialStartMs={formStartMs}
+          mode={form.mode}
+          initialDraft={
+            form.mode === "create"
+              ? buildCreateDraft(form.startMs, form.startMs + 3_600_000)
+              : isTimed(form.subject)
+                ? draftFromOccurrence(form.subject)
+                : draftFromAllDayOccurrence(form.subject, timeZone)
+          }
+          // 繰り返しの1回分は終日にできない(Web 版と同じ)
+          canToggleAllDay={form.mode === "create" || !isSeriesInstance(form.subject)}
           timeZone={timeZone}
           accountId={data.accountId}
           calendars={data.calendars}
-          onClose={() => setFormStartMs(null)}
+          onClose={() => setForm(null)}
           onSubmit={(draft, target) => {
-            setFormStartMs(null);
-            createEvent(draft, target, timeZone, onChange).catch((e) =>
-              Alert.alert("作成できませんでした", "もう一度お試しください。\n" + String(e)),
+            if (form.mode === "create") {
+              setForm(null);
+              if (target) {
+                createEvent(draft, target, timeZone, onChange).catch((e) =>
+                  Alert.alert("作成できませんでした", "もう一度お試しください。\n" + String(e)),
+                );
+              }
+              return;
+            }
+            // 編集は保存ボタン方式: 成功するまでフォームを開いたままにし、失敗はフォームに出す
+            return saveEdit(form.subject, draft, timeZone, onChange, data, askScope).then(() =>
+              setForm(null),
             );
           }}
         />
@@ -121,6 +175,10 @@ export function CalendarScreen({
         subject={detail}
         timeZone={timeZone}
         onClose={() => setDetail(null)}
+        onEdit={(subject) => {
+          setDetail(null);
+          setForm({ mode: "edit", subject });
+        }}
         onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
       />
     </View>

@@ -302,3 +302,14 @@ export async function removeOverride(id: string): Promise<void> {
   const db = await getDb();
   await db.runAsync("DELETE FROM overrides WHERE id = ?", id);
 }
+
+export async function upsertSeries(series: EventSeries): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "INSERT OR REPLACE INTO series (id, account_id, calendar_id, json) VALUES (?, ?, ?, ?)",
+    series.id,
+    series.accountId ?? "",
+    series.calendarId ?? "",
+    JSON.stringify(series),
+  );
+}

@@ -14,6 +14,22 @@ import {
   type EventCreateDraft,
   type WriteTargetCandidate,
 } from "@kichijitsu/web/sync/eventCreate";
+import { mergeOverridePatch, resolveOverrideRef } from "@kichijitsu/web/sync/overridePatch";
+import {
+  applyDraftToAllDayOccurrence,
+  applyDraftToOccurrence,
+  buildEventEditPatchRequest,
+  subjectTimeRange,
+  type EventEditDraft,
+} from "@kichijitsu/web/sync/eventEdit";
+import {
+  applyScopeAllToSeries,
+  availableRecurrenceScopes,
+  DEFAULT_RECURRENCE_SCOPE,
+  EditScopeCancelledError,
+  isSeriesInstance,
+  type RecurrenceScope,
+} from "@kichijitsu/web/sync/recurrenceScope";
 import { apiFetch } from "./api";
 import type { CalendarData } from "./calendarData";
 import {
@@ -22,6 +38,7 @@ import {
   removeSingle,
   upsertAllDay,
   upsertOverride,
+  upsertSeries,
   upsertSingle,
 } from "./localDb";
 
@@ -163,4 +180,113 @@ async function postCreate(
   });
   if (!res?.ok || !res.eventId) throw new Error("サーバーが作成を受け付けませんでした");
   return res.eventId;
+}
+
+/** 適用範囲とゲストへの通知を訊く関数。キャンセルなら null を返す(呼び出し側が画面の Alert で実装する)。 */
+export type AskScope = (input: {
+  title: string;
+  scopes: readonly RecurrenceScope[];
+  askNotify: boolean;
+}) => Promise<{ scope: RecurrenceScope; notify: GuestNotify | undefined } | null>;
+
+/**
+ * 予定の編集の保存。Web 版の useSaveEdit と同じ「保存ボタン方式」: 楽観的更新はせず、
+ * POST /api/event/patch が成功してから手元(画面と SQLite)へ反映する。失敗は例外を投げ、
+ * フォームを開いたまま再試行できるようにする。
+ *   - 繰り返しの1回分は、適用範囲(この予定のみ/すべての予定)を訊く。ゲストがいて自分が主催なら通知の有無も訊く
+ *   - 「すべての予定」はシリーズ本体を書き換える(展開は表示のたびに行うので、そのまま全体に反映される)
+ */
+export async function saveEdit(
+  original: EventSubject,
+  draft: EventEditDraft,
+  timeZone: string,
+  apply: ApplyChange,
+  data: CalendarData,
+  ask: AskScope,
+): Promise<void> {
+  const previousRange = subjectTimeRange(original, timeZone);
+  const nextRange = { startMs: draft.startMs, endMs: draft.endMs };
+  const series = isSeriesInstance(original)
+    ? (data.series.find((s) => s.id === original.seriesId) ?? null)
+    : null;
+  const scopes = availableRecurrenceScopes({
+    subject: original,
+    series,
+    previous: previousRange,
+    next: nextRange,
+  });
+  const askNotify = shouldAskGuestNotify(original);
+
+  let scope: RecurrenceScope = DEFAULT_RECURRENCE_SCOPE;
+  let notify: GuestNotify | undefined;
+  if (scopes.length > 0 || askNotify) {
+    const chosen = await ask({ title: draft.title || original.title, scopes, askNotify });
+    if (chosen === null) throw new EditScopeCancelledError();
+    scope = chosen.scope;
+    notify = chosen.notify;
+  }
+
+  const patch = buildEventEditPatchRequest(original, draft, timeZone, scope, series, notify);
+  if (!patch) throw new Error("この予定は編集できません");
+  const res = await apiFetch<{ ok: boolean }>("/api/event/patch", {
+    method: "POST",
+    body: JSON.stringify(patch),
+  });
+  if (!res?.ok) throw new Error("サーバーが変更を受け付けませんでした");
+
+  // ---- ここまで来たら Google への書き戻しは成功済み。手元へ反映する ----
+  if (scope === "all" && series) {
+    const next = applyScopeAllToSeries({
+      series,
+      previous: previousRange,
+      next: nextRange,
+      fields: { title: draft.title, location: draft.location, description: draft.description },
+    });
+    apply((d) => ({ ...d, series: d.series.map((s) => (s.id === next.id ? next : s)) }));
+    await upsertSeries(next);
+    return;
+  }
+
+  const wasAllDay = !isTimed(original);
+  if (draft.isAllDay) {
+    const nextAllDay = applyDraftToAllDayOccurrence(original, draft, timeZone);
+    if (!wasAllDay) {
+      apply((d) => ({ ...d, singles: d.singles.filter((o) => o.id !== original.id) }));
+      await removeSingle(original.id);
+    }
+    apply((d) => ({
+      ...d,
+      allDays: [...d.allDays.filter((a) => a.id !== nextAllDay.id), nextAllDay],
+    }));
+    await upsertAllDay(nextAllDay);
+    return;
+  }
+
+  const nextOcc = applyDraftToOccurrence(original, draft);
+  if (wasAllDay) {
+    apply((d) => ({ ...d, allDays: d.allDays.filter((a) => a.id !== original.id) }));
+    await removeAllDay(original.id);
+  } else {
+    const ref = resolveOverrideRef(original);
+    if (ref) {
+      // 繰り返しの1回分: 例外インスタンス (override) に編集内容を足す。既存の patch は保つ
+      const existing = data.overrides.find((o) => o.id === ref.id) ?? null;
+      const merged = mergeOverridePatch({
+        ref,
+        existing,
+        fields: {
+          title: draft.title,
+          startMs: draft.startMs,
+          endMs: draft.endMs,
+          location: draft.location || undefined,
+          description: draft.description || undefined,
+        },
+      });
+      apply((d) => ({ ...d, overrides: [...d.overrides.filter((o) => o.id !== merged.id), merged] }));
+      await upsertOverride(merged);
+      return;
+    }
+  }
+  apply((d) => ({ ...d, singles: [...d.singles.filter((o) => o.id !== nextOcc.id), nextOcc] }));
+  await upsertSingle(nextOcc);
 }
