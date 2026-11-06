@@ -35,7 +35,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - uses: swatinem/rust-cache@v2.9.3
         with:
@@ -101,8 +101,9 @@ jobs:
             cask のインストールには GitHub CLI の認証が必要です: `brew install gh && gh auth login`
 
             **DMG を直接ダウンロードする場合**
-            下の `kichijitsu_*_universal.dmg` を使用してください。
-          args: --target universal-apple-darwin
+            下の `kichijitsu_*_aarch64.dmg` を使用してください(Apple Silicon 専用です)。
+          # 容量とビルド時間を減らすため Apple Silicon (aarch64) に絞った。Intel Mac 向けは配布しない。
+          args: --target aarch64-apple-darwin
 
       # 配布物が本当に署名・公証済みか、実ファイルで確かめる。失敗ならリリースを失敗扱いにする。
       - name: Verify signature and notarization
@@ -129,7 +130,7 @@ jobs:
           set -euo pipefail
           dir=$(mktemp -d)
           gh release download "$TAG_NAME" --pattern latest.json --dir "$dir"
-          for platform in darwin-aarch64 darwin-x86_64; do
+          for platform in darwin-aarch64; do
             jq -e --arg p "$platform" '.platforms[$p] | (.url | length > 0) and (.signature | length > 0)' "$dir/latest.json" >/dev/null \
               || { echo "::error::latest.json の $platform に url / signature がありません"; exit 1; }
           done
@@ -177,7 +178,7 @@ jobs:
           # (再実行時も tauri-action は同名資産を消して貼り直すため、常に最新ビルドと一致)。
           # ファイル名に version が含まれるため、tauri.conf.json のバージョンとタグがずれて
           # いる場合はここでヒットせず落ちる ＝ cask の url が 404 になる事故も同時に防げる。
-          dmg_name="kichijitsu_${version}_universal.dmg"
+          dmg_name="kichijitsu_${version}_aarch64.dmg"
           dmg=$(
             DMG_NAME="$dmg_name" jq -er '
               [.[] | select(endswith("/" + env.DMG_NAME))]

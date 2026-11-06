@@ -367,6 +367,10 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
   `tauri-action` が `latest.json` を作り、`release.yml` の「Verify updater manifest」が
   `darwin-aarch64` / `darwin-x86_64` の url と signature を確かめる。
 - 自動更新を入れる前に配った版(v0.1.11 まで)には更新機能が無い。一度だけ手動で入れ直す。
+- **Apple Silicon (aarch64) 専用**(2026-11-06、容量とビルド時間を減らすため universal をやめた)。
+  成果物は `kichijitsu_<version>_aarch64.dmg` と `kichijitsu_aarch64.app.tar.gz`。Intel Mac には
+  配布しない。tap の cask は `url` を `_aarch64.dmg` に、`depends_on arch: :arm64` を足すこと
+  (release.yml の cask 更新は version と sha256 だけを書き換える)。
 - Homebrew cask は `auto_updates true`。自動更新と二重にならないよう、`brew upgrade` は
   既定では更新しない(`--greedy` で更新)。
 
