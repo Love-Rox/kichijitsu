@@ -111,3 +111,10 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - 予定の詳細シートのゲスト欄から。条件は Web 版と同じ `canEditGuests`(自分が主催の、繰り返しでない Google の予定)。ゲストが 0 人でも、編集できる予定には追加欄を出す。
 - 通信は `lib/mutations.ts` の `editGuests`: Web 版と同じ**楽観更新 + ロールバック**(押した瞬間に一覧へ反映し、サーバーが拒否したら元に戻す)。送るのは差分(追加/削除するメール)だけで、サーバーが read-modify-write する(手元の一覧は 50 件で打ち切られていることがあるため)。
 - 追加すると招待は必ず通知される(サーバー側で固定)。自分・主催者・会議室は外せない。入力の検査は Web 版の `parseGuestEmailInput`。
+
+## アップロードを API キーで行う(Apple ID のセッション切れを避ける)
+- Xcode の Apple ID のセッションは切れることがあり(`Failed to Use Accounts`)、そのたびに再サインインが要る。**アップロード(`-exportArchive`)は、App Manager 権限の App Store Connect API キーで通る**(2026-11-07 確認。キーは期限切れにならない)。
+- 配置: `.p8` は **リポジトリの外**(`~/.appstoreconnect/AuthKey_<KeyID>.p8`、権限 600)。チャットや git に出さない。Issuer ID は App Store Connect の「統合」の上部にある UUID。
+- 実行: `xcodebuild -exportArchive -archivePath … -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates -authenticationKeyPath ~/.appstoreconnect/AuthKey_<KeyID>.p8 -authenticationKeyID <KeyID> -authenticationKeyIssuerID <IssuerID>`
+- **新しい App ID・App Group・capability が増えるとき(ウィジェットを足したとき等)は、App Manager のキーでは作れない**。そのときだけ Apple ID でサインインした Xcode でアーカイブ/エクスポートして、登録を済ませる。
+- Admin 権限のキーは、手元に置かない(作ったら用が済み次第、App Store Connect で取り消す)。
