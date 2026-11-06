@@ -10,6 +10,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
+      ["expo-notifications", { "enableRemoteNotifications": false }],
       "@react-native-community/datetimepicker"
     ],
     "ios": {

@@ -58,53 +58,60 @@ export async function ensureNotifyPermission(): Promise<boolean> {
 }
 
 /**
- * 予約の世代。取り消し(ログアウト)のたびに進める。作り直しの途中(予約を 1 件ずつ入れている最中)で
- * ログアウトされても、世代が変わっていたらそこで止めて、前のユーザーの予定の通知を残さない。
+ * 予約の世代。取り消し(ログアウト)や新しい作り直しのたびに進める。世代が古くなった作り直しは、
+ * 次の予約を入れる前に止まる。
  */
 let generation = 0;
+/**
+ * 取り消しと作り直しを 1 本の順番待ちにする。ログアウトの取り消しは、進行中の作り直しが止まってから
+ * 全消去するので、予約が全消去の後に入ってしまう入れ違いが起きない。止められた作り直しは何も片付けず
+ * 抜ける(片付けは、後ろに並んだ取り消し・作り直しが、自分の番の最初に全消去して行う)。
+ */
+let queue: Promise<unknown> = Promise.resolve();
+function exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => undefined);
+  return run;
+}
 
 /** 予約済みの通知をすべて取り消す(ログアウトのとき)。進行中の作り直しも止める。 */
-export async function cancelAllReminders(): Promise<void> {
+export function cancelAllReminders(): Promise<void> {
   generation++;
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  return exclusive(() => Notifications.cancelAllScheduledNotificationsAsync());
 }
 
 /**
  * 予約を作り直す。オフ・未許可なら取り消すだけ。終日・不在・不参加の予定は通知しない。
  * 通知の時刻が過ぎている予定(開始直前に開いたとき等)は、予約しない。
  */
-export async function rescheduleReminders(data: CalendarData, timeZone: string): Promise<number> {
+export function rescheduleReminders(data: CalendarData, timeZone: string): Promise<number> {
   const gen = ++generation;
-  const settings = await getNotifySettings();
-  if (gen !== generation) return 0;
-  await Notifications.cancelAllScheduledNotificationsAsync();
-  if (!settings.enabled) return 0;
-  if (!(await Notifications.getPermissionsAsync()).granted) return 0;
+  return exclusive(async () => {
+    if (gen !== generation) return 0; // 順番待ちの間に、新しい要求や取り消しが入った
+    const settings = await getNotifySettings();
+    if (gen !== generation) return 0;
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    if (!settings.enabled) return 0;
+    if (!(await Notifications.getPermissionsAsync()).granted) return 0;
 
-  const now = Date.now();
-  const leadMs = settings.leadMinutes * 60_000;
-  const upcoming = occurrencesInRange(data, now, now + HORIZON_DAYS * 86_400_000)
-    .filter((o) => !o.isOutOfOffice && o.responseStatus !== "declined" && o.startMs - leadMs > now)
-    .slice(0, MAX_SCHEDULED);
+    const now = Date.now();
+    const leadMs = settings.leadMinutes * 60_000;
+    const upcoming = occurrencesInRange(data, now, now + HORIZON_DAYS * 86_400_000)
+      .filter((o) => !o.isOutOfOffice && o.responseStatus !== "declined" && o.startMs - leadMs > now)
+      .slice(0, MAX_SCHEDULED);
 
-  let count = 0;
-  for (const o of upcoming) {
-    if (gen !== generation) {
-      // 途中で取り消された(ログアウト、または新しい作り直し)。入れた分を残さない
-      return count;
+    let count = 0;
+    for (const o of upcoming) {
+      if (gen !== generation) return count; // 後ろの取り消し・作り直しが、全消去から始める
+      const when = formatTime(o.startMs, timeZone);
+      const where = o.location ? ` ・ ${o.location}` : "";
+      const body = settings.leadMinutes === 0 ? `${when} 開始${where}` : `${settings.leadMinutes} 分後(${when})${where}`;
+      await Notifications.scheduleNotificationAsync({
+        content: { title: o.title || "(タイトルなし)", body },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(o.startMs - leadMs) },
+      });
+      count++;
     }
-    const when = formatTime(o.startMs, timeZone);
-    const body =
-      settings.leadMinutes === 0
-        ? `${when} 開始${o.location ? ` ・ ${o.location}` : ""}`
-        : `${settings.leadMinutes} 分後(${when})${o.location ? ` ・ ${o.location}` : ""}`;
-    await Notifications.scheduleNotificationAsync({
-      content: { title: o.title || "(タイトルなし)", body },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(o.startMs - leadMs) },
-    });
-    count++;
-  }
-  // 最後の 1 件を入れている間に取り消されていたら、全消去し直す(取り消しの側の全消去と入れ違いになるため)
-  if (gen !== generation) await Notifications.cancelAllScheduledNotificationsAsync();
-  return count;
+    return count;
+  });
 }
