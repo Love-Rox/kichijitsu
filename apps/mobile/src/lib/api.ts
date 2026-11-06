@@ -14,5 +14,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
   if (res.status === 401) return null;
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  // 204 No Content (例: PUT /api/visible-calendars)は、本文が無いので JSON として読まない
+  if (res.status === 204) return {} as T;
   return (await res.json()) as T;
 }

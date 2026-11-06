@@ -37,6 +37,7 @@ export function EventFormSheet({
   canToggleAllDay,
   timeZone,
   targets: allTargets,
+  defaultTargetKey,
   onClose,
   onSubmit,
 }: {
@@ -49,6 +50,8 @@ export function EventFormSheet({
   timeZone: string;
   /** 作成先の候補(書き込める表示中のカレンダー。複数アカウントぶん)。label は表示名。 */
   targets: FormTarget[];
+  /** 設定で選んだ既定のカレンダー (writeTargetKey 形式)。無い/候補に無いときは、メインのカレンダー。 */
+  defaultTargetKey: string | null;
   onClose: () => void;
   /**
    * 保存の実行。作成は「シートをすぐ閉じて楽観的に反映」なので、呼び出し側が閉じて何も返さない。
@@ -66,7 +69,8 @@ export function EventFormSheet({
   const [saving, setSaving] = useState(false);
   // 作成先は「アカウント + カレンダー」の組(別のアカウントに同じ id のカレンダーがありうる)
   const [targetKey, setTargetKey] = useState<string>(() => {
-    const t = resolveDefaultWriteTarget(targets);
+    const chosen = defaultTargetKey ? targets.find((c) => writeTargetKey(c) === defaultTargetKey) : undefined;
+    const t = chosen ?? resolveDefaultWriteTarget(targets);
     return t ? writeTargetKey(t) : "";
   });
   const [error, setError] = useState<string | null>(null);

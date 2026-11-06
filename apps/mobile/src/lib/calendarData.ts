@@ -33,7 +33,10 @@ import {
 export interface AccountCalendars {
   accountId: string;
   email: string;
+  /** 表示中(同期対象)のカレンダー。 */
   calendars: CalendarListEntryDTO[];
+  /** そのアカウントの全カレンダー(表示/非表示の切り替えに使う)。古い保存には無い。 */
+  all?: CalendarListEntryDTO[];
 }
 
 export interface CalendarData {
@@ -167,7 +170,7 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
           const targets = calendars.filter((c) =>
             visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
           );
-          accounts.push({ accountId: account.id, email: account.email, calendars: targets });
+          accounts.push({ accountId: account.id, email: account.email, calendars: targets, all: calendars });
         } catch (e) {
           if (!aborted()) warnings.push(`${account.email}: カレンダーの一覧を取得できませんでした`);
           // 取得できなかったアカウントは、保存済みの分を、そのまま見せ続ける
