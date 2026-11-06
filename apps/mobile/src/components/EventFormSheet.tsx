@@ -281,7 +281,7 @@ export function EventFormSheet({
                   />
                 )}
                 <Text style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
-                  不在はメインのカレンダーにだけ作れます。終日にはできません。
+                  不在は、Google Workspace(職場・学校)アカウントのメインのカレンダーにだけ作れます(Google の仕様)。個人の Gmail では作れません。終日にもできません。
                 </Text>
               </View>
             )}
