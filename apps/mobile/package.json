@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@js-temporal/polyfill": "^0.5.1",
     "@react-native-community/datetimepicker": "9.2.1",
     "expo": "~58.0.14",

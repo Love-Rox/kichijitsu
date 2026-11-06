@@ -19,6 +19,7 @@ import {
   saveNotifySettings,
   type NotifySettings,
 } from "../lib/notifications";
+import { clearWidget, updateWidget } from "../lib/widgetSync";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -66,9 +67,27 @@ export default function Home() {
     // 同期や編集の直後に重なって走らないよう、少し待ってから予約し直す
     const id = setTimeout(() => {
       void rescheduleReminders(readyData, Temporal.Now.timeZoneId()).catch(() => undefined);
+      try {
+        updateWidget(readyData);
+      } catch {
+        // ウィジェットの更新に失敗しても、アプリの表示には影響させない
+      }
     }, 1500);
     return () => clearTimeout(id);
   }, [readyData, notify, foregroundTick]);
+
+  // ログアウト・セッション切れなど、どの経路で signedOut になっても、端末に残る派生データ(ウィジェットの
+  // 予定と、予約済みの通知)を消す。手元の予定を消す経路ごとに個別に呼ぶと、漏れる
+  const signedOut = state.kind === "signedOut";
+  useEffect(() => {
+    if (!signedOut) return;
+    void cancelAllReminders().catch(() => undefined);
+    try {
+      clearWidget();
+    } catch {
+      // 消せなくても、サインイン画面の表示は続ける
+    }
+  }, [signedOut]);
 
   const changeNotify = async (next: NotifySettings) => {
     if (next.enabled && !notify.enabled && !(await ensureNotifyPermission())) {
@@ -135,6 +154,11 @@ export default function Home() {
       await signOut();
       // 手元の予定を消した後にも取り消す(予約の作り直しが、消去の直前に読んだ予定で走っていても残さない)
       await cancelAllReminders().catch(() => undefined);
+      try {
+        clearWidget();
+      } catch {
+        // 消せなかった場合も、ログアウトは続ける
+      }
       // 通知の設定は clearAll で消えているので、画面の状態も合わせる(次のログインに持ち越さない)
       setNotify({ enabled: false, leadMinutes: 10 });
     }
