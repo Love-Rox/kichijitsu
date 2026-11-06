@@ -130,10 +130,13 @@ export default function Home() {
     // 待たないと、消した後に書き込みが残りうる。消去が失敗しても、セッションは必ず捨てる
     await inflight.current;
     try {
-      await cancelAllReminders().catch(() => undefined);
       await clearAll();
     } finally {
       await signOut();
+      // 手元の予定を消した後にも取り消す(予約の作り直しが、消去の直前に読んだ予定で走っていても残さない)
+      await cancelAllReminders().catch(() => undefined);
+      // 通知の設定は clearAll で消えているので、画面の状態も合わせる(次のログインに持ち越さない)
+      setNotify({ enabled: false, leadMinutes: 10 });
     }
     await refresh();
   };

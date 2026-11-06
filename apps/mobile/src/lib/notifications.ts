@@ -57,8 +57,15 @@ export async function ensureNotifyPermission(): Promise<boolean> {
   return next.granted;
 }
 
-/** 予約済みの通知をすべて取り消す(オフにしたとき、ログアウトのとき)。 */
+/**
+ * 予約の世代。取り消し(ログアウト)のたびに進める。作り直しの途中(予約を 1 件ずつ入れている最中)で
+ * ログアウトされても、世代が変わっていたらそこで止めて、前のユーザーの予定の通知を残さない。
+ */
+let generation = 0;
+
+/** 予約済みの通知をすべて取り消す(ログアウトのとき)。進行中の作り直しも止める。 */
 export async function cancelAllReminders(): Promise<void> {
+  generation++;
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
@@ -67,7 +74,9 @@ export async function cancelAllReminders(): Promise<void> {
  * 通知の時刻が過ぎている予定(開始直前に開いたとき等)は、予約しない。
  */
 export async function rescheduleReminders(data: CalendarData, timeZone: string): Promise<number> {
+  const gen = ++generation;
   const settings = await getNotifySettings();
+  if (gen !== generation) return 0;
   await Notifications.cancelAllScheduledNotificationsAsync();
   if (!settings.enabled) return 0;
   if (!(await Notifications.getPermissionsAsync()).granted) return 0;
@@ -78,7 +87,12 @@ export async function rescheduleReminders(data: CalendarData, timeZone: string):
     .filter((o) => !o.isOutOfOffice && o.responseStatus !== "declined" && o.startMs - leadMs > now)
     .slice(0, MAX_SCHEDULED);
 
+  let count = 0;
   for (const o of upcoming) {
+    if (gen !== generation) {
+      // 途中で取り消された(ログアウト、または新しい作り直し)。入れた分を残さない
+      return count;
+    }
     const when = formatTime(o.startMs, timeZone);
     const body =
       settings.leadMinutes === 0
@@ -88,6 +102,9 @@ export async function rescheduleReminders(data: CalendarData, timeZone: string):
       content: { title: o.title || "(タイトルなし)", body },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(o.startMs - leadMs) },
     });
+    count++;
   }
-  return upcoming.length;
+  // 最後の 1 件を入れている間に取り消されていたら、全消去し直す(取り消しの側の全消去と入れ違いになるため)
+  if (gen !== generation) await Notifications.cancelAllScheduledNotificationsAsync();
+  return count;
 }
