@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { monthGridWeeks } from "@kichijitsu/web/layout/monthGrid";
 import type { CalendarData } from "../lib/calendarData";
 import { eventsOnDate, type DayEvents } from "../lib/dayEvents";
+import type { EventSubject } from "../lib/mutations";
 
 /**
  * 月表示 + 選んだ日のアジェンダ。上に 6 週 × 7 日のグリッド(各日に予定の色つきチップを最大 3 件)、
@@ -29,6 +30,7 @@ export function MonthAgenda({
   selected,
   timeZone,
   onSelect,
+  onSelectEvent,
 }: {
   data: CalendarData;
   month: Temporal.PlainDate;
@@ -36,6 +38,7 @@ export function MonthAgenda({
   selected: Temporal.PlainDate;
   timeZone: string;
   onSelect: (date: Temporal.PlainDate) => void;
+  onSelectEvent: (subject: EventSubject) => void;
 }) {
   const weeks = useMemo(() => monthGridWeeks(month), [month]);
   const byDate = useMemo(() => {
@@ -137,7 +140,7 @@ export function MonthAgenda({
           <Text style={{ color: "#888", paddingVertical: 8 }}>予定はありません</Text>
         )}
         {selectedEvents.allDay.map((a) => (
-          <AgendaRow key={a.id} color={a.color} time="終日" title={a.title} />
+          <AgendaRow key={a.id} color={a.color} time="終日" title={a.title} onPress={() => onSelectEvent(a)} />
         ))}
         {selectedEvents.timed.map((o) => (
           <AgendaRow
@@ -146,6 +149,7 @@ export function MonthAgenda({
             time={`${formatTime(o.startMs, timeZone)}–${formatTime(o.endMs, timeZone)}`}
             title={o.title}
             location={o.location}
+            onPress={() => onSelectEvent(o)}
           />
         ))}
       </ScrollView>
@@ -158,14 +162,16 @@ function AgendaRow({
   time,
   title,
   location,
+  onPress,
 }: {
   color: string;
   time: string;
   title: string;
   location?: string;
+  onPress: () => void;
 }) {
   return (
-    <View style={{ flexDirection: "row", paddingVertical: 6, gap: 8 }}>
+    <Pressable onPress={onPress} style={{ flexDirection: "row", paddingVertical: 6, gap: 8 }}>
       <View style={{ width: 4, borderRadius: 2, backgroundColor: color }} />
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 12, color: "#666" }}>{time}</Text>
@@ -176,6 +182,6 @@ function AgendaRow({
           </Text>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }

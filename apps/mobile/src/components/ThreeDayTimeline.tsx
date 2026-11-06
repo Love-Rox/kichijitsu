@@ -1,9 +1,10 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { useMemo } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
 import { allDaysOnDate, occurrencesInRange, type CalendarData } from "../lib/calendarData";
+import type { EventSubject } from "../lib/mutations";
 
 /**
  * 3日表示のタイムライン (モバイルの既定ビュー)。
@@ -22,11 +23,13 @@ export function ThreeDayTimeline({
   start,
   today,
   timeZone,
+  onSelect,
 }: {
   data: CalendarData;
   start: Temporal.PlainDate;
   today: Temporal.PlainDate;
   timeZone: string;
+  onSelect: (subject: EventSubject) => void;
 }) {
 
   const days = useMemo(
@@ -70,6 +73,7 @@ export function ThreeDayTimeline({
               {allDay.slice(0, 2).map((a) => (
                 <Text
                   key={a.id}
+                  onPress={() => onSelect(a)}
                   numberOfLines={1}
                   style={{
                     alignSelf: "stretch",
@@ -137,8 +141,9 @@ export function ThreeDayTimeline({
                 const top = ((s - dayStart) / 3_600_000) * HOUR_HEIGHT;
                 const height = Math.max(((e - s) / 3_600_000) * HOUR_HEIGHT, 18);
                 return (
-                  <View
+                  <Pressable
                     key={o.id}
+                    onPress={() => onSelect(o)}
                     style={{
                       position: "absolute",
                       top,
@@ -158,7 +163,7 @@ export function ThreeDayTimeline({
                     <Text numberOfLines={height > 36 ? 2 : 1} style={{ fontSize: 11, color: "#111" }}>
                       {o.title}
                     </Text>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
