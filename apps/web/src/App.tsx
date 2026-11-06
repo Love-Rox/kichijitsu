@@ -31,6 +31,7 @@ import {
 import { useMasuVisible } from "./hooks/useMasuVisible";
 import { useMcpTokens } from "./hooks/useMcpTokens";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+import { OnboardingCard } from "./components/OnboardingCard";
 import { useOffline } from "./hooks/useOffline";
 import { usePlannedBlockHandlers } from "./hooks/usePlannedBlockHandlers";
 import { useTimelineNavigation } from "./hooks/useTimelineNavigation";
@@ -451,6 +452,7 @@ function App() {
     toggleKeepOrganizerDeclined: handleToggleKeepOrganizerDeclined,
     disconnectAccount,
     clearGitHubConnection,
+    meStatus,
   } = useGoogleAccounts({ db, store, allDayStore, taskStore, panelOpen, checkedFetch });
 
   // カレンダーブロックのルール一覧 + 作成/削除(hooks/useBlockRules.ts)。取得タイミング
@@ -993,6 +995,8 @@ function App() {
             />
           )}
           <div className="app-main-calendar">
+            {/* 未ログインのときだけ案内を重ねる。確認中・サーバー不達では出さない(誤案内になる) */}
+            {meStatus === "signed-out" && <OnboardingCard />}
             {view !== "month" ? (
               <WeekGrid
                 store={store}

@@ -687,6 +687,8 @@ export function EventBlock({
         ]
           .filter(Boolean)
           .join(" ")}
+        // 列が狭いとタイトルが切れるので、ホバーで全文を読めるようにする(重なりが多い時間帯向け)
+        title={occurrence.title}
         aria-selected={selectBeforeDrag ? isSelected : undefined}
         style={style}
         onPointerDown={handlePointerDownMove}
