@@ -176,6 +176,21 @@ export function CalendarScreen({
           today={today}
           timeZone={timeZone}
           onSelect={setDetail}
+          onMove={(o, startMs, endMs) =>
+            // ドラッグでの移動は、編集フォームの保存と同じ経路(適用範囲・ゲストへの通知も訊く)
+            saveEdit(
+              o,
+              { ...draftFromOccurrence(o), startMs, endMs },
+              timeZone,
+              onChange,
+              data,
+              askScope,
+            ).catch((e: Error) => {
+              // 適用範囲の問いかけのキャンセルは、失敗ではない(元の位置に戻るだけ)
+              if (e.name === "EditScopeCancelledError") return;
+              Alert.alert("移動できませんでした", String(e.message ?? e));
+            })
+          }
         />
       ) : (
         <MonthAgenda
