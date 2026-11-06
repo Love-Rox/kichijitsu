@@ -2,6 +2,8 @@ import { Temporal } from "@js-temporal/polyfill";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { CalendarData } from "../lib/calendarData";
+import { deleteEvent, type ApplyChange, type EventSubject } from "../lib/mutations";
+import { EventDetailSheet } from "./EventDetailSheet";
 import { MonthAgenda } from "./MonthAgenda";
 import { ThreeDayTimeline } from "./ThreeDayTimeline";
 
@@ -9,13 +11,21 @@ type View3 = "3day" | "month";
 const ACCENT = "#c13625";
 
 /** ログイン後のメイン画面。3日表示と月表示を、共通のヘッダー(移動・今日・切り替え)で切り替える。 */
-export function CalendarScreen({ data }: { data: CalendarData }) {
+export function CalendarScreen({
+  data,
+  onChange,
+}: {
+  data: CalendarData;
+  /** 楽観的な変更を画面のデータへ反映する(保存は変更の側で行う)。 */
+  onChange: ApplyChange;
+}) {
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), []);
   const today = useMemo(() => Temporal.Now.plainDateISO(timeZone), [timeZone]);
   const [view, setView] = useState<View3>("3day");
   // 3日表示では先頭日、月表示では表示中の月(と、選んだ日)を兼ねる
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
+  const [detail, setDetail] = useState<EventSubject | null>(null);
 
   const move = (dir: 1 | -1) => {
     setAnchor((a) => (view === "3day" ? a.add({ days: 3 * dir }) : a.add({ months: dir }).with({ day: 1 })));
@@ -54,7 +64,13 @@ export function CalendarScreen({ data }: { data: CalendarData }) {
       </View>
 
       {view === "3day" ? (
-        <ThreeDayTimeline data={data} start={anchor} today={today} timeZone={timeZone} />
+        <ThreeDayTimeline
+          data={data}
+          start={anchor}
+          today={today}
+          timeZone={timeZone}
+          onSelect={setDetail}
+        />
       ) : (
         <MonthAgenda
           data={data}
@@ -63,8 +79,16 @@ export function CalendarScreen({ data }: { data: CalendarData }) {
           selected={selected}
           timeZone={timeZone}
           onSelect={setSelected}
+          onSelectEvent={setDetail}
         />
       )}
+
+      <EventDetailSheet
+        subject={detail}
+        timeZone={timeZone}
+        onClose={() => setDetail(null)}
+        onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
+      />
     </View>
   );
 }

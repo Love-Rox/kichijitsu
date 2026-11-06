@@ -124,7 +124,12 @@ export default function Home() {
             </View>
           )}
           <View style={{ flex: 1 }}>
-            <CalendarScreen data={state.data} />
+            <CalendarScreen
+              data={state.data}
+              onChange={(update) =>
+                setState((s) => (s.kind === "ready" ? { ...s, data: update(s.data) } : s))
+              }
+            />
           </View>
           <Button
             title="ログアウト"

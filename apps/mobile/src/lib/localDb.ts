@@ -248,3 +248,53 @@ export async function clearAll(): Promise<void> {
     }
   });
 }
+
+// ---- 楽観的更新用の単体の書き込み ----
+// (予定の削除・作成・編集で、同期を待たずに手元のデータを書き換える。サーバーへの書き戻しが
+//  失敗したら、同じ関数で元に戻す)
+export async function upsertSingle(o: Occurrence): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "INSERT OR REPLACE INTO singles (id, account_id, calendar_id, json) VALUES (?, ?, ?, ?)",
+    o.id,
+    o.accountId ?? "",
+    o.calendarId ?? "",
+    JSON.stringify(o),
+  );
+}
+
+export async function removeSingle(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM singles WHERE id = ?", id);
+}
+
+export async function upsertAllDay(o: AllDayOccurrence): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "INSERT OR REPLACE INTO all_days (id, account_id, calendar_id, json) VALUES (?, ?, ?, ?)",
+    o.id,
+    o.accountId ?? "",
+    o.calendarId ?? "",
+    JSON.stringify(o),
+  );
+}
+
+export async function removeAllDay(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM all_days WHERE id = ?", id);
+}
+
+export async function upsertOverride(o: InstanceOverride): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "INSERT OR REPLACE INTO overrides (id, series_id, json) VALUES (?, ?, ?)",
+    o.id,
+    o.seriesId,
+    JSON.stringify(o),
+  );
+}
+
+export async function removeOverride(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM overrides WHERE id = ?", id);
+}
