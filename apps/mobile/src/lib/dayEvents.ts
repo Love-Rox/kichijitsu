@@ -8,9 +8,12 @@ export interface DayEvents {
   timed: Occurrence[];
 }
 
-/** 一覧・月表示に出す予定か。不在・勤務場所・辞退した予定は、タイムライン同様に通常カードとして出さない。 */
-function isCardEvent(o: { isOutOfOffice?: boolean; isWorkingLocation?: boolean; responseStatus?: string }) {
-  return !o.isOutOfOffice && !o.isWorkingLocation && o.responseStatus !== "declined";
+/**
+ * 一覧・月表示に出す予定か。勤務場所と辞退した予定は出さない。
+ * 不在は出す(作った不在を、確認・削除できるように。タイムラインでは背景として描く)。
+ */
+function isCardEvent(o: { isWorkingLocation?: boolean; responseStatus?: string }) {
+  return !o.isWorkingLocation && o.responseStatus !== "declined";
 }
 
 export function eventsOnDate(data: CalendarData, date: Temporal.PlainDate, timeZone: string): DayEvents {

@@ -41,6 +41,10 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
         id TEXT PRIMARY KEY NOT NULL, series_id TEXT NOT NULL, json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS overrides_series ON overrides (series_id);
     `);
+    // 作成の途中でアプリが終了した場合に残る「仮の予定」(書き戻し前の local-pending-*)を掃除する。
+    // DB を開いた直後(=この起動で作成が始まる前)に行うので、進行中の作成を消すことはない。
+    await db.runAsync("DELETE FROM singles WHERE id LIKE 'local-pending-%'");
+    await db.runAsync("DELETE FROM all_days WHERE id LIKE 'local-pending-%'");
     return db;
   })();
   return dbPromise;

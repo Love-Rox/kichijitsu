@@ -4,6 +4,16 @@ import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
 import { buildEventDeleteRequest } from "@kichijitsu/web/sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "@kichijitsu/web/sync/guestNotify";
+import type { EventCreateResponse } from "@kichijitsu/shared";
+import {
+  buildEventCreateRequest,
+  buildPendingAllDayOccurrence,
+  buildPendingOccurrence,
+  finalizeCreatedAllDayOccurrence,
+  finalizeCreatedOccurrence,
+  type EventCreateDraft,
+  type WriteTargetCandidate,
+} from "@kichijitsu/web/sync/eventCreate";
 import { apiFetch } from "./api";
 import type { CalendarData } from "./calendarData";
 import {
@@ -94,4 +104,63 @@ export async function deleteEvent(
     await rollback();
     throw e;
   }
+}
+
+/**
+ * 予定の作成 (楽観的更新 + 書き戻し)。Web 版の useCreateEvent と同じ流れ:
+ *   仮の予定 (local-pending-<uuid>) を手元に入れて即座に表示 → POST /api/event/create →
+ *   確定 id (g:<accountId>:<calendarId>:<eventId>) の予定に差し替え。失敗したら仮の予定を消して例外を投げる。
+ * 確定 id は、あとで同期で届く同じ予定の id と一致するので、重複表示にならない。
+ */
+export async function createEvent(
+  draft: EventCreateDraft,
+  target: WriteTargetCandidate,
+  timeZone: string,
+  apply: ApplyChange,
+): Promise<void> {
+  if (draft.isAllDay) {
+    const pending = buildPendingAllDayOccurrence({ draft, target, timeZone });
+    apply((d) => ({ ...d, allDays: [...d.allDays, pending] }));
+    await upsertAllDay(pending);
+    try {
+      const eventId = await postCreate(draft, target, timeZone);
+      const finalized = finalizeCreatedAllDayOccurrence(pending, target, eventId);
+      apply((d) => ({ ...d, allDays: [...d.allDays.filter((a) => a.id !== pending.id), finalized] }));
+      await removeAllDay(pending.id);
+      await upsertAllDay(finalized);
+    } catch (e) {
+      apply((d) => ({ ...d, allDays: d.allDays.filter((a) => a.id !== pending.id) }));
+      await removeAllDay(pending.id);
+      throw e;
+    }
+    return;
+  }
+
+  const pending = buildPendingOccurrence({ draft, target });
+  apply((d) => ({ ...d, singles: [...d.singles, pending] }));
+  await upsertSingle(pending);
+  try {
+    const eventId = await postCreate(draft, target, timeZone);
+    const finalized = finalizeCreatedOccurrence(pending, target, eventId);
+    apply((d) => ({ ...d, singles: [...d.singles.filter((o) => o.id !== pending.id), finalized] }));
+    await removeSingle(pending.id);
+    await upsertSingle(finalized);
+  } catch (e) {
+    apply((d) => ({ ...d, singles: d.singles.filter((o) => o.id !== pending.id) }));
+    await removeSingle(pending.id);
+    throw e;
+  }
+}
+
+async function postCreate(
+  draft: EventCreateDraft,
+  target: WriteTargetCandidate,
+  timeZone: string,
+): Promise<string> {
+  const res = await apiFetch<EventCreateResponse>("/api/event/create", {
+    method: "POST",
+    body: JSON.stringify(buildEventCreateRequest({ draft, target, timeZone })),
+  });
+  if (!res?.ok || !res.eventId) throw new Error("サーバーが作成を受け付けませんでした");
+  return res.eventId;
 }
