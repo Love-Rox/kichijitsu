@@ -35,6 +35,8 @@ export type {
   EventPatchResponse,
   RsvpResponseStatus,
   EventRsvpRequest,
+  EventColorRequest,
+  EventColorResponse,
   EventRsvpResponse,
   EventGuestsRequest,
   EventGuestsResponse,

@@ -22,6 +22,7 @@ import {
   type GuestChange,
   type GuestEmailError,
 } from "@kichijitsu/web/sync/eventGuests";
+import { colorIdOf, EVENT_COLORS } from "../lib/eventColors";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
 
@@ -35,6 +36,7 @@ export function EventDetailSheet({
   onDelete,
   onRsvp,
   onEditGuests,
+  onSetColor,
 }: {
   subject: EventSubject | null;
   timeZone: string;
@@ -47,6 +49,8 @@ export function EventDetailSheet({
   onRsvp: (subject: EventSubject, status: RsvpResponseStatus) => Promise<EventSubject>;
   /** ゲストの追加・削除。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
   onEditGuests: (subject: EventSubject, change: GuestChange) => Promise<EventSubject>;
+  /** 予定の色の変更(null はカレンダーの色に戻す)。反映後の予定を返す。失敗したら例外。 */
+  onSetColor: (subject: EventSubject, colorId: string | null) => Promise<EventSubject>;
 }) {
   const t = useTheme();
   // 出欠を変えた後の予定。開いている予定と同じものなら、こちらを表示に使う
@@ -64,6 +68,18 @@ export function EventDetailSheet({
       Alert.alert("返信できませんでした", String((e as Error).message ?? e));
     } finally {
       setRsvpBusy(false);
+    }
+  };
+  const [colorBusy, setColorBusy] = useState(false);
+  const changeColor = async (colorId: string | null) => {
+    if (!view || colorBusy || colorIdOf(view.color, view.hasCustomColor) === colorId) return;
+    setColorBusy(true);
+    try {
+      setUpdated(await onSetColor(view, colorId));
+    } catch (e) {
+      Alert.alert("色を変えられませんでした", String((e as Error).message ?? e));
+    } finally {
+      setColorBusy(false);
     }
   };
   const [guestInput, setGuestInput] = useState("");
@@ -322,6 +338,40 @@ export function EventDetailSheet({
               <Pressable onPress={() => void Linking.openURL(url)} style={{ marginTop: 18 }}>
                 <Text style={{ color: t.accent }}>Google カレンダーで開く</Text>
               </Pressable>
+            ) : null}
+            {canDelete(view) && view.source === "google" ? (
+              <View style={{ marginTop: 20, opacity: colorBusy ? 0.5 : 1 }}>
+                <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 8 }}>
+                  色{view.seriesId ? "(繰り返しの予定すべて)" : ""}
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                  {[{ id: null as string | null, name: "カレンダーの色", hex: undefined as string | undefined }, ...EVENT_COLORS].map(
+                    (c) => {
+                      const selected = colorIdOf(view.color, view.hasCustomColor) === c.id;
+                      return (
+                        <Pressable
+                          key={c.id ?? "default"}
+                          onPress={() => void changeColor(c.id)}
+                          accessibilityLabel={c.name}
+                          hitSlop={4}
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 14,
+                            backgroundColor: c.hex ?? "transparent",
+                            borderWidth: selected ? 3 : 1,
+                            borderColor: selected ? t.ink : t.line,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {c.id === null ? <Text style={{ fontSize: 11, color: t.inkSub }}>既定</Text> : null}
+                        </Pressable>
+                      );
+                    },
+                  )}
+                </View>
+              </View>
             ) : null}
             {canDelete(view) ? (
               <View style={{ marginTop: 28, flexDirection: "row", gap: 28 }}>
