@@ -5,7 +5,7 @@ import { PanResponder, Pressable, ScrollView, View } from "react-native";
 import { Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
-import { allDaysOnDate, occurrencesInRange, type CalendarData } from "../lib/calendarData";
+import { allDaysOnDate, occurrencesByDay, type CalendarData } from "../lib/calendarData";
 import type { Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
 import { formatTime } from "../lib/format";
@@ -141,10 +141,12 @@ export function Timeline({
   };
 
   const columns = useMemo(() => {
+    // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない)
+    const byDay = occurrencesByDay(data, days, timeZone);
     return days.map((date) => {
       const dayStart = dayStartMs(date, timeZone);
       const dayEnd = dayStartMs(date.add({ days: 1 }), timeZone);
-      const items = occurrencesInRange(data, dayStart, dayEnd)
+      const items = (byDay.get(date.toString()) ?? [])
         .filter((o) => !o.isWorkingLocation && o.responseStatus !== "declined")
         // 保存の応答待ちの予定は、動かした後の位置(別の日になることもある)で出す
         .filter((o) => !pending || o.id !== pending.o.id);

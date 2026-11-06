@@ -5,7 +5,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import { Text } from "./ui";
 import { monthGridWeeks } from "@kichijitsu/web/layout/monthGrid";
 import type { CalendarData } from "../lib/calendarData";
-import { eventsOnDate, type DayEvents } from "../lib/dayEvents";
+import { eventsByDates, eventsOnDate } from "../lib/dayEvents";
 import type { EventSubject } from "../lib/mutations";
 
 /**
@@ -43,13 +43,11 @@ export function MonthAgenda({
 }) {
   const t = useTheme();
   const weeks = useMemo(() => monthGridWeeks(month), [month]);
-  const byDate = useMemo(() => {
-    const map = new Map<string, DayEvents>();
-    for (const week of weeks) {
-      for (const { date } of week) map.set(date.toString(), eventsOnDate(data, date, timeZone));
-    }
-    return map;
-  }, [weeks, data, timeZone]);
+  // 6 週ぶん(42 日)を、1 回の展開で求める(日ごとに展開し直さない)
+  const byDate = useMemo(
+    () => eventsByDates(data, weeks.flat().map((d) => d.date), timeZone),
+    [weeks, data, timeZone],
+  );
 
   const selectedEvents = byDate.get(selected.toString()) ?? eventsOnDate(data, selected, timeZone);
 
