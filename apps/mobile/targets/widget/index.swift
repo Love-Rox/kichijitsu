@@ -3,7 +3,7 @@ import WidgetKit
 
 // アプリ(JS)が App Group に書いた直近の予定を表示するウィジェット。
 // データは UserDefaults(suiteName: group)の "events" キーに JSON 文字列で入っている:
-//   { "updatedAt": <ms>, "events": [{ "title", "startMs", "endMs", "color", "location"? }] }
+//   { "updatedAt": <ms>, "events": [{ "title", "startMs", "endMs", "color" }] }
 // ログアウトすると、アプリが "events" を消す(空のときは「予定はありません」)。
 private let appGroup = "group.cc.love-rox.kichijitsu"
 private let accent = Color(red: 0xC1 / 255, green: 0x36 / 255, blue: 0x25 / 255)
@@ -13,7 +13,6 @@ struct WidgetEvent: Decodable, Identifiable {
     let startMs: Double
     let endMs: Double
     let color: String?
-    let location: String?
     var id: String { "\(startMs)-\(title)" }
     var start: Date { Date(timeIntervalSince1970: startMs / 1000) }
     var end: Date { Date(timeIntervalSince1970: endMs / 1000) }

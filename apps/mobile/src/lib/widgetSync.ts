@@ -24,7 +24,6 @@ export function updateWidget(data: CalendarData): void {
       startMs: o.startMs,
       endMs: o.endMs,
       color: o.color,
-      location: o.location,
     }));
   storage.set(KEY, JSON.stringify({ updatedAt: now, events }));
   ExtensionStorage.reloadWidget();

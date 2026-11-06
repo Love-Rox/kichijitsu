@@ -76,6 +76,19 @@ export default function Home() {
     return () => clearTimeout(id);
   }, [readyData, notify, foregroundTick]);
 
+  // ログアウト・セッション切れなど、どの経路で signedOut になっても、端末に残る派生データ(ウィジェットの
+  // 予定と、予約済みの通知)を消す。手元の予定を消す経路ごとに個別に呼ぶと、漏れる
+  const signedOut = state.kind === "signedOut";
+  useEffect(() => {
+    if (!signedOut) return;
+    void cancelAllReminders().catch(() => undefined);
+    try {
+      clearWidget();
+    } catch {
+      // 消せなくても、サインイン画面の表示は続ける
+    }
+  }, [signedOut]);
+
   const changeNotify = async (next: NotifySettings) => {
     if (next.enabled && !notify.enabled && !(await ensureNotifyPermission())) {
       Alert.alert("通知が許可されていません", "iOS の設定アプリ → kichijitsu → 通知 から許可してください。");
