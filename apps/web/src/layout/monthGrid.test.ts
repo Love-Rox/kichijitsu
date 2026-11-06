@@ -2,7 +2,13 @@ import { Temporal } from "@js-temporal/polyfill";
 import { describe, expect, it } from "vite-plus/test";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import type { AllDayOccurrenceGroup, OccurrenceGroup } from "./groupDuplicates";
-import { bucketMonthChips, monthGridDays, monthGridRangeMs, monthGridWeeks } from "./monthGrid";
+import {
+  bucketMonthChips,
+  monthChipRowCapacity,
+  monthGridDays,
+  monthGridRangeMs,
+  monthGridWeeks,
+} from "./monthGrid";
 
 const TZ = "Asia/Tokyo";
 
@@ -196,5 +202,67 @@ describe("bucketMonthChips", () => {
       expect(cell.visible).toHaveLength(0);
       expect(cell.overflowCount).toBe(0);
     }
+  });
+});
+
+describe("monthChipRowCapacity", () => {
+  it("高いセルほど多くの行が入る", () => {
+    expect(monthChipRowCapacity(200)).toBeGreaterThan(monthChipRowCapacity(100));
+  });
+
+  it("極端に低いセルでも最低 1 行は返す", () => {
+    expect(monthChipRowCapacity(0)).toBe(1);
+    expect(monthChipRowCapacity(20)).toBe(1);
+  });
+
+  it("CSS の寸法どおり: 高さ 108px のセルには 4 行入る", () => {
+    // 108 - (6+1) - 2 - 16 = 83 → (83+1)/(16+1) = 4.9 → 4 行
+    expect(monthChipRowCapacity(108)).toBe(4);
+  });
+});
+
+describe("bucketMonthChips の rowCapacity", () => {
+  const days = monthGridDays(Temporal.PlainDate.from("2026-07-01"));
+  const day = Temporal.PlainDate.from("2026-07-20");
+  const dayStartMs = day.toZonedDateTime({ timeZone: TZ }).epochMilliseconds;
+  const make = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      timedGroup(
+        occ({
+          id: `e${i}`,
+          startMs: dayStartMs + (i + 1) * 60 * 60 * 1000,
+          endMs: dayStartMs + (i + 1) * 60 * 60 * 1000 + 30 * 60 * 1000,
+        }),
+      ),
+    );
+  const cellOf = (groups: ReturnType<typeof make>, cap: number) =>
+    bucketMonthChips(days, groups, [], TZ, undefined, cap).find(
+      (c) => c.date.toString() === "2026-07-20",
+    )!;
+
+  it("全件が収まるなら全件を見せ、「+N」は出さない", () => {
+    const cell = cellOf(make(5), 5);
+    expect(cell.visible).toHaveLength(5);
+    expect(cell.overflowCount).toBe(0);
+  });
+
+  it("溢れるなら「+N」の 1 行ぶんを空けて見せる", () => {
+    const cell = cellOf(make(8), 5);
+    expect(cell.visible).toHaveLength(4);
+    expect(cell.overflowCount).toBe(4);
+  });
+
+  it("行数が 1 でも、少なくとも 1 件は見せる", () => {
+    const cell = cellOf(make(3), 1);
+    expect(cell.visible).toHaveLength(1);
+    expect(cell.overflowCount).toBe(2);
+  });
+
+  it("rowCapacity を渡さなければ従来どおり 4 件で切る", () => {
+    const cell = bucketMonthChips(days, make(8), [], TZ).find(
+      (c) => c.date.toString() === "2026-07-20",
+    )!;
+    expect(cell.visible).toHaveLength(4);
+    expect(cell.overflowCount).toBe(4);
   });
 });
