@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Switch, View } from "react-native";
 import { writeTargetKey } from "@kichijitsu/web/sync/eventCreate";
 import type { AccountCalendars, CalendarData } from "../lib/calendarData";
+import { LEAD_OPTIONS, type NotifySettings } from "../lib/notifications";
 import { useTheme } from "../theme";
 import { Text } from "./ui";
 
@@ -16,6 +17,8 @@ export function SettingsSheet({
   onClose,
   onToggleCalendar,
   onSetDefault,
+  notify,
+  onChangeNotify,
   onSignOut,
 }: {
   visible: boolean;
@@ -26,6 +29,9 @@ export function SettingsSheet({
   /** 表示/非表示の切り替え(サーバーへ保存)。失敗したら例外を投げる。 */
   onToggleCalendar: (account: AccountCalendars, calendarId: string, visible: boolean) => Promise<void>;
   onSetDefault: (key: string | null) => void;
+  /** 予定の開始通知の設定。 */
+  notify: NotifySettings;
+  onChangeNotify: (next: NotifySettings) => void;
   onSignOut: () => void;
 }) {
   const t = useTheme();
@@ -151,6 +157,39 @@ export function SettingsSheet({
               </Pressable>
             );
           })}
+
+          <Text style={{ fontSize: 13, color: t.inkSub, marginTop: 24, marginBottom: 6 }}>通知</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7 }}>
+            <Text style={{ flex: 1 }}>予定の開始を通知する</Text>
+            <Switch
+              value={notify.enabled}
+              onValueChange={(on) => onChangeNotify({ ...notify, enabled: on })}
+              trackColor={{ true: t.accent }}
+            />
+          </View>
+          {notify.enabled ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+              {LEAD_OPTIONS.map((m) => {
+                const on = notify.leadMinutes === m;
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => onChangeNotify({ ...notify, leadMinutes: m })}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 7,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: on ? t.accent : t.line,
+                      backgroundColor: on ? t.accent : undefined,
+                    }}
+                  >
+                    <Text style={{ color: on ? t.onAccent : t.inkMute }}>{m === 0 ? "開始時刻" : `${m} 分前`}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
 
           <Pressable onPress={confirmSignOut} style={{ marginTop: 32, alignSelf: "flex-start" }}>
             <Text style={{ color: t.accent, fontSize: 15 }}>ログアウト</Text>

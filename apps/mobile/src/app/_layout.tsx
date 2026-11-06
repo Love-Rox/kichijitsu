@@ -1,6 +1,9 @@
 import "../lib/polyfills";
 import { Stack } from "expo-router";
 import { useTheme } from "../theme";
+import { installNotificationHandler } from "../lib/notifications";
+
+installNotificationHandler();
 
 export default function RootLayout() {
   const t = useTheme();
