@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { useMemo, useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { Text } from "./ui";
 import type { CalendarData } from "../lib/calendarData";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
@@ -120,21 +120,47 @@ export function CalendarScreen({
   // タイムラインの先頭日: 週は、基準日を含む週の月曜
   const timelineStart = view === "week" ? mondayOf(anchor) : anchor;
 
+  // ---- 切り替え中の表示 ----
+  // 表示の切り替え・移動では、予定の展開と描画で、一瞬 JS が止まる。押した直後に「反応している」ことが
+  // 分かるよう、(1) 押したボタンをすぐ選択状態にし、(2) 読み込み中の表示を出してから、重い再描画を
+  // 低い優先度 (transition) で行う。再描画が終わったら(表示が変わったら)表示を外す。
+  const [, startTransition] = useTransition();
+  const [pendingView, setPendingView] = useState<ViewKind | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setBusy(false);
+    setPendingView(null);
+  }, [view, anchor, selected]);
+  /** 状態の変更を、「読み込み中」を先に出してから行う。 */
+  const switching = (change: () => void) => {
+    setBusy(true);
+    startTransition(change);
+  };
+
   const move = (dir: 1 | -1) => {
-    setAnchor((a) => (view === "month" ? a.add({ months: dir }).with({ day: 1 }) : a.add({ days: DAY_COUNT[view] * dir })));
+    switching(() =>
+      setAnchor((a) => (view === "month" ? a.add({ months: dir }).with({ day: 1 }) : a.add({ days: DAY_COUNT[view] * dir }))),
+    );
   };
   /** ビューの切り替え。月表示で選んでいた日を、他のビューの基準日として引き継ぐ。 */
   const changeView = (next: ViewKind) => {
-    if (view === "month" && next !== "month") setAnchor(selected);
-    if (view !== "month" && next === "month") {
-      setAnchor(timelineStart);
-      setSelected(timelineStart);
-    }
-    setView(next);
+    if (next === view) return;
+    setPendingView(next); // 押したボタンを、すぐ選択状態にする
+    switching(() => {
+      if (view === "month" && next !== "month") setAnchor(selected);
+      if (view !== "month" && next === "month") {
+        setAnchor(timelineStart);
+        setSelected(timelineStart);
+      }
+      setView(next);
+    });
   };
   const goToday = () => {
-    setAnchor(today);
-    setSelected(today);
+    if (anchor.equals(today) && selected.equals(today)) return;
+    switching(() => {
+      setAnchor(today);
+      setSelected(today);
+    });
   };
 
   return (
@@ -160,14 +186,15 @@ export function CalendarScreen({
             <Pressable
               key={v}
               onPress={() => changeView(v)}
-              style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: view === v ? t.accent : undefined }}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: (pendingView ?? view) === v ? t.accent : undefined }}
             >
-              <Text style={{ fontSize: 13, color: view === v ? t.onAccent : t.inkMute }}>{label}</Text>
+              <Text style={{ fontSize: 13, color: (pendingView ?? view) === v ? t.onAccent : t.inkMute }}>{label}</Text>
             </Pressable>
           ))}
         </View>
       </View>
 
+      <View style={{ flex: 1 }}>
       {view !== "month" ? (
         <Timeline
           data={data}
@@ -203,6 +230,25 @@ export function CalendarScreen({
           onSelectEvent={setDetail}
         />
       )}
+
+      {busy ? (
+        // 切り替え中は、触れないようにして、読み込み中を見せる
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: `${t.bg}99`,
+          }}
+        >
+          <ActivityIndicator size="large" color={t.accent} />
+        </View>
+      ) : null}
+      </View>
 
       {form !== null && (
         <EventFormSheet
