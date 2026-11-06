@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Text, View } from "react-native";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { getToken, signIn, signOut } from "../lib/auth";
+import { clearAll } from "../lib/localDb";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -19,33 +20,35 @@ export default function Home() {
   >({ kind: "loading" });
 
   /**
-   * 読み込みの世代番号。refresh とログアウトのたびに進める。進行中の古い読み込み
-   * (onProgress / onPartial / 最終結果 / エラー) は、世代が古ければ画面へ反映せず捨てる。
-   * これが無いと、ログアウト直後に古い読み込みが終わって、前のユーザーの予定が
-   * 画面に戻ってきてしまう。
+   * 進行中の読み込みを中止するための AbortController。refresh とログアウトのたびに、前のものを中止する。
+   * 中止された読み込みは、画面へも手元のデータベースへも何も書かない。これが無いと、ログアウト直後に
+   * 古い読み込みが終わって、前のユーザーの予定が画面やデータベースに戻ってしまう。
    */
-  const generation = useRef(0);
+  const controller = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
-    const mine = ++generation.current;
-    const isCurrent = () => generation.current === mine;
+    controller.current?.abort();
+    const mine = new AbortController();
+    controller.current = mine;
+    const isCurrent = () => !mine.signal.aborted;
     setState({ kind: "loading" });
     try {
       if (!(await getToken())) return isCurrent() && setState({ kind: "signedOut" });
-      // 最初のカレンダーが読めた時点で画面を出し、残りは表示したまま順に反映する
+      // 手元のデータがあれば即座に表示し、同期できたカレンダーから順に反映する
       let latest: LoadProgress | null = null;
-      const data = await loadCalendarData(
-        (progress) => {
+      const data = await loadCalendarData({
+        signal: mine.signal,
+        onProgress: (progress) => {
           if (!isCurrent()) return;
           latest = progress;
           setState((s) =>
             s.kind === "ready" ? { ...s, syncing: progress } : { kind: "loading", progress },
           );
         },
-        (partial) => {
+        onPartial: (partial) => {
           if (isCurrent()) setState({ kind: "ready", data: partial, syncing: latest });
         },
-      );
+      });
       if (!isCurrent()) return;
       setState(data ? { kind: "ready", data, syncing: null } : { kind: "signedOut" });
     } catch (e) {
@@ -116,8 +119,9 @@ export default function Home() {
           <Button
             title="ログアウト"
             onPress={async () => {
-              // 進行中の読み込みの結果を捨ててから、セッションを消す
-              generation.current += 1;
+              // 進行中の読み込みを中止してから、保存済みの予定とセッションを消す
+              controller.current?.abort();
+              await clearAll();
               await signOut();
               await refresh();
             }}
