@@ -13,7 +13,6 @@ import {
   View,
 } from "react-native";
 import {
-  buildCreateDraft,
   DEFAULT_AUTO_DECLINE,
   resolveDefaultWriteTarget,
   type EventCreateDraft,
@@ -38,7 +37,9 @@ const DECLINE_OPTIONS: { value: OutOfOfficeAutoDecline; label: string }[] = [
 /** 予定の作成フォーム (下から出るシート)。種別(予定/不在)・日時・場所・説明・カレンダーを入力できる。 */
 export function EventFormSheet({
   visible,
-  initialStartMs,
+  mode,
+  initialDraft,
+  canToggleAllDay,
   timeZone,
   accountId,
   calendars,
@@ -46,15 +47,23 @@ export function EventFormSheet({
   onSubmit,
 }: {
   visible: boolean;
-  /** 開始の初期値 (epoch ms)。終了は +1 時間。 */
-  initialStartMs: number;
+  /** 作成か編集か。編集では種別とカレンダーは変えられない(Google でも移動は別の操作)。 */
+  mode: "create" | "edit";
+  initialDraft: EventCreateDraft;
+  /** 終日への切り替えを出すか(繰り返しの1回分は終日にできない)。作成では常に出す。 */
+  canToggleAllDay: boolean;
   timeZone: string;
   accountId: string;
   calendars: CalendarListEntryDTO[];
   onClose: () => void;
-  /** 作成の実行。シートはすぐ閉じ、失敗は呼び出し側が知らせる。 */
-  onSubmit: (draft: EventCreateDraft, target: WriteTargetCandidate) => void;
+  /**
+   * 保存の実行。作成は「シートをすぐ閉じて楽観的に反映」なので、呼び出し側が閉じて何も返さない。
+   * 編集は「保存ボタン方式」: Promise を返すと、成功するまでシートを開いたまま「保存中…」を出し、
+   * 失敗したらここにエラーを出して再試行できる。
+   */
+  onSubmit: (draft: EventCreateDraft, target: WriteTargetCandidate | null) => void | Promise<void>;
 }) {
+  const isEdit = mode === "edit";
   // 書き込めるカレンダーだけ(オーナー/編集者)。祝日や購読などの読み取り専用は出さない
   const targets = useMemo<WriteTargetCandidate[]>(
     () =>
@@ -72,9 +81,8 @@ export function EventFormSheet({
     calendars.find((c) => c.id === calendarId)?.summary ?? calendarId;
 
   // シートを開くたびに作り直す(key で初期化する想定 — 呼び出し側が visible 切り替えで再マウントする)
-  const [draft, setDraft] = useState<EventCreateDraft>(() =>
-    buildCreateDraft(initialStartMs, initialStartMs + 3_600_000),
-  );
+  const [draft, setDraft] = useState<EventCreateDraft>(initialDraft);
+  const [saving, setSaving] = useState(false);
   const [calendarId, setCalendarId] = useState<string>(
     () => resolveDefaultWriteTarget(targets)?.calendarId ?? "",
   );
@@ -115,11 +123,23 @@ export function EventFormSheet({
     }
   };
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return;
     const message = validateEventEditDraft(draft);
     if (message) return setError(message);
-    if (!target) return setError("書き込めるカレンダーがありません");
-    onSubmit(draft, target);
+    if (!isEdit && !target) return setError("書き込めるカレンダーがありません");
+    setError(null);
+    setSaving(true);
+    try {
+      await onSubmit(draft, isEdit ? null : target);
+    } catch (e) {
+      // 適用範囲の問いかけをキャンセルしたのは失敗ではない(フォームを開いたまま、何も出さない)
+      if ((e as Error)?.name !== "EditScopeCancelledError") {
+        setError("保存できませんでした。もう一度お試しください。");
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -133,9 +153,13 @@ export function EventFormSheet({
             <Pressable onPress={onClose} hitSlop={10}>
               <Text style={{ fontSize: 15, color: "#555" }}>キャンセル</Text>
             </Pressable>
-            <Text style={{ flex: 1, textAlign: "center", fontWeight: "700" }}>予定を作成</Text>
-            <Pressable onPress={submit} hitSlop={10}>
-              <Text style={{ fontSize: 15, color: ACCENT, fontWeight: "700" }}>作成</Text>
+            <Text style={{ flex: 1, textAlign: "center", fontWeight: "700" }}>
+              {isEdit ? "予定を編集" : "予定を作成"}
+            </Text>
+            <Pressable onPress={() => void submit()} hitSlop={10} disabled={saving}>
+              <Text style={{ fontSize: 15, color: ACCENT, fontWeight: "700" }}>
+                {saving ? "保存中…" : isEdit ? "保存" : "作成"}
+              </Text>
             </Pressable>
           </View>
 
@@ -145,9 +169,10 @@ export function EventFormSheet({
               onChangeText={(title) => set({ title })}
               placeholder={isOoo ? "不在のタイトル" : "予定のタイトル"}
               style={{ fontSize: 20, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
-              autoFocus
+              autoFocus={!isEdit}
             />
 
+            {!isEdit && (
             <Row label="種別">
               <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: "#ddd", overflow: "hidden" }}>
                 {([["default", "予定"], ["outOfOffice", "不在"]] as const).map(([k, label]) => (
@@ -161,8 +186,9 @@ export function EventFormSheet({
                 ))}
               </View>
             </Row>
+            )}
 
-            {!isOoo && (
+            {!isOoo && (!isEdit || canToggleAllDay) && (
               <Row label="終日">
                 <Switch value={draft.isAllDay} onValueChange={setAllDay} trackColor={{ true: ACCENT }} />
               </Row>
@@ -230,7 +256,7 @@ export function EventFormSheet({
               </>
             )}
 
-            {isOoo && (
+            {isOoo && !isEdit && (
               <View style={{ marginTop: 8 }}>
                 <Text style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>招待の自動辞退</Text>
                 {DECLINE_OPTIONS.map((o) => {
@@ -274,7 +300,7 @@ export function EventFormSheet({
               style={{ marginTop: 6, paddingVertical: 8, minHeight: 60, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
             />
 
-            {choices.length > 1 && (
+            {!isEdit && choices.length > 1 && (
               <View style={{ marginTop: 14 }}>
                 <Text style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>カレンダー</Text>
                 {choices.map((t) => {

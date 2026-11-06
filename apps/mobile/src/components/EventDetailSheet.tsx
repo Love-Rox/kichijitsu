@@ -11,11 +11,14 @@ export function EventDetailSheet({
   subject,
   timeZone,
   onClose,
+  onEdit,
   onDelete,
 }: {
   subject: EventSubject | null;
   timeZone: string;
   onClose: () => void;
+  /** 編集フォームを開く。 */
+  onEdit: (subject: EventSubject) => void;
   /** 削除の実行。失敗したら例外を投げる(シートの側でエラーを知らせる)。 */
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
 }) {
@@ -81,12 +84,14 @@ export function EventDetailSheet({
               </Pressable>
             ) : null}
             {canDelete(subject) ? (
-              <Pressable
-                onPress={() => confirmDelete(subject)}
-                style={{ marginTop: 28, alignSelf: "flex-start" }}
-              >
-                <Text style={{ color: ACCENT, fontSize: 15 }}>削除</Text>
-              </Pressable>
+              <View style={{ marginTop: 28, flexDirection: "row", gap: 28 }}>
+                <Pressable onPress={() => onEdit(subject)}>
+                  <Text style={{ color: ACCENT, fontSize: 15 }}>編集</Text>
+                </Pressable>
+                <Pressable onPress={() => confirmDelete(subject)}>
+                  <Text style={{ color: ACCENT, fontSize: 15 }}>削除</Text>
+                </Pressable>
+              </View>
             ) : null}
           </ScrollView>
         </View>
