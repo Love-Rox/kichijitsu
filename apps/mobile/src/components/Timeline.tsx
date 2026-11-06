@@ -152,6 +152,16 @@ export function Timeline({
     };
   }, []);
 
+  // 最初に見せる位置: 今日が範囲に入っていれば現在時刻の少し上、そうでなければ 7 時。開いたときだけ決める
+  const [initialOffset] = useState(() => {
+    const n = Date.now();
+    const inRange = days.some((d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone));
+    if (!inRange) return 7 * HOUR_HEIGHT;
+    const hour = (n - dayStartMs(Temporal.Now.plainDateISO(timeZone), timeZone)) / HOUR_MS;
+    // 画面の下端より上に収まるよう、24 時間分の高さを超えない範囲で
+    return Math.max(0, Math.min((hour - 2) * HOUR_HEIGHT, 14 * HOUR_HEIGHT));
+  });
+
   const columns = useMemo(() => {
     // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない)
     const byDay = occurrencesByDay(data, days, timeZone);
@@ -236,7 +246,7 @@ export function Timeline({
       </View>
 
       <ScrollView
-        contentOffset={{ x: 0, y: 7 * HOUR_HEIGHT }}
+        contentOffset={{ x: 0, y: initialOffset }}
         // 予定を掴んでいる間は、スクロールさせない(指の縦の動きを、予定の移動に使うため)
         scrollEnabled={drag === null}
         style={{ flex: 1, borderTopWidth: 1, borderTopColor: t.line }}
