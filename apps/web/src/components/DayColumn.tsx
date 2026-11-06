@@ -850,6 +850,7 @@ export function DayColumn({
                 left={left}
                 timeZone={timeZone}
                 calendarLookup={calendarLookup}
+                onDelete={onDelete}
               />
             );
           })}
