@@ -1,17 +1,9 @@
+import { useTheme } from "../theme";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import type { OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import { useMemo, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Switch, View } from "react-native";
+import { Text, TextInput } from "./ui";
 import {
   DEFAULT_AUTO_DECLINE,
   resolveDefaultWriteTarget,
@@ -27,7 +19,6 @@ import {
   validateEventEditDraft,
 } from "@kichijitsu/web/sync/eventEdit";
 
-const ACCENT = "#c13625";
 
 /** 作成先の候補 (WriteTargetCandidate + 表示名)。 */
 export type FormTarget = WriteTargetCandidate & { label: string };
@@ -66,6 +57,7 @@ export function EventFormSheet({
    */
   onSubmit: (draft: EventCreateDraft, target: WriteTargetCandidate | null) => void | Promise<void>;
 }) {
+  const t = useTheme();
   const isEdit = mode === "edit";
   const targets = allTargets;
 
@@ -140,16 +132,16 @@ export function EventFormSheet({
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={{ flex: 1, padding: 20 }}>
+        <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Text style={{ fontSize: 15, color: "#555" }}>キャンセル</Text>
+              <Text style={{ fontSize: 15, color: t.inkMute }}>キャンセル</Text>
             </Pressable>
             <Text style={{ flex: 1, textAlign: "center", fontWeight: "700" }}>
               {isEdit ? "予定を編集" : "予定を作成"}
             </Text>
             <Pressable onPress={() => void submit()} hitSlop={10} disabled={saving}>
-              <Text style={{ fontSize: 15, color: ACCENT, fontWeight: "700" }}>
+              <Text style={{ fontSize: 15, color: t.accent, fontWeight: "700" }}>
                 {saving ? "保存中…" : isEdit ? "保存" : "作成"}
               </Text>
             </Pressable>
@@ -160,20 +152,20 @@ export function EventFormSheet({
               value={draft.title}
               onChangeText={(title) => set({ title })}
               placeholder={isOoo ? "不在のタイトル" : "予定のタイトル"}
-              style={{ fontSize: 20, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
+              style={{ fontSize: 20, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.line }}
               autoFocus={!isEdit}
             />
 
             {!isEdit && (
             <Row label="種別">
-              <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: "#ddd", overflow: "hidden" }}>
+              <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: t.line, overflow: "hidden" }}>
                 {([["default", "予定"], ["outOfOffice", "不在"]] as const).map(([k, label]) => (
                   <Pressable
                     key={k}
                     onPress={() => setKind(k)}
-                    style={{ paddingHorizontal: 14, paddingVertical: 5, backgroundColor: (isOoo ? "outOfOffice" : "default") === k ? ACCENT : undefined }}
+                    style={{ paddingHorizontal: 14, paddingVertical: 5, backgroundColor: (isOoo ? "outOfOffice" : "default") === k ? t.accent : undefined }}
                   >
-                    <Text style={{ color: (isOoo ? "outOfOffice" : "default") === k ? "#fff" : "#555" }}>{label}</Text>
+                    <Text style={{ color: (isOoo ? "outOfOffice" : "default") === k ? t.onAccent : t.inkMute }}>{label}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -182,7 +174,7 @@ export function EventFormSheet({
 
             {!isOoo && (!isEdit || canToggleAllDay) && (
               <Row label="終日">
-                <Switch value={draft.isAllDay} onValueChange={setAllDay} trackColor={{ true: ACCENT }} />
+                <Switch value={draft.isAllDay} onValueChange={setAllDay} trackColor={{ true: t.accent }} />
               </Row>
             )}
 
@@ -190,6 +182,8 @@ export function EventFormSheet({
               <>
                 <Row label="開始日">
                   <DateTimePicker
+                    themeVariant={t.scheme}
+                    accentColor={t.accent}
                     mode="date"
                     display="compact"
                     locale="ja-JP"
@@ -207,6 +201,8 @@ export function EventFormSheet({
                 </Row>
                 <Row label="終了日">
                   <DateTimePicker
+                    themeVariant={t.scheme}
+                    accentColor={t.accent}
                     mode="date"
                     display="compact"
                     locale="ja-JP"
@@ -224,6 +220,8 @@ export function EventFormSheet({
               <>
                 <Row label="開始">
                   <DateTimePicker
+                    themeVariant={t.scheme}
+                    accentColor={t.accent}
                     mode="datetime"
                     display="compact"
                     locale="ja-JP"
@@ -238,6 +236,8 @@ export function EventFormSheet({
                 </Row>
                 <Row label="終了">
                   <DateTimePicker
+                    themeVariant={t.scheme}
+                    accentColor={t.accent}
                     mode="datetime"
                     display="compact"
                     locale="ja-JP"
@@ -250,7 +250,7 @@ export function EventFormSheet({
 
             {isOoo && !isEdit && (
               <View style={{ marginTop: 8 }}>
-                <Text style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>招待の自動辞退</Text>
+                <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 4 }}>招待の自動辞退</Text>
                 {DECLINE_OPTIONS.map((o) => {
                   const selected = (draft.autoDecline ?? DEFAULT_AUTO_DECLINE) === o.value;
                   return (
@@ -259,7 +259,7 @@ export function EventFormSheet({
                       onPress={() => set({ autoDecline: o.value })}
                       style={{ paddingVertical: 6, flexDirection: "row", gap: 8 }}
                     >
-                      <Text style={{ color: selected ? ACCENT : "#999" }}>{selected ? "●" : "○"}</Text>
+                      <Text style={{ color: selected ? t.accent : t.inkSub }}>{selected ? "●" : "○"}</Text>
                       <Text>{o.label}</Text>
                     </Pressable>
                   );
@@ -269,10 +269,10 @@ export function EventFormSheet({
                     value={draft.declineMessage ?? ""}
                     onChangeText={(declineMessage) => set({ declineMessage })}
                     placeholder="辞退メッセージ(任意)"
-                    style={{ marginTop: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
+                    style={{ marginTop: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.line }}
                   />
                 )}
-                <Text style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
+                <Text style={{ fontSize: 11, color: t.inkSub, marginTop: 6 }}>
                   不在は、Google Workspace(職場・学校)アカウントのメインのカレンダーにだけ作れます(Google の仕様)。個人の Gmail では作れません。終日にもできません。
                 </Text>
               </View>
@@ -282,37 +282,37 @@ export function EventFormSheet({
               value={draft.location}
               onChangeText={(location) => set({ location })}
               placeholder="場所"
-              style={{ marginTop: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
+              style={{ marginTop: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.line }}
             />
             <TextInput
               value={draft.description}
               onChangeText={(description) => set({ description })}
               placeholder="説明"
               multiline
-              style={{ marginTop: 6, paddingVertical: 8, minHeight: 60, borderBottomWidth: 1, borderBottomColor: "#ddd" }}
+              style={{ marginTop: 6, paddingVertical: 8, minHeight: 60, borderBottomWidth: 1, borderBottomColor: t.line }}
             />
 
             {!isEdit && choices.length > 1 && (
               <View style={{ marginTop: 14 }}>
-                <Text style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>カレンダー</Text>
-                {choices.map((t) => {
-                  const selected = target !== null && writeTargetKey(target) === writeTargetKey(t);
+                <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 4 }}>カレンダー</Text>
+                {choices.map((cand) => {
+                  const selected = target !== null && writeTargetKey(target) === writeTargetKey(cand);
                   return (
                     <Pressable
-                      key={writeTargetKey(t)}
-                      onPress={() => setTargetKey(writeTargetKey(t))}
+                      key={writeTargetKey(cand)}
+                      onPress={() => setTargetKey(writeTargetKey(cand))}
                       style={{ paddingVertical: 6, flexDirection: "row", gap: 8, alignItems: "center" }}
                     >
-                      <Text style={{ color: selected ? ACCENT : "#999" }}>{selected ? "●" : "○"}</Text>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: t.defaultColor }} />
-                      <Text>{t.label}</Text>
+                      <Text style={{ color: selected ? t.accent : t.inkSub }}>{selected ? "●" : "○"}</Text>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cand.defaultColor }} />
+                      <Text>{cand.label}</Text>
                     </Pressable>
                   );
                 })}
               </View>
             )}
 
-            {error && <Text style={{ color: ACCENT, marginTop: 12 }}>{error}</Text>}
+            {error && <Text style={{ color: t.accent, marginTop: 12 }}>{error}</Text>}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -321,9 +321,10 @@ export function EventFormSheet({
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  const t = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8 }}>
-      <Text style={{ color: "#555" }}>{label}</Text>
+      <Text style={{ color: t.inkMute }}>{label}</Text>
       {children}
     </View>
   );

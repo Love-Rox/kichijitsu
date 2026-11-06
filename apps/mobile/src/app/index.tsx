@@ -1,6 +1,9 @@
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "../theme";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Button, Text, View } from "react-native";
+import { ActivityIndicator, Button, View } from "react-native";
+import { Text } from "../components/ui";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { clearAll } from "../lib/localDb";
@@ -13,6 +16,9 @@ function loadingLabel(p?: LoadProgress): string {
 }
 
 export default function Home() {
+  const t = useTheme();
+  // 上端のセーフエリア(ステータスバー・ノッチ)は、ここで明示的に取る
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<
     | { kind: "loading"; progress?: LoadProgress }
     | { kind: "signedOut"; error?: string }
@@ -79,20 +85,20 @@ export default function Home() {
   };
 
   return (
-    <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 8 }}>
+    <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: insets.top + 8, backgroundColor: t.bg }}>
       <Text style={{ fontSize: 20, fontWeight: "700", marginBottom: 4 }}>kichijitsu</Text>
       {state.kind === "loading" && (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-          <ActivityIndicator size="large" />
-          <Text style={{ color: "#555" }}>{loadingLabel(state.progress)}</Text>
+          <ActivityIndicator size="large" color={t.inkSub} />
+          <Text style={{ color: t.inkMute }}>{loadingLabel(state.progress)}</Text>
           {state.progress?.phase === "sync" && state.progress.total > 0 && (
-            <View style={{ width: 200, height: 4, borderRadius: 2, backgroundColor: "#eee" }}>
+            <View style={{ width: 200, height: 4, borderRadius: 2, backgroundColor: t.lineWarm }}>
               <View
                 style={{
                   width: `${(state.progress.done / state.progress.total) * 100}%`,
                   height: 4,
                   borderRadius: 2,
-                  backgroundColor: "#c13625",
+                  backgroundColor: t.accent,
                 }}
               />
             </View>
@@ -101,30 +107,30 @@ export default function Home() {
       )}
       {state.kind === "signedOut" && (
         <View style={{ gap: 12 }}>
-          {state.error && <Text style={{ color: "#c13625" }}>{state.error}</Text>}
-          <Button title="Google でログイン" onPress={onSignIn} />
+          {state.error && <Text style={{ color: t.accent }}>{state.error}</Text>}
+          <Button title="Google でログイン" onPress={onSignIn} color={t.accent} />
         </View>
       )}
       {state.kind === "ready" && (
         <>
           {state.syncing && state.syncing.total > 0 && state.syncing.done < state.syncing.total && (
             <View style={{ marginBottom: 4 }}>
-              <Text style={{ fontSize: 11, color: "#888" }}>
+              <Text style={{ fontSize: 11, color: t.inkSub }}>
                 同期しています… ({state.syncing.done}/{state.syncing.total})
               </Text>
-              <View style={{ height: 2, backgroundColor: "#eee" }}>
+              <View style={{ height: 2, backgroundColor: t.lineWarm }}>
                 <View
                   style={{
                     height: 2,
                     width: `${(state.syncing.done / state.syncing.total) * 100}%`,
-                    backgroundColor: "#c13625",
+                    backgroundColor: t.accent,
                   }}
                 />
               </View>
             </View>
           )}
           {state.data.warnings.length > 0 && (
-            <Text style={{ fontSize: 11, color: "#b45309", marginBottom: 4 }}>
+            <Text style={{ fontSize: 11, color: t.accentStrong, marginBottom: 4 }}>
               {state.data.warnings.join(" / ")}
             </Text>
           )}
@@ -138,6 +144,7 @@ export default function Home() {
           </View>
           <Button
             title="ログアウト"
+            color={t.accent}
             onPress={async () => {
               // 進行中の読み込みを中止してから、保存済みの予定とセッションを消す
               controller.current?.abort();

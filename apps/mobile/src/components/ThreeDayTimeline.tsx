@@ -1,6 +1,8 @@
+import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useMemo } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
+import { Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
 import { allDaysOnDate, occurrencesInRange, type CalendarData } from "../lib/calendarData";
@@ -15,7 +17,6 @@ const GUTTER = 40;
 const DAYS = 3;
 /** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する範囲 (Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの) */
 const HEADER_WINDOW_MS = 36 * 60_000;
-const ACCENT = "#c13625";
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
 export function ThreeDayTimeline({
@@ -31,6 +32,7 @@ export function ThreeDayTimeline({
   timeZone: string;
   onSelect: (subject: EventSubject) => void;
 }) {
+  const t = useTheme();
 
   const days = useMemo(
     () => Array.from({ length: DAYS }, (_, i) => start.add({ days: i })),
@@ -65,12 +67,31 @@ export function ThreeDayTimeline({
           const isToday = date.equals(today);
           return (
             <View key={date.toString()} style={{ flex: 1, alignItems: "center", paddingBottom: 4 }}>
-              <Text style={{ fontSize: 12, color: isToday ? ACCENT : "#666" }}>
+              <Text style={{ fontSize: 12, color: isToday ? t.accent : t.inkMute }}>
                 {WEEKDAYS[date.dayOfWeek - 1]}
               </Text>
-              <Text style={{ fontSize: 18, fontWeight: "700", color: isToday ? ACCENT : "#111" }}>
-                {date.day}
-              </Text>
+              <View
+                style={{
+                  minWidth: 28,
+                  height: 28,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 7, // 枡(26% 角丸)
+                  backgroundColor: isToday ? t.accent : undefined,
+                  transform: isToday ? [{ rotate: "-8deg" }] : undefined,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 17,
+                    fontWeight: "700",
+                    color: isToday ? t.onAccent : t.ink,
+                    transform: isToday ? [{ rotate: "8deg" }] : undefined,
+                  }}
+                >
+                  {date.day}
+                </Text>
+              </View>
               {allDay.slice(0, 2).map((a) => (
                 <Text
                   key={a.id}
@@ -83,8 +104,8 @@ export function ThreeDayTimeline({
                     paddingHorizontal: 3,
                     fontSize: 11,
                     borderRadius: 3,
-                    backgroundColor: `${a.color}33`,
-                    color: "#222",
+                    backgroundColor: t.allDayBg(a.color),
+                    color: t.ink,
                   }}
                 >
                   {a.title}
@@ -97,7 +118,7 @@ export function ThreeDayTimeline({
 
       <ScrollView
         contentOffset={{ x: 0, y: 7 * HOUR_HEIGHT }}
-        style={{ flex: 1, borderTopWidth: 1, borderTopColor: "#e5e7eb" }}
+        style={{ flex: 1, borderTopWidth: 1, borderTopColor: t.line }}
       >
         <View style={{ flexDirection: "row", height: 24 * HOUR_HEIGHT }}>
           <View style={{ width: GUTTER }}>
@@ -109,7 +130,7 @@ export function ThreeDayTimeline({
                   top: h * HOUR_HEIGHT - 7,
                   right: 6,
                   fontSize: 11,
-                  color: "#888",
+                  color: t.inkSub,
                 }}
               >
                 {h === 0 ? "" : `${h}:00`}
@@ -119,7 +140,13 @@ export function ThreeDayTimeline({
           {columns.map(({ date, dayStart, dayEnd, items, slots }) => (
             <View
               key={date.toString()}
-              style={{ flex: 1, borderLeftWidth: 1, borderLeftColor: "#e5e7eb" }}
+              style={{
+                flex: 1,
+                borderLeftWidth: 1,
+                borderLeftColor: t.line,
+                // 今日の列は、デスクトップ版と同じく hoverTint をごく薄く敷く
+                backgroundColor: date.equals(today) ? t.todayBg : undefined,
+              }}
             >
               {Array.from({ length: 24 }, (_, h) => (
                 <View
@@ -130,7 +157,7 @@ export function ThreeDayTimeline({
                     left: 0,
                     right: 0,
                     height: 1,
-                    backgroundColor: "#f0f0f0",
+                    backgroundColor: t.lineWarm,
                   }}
                 />
               ))}
@@ -155,13 +182,13 @@ export function ThreeDayTimeline({
                       paddingHorizontal: 3,
                       paddingVertical: 1,
                       borderLeftWidth: 3,
-                      borderLeftColor: o.isOutOfOffice ? "#9ca3af" : o.color,
+                      borderLeftColor: o.isOutOfOffice ? t.uiInkFaint : o.color,
                       borderRadius: 4,
-                      backgroundColor: o.isOutOfOffice ? "#9ca3af40" : `${o.color}2b`,
+                      backgroundColor: o.isOutOfOffice ? `${t.uiInkFaint}40` : t.eventBg(o.color),
                       overflow: "hidden",
                     }}
                   >
-                    <Text numberOfLines={height > 36 ? 2 : 1} style={{ fontSize: 11, color: "#111" }}>
+                    <Text numberOfLines={height > 36 ? 2 : 1} style={{ fontSize: 11, color: t.ink }}>
                       {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
                     </Text>
                   </Pressable>
