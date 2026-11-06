@@ -1,6 +1,8 @@
+import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
+import { Text } from "./ui";
 import type { CalendarData } from "../lib/calendarData";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import {
@@ -23,7 +25,6 @@ import { MonthAgenda } from "./MonthAgenda";
 import { ThreeDayTimeline } from "./ThreeDayTimeline";
 
 type View3 = "3day" | "month";
-const ACCENT = "#c13625";
 
 const SCOPE_LABELS: Record<RecurrenceScope, string> = { this: "この予定のみ", all: "すべての予定" };
 
@@ -54,6 +55,7 @@ export function CalendarScreen({
   /** 楽観的な変更を画面のデータへ反映する(保存は変更の側で行う)。 */
   onChange: ApplyChange;
 }) {
+  const t = useTheme();
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), []);
   const today = useMemo(() => Temporal.Now.plainDateISO(timeZone), [timeZone]);
   const [view, setView] = useState<View3>("3day");
@@ -109,7 +111,7 @@ export function CalendarScreen({
           <Text style={{ fontSize: 22 }}>‹</Text>
         </Pressable>
         <Pressable onPress={goToday} hitSlop={8}>
-          <Text style={{ fontSize: 14, color: ACCENT }}>今日</Text>
+          <Text style={{ fontSize: 14, color: t.accent }}>今日</Text>
         </Pressable>
         <Pressable onPress={() => move(1)} hitSlop={8}>
           <Text style={{ fontSize: 22 }}>›</Text>
@@ -118,16 +120,16 @@ export function CalendarScreen({
           {anchor.year}年{anchor.month}月
         </Text>
         <Pressable onPress={openForm} hitSlop={8} style={{ marginLeft: "auto" }}>
-          <Text style={{ fontSize: 24, color: ACCENT }}>＋</Text>
+          <Text style={{ fontSize: 24, color: t.accent }}>＋</Text>
         </Pressable>
-        <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: "#ddd", overflow: "hidden" }}>
+        <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: t.line, overflow: "hidden" }}>
           {([["3day", "3日"], ["month", "月"]] as const).map(([v, label]) => (
             <Pressable
               key={v}
               onPress={() => setView(v)}
-              style={{ paddingHorizontal: 12, paddingVertical: 4, backgroundColor: view === v ? ACCENT : undefined }}
+              style={{ paddingHorizontal: 12, paddingVertical: 4, backgroundColor: view === v ? t.accent : undefined }}
             >
-              <Text style={{ fontSize: 13, color: view === v ? "#fff" : "#555" }}>{label}</Text>
+              <Text style={{ fontSize: 13, color: view === v ? t.onAccent : t.inkMute }}>{label}</Text>
             </Pressable>
           ))}
         </View>

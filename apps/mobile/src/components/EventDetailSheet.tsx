@@ -1,10 +1,11 @@
+import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { Alert, Linking, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Linking, Modal, Pressable, ScrollView, View } from "react-native";
+import { Text } from "./ui";
 import type { GuestNotify } from "@kichijitsu/web/sync/guestNotify";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
 
-const ACCENT = "#c13625";
 
 /** 予定の詳細(下から出るシート)。削除はここから。 */
 export function EventDetailSheet({
@@ -22,6 +23,7 @@ export function EventDetailSheet({
   /** 削除の実行。失敗したら例外を投げる(シートの側でエラーを知らせる)。 */
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
 }) {
+  const t = useTheme();
   const run = async (s: EventSubject, notify: GuestNotify | undefined) => {
     onClose();
     try {
@@ -58,10 +60,10 @@ export function EventDetailSheet({
       onRequestClose={onClose}
     >
       {subject && (
-        <View style={{ flex: 1, padding: 20 }}>
+        <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Text style={{ fontSize: 15, color: ACCENT }}>閉じる</Text>
+              <Text style={{ fontSize: 15, color: t.accent }}>閉じる</Text>
             </Pressable>
           </View>
           <ScrollView>
@@ -69,27 +71,27 @@ export function EventDetailSheet({
               <View style={{ width: 5, borderRadius: 3, backgroundColor: subject.color }} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 22, fontWeight: "700" }}>{subject.title}</Text>
-                <Text style={{ marginTop: 6, color: "#555" }}>{when}</Text>
+                <Text style={{ marginTop: 6, color: t.inkMute }}>{when}</Text>
               </View>
             </View>
             {subject.location ? (
-              <Text style={{ marginTop: 14, color: "#333" }}>場所: {subject.location}</Text>
+              <Text style={{ marginTop: 14, color: t.ink }}>場所: {subject.location}</Text>
             ) : null}
             {description ? (
-              <Text style={{ marginTop: 14, color: "#333", lineHeight: 20 }}>{description}</Text>
+              <Text style={{ marginTop: 14, color: t.ink, lineHeight: 20 }}>{description}</Text>
             ) : null}
             {url && /^https?:\/\//.test(url) ? (
               <Pressable onPress={() => void Linking.openURL(url)} style={{ marginTop: 18 }}>
-                <Text style={{ color: ACCENT }}>Google カレンダーで開く</Text>
+                <Text style={{ color: t.accent }}>Google カレンダーで開く</Text>
               </Pressable>
             ) : null}
             {canDelete(subject) ? (
               <View style={{ marginTop: 28, flexDirection: "row", gap: 28 }}>
                 <Pressable onPress={() => onEdit(subject)}>
-                  <Text style={{ color: ACCENT, fontSize: 15 }}>編集</Text>
+                  <Text style={{ color: t.accent, fontSize: 15 }}>編集</Text>
                 </Pressable>
                 <Pressable onPress={() => confirmDelete(subject)}>
-                  <Text style={{ color: ACCENT, fontSize: 15 }}>削除</Text>
+                  <Text style={{ color: t.accent, fontSize: 15 }}>削除</Text>
                 </Pressable>
               </View>
             ) : null}
