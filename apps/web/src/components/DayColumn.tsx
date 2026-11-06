@@ -5,12 +5,14 @@ import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import type { Occurrence, PlannedBlock } from "../model/types";
 import {
   buildCreateDraft,
+  DEFAULT_AUTO_DECLINE,
   findWriteTarget,
   writeTargetKey,
   type EventCreateDraft,
   type WriteTargetCandidate,
 } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
+import { EventKindFields, type EventKindValue } from "./EventKindFields";
 import type { GuestChange } from "../sync/eventGuests";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
@@ -74,6 +76,38 @@ const LONG_PRESS_MOVE_CANCEL_PX = 10;
  * CSS とずれるとスマホ幅で画面外へはみ出す。
  */
 const CREATE_POPOVER_SIZE_PX = { width: 320, maxHeight: 520 };
+/** クイック作成ポップオーバーの想定サイズ(位置のクランプ用。不在を選ぶと少し高くなる) */
+const QUICK_POPOVER_SIZE_PX = { width: 320, maxHeight: 400 };
+
+const DEFAULT_KIND: EventKindValue = {
+  kind: "default",
+  autoDecline: DEFAULT_AUTO_DECLINE,
+  declineMessage: "",
+};
+
+function kindToDraftFields(k: EventKindValue): Partial<EventCreateDraft> {
+  return k.kind === "outOfOffice"
+    ? { eventType: "outOfOffice", autoDecline: k.autoDecline, declineMessage: k.declineMessage }
+    : {};
+}
+
+/** 「11/6(木) 14:00–15:00」。日をまたぐときは終了側にも日付を付ける */
+function formatDraftRange(startMs: number, endMs: number, timeZone: string): string {
+  const date = new Intl.DateTimeFormat("ja-JP", {
+    timeZone,
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  });
+  const time = new Intl.DateTimeFormat("ja-JP", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const sameDay = date.format(startMs) === date.format(endMs);
+  return `${date.format(startMs)} ${time.format(startMs)}–${sameDay ? "" : `${date.format(endMs)} `}${time.format(endMs)}`;
+}
 
 interface CreateDragState {
   pointerId: number;
@@ -291,6 +325,8 @@ export function DayColumn({
   const [draftDetail, setDraftDetail] = useState(false);
   /** 詳細フォームで選択中の書き込み先 (writeTargetKey)。詳細を開くたびに既定へ戻す */
   const [draftTargetKey, setDraftTargetKey] = useState("");
+  /** クイック作成で選んだ種別(予定/不在)と不在の設定。詳細フォームへもそのまま引き継ぐ */
+  const [draftKind, setDraftKind] = useState<EventKindValue>(DEFAULT_KIND);
   const draftRef = useRef<HTMLDivElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
   const draftDetailRef = useRef<HTMLDivElement>(null);
@@ -519,6 +555,8 @@ export function DayColumn({
       anchorY: e.clientY,
     });
     setDraftTitle("");
+    setDraftKind(DEFAULT_KIND);
+    if (writeTarget) setDraftTargetKey(writeTargetKey(writeTarget));
     setDraftDetail(false);
     // 次の描画でマウントされる input に自動でフォーカスする
     requestAnimationFrame(() => draftInputRef.current?.focus());
@@ -572,20 +610,37 @@ export function DayColumn({
    */
   function confirmDraft() {
     const title = draftTitle.trim();
-    if (draft && writeTarget && title.length > 0) {
-      onCreateEvent(buildCreateDraft(draft.startMs, draft.endMs, title), writeTarget);
+    const target = findWriteTarget(writeTargets, draftTargetKey) ?? writeTarget;
+    if (draft && target && title.length > 0) {
+      onCreateEvent(
+        buildCreateDraft(draft.startMs, draft.endMs, title, kindToDraftFields(draftKind)),
+        target,
+      );
     }
     cancelDraft();
   }
 
   /**
-   * 「詳細を入力」(2026-07-29 全項目入力)。インライン入力に打ちかけたタイトルを
+   * 種別の切り替え。不在は Google 側でメインのカレンダーにしか作れないので、
+   * 不在にしたとき選択中のカレンダーがメインでなければ、メインのカレンダーへ寄せる
+   * (選択肢にメインが無ければそのまま。作成時に Google が拒否すれば失敗として表示される)。
+   */
+  function handleDraftKindChange(next: EventKindValue) {
+    setDraftKind(next);
+    if (next.kind !== "outOfOffice") return;
+    const current = findWriteTarget(writeTargets, draftTargetKey);
+    if (current?.primary) return;
+    const primary = writeTargets.find((t) => t.primary);
+    if (primary) setDraftTargetKey(writeTargetKey(primary));
+  }
+
+  /**
+   * 「詳細」(2026-07-29 全項目入力)。クイック作成で入れたタイトル・種別・カレンダーを
    * 引き継いだまま、同じ時間帯を初期値にして全項目フォーム (EventEditForm) を開く。
-   * 書き込み先は既定 (writeTarget) を初期選択にする。
    */
   function openDraftDetail() {
     if (!writeTarget) return;
-    setDraftTargetKey(writeTargetKey(writeTarget));
+    if (!draftTargetKey) setDraftTargetKey(writeTargetKey(writeTarget));
     setDraftDetail(true);
   }
 
@@ -824,51 +879,103 @@ export function DayColumn({
           })}
         </div>
       )}
+      {/*
+       * 選択した時間帯の目印(2026-11-06 に入力欄からクイック作成ポップオーバーへ変更)。
+       * 以前はここに「タイトルだけ」の入力欄があり、場所・種別・カレンダーを選べなかった。
+       * 入力は下のポップオーバーへ移し、列の中には選んだ範囲とタイトルの見え方だけを残す。
+       */}
       {draft && !draftDetail && (
         <div
-          ref={draftRef}
           className="day-column-create-draft"
           style={{
             top: msToTopPx(draft.startMs, dayStartMs, hourHeight),
             height: msRangeToHeightPx(draft.startMs, draft.endMs, hourHeight),
           }}
         >
-          <input
-            ref={draftInputRef}
-            type="text"
-            className="day-column-create-input"
-            placeholder="予定のタイトル"
-            value={draftTitle}
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                // Shift+Enter は「詳細を入力」と同じ(下のボタンのキーボード版)。
-                // 素の Enter は従来どおりその場で作成する速い経路
-                if (e.shiftKey) openDraftDetail();
-                else confirmDraft();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                cancelDraft();
-              }
-            }}
-          />
-          {/*
-           * 「詳細を入力」への広げ口 (2026-07-29 全項目入力)。速い経路 (打って Enter) を
-           * 邪魔しないよう、入力欄の右端に小さく置くだけにしてある。Tab で辿り着けるし、
-           * 入力欄からは Shift+Enter でも開ける (title 属性で案内)。
-           */}
-          <button
-            type="button"
-            className="day-column-create-detail-btn"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={openDraftDetail}
-            title="詳細を入力 (Shift+Enter)"
-          >
-            詳細
-          </button>
+          <span className="day-column-create-preview">
+            {draftTitle.trim() || (draftKind.kind === "outOfOffice" ? "不在" : "(タイトルなし)")}
+          </span>
         </div>
       )}
+      {draft &&
+        !draftDetail &&
+        writeTarget &&
+        createPortal(
+          <div
+            ref={draftRef}
+            className="event-detail-popover event-detail-popover--editing event-quick-create"
+            style={clampPopoverPosition(draft.anchorX, draft.anchorY, QUICK_POPOVER_SIZE_PX)}
+            role="dialog"
+            aria-label="予定を作成"
+          >
+            <form
+              className="event-edit-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                confirmDraft();
+              }}
+            >
+              <input
+                ref={draftInputRef}
+                type="text"
+                className="event-edit-input event-quick-create-title"
+                placeholder={draftKind.kind === "outOfOffice" ? "不在のタイトル" : "予定のタイトル"}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && e.shiftKey) {
+                    e.preventDefault();
+                    openDraftDetail();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelDraft();
+                  }
+                }}
+              />
+              <p className="event-quick-create-time">
+                {formatDraftRange(draft.startMs, draft.endMs, timeZone)}
+              </p>
+              <EventKindFields value={draftKind} onChange={handleDraftKindChange} />
+              {writeTargetOptions.length > 1 && (
+                <label className="event-edit-field">
+                  <span className="event-edit-label">カレンダー</span>
+                  <select
+                    className="event-edit-input"
+                    value={draftTargetKey}
+                    onChange={(e) => setDraftTargetKey(e.target.value)}
+                  >
+                    {writeTargetOptions.map((opt) => (
+                      <option key={opt.key} value={opt.key}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="event-edit-actions">
+                <button
+                  type="submit"
+                  className="event-edit-save-btn"
+                  disabled={draftTitle.trim().length === 0}
+                >
+                  作成
+                </button>
+                <button
+                  type="button"
+                  className="event-edit-cancel-btn"
+                  onClick={openDraftDetail}
+                  title="場所・説明・日時などを入力 (Shift+Enter)"
+                >
+                  詳細
+                </button>
+                <button type="button" className="event-edit-cancel-btn" onClick={cancelDraft}>
+                  キャンセル
+                </button>
+              </div>
+            </form>
+          </div>,
+          document.body,
+        )}
       {/*
        * 全項目フォーム (2026-07-29)。予定編集と同じ EventEditForm を、同じ
        * .event-detail-popover--editing の見た目で出す ―― 「編集ではできるのに作成では
@@ -906,7 +1013,12 @@ export function DayColumn({
               </button>
               <div className="event-detail-title">予定を作成</div>
               <EventEditForm
-                initialDraft={buildCreateDraft(draft.startMs, draft.endMs, draftTitle)}
+                initialDraft={buildCreateDraft(
+                  draft.startMs,
+                  draft.endMs,
+                  draftTitle,
+                  kindToDraftFields(draftKind),
+                )}
                 timeZone={timeZone}
                 mode="create"
                 calendarChoice={{

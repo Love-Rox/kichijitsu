@@ -1,4 +1,4 @@
-import type { EventSendUpdates } from "@kichijitsu/shared";
+import type { EventSendUpdates, OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import { toDateOnly, toRfc3339Utc } from "./patch-event";
 
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars";
@@ -22,6 +22,13 @@ export interface CreateEventParams {
    * false/未指定は従来どおり `dateTime` (時刻予定)。
    */
   isAllDay?: boolean;
+  /**
+   * `outOfOffice` なら Google の「不在」予定として作る。終日とは併用できない (呼び出し側の
+   * 検証で弾く)。Google が拒否した場合 (primary 以外のカレンダー等) は黙って通常の予定に
+   * 落とさず、そのままエラーとして伝える ―― 利用者が選んだ種別を勝手に変えないため。
+   */
+  eventType?: "outOfOffice";
+  outOfOffice?: { autoDeclineMode: OutOfOfficeAutoDecline; declineMessage?: string };
   /**
    * ゲストへの通知 (2026-07-31)。patchEventTime / deleteEvent とまったく同じ理由で
    * **optional にしない** ―― 省略できる形にした瞬間に「うっかり付け忘れて Google の
@@ -65,6 +72,18 @@ export async function createEvent(
       end,
       location: params.location,
       description: params.description,
+      ...(params.eventType === "outOfOffice"
+        ? {
+            eventType: "outOfOffice",
+            outOfOfficeProperties: {
+              autoDeclineMode:
+                params.outOfOffice?.autoDeclineMode ?? "declineOnlyNewConflictingInvitations",
+              ...(params.outOfOffice?.declineMessage
+                ? { declineMessage: params.outOfOffice.declineMessage }
+                : {}),
+            },
+          }
+        : {}),
     }),
   });
 }

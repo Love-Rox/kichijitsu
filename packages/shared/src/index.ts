@@ -39,6 +39,7 @@ export type {
   EventGuestsRequest,
   EventGuestsResponse,
   EventCreateRequest,
+  OutOfOfficeAutoDecline,
   EventCreateResponse,
   EventDeleteRequest,
   EventDeleteResponse,

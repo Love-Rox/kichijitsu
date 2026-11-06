@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { EventCreateRequest } from "@kichijitsu/shared";
+import type { EventCreateRequest, OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import {
   isEditableEventSubject,
@@ -76,9 +76,18 @@ export function buildCreateDraft(
   startMs: number,
   endMs: number,
   title = "",
+  extra: Partial<EventCreateDraft> = {},
 ): EventCreateDraft {
-  return { title, location: "", description: "", isAllDay: false, startMs, endMs };
+  return { title, location: "", description: "", isAllDay: false, startMs, endMs, ...extra };
 }
+
+/** 不在として作る draft か。不在は終日にできないので、終日と併用された draft は通常の予定とみなす */
+export function isOutOfOfficeDraft(draft: EventCreateDraft): boolean {
+  return draft.eventType === "outOfOffice" && !draft.isAllDay;
+}
+
+/** 不在の自動辞退の既定。既存の予定まで勝手に辞退しないよう、新しい招待だけにする */
+export const DEFAULT_AUTO_DECLINE: OutOfOfficeAutoDecline = "declineOnlyNewConflictingInvitations";
 
 // ---- Option(Alt)+ドラッグでの複製 (2026-07-29、ユーザー要望) ----
 // 複製は「元の予定と同じ内容で、ドロップ先の時刻に**新しい予定を作る**」操作なので、
@@ -176,6 +185,17 @@ export function buildEventCreateRequest(params: {
     ...(draft.location ? { location: draft.location } : {}),
     ...(draft.description ? { description: draft.description } : {}),
     ...(draft.isAllDay ? { isAllDay: true } : {}),
+    ...(isOutOfOfficeDraft(draft)
+      ? {
+          eventType: "outOfOffice" as const,
+          outOfOffice: {
+            autoDeclineMode: draft.autoDecline ?? DEFAULT_AUTO_DECLINE,
+            ...((draft.declineMessage ?? "").trim()
+              ? { declineMessage: (draft.declineMessage ?? "").trim() }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -210,6 +230,8 @@ export function buildPendingOccurrence(params: {
     source: "local",
     location: draft.location || undefined,
     description: draft.description || undefined,
+    // 不在は確定を待たずに不在レールへ出す(mapGoogle.ts が同期後に付けるフラグと同じもの)
+    ...(isOutOfOfficeDraft(draft) ? { isOutOfOffice: true } : {}),
   };
 }
 
