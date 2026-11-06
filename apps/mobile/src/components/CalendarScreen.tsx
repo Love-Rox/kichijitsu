@@ -49,9 +49,12 @@ const askScope: AskScope = ({ title, scopes, askNotify }) =>
 /** ログイン後のメイン画面。3日表示と月表示を、共通のヘッダー(移動・今日・切り替え)で切り替える。 */
 export function CalendarScreen({
   data,
+  defaultTargetKey,
   onChange,
 }: {
   data: CalendarData;
+  /** 新しい予定の作成先の既定のカレンダー (writeTargetKey 形式)。null は自動。 */
+  defaultTargetKey: string | null;
   /** 楽観的な変更を画面のデータへ反映する(保存は変更の側で行う)。 */
   onChange: ApplyChange;
 }) {
@@ -171,6 +174,7 @@ export function CalendarScreen({
           canToggleAllDay={form.mode === "create" || !isSeriesInstance(form.subject)}
           timeZone={timeZone}
           targets={formTargets}
+          defaultTargetKey={defaultTargetKey}
           onClose={() => setForm(null)}
           onSubmit={(draft, target) => {
             if (form.mode === "create") {

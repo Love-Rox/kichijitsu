@@ -2,11 +2,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../theme";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Button, View } from "react-native";
+import { ActivityIndicator, Button, Pressable, View } from "react-native";
 import { Text } from "../components/ui";
 import { CalendarScreen } from "../components/CalendarScreen";
+import { SettingsSheet } from "../components/SettingsSheet";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { clearAll } from "../lib/localDb";
+import { getDefaultCalendar, setCalendarVisible, setDefaultCalendar } from "../lib/settings";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -30,16 +32,24 @@ export default function Home() {
    * 中止された読み込みは、画面へも手元のデータベースへも何も書かない。これが無いと、ログアウト直後に
    * 古い読み込みが終わって、前のユーザーの予定が画面やデータベースに戻ってしまう。
    */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 既定のカレンダー (writeTargetKey 形式)。null は自動(メインのカレンダー)。 */
+  const [defaultKey, setDefaultKey] = useState<string | null>(null);
+  useEffect(() => {
+    void getDefaultCalendar().then((k) => setDefaultKey(k || null));
+  }, []);
+
   const controller = useRef<AbortController | null>(null);
   /** 進行中の読み込みの完了を待つため(ログアウトが、書き込みの完了を待ってから全消去する)。 */
   const inflight = useRef<Promise<unknown> | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     controller.current?.abort();
     const mine = new AbortController();
     controller.current = mine;
     const isCurrent = () => !mine.signal.aborted;
-    setState({ kind: "loading" });
+    // 画面に予定が出ているときの再読み込み(設定の変更など)は、全画面の読み込み表示にせず、裏で行う
+    if (!silent) setState({ kind: "loading" });
     try {
       if (!(await getToken())) {
         // 未ログイン: 手元に予定が残っていれば消す(他人のものかもしれない)
@@ -74,6 +84,19 @@ export default function Home() {
     void refresh();
   }, [refresh]);
 
+  /** ログアウト: 進行中の読み込みを中止し、書き込みの完了を待ってから、保存した予定とセッションを消す。 */
+  const signOutNow = async () => {
+    controller.current?.abort();
+    // 待たないと、消した後に書き込みが残りうる。消去が失敗しても、セッションは必ず捨てる
+    await inflight.current;
+    try {
+      await clearAll();
+    } finally {
+      await signOut();
+    }
+    await refresh();
+  };
+
   const onSignIn = async () => {
     try {
       // ログインの前に、手元の予定を消す(別のユーザーのものを引き継がない)
@@ -86,7 +109,14 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: insets.top + 8, backgroundColor: t.bg }}>
-      <Text style={{ fontSize: 20, fontWeight: "700", marginBottom: 4 }}>kichijitsu</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+        <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>kichijitsu</Text>
+        {state.kind === "ready" && (
+          <Pressable onPress={() => setSettingsOpen(true)} hitSlop={10} accessibilityLabel="メニュー">
+            <Text style={{ fontSize: 22, color: t.inkMute }}>⋯</Text>
+          </Pressable>
+        )}
+      </View>
       {state.kind === "loading" && (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
           <ActivityIndicator size="large" color={t.inkSub} />
@@ -137,30 +167,29 @@ export default function Home() {
           <View style={{ flex: 1 }}>
             <CalendarScreen
               data={state.data}
+              defaultTargetKey={defaultKey}
               onChange={(update) =>
                 setState((s) => (s.kind === "ready" ? { ...s, data: update(s.data) } : s))
               }
             />
           </View>
-          <Button
-            title="ログアウト"
-            color={t.accent}
-            onPress={async () => {
-              // 進行中の読み込みを中止してから、保存済みの予定とセッションを消す
-              controller.current?.abort();
-              // 進行中の書き込みが終わるのを待ってから消す(待たないと、消した後に書き込みが残りうる)。
-              // 消去で失敗しても、セッションは必ず捨てる。
-              await inflight.current;
-              try {
-                await clearAll();
-              } finally {
-                await signOut();
-              }
-              await refresh();
-            }}
-          />
         </>
       )}
+      <SettingsSheet
+        visible={settingsOpen}
+        data={state.kind === "ready" ? state.data : null}
+        defaultKey={defaultKey}
+        onClose={() => setSettingsOpen(false)}
+        onToggleCalendar={async (account, calendarId, visible) => {
+          await setCalendarVisible(account, calendarId, visible);
+          await refresh(true);
+        }}
+        onSetDefault={(key) => {
+          setDefaultKey(key);
+          void setDefaultCalendar(key);
+        }}
+        onSignOut={signOutNow}
+      />
       <StatusBar style="auto" />
     </View>
   );
