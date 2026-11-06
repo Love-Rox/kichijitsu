@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Text, View } from "react-native";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { getToken, signIn, signOut } from "../lib/auth";
@@ -18,22 +18,38 @@ export default function Home() {
     | { kind: "ready"; data: CalendarData; syncing: LoadProgress | null }
   >({ kind: "loading" });
 
+  /**
+   * 読み込みの世代番号。refresh とログアウトのたびに進める。進行中の古い読み込み
+   * (onProgress / onPartial / 最終結果 / エラー) は、世代が古ければ画面へ反映せず捨てる。
+   * これが無いと、ログアウト直後に古い読み込みが終わって、前のユーザーの予定が
+   * 画面に戻ってきてしまう。
+   */
+  const generation = useRef(0);
+
   const refresh = useCallback(async () => {
+    const mine = ++generation.current;
+    const isCurrent = () => generation.current === mine;
     setState({ kind: "loading" });
     try {
-      if (!(await getToken())) return setState({ kind: "signedOut" });
+      if (!(await getToken())) return isCurrent() && setState({ kind: "signedOut" });
       // 最初のカレンダーが読めた時点で画面を出し、残りは表示したまま順に反映する
       let latest: LoadProgress | null = null;
       const data = await loadCalendarData(
         (progress) => {
+          if (!isCurrent()) return;
           latest = progress;
-          setState((s) => (s.kind === "ready" ? { ...s, syncing: progress } : { kind: "loading", progress }));
+          setState((s) =>
+            s.kind === "ready" ? { ...s, syncing: progress } : { kind: "loading", progress },
+          );
         },
-        (partial) => setState({ kind: "ready", data: partial, syncing: latest }),
+        (partial) => {
+          if (isCurrent()) setState({ kind: "ready", data: partial, syncing: latest });
+        },
       );
+      if (!isCurrent()) return;
       setState(data ? { kind: "ready", data, syncing: null } : { kind: "signedOut" });
     } catch (e) {
-      setState({ kind: "signedOut", error: String(e) });
+      if (isCurrent()) setState({ kind: "signedOut", error: String(e) });
     }
   }, []);
 
@@ -100,6 +116,8 @@ export default function Home() {
           <Button
             title="ログアウト"
             onPress={async () => {
+              // 進行中の読み込みの結果を捨ててから、セッションを消す
+              generation.current += 1;
               await signOut();
               await refresh();
             }}
