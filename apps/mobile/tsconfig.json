@@ -5,6 +5,9 @@
     "paths": {
       "@kichijitsu/shared": [
         "../../packages/shared/src/index.ts"
+      ],
+      "@kichijitsu/web/*": [
+        "../web/src/*"
       ]
     }
   },
