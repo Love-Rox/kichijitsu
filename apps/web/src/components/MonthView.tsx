@@ -39,6 +39,7 @@ import {
 } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { isWorkingLocation } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { PlaceIcon } from "./icons";
 import "./MonthView.css";
@@ -51,7 +52,7 @@ interface MonthViewProps {
   timeZone: string;
   visibleCalendarKeys: Set<string>;
   calendarLookup: Map<string, CalendarInfo>;
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22。WeekGrid と同じ流儀) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   onSaveAllDayEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
@@ -399,6 +400,14 @@ export function MonthView({
               groupMembers={detail.chip.group.members}
               calendarLookup={calendarLookup}
               onClose={() => setDetail(null)}
+              onDelete={
+                (detailSubject as AllDayOccurrence).source === "google" &&
+                !isWorkingLocation(detailSubject as AllDayOccurrence) &&
+                (detailSubject as AllDayOccurrence).isMirror !== true
+                  ? () => onDelete(detailSubject as AllDayOccurrence)
+                  : undefined
+              }
+              deleteAsksGuestNotify={shouldAskGuestNotify(detailSubject as AllDayOccurrence)}
               timeZone={timeZone}
               editDraft={
                 isEditableEventSubject(detailSubject)

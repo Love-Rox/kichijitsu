@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { EventDeleteRequest, EventPatchRequest } from "@kichijitsu/shared";
-import type { Occurrence } from "../model/types";
+import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { resolveSendUpdates, type GuestNotify } from "./guestNotify";
 
 /**
@@ -83,15 +83,17 @@ export function eventPatchRequestFor(
  * @param notify 確認ダイアログで選ばれた値。訊いていない場合は省略でよい
  */
 export function buildEventDeleteRequest(
-  occurrence: Occurrence,
+  occurrence: Occurrence | AllDayOccurrence,
   notify?: GuestNotify,
 ): EventDeleteRequest | null {
   if (occurrence.source !== "google" || !occurrence.accountId || !occurrence.calendarId) {
     return null;
   }
   try {
+    // 終日予定は繰り返しを持たない (AllDayOccurrence.seriesId は常に null) ので、
+    // originalStartMs を持つのは時刻予定だけ
     const eventId =
-      occurrence.seriesId && occurrence.originalStartMs !== undefined
+      occurrence.seriesId && "originalStartMs" in occurrence && occurrence.originalStartMs !== undefined
         ? seriesInstanceEventId(occurrence.seriesId, occurrence.originalStartMs)
         : rawGoogleEventId(occurrence.id);
     return {
