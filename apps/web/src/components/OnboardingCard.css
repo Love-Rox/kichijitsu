@@ -1,0 +1,82 @@
+/*
+ * 未連携の初回に、グリッド中央へ重ねる案内カード。.app-main-calendar(position: relative)の
+ * 中で絶対配置する。背面のグリッドは操作できないので、カードの外側は pointer-events を通す
+ * (ツールバーのボタンや週移動は引き続き押せる)。
+ */
+.onboarding-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  box-sizing: border-box;
+  width: min(420px, calc(100% - 32px));
+  padding: 24px 24px 18px;
+  border: 1px solid var(--c-ui-ink-faint);
+  border-radius: 12px;
+  background: var(--c-surface, #fff);
+  box-shadow: 0 8px 28px rgba(var(--c-shadow-rgb), 0.18);
+  color: var(--c-ui-ink-strong);
+}
+
+.onboarding-title {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.onboarding-steps li > strong {
+  display: block;
+  color: var(--c-ui-ink-max);
+}
+
+.onboarding-steps li > span {
+  color: var(--c-ui-ink-mute);
+}
+
+.onboarding-cta {
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--c-ui-ink-max);
+  color: var(--c-surface, #fff);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.onboarding-cta:hover {
+  opacity: 0.88;
+}
+
+.onboarding-note {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--c-ui-ink-mute);
+}
+
+.onboarding-links {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.onboarding-links a {
+  color: inherit;
+}
