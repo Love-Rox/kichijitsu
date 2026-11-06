@@ -67,7 +67,10 @@ xcodebuild -exportArchive -archivePath /tmp/kichijitsu.xcarchive \
   -exportOptionsPlist ExportOptions.plist -allowProvisioningUpdates      # アップロードまで行う
 ```
 ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `teamID` /
-`signingStyle: automatic` / `uploadSymbols: true`。
+`signingStyle: automatic` / `uploadSymbols: true` / **`manageAppVersionAndBuildNumber: false`**。
+- `manageAppVersionAndBuildNumber` は既定で true で、**重複したビルド番号をアップロードすると、Xcode が黙って番号を繰り上げる**
+  (2026-11-06: build 5 のアーカイブを再送して、中身は 5 のまま App Store Connect 上で 6 になり、本物の 6 が 7 になった)。
+  必ず false にして、重複は失敗させる。アプリ内の設定メニューの最下段に、実際に入っているビルド番号が出る。
 - **同じ version で再アップロードするときは `ios.buildNumber` を上げる**(app.json。重複は拒否される)。
 - dSYM の警告(React.framework など)は、クラッシュ報告の記号化にだけ効く。配布には影響しない。
 - アイコンは `node brand/gen-ios-icon.js` で再生成する。
