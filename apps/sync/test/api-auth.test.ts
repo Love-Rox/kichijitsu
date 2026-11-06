@@ -86,4 +86,29 @@ describe("apiRoutes の認証適用", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "missing_accountId" });
   });
+
+  it("Authorization: Bearer <セッション値> でも requireAuth を通る (モバイルアプリ用)", async () => {
+    const secret = "test-session-secret";
+    const sid = await createSessionCookieValue(secret, "profile-123");
+    const res = await apiRoutes.request(
+      "/api/calendars",
+      { method: "GET", headers: { Authorization: `Bearer ${sid}` } },
+      { SESSION_SECRET: secret } as unknown as Env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "missing_accountId" });
+  });
+
+  it("不正な Bearer 値・別の署名鍵のセッション値は 401", async () => {
+    const secret = "test-session-secret";
+    const foreign = await createSessionCookieValue("another-secret", "profile-123");
+    for (const value of ["garbage", foreign, ""]) {
+      const res = await apiRoutes.request(
+        "/api/calendars",
+        { method: "GET", headers: { Authorization: `Bearer ${value}` } },
+        { SESSION_SECRET: secret } as unknown as Env,
+      );
+      expect(res.status).toBe(401);
+    }
+  });
 });

@@ -633,3 +633,64 @@ describe("橋渡しページ", () => {
     );
   });
 });
+
+describe("モバイル経路: POST /auth/mobile/exchange", () => {
+  const VERIFIER = "3".repeat(64);
+  const SUB = "google-sub-mobile";
+  const EMAIL = "mobile@example.com";
+
+  const post = (env: Env, body: unknown) =>
+    desktopAuthRoutes.request(
+      "/auth/mobile/exchange",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      env,
+    );
+
+  it("正しい verifier ならセッション値を JSON で返し、cookie は発行しない", async () => {
+    const { d1 } = makeSqliteD1();
+    const env = makeEnv(d1);
+    const challenge = await hashDesktopSecret(VERIFIER);
+    const { ticket } = await runDesktopOAuth(env, challenge, { sub: SUB, email: EMAIL });
+
+    const res = await post(env, { ticket, verifier: VERIFIER });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    const json = (await res.json()) as { token: string; maxAgeSeconds: number };
+    expect(await verifySessionCookieValue(SESSION_SECRET, json.token)).toBeTruthy();
+    expect(json.maxAgeSeconds).toBeGreaterThan(0);
+  });
+
+  it("単回使用: 2 回目は 400、verifier 違いは 403 でその 1 回で無効になる", async () => {
+    const { db, d1 } = makeSqliteD1();
+    const env = makeEnv(d1);
+    const challenge = await hashDesktopSecret(VERIFIER);
+    const first = await runDesktopOAuth(env, challenge, { sub: SUB, email: EMAIL });
+    expect((await post(env, { ticket: first.ticket, verifier: VERIFIER })).status).toBe(200);
+    expect((await post(env, { ticket: first.ticket, verifier: VERIFIER })).status).toBe(400);
+
+    const second = await runDesktopOAuth(env, challenge, { sub: SUB, email: EMAIL });
+    const wrong = await post(env, { ticket: second.ticket, verifier: "4".repeat(64) });
+    expect(wrong.status).toBe(403);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM desktop_auth_tickets").get()).toMatchObject({
+      n: 0,
+    });
+    expect((await post(env, { ticket: second.ticket, verifier: VERIFIER })).status).toBe(400);
+  });
+
+  it("JSON でない・項目が足りない本文は 400", async () => {
+    const { d1 } = makeSqliteD1();
+    const env = makeEnv(d1);
+    const bad = await desktopAuthRoutes.request(
+      "/auth/mobile/exchange",
+      { method: "POST", body: "not json" },
+      env,
+    );
+    expect(bad.status).toBe(400);
+    expect((await post(env, { ticket: "x" })).status).toBe(400);
+    expect((await post(env, { ticket: 1, verifier: 2 })).status).toBe(400);
+  });
+});

@@ -180,35 +180,53 @@ desktopAuthRoutes.post("/auth/desktop/add-intent", async (c) => {
  * DELETE の `meta.changes` が 1 でなければ、同じチケットで別のリクエストが先に
  * 消し込んだということなので、そちらに譲って失敗させる (二重交換の防止)。
  */
-desktopAuthRoutes.get("/auth/desktop/exchange", async (c) => {
-  const ticket = c.req.query("ticket") ?? "";
-  const verifier = c.req.query("verifier") ?? "";
-  const fail = (reason: string, status: 400 | 403 | 410) =>
-    c.html(renderDesktopExchangeErrorPage(reason, c.env.APP_URL), status);
+/** チケットの消費結果。成功なら profileId、失敗なら利用者向けの理由と HTTP status。 */
+type TicketConsumeResult =
+  | { ok: true; profileId: string }
+  | { ok: false; reason: string; status: 400 | 403 | 410 };
 
+/**
+ * チケットを検証して**消費**する。GET /auth/desktop/exchange (cookie を発行) と
+ * POST /auth/mobile/exchange (トークンを JSON で返す) の両方がこれを使う ―― 検証順と
+ * 「触ったら無効」の性質を1箇所に置き、経路ごとに安全性が食い違わないようにするため。
+ *
+ * 検証順は「形式 → 行の取得 → **必ず削除** → 期限 → challenge 照合」。
+ * 削除を照合より先に置いているのが肝で、**交換を試みた時点でそのチケットは死ぬ**。
+ * こうすると verifier を総当たりしようとしても1回で弾切れになる (単回使用が
+ * 「成功したら無効」ではなく「触ったら無効」になる)。
+ * DELETE の `meta.changes` が 1 でなければ、同じチケットで別のリクエストが先に
+ * 消し込んだということなので、そちらに譲って失敗させる (二重交換の防止)。
+ */
+async function consumeDesktopTicket(
+  db: D1Database,
+  ticket: string,
+  verifier: string,
+): Promise<TicketConsumeResult> {
   if (!isValidDesktopTicketFormat(ticket) || !isValidDesktopHex32(verifier)) {
-    return fail("受け取った認証情報の形式が正しくありません。", 400);
+    return { ok: false, reason: "受け取った認証情報の形式が正しくありません。", status: 400 };
   }
 
   const ticketHash = await hashDesktopSecret(ticket);
-  const row = await c.env.DB.prepare(
-    "SELECT profile_id, challenge, expires_at FROM desktop_auth_tickets WHERE ticket_hash = ?",
-  )
+  const row = await db
+    .prepare(
+      "SELECT profile_id, challenge, expires_at FROM desktop_auth_tickets WHERE ticket_hash = ?",
+    )
     .bind(ticketHash)
     .first<{ profile_id: string; challenge: string; expires_at: number }>();
   if (!row) {
-    return fail("この認証は既に使用済みか、有効期限が切れています。", 400);
+    return { ok: false, reason: "この認証は既に使用済みか、有効期限が切れています。", status: 400 };
   }
 
-  const deleted = await c.env.DB.prepare("DELETE FROM desktop_auth_tickets WHERE ticket_hash = ?")
+  const deleted = await db
+    .prepare("DELETE FROM desktop_auth_tickets WHERE ticket_hash = ?")
     .bind(ticketHash)
     .run();
   if (deleted.meta.changes !== 1) {
-    return fail("この認証は既に使用済みです。", 400);
+    return { ok: false, reason: "この認証は既に使用済みです。", status: 400 };
   }
 
   if (!isDesktopTicketFresh(row.expires_at, Date.now())) {
-    return fail("認証の有効期限が切れています。", 410);
+    return { ok: false, reason: "認証の有効期限が切れています。", status: 410 };
   }
 
   const verifierHash = await hashDesktopSecret(verifier);
@@ -216,10 +234,27 @@ desktopAuthRoutes.get("/auth/desktop/exchange", async (c) => {
     // このアプリが始めた認証ではないものを掴まされている (悪意あるディープリンクの可能性)。
     // profile_id は一切ログに出さない ―― 誰のものか分からない状態で結び付けないため。
     console.warn("desktop auth exchange: verifier does not match the stored challenge");
-    return fail("この認証はこのアプリで開始されたものではありません。", 403);
+    return {
+      ok: false,
+      reason: "この認証はこのアプリで開始されたものではありません。",
+      status: 403,
+    };
   }
 
-  const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, row.profile_id);
+  return { ok: true, profileId: row.profile_id };
+}
+
+desktopAuthRoutes.get("/auth/desktop/exchange", async (c) => {
+  const result = await consumeDesktopTicket(
+    c.env.DB,
+    c.req.query("ticket") ?? "",
+    c.req.query("verifier") ?? "",
+  );
+  if (!result.ok) {
+    return c.html(renderDesktopExchangeErrorPage(result.reason, c.env.APP_URL), result.status);
+  }
+
+  const sessionValue = await createSessionCookieValue(c.env.SESSION_SECRET, result.profileId);
   setCookie(c, SESSION_COOKIE_NAME, sessionValue, {
     httpOnly: true,
     secure: isHttpsRequest(c.req.url),
@@ -228,4 +263,38 @@ desktopAuthRoutes.get("/auth/desktop/exchange", async (c) => {
     maxAge: SESSION_COOKIE_MAX_AGE,
   });
   return c.redirect(c.env.APP_URL, 302);
+});
+
+/**
+ * モバイルアプリ (React Native) 用の交換 (2026-11-06)。デスクトップ版と同じチケットと
+ * verifier の仕組みで、**cookie ではなくセッション値を JSON で返す**。モバイルアプリは
+ * webview ではなく通常の HTTP クライアントなので、cookie ではなく
+ * `Authorization: Bearer <token>` で /api/* を呼ぶ (middleware.ts の populateProfileId 参照)。
+ *
+ * token は sid cookie と**同じ署名・同じ形式・同じ有効期間 (30 日)**。失効はサーバー側では
+ * 管理していない(cookie と同じ)。アプリは Keychain (SecureStore) に保存する想定。
+ *
+ * POST にしているのは、チケットと verifier を URL (アクセスログ・履歴) に載せないため。
+ * CSRF の心配は無い: 攻撃者はチケットの発行元 (ユーザーの OAuth 完了) も verifier も持てず、
+ * 消費しても得られるのは**呼び出したクライアントへのレスポンスだけ**。
+ */
+desktopAuthRoutes.post("/auth/mobile/exchange", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  const { ticket, verifier } = (body ?? {}) as { ticket?: unknown; verifier?: unknown };
+  if (typeof ticket !== "string" || typeof verifier !== "string") {
+    return c.json({ error: "missing_fields" }, 400);
+  }
+
+  const result = await consumeDesktopTicket(c.env.DB, ticket, verifier);
+  if (!result.ok) {
+    return c.json({ error: "exchange_failed", message: result.reason }, result.status);
+  }
+
+  const token = await createSessionCookieValue(c.env.SESSION_SECRET, result.profileId);
+  return c.json({ token, maxAgeSeconds: SESSION_COOKIE_MAX_AGE });
 });

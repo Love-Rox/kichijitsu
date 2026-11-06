@@ -1,0 +1,6 @@
+# モバイルアプリ (Expo / React Native) は、モノレポ本体とは**独立した pnpm の区画**にしている。
+# React Native の Metro は hoisted な node_modules でないと不安定なため(m-ai-log と同じ判断)、
+# ルートの pnpm-workspace.yaml からは除外し、ここで nodeLinker: hoisted を使う。
+# 共有コード (packages/shared、apps/web の純粋なロジック) は metro.config.js の watchFolders と
+# tsconfig の paths で参照する。
+packages: []
