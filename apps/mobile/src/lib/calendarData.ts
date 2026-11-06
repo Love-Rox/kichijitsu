@@ -26,15 +26,41 @@ export interface CalendarData {
 
 const DEVICE_ID = "mobile-spike";
 
-export async function loadCalendarData(): Promise<CalendarData | null> {
-  const me = await apiFetch<MeResponse>("/api/me");
+/** 開発用の計測ログ。Metro のログに `PERF label ms` で出る。 */
+async function timed<T>(label: string, run: () => Promise<T> | T): Promise<T> {
+  const t0 = Date.now();
+  const result = await run();
+  if (__DEV__) console.log(`PERF ${label} ${Date.now() - t0}ms`);
+  return result;
+}
+
+/** 読み込みの進み具合 (画面の「読み込み中」表示用)。 */
+export interface LoadProgress {
+  /** いま何をしているか */
+  phase: "account" | "calendars" | "sync";
+  /** sync のとき: 完了したカレンダー数 / 全体 */
+  done: number;
+  total: number;
+}
+
+/**
+ * `onPartial` は、カレンダーが1つ読み終わるたびに、そこまでのデータ(新しいオブジェクト)で呼ばれる。
+ * 画面は全部の完了を待たず、取れたものから順に表示を更新できる。
+ */
+export async function loadCalendarData(
+  onProgress?: (p: LoadProgress) => void,
+  onPartial?: (data: CalendarData) => void,
+): Promise<CalendarData | null> {
+  onProgress?.({ phase: "account", done: 0, total: 0 });
+  const me = await timed("me", () => apiFetch<MeResponse>("/api/me"));
   if (!me || !me.connected || me.accounts.length === 0) return null;
   const account = me.accounts[0];
 
   const calendars =
-    (await apiFetch<CalendarListEntryDTO[]>(
-      `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
+    (await timed("calendars", () =>
+      apiFetch<CalendarListEntryDTO[]>(`/api/calendars?accountId=${encodeURIComponent(account.id)}`),
     )) ?? [];
+  onProgress?.({ phase: "calendars", done: 0, total: 0 });
   const visibleIds = me.visibleCalendars[account.id];
   const targets = calendars.filter((c) =>
     visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
@@ -47,27 +73,47 @@ export async function loadCalendarData(): Promise<CalendarData | null> {
     series: [],
     overrides: [],
   };
-  for (const cal of targets) {
-    const sync = await apiFetch<SyncResponse>("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({
-        accountId: account.id,
-        calendarId: cal.id,
-        deviceId: DEVICE_ID,
-        forceFull: true,
-      }),
-    });
-    const events: GoogleEventDTO[] = sync?.events ?? [];
-    const mapped = mapGoogleEvents(events, {
-      accountId: account.id,
-      calendarId: cal.id,
-      defaultColor: cal.backgroundColor,
-    });
-    data.singles.push(...mapped.singles);
-    data.allDays.push(...mapped.allDays);
-    data.series.push(...mapped.series);
-    data.overrides.push(...mapped.overrides);
-  }
+  let done = 0;
+  onProgress?.({ phase: "sync", done, total: targets.length });
+  // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる。
+  // 計測: 9 カレンダーの合計 約 17 秒のうち、サーバーの同期が約 14 秒で、最大の 1 件が約 6 秒)。
+  await Promise.all(
+    targets.map(async (cal) => {
+      const sync = await timed(`sync ${cal.summary}`, () =>
+        apiFetch<SyncResponse>("/api/sync", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: account.id,
+            calendarId: cal.id,
+            deviceId: DEVICE_ID,
+            forceFull: true,
+          }),
+        }),
+      );
+      const events: GoogleEventDTO[] = sync?.events ?? [];
+      const mapped = await timed(`map ${cal.summary} (${events.length} events)`, () =>
+        mapGoogleEvents(events, {
+          accountId: account.id,
+          calendarId: cal.id,
+          defaultColor: cal.backgroundColor,
+        }),
+      );
+      // 読み終わったカレンダーから順にデータへ足し、画面へ知らせる(JS は単一スレッドなので競合しない)
+      data.singles.push(...mapped.singles);
+      data.allDays.push(...mapped.allDays);
+      data.series.push(...mapped.series);
+      data.overrides.push(...mapped.overrides);
+      done += 1;
+      onProgress?.({ phase: "sync", done, total: targets.length });
+      onPartial?.({
+        email: data.email,
+        singles: [...data.singles],
+        allDays: [...data.allDays],
+        series: [...data.series],
+        overrides: [...data.overrides],
+      });
+    }),
+  );
   return data;
 }
 
