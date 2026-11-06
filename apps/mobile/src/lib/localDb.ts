@@ -165,9 +165,13 @@ export async function applySync(
   calendarId: string,
   mapped: MappedSync,
   isFullSync: boolean,
+  signal?: AbortSignal,
 ): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
+    // 中止された読み込み(ログアウト等)は、トランザクションの中でも書かない。
+    // 呼び出し側の確認から、ここへ来るまでの間に中止されることがあるため。
+    if (signal?.aborted) return;
     if (isFullSync) {
       await deleteCalendar(db, accountId, calendarId);
     } else if (mapped.deletedSeriesIds.length > 0) {

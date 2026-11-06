@@ -10,6 +10,7 @@ import type { EventSeries, InstanceOverride } from "@kichijitsu/web/model/series
 import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
 import { mapGoogleEvents } from "@kichijitsu/web/sync/mapGoogle";
 import { apiFetch } from "./api";
+import { sessionFingerprint } from "./auth";
 import {
   applySync,
   calKey,
@@ -83,8 +84,20 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
   const { onProgress, onPartial, signal } = options;
   const aborted = () => signal?.aborted === true;
 
-  const partitions = await readAll();
-  const cachedEmail = await getMeta("email");
+  // 手元のデータは「いまのセッション」のものでなければ見せない。保存時に、セッション値の
+  // 指紋 (SHA-256) を meta に残してあり、一致しなければ(別のユーザーでログインした、
+  // セッションが替わった等)、表示する前に全消去する。
+  const fingerprint = await sessionFingerprint();
+  if (!fingerprint) {
+    await clearAll();
+    return null;
+  }
+  if ((await getMeta("cacheSession")) !== fingerprint) {
+    await clearAll();
+    await setMeta("cacheSession", fingerprint);
+  }
+  let partitions = await readAll();
+  let cachedEmail = await getMeta("email");
   if (aborted()) return null;
   if (cachedEmail && partitions.size > 0) onPartial?.(compose(cachedEmail, partitions));
 
@@ -98,6 +111,15 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
       return null;
     }
     const account = me.accounts[0];
+    // 保存済みのデータの持ち主と、いま答えたアカウントが違うなら、全消去してやり直す
+    const cachedOwner = await getMeta("ownerId");
+    if (cachedOwner && cachedOwner !== account.id) {
+      await clearAll();
+      await setMeta("cacheSession", fingerprint);
+      partitions = new Map();
+      cachedEmail = null;
+    }
+    await setMeta("ownerId", account.id);
     await setMeta("email", account.email);
 
     onProgress?.({ phase: "calendars", done: 0, total: 0 });
@@ -140,7 +162,7 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
           }),
         );
         if (aborted()) return;
-        await applySync(account.id, cal.id, mapped, sync.isFullSync);
+        await applySync(account.id, cal.id, mapped, sync.isFullSync, signal);
         if (aborted()) return;
         partitions.set(calKey(account.id, cal.id), await readPartition(account.id, cal.id));
         done += 1;

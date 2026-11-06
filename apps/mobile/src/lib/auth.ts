@@ -45,3 +45,15 @@ export async function getToken(): Promise<string | null> {
 export async function signOut(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
+
+/**
+ * いまのセッション値の指紋 (SHA-256)。手元に保存した予定が「このセッションのもの」かを確かめるのに使う
+ * (保存時に meta へ残し、読み込み時に照合する)。セッション値そのものは保存しない。未ログインなら null。
+ */
+export async function sessionFingerprint(): Promise<string | null> {
+  const token = await getToken();
+  if (!token) return null;
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token, {
+    encoding: Crypto.CryptoEncoding.HEX,
+  });
+}
