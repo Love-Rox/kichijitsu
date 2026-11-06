@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, ScrollView, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AppState, PanResponder, Pressable, ScrollView, View } from "react-native";
 import { Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
@@ -140,6 +140,18 @@ export function Timeline({
     setDrag(base);
   };
 
+  // 現在時刻(1 分ごと、前面に戻ったときにも更新)。「今」を示す線に使う
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const id = setInterval(tick, 60_000);
+    const sub = AppState.addEventListener("change", (st) => st === "active" && tick());
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
+  }, []);
+
   const columns = useMemo(() => {
     // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない)
     const byDay = occurrencesByDay(data, days, timeZone);
@@ -276,6 +288,33 @@ export function Timeline({
                   }}
                 />
               ))}
+              {/* 現在時刻の線(今日の列だけ)。予定の上に重ね、タップは素通しにする */}
+              {nowMs >= dayStart && nowMs < dayEnd ? (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    top: ((nowMs - dayStart) / HOUR_MS) * HOUR_HEIGHT - 1,
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    backgroundColor: t.accent,
+                    zIndex: 900,
+                  }}
+                >
+                  <View
+                    style={{
+                      position: "absolute",
+                      left: -4,
+                      top: -3,
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: t.accent,
+                    }}
+                  />
+                </View>
+              ) : null}
               {items.map((o) => {
                 const slot = slots.get(o.id);
                 if (!slot) return null;
