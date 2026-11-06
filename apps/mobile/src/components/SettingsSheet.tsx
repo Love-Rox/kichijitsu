@@ -1,3 +1,4 @@
+import * as Application from "expo-application";
 import { useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Switch, View } from "react-native";
 import { writeTargetKey } from "@kichijitsu/web/sync/eventCreate";
@@ -194,6 +195,11 @@ export function SettingsSheet({
           <Pressable onPress={confirmSignOut} style={{ marginTop: 32, alignSelf: "flex-start" }}>
             <Text style={{ color: t.accent, fontSize: 15 }}>ログアウト</Text>
           </Pressable>
+
+          {/* 入っているビルドの確認用(TestFlight の表示と突き合わせる)。実際にインストールされたアプリの値 */}
+          <Text style={{ marginTop: 28, fontSize: 12, color: t.inkSub }} selectable>
+            kichijitsu {Application.nativeApplicationVersion ?? "?"} ({Application.nativeBuildVersion ?? "?"})
+          </Text>
         </ScrollView>
       </View>
     </Modal>
