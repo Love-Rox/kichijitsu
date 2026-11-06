@@ -42,14 +42,15 @@ export function ThreeDayTimeline({
       const dayStart = dayStartMs(date, timeZone);
       const dayEnd = dayStartMs(date.add({ days: 1 }), timeZone);
       const items = occurrencesInRange(data, dayStart, dayEnd).filter(
-        (o) => !o.isOutOfOffice && !o.isWorkingLocation && o.responseStatus !== "declined",
+        (o) => !o.isWorkingLocation && o.responseStatus !== "declined",
       );
       const slots = layoutOverlaps(
         items.map((o) => ({
           id: o.id,
           startMs: Math.max(o.startMs, dayStart),
           endMs: Math.min(o.endMs, dayEnd),
-          background: false,
+          // 不在は、他の予定の幅を奪わない背景の層として描く(全幅・最背面)
+          background: o.isOutOfOffice === true,
         })),
         HEADER_WINDOW_MS,
       );
@@ -154,14 +155,14 @@ export function ThreeDayTimeline({
                       paddingHorizontal: 3,
                       paddingVertical: 1,
                       borderLeftWidth: 3,
-                      borderLeftColor: o.color,
+                      borderLeftColor: o.isOutOfOffice ? "#9ca3af" : o.color,
                       borderRadius: 4,
-                      backgroundColor: `${o.color}2b`,
+                      backgroundColor: o.isOutOfOffice ? "#9ca3af40" : `${o.color}2b`,
                       overflow: "hidden",
                     }}
                   >
                     <Text numberOfLines={height > 36 ? 2 : 1} style={{ fontSize: 11, color: "#111" }}>
-                      {o.title}
+                      {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
                     </Text>
                   </Pressable>
                 );

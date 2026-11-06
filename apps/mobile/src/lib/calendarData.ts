@@ -31,6 +31,9 @@ import {
  */
 export interface CalendarData {
   email: string;
+  /** 予定の作成先の候補 (書き込める表示中のカレンダー)。 */
+  accountId: string;
+  calendars: CalendarListEntryDTO[];
   singles: Occurrence[];
   allDays: AllDayOccurrence[];
   series: EventSeries[];
@@ -62,8 +65,21 @@ export interface LoadOptions {
   signal?: AbortSignal;
 }
 
-function compose(email: string, partitions: Map<string, Partition>): CalendarData {
-  const data: CalendarData = { email, singles: [], allDays: [], series: [], overrides: [] };
+function compose(
+  email: string,
+  accountId: string,
+  calendars: CalendarListEntryDTO[],
+  partitions: Map<string, Partition>,
+): CalendarData {
+  const data: CalendarData = {
+    email,
+    accountId,
+    calendars,
+    singles: [],
+    allDays: [],
+    series: [],
+    overrides: [],
+  };
   for (const p of partitions.values()) {
     data.singles.push(...p.singles);
     data.allDays.push(...p.allDays);
@@ -99,7 +115,11 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
   let partitions = await readAll();
   let cachedEmail = await getMeta("email");
   if (aborted()) return null;
-  if (cachedEmail && partitions.size > 0) onPartial?.(compose(cachedEmail, partitions));
+  let cachedOwner = (await getMeta("ownerId")) ?? "";
+  let cachedCalendars = JSON.parse((await getMeta("calendars")) ?? "[]") as CalendarListEntryDTO[];
+  if (cachedEmail && partitions.size > 0) {
+    onPartial?.(compose(cachedEmail, cachedOwner, cachedCalendars, partitions));
+  }
 
   try {
     onProgress?.({ phase: "account", done: 0, total: 0 });
@@ -112,12 +132,14 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
     }
     const account = me.accounts[0];
     // 保存済みのデータの持ち主と、いま答えたアカウントが違うなら、全消去してやり直す
-    const cachedOwner = await getMeta("ownerId");
-    if (cachedOwner && cachedOwner !== account.id) {
+    const storedOwner = await getMeta("ownerId");
+    if (storedOwner && storedOwner !== account.id) {
       await clearAll();
       await setMeta("cacheSession", fingerprint);
       partitions = new Map();
       cachedEmail = null;
+      cachedOwner = "";
+      cachedCalendars = [];
     }
     await setMeta("ownerId", account.id);
     await setMeta("email", account.email);
@@ -130,6 +152,7 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
         }),
       )) ?? [];
     if (aborted()) return null;
+    await setMeta("calendars", JSON.stringify(calendars));
     const visibleIds = me.visibleCalendars[account.id];
     const targets = calendars.filter((c) =>
       visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
@@ -167,13 +190,15 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
         partitions.set(calKey(account.id, cal.id), await readPartition(account.id, cal.id));
         done += 1;
         onProgress?.({ phase: "sync", done, total: targets.length });
-        onPartial?.(compose(account.email, partitions));
+        onPartial?.(compose(account.email, account.id, targets, partitions));
       }),
     );
-    return aborted() ? null : compose(account.email, partitions);
+    return aborted() ? null : compose(account.email, account.id, targets, partitions);
   } catch (e) {
     // 通信に失敗しても、手元のデータがあればそれを見せる(オフライン)
-    if (!aborted() && cachedEmail && partitions.size > 0) return compose(cachedEmail, partitions);
+    if (!aborted() && cachedEmail && partitions.size > 0) {
+      return compose(cachedEmail, cachedOwner, cachedCalendars, partitions);
+    }
     throw e;
   }
 }
