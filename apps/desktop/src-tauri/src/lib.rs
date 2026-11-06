@@ -44,6 +44,10 @@
 // verifier を webview に踏ませる」の3つだけ（下記 open_external_login /
 // handle_auth_deep_link）。
 
+// 自動アップデート(デスクトップ専用、updater.rs 冒頭のコメント参照)
+#[cfg(desktop)]
+mod updater;
+
 use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
@@ -54,6 +58,17 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+
+/// 新しいウィンドウ(`target="_blank"` / `window.open`)として開こうとされた URL を、
+/// 既定のブラウザへ渡してよいか。**http(s) のみ**。
+///
+/// webview にはもともと新規ウィンドウを扱う口が無く、`target="_blank"` のリンク
+/// (予定の詳細の「Google で開く」・会議の参加リンク・説明文の URL など)を押しても
+/// 何も起きなかった。`file:` / `javascript:` / `kichijitsu:` などのスキームは、リモート側に
+/// XSS があっても OS へ流れないよう通さない(`open_external_login` と同じ脅威モデル)。
+fn is_openable_external_url(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+}
 
 /// `gh api` に渡してよい `endpoint` かどうかを判定するホワイトリスト。
 ///
@@ -775,6 +790,35 @@ pub fn run() {
             open_external_login
         ])
         .setup(|app| {
+            // --- メインウィンドウ ---
+            // 設定ファイルではなくここで作るのは、`target="_blank"` のリンクを既定のブラウザへ
+            // 渡す口 (on_new_window) を付けるため ―― ウィンドウ設定を宣言的に書く
+            // tauri.conf.json からは付けられない。内容は設定ファイルの windows[0]
+            // (`create: false` で自動生成を止めてある) をそのまま使う。
+            // window-state プラグインはウィンドウの生成に反応して位置・大きさを復元するので、
+            // 設定ファイルから作られた場合と挙動は変わらない。
+            {
+                let config = app
+                    .config()
+                    .app
+                    .windows
+                    .first()
+                    .cloned()
+                    .ok_or("tauri.conf.json に windows[0] がありません")?;
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+                    .on_new_window(|url, _features| {
+                        if is_openable_external_url(&url) {
+                            // 失敗しても、リンクが効かないだけでアプリは止めない
+                            if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>)
+                            {
+                                eprintln!("kichijitsu: 既定のブラウザを開けませんでした: {e}");
+                            }
+                        }
+                        tauri::webview::NewWindowResponse::Deny
+                    })
+                    .build()?;
+            }
+
             // --- 外部ブラウザ OAuth の復帰口 ---
             // `kichijitsu://auth?ticket=...` を受け取ったら、保持している verifier を添えて
             // webview を /auth/desktop/exchange へナビゲートする（handle_auth_deep_link）。
@@ -799,8 +843,10 @@ pub fn run() {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
             let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
+            let update_i =
+                MenuItem::with_id(app, "update", "アップデートを確認", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -811,6 +857,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "toggle" => toggle_main_window(app),
                     "reload" => reload_main_window(app),
+                    "update" => updater::spawn_manual_check(app.clone()),
                     // アプリの唯一の真の終了経路。tauri-plugin-window-state は
                     // 既定でウィンドウ破棄時にしか状態を保存しないが、この
                     // アプリは「閉じる」でウィンドウを破棄しない(下記
@@ -835,6 +882,26 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // --- 自動アップデート ---
+            // プラグインの登録・状態の保持・定期確認。webview から呼べる IPC は作らず、
+            // 確認と適用は Rust 側だけで行う(updater.rs 冒頭のコメント参照)。
+            // 署名の公開鍵と配信先は tauri.conf.json の plugins.updater。
+            // 更新は補助機能なので、プラグインの登録に失敗しても(設定の誤りなど)アプリ本体は
+            // 起動させる。`?` で setup ごと失敗させると、更新機能の不具合で起動不能になる。
+            // 状態(UpdateState)は常に登録する ―― トレイの「アップデートを確認」が参照するため。
+            // プラグインが無いときは、その確認が「失敗しました」と通知するだけで済む。
+            #[cfg(desktop)]
+            {
+                app.manage(updater::UpdateState::default());
+                match app
+                    .handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())
+                {
+                    Ok(()) => updater::spawn_periodic_check(app.handle().clone()),
+                    Err(e) => eprintln!("kichijitsu: 自動アップデートを有効にできませんでした: {e}"),
+                }
+            }
 
             // --- グローバルショートカット ---
             // モバイルには存在しないプラグインなので #[cfg(desktop)] で囲む
@@ -903,6 +970,22 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opens_only_http_and_https_externally() {
+        for ok in ["https://www.google.com/calendar/event?eid=abc", "http://example.test/"] {
+            assert!(is_openable_external_url(&Url::parse(ok).unwrap()), "{ok}");
+        }
+        for ng in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "kichijitsu://auth?ticket=x",
+            "about:blank",
+            "data:text/html,hi",
+        ] {
+            assert!(!is_openable_external_url(&Url::parse(ng).unwrap()), "{ng}");
+        }
+    }
 
     // --- 1. 許可される9形状(web 側の実使用例に寄せる) ---
 

@@ -275,7 +275,7 @@
   --c-ui-ink-strong: light-dark(#1f2937, #dbdbe2);
   /* body の既定文字色 */
   --c-ui-ink-max: light-dark(#111827, #eaeaf2);
-  /* 月ラベル・時間軸ラベル */
+  /* 月ラベル・時間軸ラベル・終日/タスク見出し(白地で約 4.8:1) */
   --c-ui-ink-mute: light-dark(#6b7280, #87878b);
   /* 無効ボタン・グリッドの時刻目盛り・ドラッグゴーストの枠 */
   --c-ui-ink-faint: light-dark(#9ca3af, #5a5a5d);

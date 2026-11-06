@@ -393,12 +393,72 @@ describe("buildDuplicateDraft", () => {
   });
 
   it("シリーズ由来の1回分を複製すると、単発の新しい予定になる(seriesId を持ち込まない)", () => {
-    const instance: Occurrence = { ...SOURCE, seriesId: "series-1", originalStartMs: SOURCE.startMs };
+    const instance: Occurrence = {
+      ...SOURCE,
+      seriesId: "series-1",
+      originalStartMs: SOURCE.startMs,
+    };
     const target = duplicateWriteTarget(instance)!;
     const pending = buildPendingOccurrence({
       draft: buildDuplicateDraft(instance, 0, 60_000),
       target,
     });
     expect(pending.seriesId).toBeNull();
+  });
+});
+
+describe("不在 (outOfOffice) の作成", () => {
+  const target: WriteTargetCandidate = { accountId: "acc-1", calendarId: "cal-1" };
+
+  it("不在は eventType と自動辞退(既定は新しい招待だけ)を送る", () => {
+    const req = buildEventCreateRequest({
+      draft: draft({ eventType: "outOfOffice" }),
+      target,
+      timeZone: TZ,
+    });
+    expect(req.eventType).toBe("outOfOffice");
+    expect(req.outOfOffice).toEqual({ autoDeclineMode: "declineOnlyNewConflictingInvitations" });
+  });
+
+  it("辞退モードとメッセージ(前後の空白は落とす)を送る", () => {
+    const req = buildEventCreateRequest({
+      draft: draft({
+        eventType: "outOfOffice",
+        autoDecline: "declineAllConflictingInvitations",
+        declineMessage: " 休みです ",
+      }),
+      target,
+      timeZone: TZ,
+    });
+    expect(req.outOfOffice).toEqual({
+      autoDeclineMode: "declineAllConflictingInvitations",
+      declineMessage: "休みです",
+    });
+  });
+
+  it("通常の予定には種別のキーを送らない", () => {
+    const req = buildEventCreateRequest({
+      draft: draft({ eventType: "default", autoDecline: "declineNone" }),
+      target,
+      timeZone: TZ,
+    });
+    expect(req).not.toHaveProperty("eventType");
+    expect(req).not.toHaveProperty("outOfOffice");
+  });
+
+  it("終日と併用された不在は通常の予定として送る(不在は終日にできない)", () => {
+    const req = buildEventCreateRequest({
+      draft: draft({ eventType: "outOfOffice", isAllDay: true }),
+      target,
+      timeZone: TZ,
+    });
+    expect(req).not.toHaveProperty("eventType");
+  });
+
+  it("仮の occurrence は不在レールに出るよう isOutOfOffice を立てる", () => {
+    expect(
+      buildPendingOccurrence({ draft: draft({ eventType: "outOfOffice" }), target }).isOutOfOffice,
+    ).toBe(true);
+    expect(buildPendingOccurrence({ draft: draft(), target }).isOutOfOffice).toBeUndefined();
   });
 });

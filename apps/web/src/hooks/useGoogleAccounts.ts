@@ -67,9 +67,18 @@ import {
  * panelOpen が false)、以後も GitHub 系の effect とは読み書きする state が完全に分かれている
  * ため、登録順の入れ替えで挙動は変わらない。
  */
+/**
+ * /api/me の確認結果。`me` は未接続でも失敗でも同じ既定値(accounts:[])になるため、
+ * 「まだ確認中」「ログインしていない」「サーバーに届かない」を区別できない。
+ * 未連携の案内を出してよいのは "signed-out" のときだけ(確認中・オフラインで出すと誤案内)。
+ */
+export type MeStatus = "pending" | "signed-out" | "signed-in" | "unavailable";
+
 export interface GoogleAccountsController {
   /** GET /api/me の応答。未接続時は connected:false / accounts:[] の既定値 */
   me: MeResponse;
+  /** /api/me の確認結果(me だけでは区別できない状態を表す) */
+  meStatus: MeStatus;
   /** accountId → そのアカウントのカレンダー一覧 */
   calendarsByAccount: Record<string, CalendarListEntryDTO[]>;
   /** accountId → 選択中カレンダー id 一覧(サーバーと IndexedDB の両方に保存する) */
@@ -147,6 +156,7 @@ export function useGoogleAccounts({
     visibleCalendars: {},
     github: null,
   });
+  const [meStatus, setMeStatus] = useState<MeStatus>("pending");
   const [calendarsByAccount, setCalendarsByAccount] = useState<
     Record<string, CalendarListEntryDTO[]>
   >({});
@@ -294,10 +304,13 @@ export function useGoogleAccounts({
       const res = await checkedFetch("/api/me");
       if (!res.ok) {
         setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
+        // 401 は「ログインしていない」。それ以外(5xx など)はサーバー側の不調なので案内しない
+        setMeStatus(res.status === 401 ? "signed-out" : "unavailable");
         return;
       }
       const data = (await res.json()) as MeResponse;
       setMe(data);
+      setMeStatus(data.connected || data.accounts.length > 0 ? "signed-in" : "signed-out");
       // サーバーに configured なエントリを取り込む(サーバーが正)。無いアカウントは
       // ローカルの値(IndexedDB キャッシュ・初回 primary デフォルト選択)をそのまま残す。
       // 再送してもなお失敗が残っている accountId(pendingVisiblePutsRef に残存)は、
@@ -310,6 +323,7 @@ export function useGoogleAccounts({
       );
     } catch {
       setMe({ connected: false, accounts: [], visibleCalendars: {}, github: null });
+      setMeStatus("unavailable");
     }
   }, [checkedFetch, putVisibleCalendarsOnce]);
 
@@ -610,6 +624,7 @@ export function useGoogleAccounts({
 
   return {
     me,
+    meStatus,
     calendarsByAccount,
     visibleCalendars,
     taskListsByAccount,

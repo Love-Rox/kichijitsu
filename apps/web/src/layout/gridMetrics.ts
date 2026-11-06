@@ -410,6 +410,12 @@ export function busyOverlapColors(
  * 両方から使うため、循環 import 回避のためだけの本モジュールに置く。
  */
 const CASCADE_STEP_FRAC = 0.14;
+
+/**
+ * 予定カードの「見出し」(時刻+タイトル)が占める高さ(px)。layout/overlapLayout.ts が、
+ * 他の予定がこの範囲を覆わないよう横位置を決める基準にする。
+ */
+export const EVENT_HEADER_PX = 36;
 const CASCADE_MIN_CARD_FRAC = 0.32;
 
 export function cascadeStepFrac(columnCount: number): number {

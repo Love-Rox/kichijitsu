@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { EventPatchRequest } from "@kichijitsu/shared";
+import type { EventPatchRequest, OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import type { EventSeries } from "../model/series";
 import type { AllDayOccurrence, Occurrence, OccurrenceSource } from "../model/types";
 import { dayRangeMs, dayStartMs, plainDateOfMs } from "../layout/dayTime";
@@ -36,6 +36,15 @@ export interface EventEditDraft {
    * msExclusiveToDateValue で導出する)。
    */
   endMs: number;
+  /**
+   * 予定の種別 (新規作成のときだけ使う)。未指定は通常の予定。`outOfOffice` は Google の「不在」
+   * (2026-11-06)。編集では種別を変えられないので、draftFromOccurrence 等は一切設定しない。
+   */
+  eventType?: "default" | "outOfOffice";
+  /** 不在のときの自動辞退。未指定なら新しい招待だけを辞退する */
+  autoDecline?: OutOfOfficeAutoDecline;
+  /** 不在のときの辞退メッセージ(空なら送らない) */
+  declineMessage?: string;
 }
 
 /** 時刻予定 (Occurrence) → draft。isAllDay は常に false */

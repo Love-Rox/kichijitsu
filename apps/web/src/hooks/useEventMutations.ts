@@ -96,13 +96,13 @@ export interface EventMutationsController {
    * 送るかどうかを訊いてからでないと sendUpdates が決まらないため。それ以外の予定
    * (削除のほとんど) は 2026-07-31 以前と同じで、その場で楽観的に消しにいく。
    */
-  deleteOccurrence: (occurrence: Occurrence) => void;
+  deleteOccurrence: (occurrence: Occurrence | AllDayOccurrence) => void;
   /**
    * ゲストのいる予定の削除確認待ち (2026-07-31)。null 以外なら MoveConfirmDialog を
    * purpose='delete' で出す。**ゲストのいない予定・自分が主催でない予定では常に null**
    * のままで、削除は従来どおりポップオーバー内のインライン2段階確認だけで完了する。
    */
-  deleteConfirm: { occurrence: Occurrence } | null;
+  deleteConfirm: { occurrence: Occurrence | AllDayOccurrence } | null;
   /** ダイアログ「削除する」。選ばれたゲストへの通知つきで実際の削除に進む */
   confirmDelete: (scope: RecurrenceScope, notify: GuestNotify) => void;
   /** ダイアログ「キャンセル」。何も消さずに閉じるだけ (まだ1件も書き換えていない) */
@@ -196,6 +196,7 @@ export function useEventMutations({
   const { deleteOccurrence, deleteConfirm, confirmDelete, cancelDelete } = useDeleteOccurrence({
     db,
     store,
+    allDayStore,
     checkedFetch,
     flashSaveError,
   });

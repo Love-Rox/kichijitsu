@@ -1,4 +1,4 @@
-import type { EventCreateRequest } from "@kichijitsu/shared";
+import type { EventCreateRequest, OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { createEvent, type CreateEventParams } from "../google/create-event";
 import { DEFAULT_SEND_UPDATES } from "./patch-event";
@@ -9,6 +9,12 @@ import {
   MAX_LOCATION_LENGTH,
   MAX_SUMMARY_LENGTH,
 } from "./validation";
+
+const AUTO_DECLINE_MODES: readonly OutOfOfficeAutoDecline[] = [
+  "declineNone",
+  "declineOnlyNewConflictingInvitations",
+  "declineAllConflictingInvitations",
+];
 
 /**
  * POST /api/event/create のボディ検証 (2026-07-29 全項目入力)。core/block-rules.ts の
@@ -45,6 +51,24 @@ export function isValidEventCreateRequest(body: unknown): body is EventCreateReq
   if (!isOptionalBoundedString(candidate.location, MAX_LOCATION_LENGTH)) return false;
   if (!isOptionalBoundedString(candidate.description, MAX_DESCRIPTION_LENGTH)) return false;
   if (candidate.isAllDay !== undefined && typeof candidate.isAllDay !== "boolean") return false;
+
+  // 不在 (2026-11-06)。Google の不在は終日にできないので、併用は弾く
+  if (candidate.eventType !== undefined && candidate.eventType !== "outOfOffice") return false;
+  if (candidate.eventType === "outOfOffice" && candidate.isAllDay === true) return false;
+  if (candidate.outOfOffice !== undefined) {
+    if (candidate.eventType !== "outOfOffice") return false;
+    const ooo = candidate.outOfOffice;
+    if (!ooo || typeof ooo !== "object") return false;
+    const { autoDeclineMode, declineMessage } = ooo as Record<string, unknown>;
+    if (
+      autoDeclineMode !== undefined &&
+      (typeof autoDeclineMode !== "string" ||
+        !AUTO_DECLINE_MODES.includes(autoDeclineMode as OutOfOfficeAutoDecline))
+    ) {
+      return false;
+    }
+    if (!isOptionalBoundedString(declineMessage, MAX_DESCRIPTION_LENGTH)) return false;
+  }
 
   return true;
 }

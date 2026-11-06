@@ -265,7 +265,7 @@ describe("isValidEventCreateRequest", () => {
     expect(isValidEventCreateRequest({ ...VALID, endMs: VALID.startMs - 1 })).toBe(false);
   });
 
-  it("rejects a non-boolean isAllDay (文字列 \"true\" 等の曖昧な指定)", () => {
+  it('rejects a non-boolean isAllDay (文字列 "true" 等の曖昧な指定)', () => {
     expect(isValidEventCreateRequest({ ...VALID, isAllDay: "true" })).toBe(false);
     expect(isValidEventCreateRequest({ ...VALID, isAllDay: 1 })).toBe(false);
   });
@@ -273,5 +273,79 @@ describe("isValidEventCreateRequest", () => {
   it("rejects a non-string location/description", () => {
     expect(isValidEventCreateRequest({ ...VALID, location: 1 })).toBe(false);
     expect(isValidEventCreateRequest({ ...VALID, description: {} })).toBe(false);
+  });
+});
+
+describe("不在 (outOfOffice)", () => {
+  it("eventType と outOfOfficeProperties を本文に載せる(既定は新しい招待だけ辞退)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "x" }), { status: 200 }));
+    await createEvent(fetchImpl, "t", { ...PARAMS, eventType: "outOfOffice" });
+    const body = JSON.parse(fetchImpl.mock.calls[0][1]!.body as string);
+    expect(body.eventType).toBe("outOfOffice");
+    expect(body.outOfOfficeProperties).toEqual({
+      autoDeclineMode: "declineOnlyNewConflictingInvitations",
+    });
+  });
+
+  it("辞退モードとメッセージを指定できる", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "x" }), { status: 200 }));
+    await createEvent(fetchImpl, "t", {
+      ...PARAMS,
+      eventType: "outOfOffice",
+      outOfOffice: {
+        autoDeclineMode: "declineAllConflictingInvitations",
+        declineMessage: "休みです",
+      },
+    });
+    const body = JSON.parse(fetchImpl.mock.calls[0][1]!.body as string);
+    expect(body.outOfOfficeProperties).toEqual({
+      autoDeclineMode: "declineAllConflictingInvitations",
+      declineMessage: "休みです",
+    });
+  });
+
+  it("通常の予定には eventType を付けない", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "x" }), { status: 200 }));
+    await createEvent(fetchImpl, "t", PARAMS);
+    const body = JSON.parse(fetchImpl.mock.calls[0][1]!.body as string);
+    expect(body).not.toHaveProperty("eventType");
+    expect(body).not.toHaveProperty("outOfOfficeProperties");
+  });
+
+  it("検証: 不在は受け付け、終日との併用・未知の値は弾く", () => {
+    const base = {
+      accountId: "a",
+      calendarId: "c",
+      title: "出張",
+      startMs: 1000,
+      endMs: 2000,
+      timeZone: "Asia/Tokyo",
+    };
+    expect(isValidEventCreateRequest({ ...base, eventType: "outOfOffice" })).toBe(true);
+    expect(
+      isValidEventCreateRequest({
+        ...base,
+        eventType: "outOfOffice",
+        outOfOffice: { autoDeclineMode: "declineAllConflictingInvitations", declineMessage: "x" },
+      }),
+    ).toBe(true);
+    expect(isValidEventCreateRequest({ ...base, eventType: "outOfOffice", isAllDay: true })).toBe(
+      false,
+    );
+    expect(isValidEventCreateRequest({ ...base, eventType: "focusTime" })).toBe(false);
+    expect(
+      isValidEventCreateRequest({
+        ...base,
+        eventType: "outOfOffice",
+        outOfOffice: { autoDeclineMode: "x" },
+      }),
+    ).toBe(false);
+    expect(isValidEventCreateRequest({ ...base, outOfOffice: {} })).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ name = "kichijitsu-desktop"
 # バージョンは tauri.conf.json / package.json と必ず揃えること。
 # app_version コマンドは env!("CARGO_PKG_VERSION")(= この値)を返すため、
 # ここがズレると設定画面の「アプリ vX.Y.Z」表示が実バージョンと食い違う。
-version = "0.1.9"
+version = "0.1.14"
 description = "kichijitsu desktop shell (reads the production web app via a remote URL webview)"
 authors = ["Love-Rox"]
 license = ""
@@ -63,3 +63,6 @@ serde_json = "1"
 # 公式ドキュメント (v2.tauri.app/plugin/global-shortcut) 通りに target cfg で限定する。
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+# 自動アップデート(src/updater.rs)。デスクトップ専用。webview から呼べる IPC は
+# 使わない(Rust 側だけで完結)ので、capabilities へ updater:* は与えていない。
+tauri-plugin-updater = "2"

@@ -28,9 +28,9 @@ import { packColumns } from "../layout/packColumns";
 import { buildAllDayPanels, clipToVisibleRows, resolveSharedRows } from "../layout/allDayPanels";
 import { calendarKeyOf, taskListKey } from "../layout/keys";
 import {
-  getGitHubLaneCollapsed,
-  setGitHubLaneCollapsed as saveGitHubLaneCollapsed,
-} from "../layout/githubLaneCollapse";
+  getExtrasLaneCollapsed,
+  setExtrasLaneCollapsed as saveExtrasLaneCollapsed,
+} from "../layout/extrasLaneCollapse";
 import { dayStartMs, plainDateOfMs } from "../layout/dayTime";
 import {
   groupDuplicateAllDayOccurrences,
@@ -72,7 +72,7 @@ import { type CalendarInfo } from "./EventBlock";
 import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
 import { TaskRow } from "./TaskRow";
-import { GitHubLane, GitHubLaneCollapsedDay } from "./GitHubLane";
+import { GitHubLane } from "./GitHubLane";
 import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
@@ -176,7 +176,7 @@ interface WeekGridProps {
   /** `${accountId}:${calendarId}` → カレンダー名/色。EventBlock の詳細ポップオーバーが「どのカレンダーか」を出すのに使う */
   calendarLookup: Map<string, CalendarInfo>;
   /** 詳細ポップオーバーの「削除」導線から呼ばれる(フェーズ5、google 由来の occurrence のみ) */
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   /** 終日レーンの詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22) */
@@ -608,7 +608,10 @@ export function WeekGrid({
   // 一切干渉しない。
   const handleGridPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
-      if (selectedCardId !== null && shouldClearSelectionOnPointerDown(e.target as Element | null)) {
+      if (
+        selectedCardId !== null &&
+        shouldClearSelectionOnPointerDown(e.target as Element | null)
+      ) {
         setSelectedCardId(null);
       }
       swipeHandlers.onPointerDown(e);
@@ -624,10 +627,7 @@ export function WeekGrid({
   // (2026-07-31 横断レビュー B-4。以前はこのファイルだけで同じ式が4回書かれていた)
   const todayPlainDate = useMemo(() => plainDateOfMs(nowMs, timeZone), [nowMs, timeZone]);
 
-  const rangeStartMs = useMemo(
-    () => dayStartMs(panelStarts[0], timeZone),
-    [panelStarts, timeZone],
-  );
+  const rangeStartMs = useMemo(() => dayStartMs(panelStarts[0], timeZone), [panelStarts, timeZone]);
   const rangeEndMs = useMemo(
     () => dayStartMs(panelStarts[2].add({ days: dayCount }), timeZone),
     [panelStarts, dayCount, timeZone],
@@ -786,33 +786,30 @@ export function WeekGrid({
   //   (下記 workingLocationSegmentPanels)。この日は終日チップを出さない。
   // 不在 (OOO) の振り分けを先に通してから勤務場所を分ける ―― eventType は排他なので順序に
   // 意味は無いが、時刻予定側 (weekPanels) の「OOO を先に処理する」流儀にそのまま揃えてある。
-  const {
-    groupedAllDayBarOccurrences,
-    groupedAllDayOooOccurrences,
-    workingLocationSegmentGroups,
-  } = useMemo(() => {
-    const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
-      groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
+  const { groupedAllDayBarOccurrences, groupedAllDayOooOccurrences, workingLocationSegmentGroups } =
+    useMemo(() => {
+      const { barGroups, oooGroups } = splitOutOfOfficeAllDayGroups(
+        groupDuplicateAllDayOccurrences(visibleAllDayOccurrences),
+        oooAllDayPlacement,
+      );
+      const { barGroups: chipGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
+        barGroups,
+        datesWithTimedWorkingLocation,
+      );
+      return {
+        // 時刻付きの「1日を丸ごと覆う不在」の射影(dayCoveringOooBarGroups)は最後に足す ――
+        // 終日レーンの行割り当て (packDayBars) は入力順で決まるので、既存の終日予定の行を
+        // 押しのけない位置に置く。"timeline" のときは空配列なので連結しても何も変わらない。
+        groupedAllDayBarOccurrences: [...chipGroups, ...dayCoveringOooBarGroups],
+        groupedAllDayOooOccurrences: oooGroups,
+        workingLocationSegmentGroups: segmentGroups,
+      };
+    }, [
+      visibleAllDayOccurrences,
       oooAllDayPlacement,
-    );
-    const { barGroups: chipGroups, segmentGroups } = splitWorkingLocationAllDayGroups(
-      barGroups,
       datesWithTimedWorkingLocation,
-    );
-    return {
-      // 時刻付きの「1日を丸ごと覆う不在」の射影(dayCoveringOooBarGroups)は最後に足す ――
-      // 終日レーンの行割り当て (packDayBars) は入力順で決まるので、既存の終日予定の行を
-      // 押しのけない位置に置く。"timeline" のときは空配列なので連結しても何も変わらない。
-      groupedAllDayBarOccurrences: [...chipGroups, ...dayCoveringOooBarGroups],
-      groupedAllDayOooOccurrences: oooGroups,
-      workingLocationSegmentGroups: segmentGroups,
-    };
-  }, [
-    visibleAllDayOccurrences,
-    oooAllDayPlacement,
-    datesWithTimedWorkingLocation,
-    dayCoveringOooBarGroups,
-  ]);
+      dayCoveringOooBarGroups,
+    ]);
 
   /**
    * 日ごとの勤務場所の区間列(2026-07-29「1日の区間として描く」)。
@@ -926,17 +923,19 @@ export function WeekGrid({
   const githubLaneHasContent = githubItemsRaw.length > 0;
 
   /*
-   * GitHub レーンの折りたたみ (2026-08-03、ユーザー要望「GitHub の一覧が表示されるセクションが
-   * 広くなって予定の表示が見れなくなる」)。状態はこのコンポーネントに閉じ、永続化は
-   * layout/githubLaneCollapse.ts に任せる ―― CalendarPane のアカウント/グループ折りたたみと
-   * 同じ役割分担(App.tsx を経由しない、端末ごとの表示設定)。
+   * 補助レーン (タスク + GitHub) の折りたたみ (2026-11-06)。以前は GitHub レーンだけが畳めた
+   * (2026-08-03、ユーザー要望「予定の表示が見れなくなる」)が、時間軸が始まる前に
+   * 終日/タスク/GitHub の3段で画面の約3割を使う点は変わらなかったため、タスクと GitHub を
+   * ひとつにまとめて**既定を畳む**ようにした。畳んでいる間は日ごとの件数だけを1行に出し、
+   * 件数を押す(または見出しを押す)と開く。状態はこのコンポーネントに閉じ、永続化は
+   * layout/extrasLaneCollapse.ts に任せる(端末ごとの表示設定)。
    */
-  const [githubLaneCollapsed, setGithubLaneCollapsed] = useState<boolean>(getGitHubLaneCollapsed);
+  const [extrasCollapsed, setExtrasCollapsed] = useState<boolean>(getExtrasLaneCollapsed);
 
-  const toggleGitHubLaneCollapsed = useCallback(() => {
-    setGithubLaneCollapsed((prev) => {
+  const toggleExtrasCollapsed = useCallback(() => {
+    setExtrasCollapsed((prev) => {
       const next = !prev;
-      saveGitHubLaneCollapsed(next);
+      saveExtrasLaneCollapsed(next);
       return next;
     });
   }, []);
@@ -1112,6 +1111,7 @@ export function WeekGrid({
                       colEnd={b.endDayIndex + 2}
                       calendarLookup={calendarLookup}
                       timeZone={timeZone}
+                      onDelete={onDelete}
                       onSaveEdit={onSaveAllDayEdit}
                       onRsvp={onAllDayRsvp}
                       onEditGuests={onAllDayEditGuests}
@@ -1136,9 +1136,82 @@ export function WeekGrid({
         </div>
       )}
 
-      {taskLaneHasContent && (
+      {(taskLaneHasContent || githubLaneHasContent) && extrasCollapsed && (
+        <div className="week-grid-extras">
+          <button
+            type="button"
+            className="week-grid-extras-gutter"
+            onClick={toggleExtrasCollapsed}
+            aria-expanded={false}
+            title="タスクと GitHub を開く"
+          >
+            <span aria-hidden="true">▸</span>
+            <span>タスク</span>
+          </button>
+          <div className="week-grid-extras-viewport">
+            <div className="week-grid-extras-strip" style={stripStyle}>
+              {taskPanels.map(({ panelStart, dayTasks }, panelIndex) => (
+                <div
+                  className="week-grid-extras-panel"
+                  key={panelStart.toString()}
+                  style={panelColumnsStyle}
+                >
+                  {dayTasks.map((tasksOfDay, dayIndex) => {
+                    // taskPanels と githubPanels はどちらも同じ panelStarts / weekPanels 由来で
+                    // 並びが揃っている。ずれていたら件数を出さない(別の日の件数を出すよりまし)
+                    const githubPanel = githubPanels[panelIndex];
+                    const githubCount =
+                      githubPanel && githubPanel.panelStart.equals(panelStart)
+                        ? (githubPanel.dayCounts[dayIndex] ?? 0)
+                        : 0;
+                    const openTasks = tasksOfDay.filter((t) => t.status !== "completed").length;
+                    return (
+                      // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス)
+                      <div className="extras-day" key={dayIndex}>
+                        {tasksOfDay.length > 0 && (
+                          <button
+                            type="button"
+                            className="extras-pill extras-pill--task"
+                            onClick={toggleExtrasCollapsed}
+                            title={tasksOfDay.map((t) => t.title).join("\n")}
+                          >
+                            {openTasks}
+                            <span className="extras-pill-unit">/{tasksOfDay.length} タスク</span>
+                          </button>
+                        )}
+                        {githubCount > 0 && (
+                          <button
+                            type="button"
+                            className="extras-pill extras-pill--github"
+                            onClick={toggleExtrasCollapsed}
+                            title={`GitHub ${githubCount} 件`}
+                          >
+                            {githubCount}
+                            <span className="extras-pill-unit">件 GH</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {taskLaneHasContent && !extrasCollapsed && (
         <div className="week-grid-tasks">
-          <div className="week-grid-tasks-gutter">タスク</div>
+          <button
+            type="button"
+            className="week-grid-tasks-gutter week-grid-extras-toggle"
+            onClick={toggleExtrasCollapsed}
+            aria-expanded
+            title="タスクと GitHub を畳む"
+          >
+            <span aria-hidden="true">▾</span>
+            <span>タスク</span>
+          </button>
           <div className="week-grid-tasks-viewport">
             <div className="week-grid-tasks-strip" style={stripStyle}>
               {taskPanels.map(({ panelStart, dayTasks }) => (
@@ -1162,56 +1235,38 @@ export function WeekGrid({
         </div>
       )}
 
-      {githubLaneHasContent && (
-        <div className={`week-grid-github${githubLaneCollapsed ? " is-collapsed" : ""}`}>
-          {/*
-            レーンの開閉の操作点は行ラベルそのもの(2026-08-03)。日列の中に別のボタンを置くと
-            アイテムのリンクと押し分けにくく、レーンの外(ツールバー等)に置くと「何のトグルか」が
-            離れてしまうため、既にレーンの見出しとして存在するこの位置を押せるようにした。
-            見た目は CalendarPane のアカウント見出しと同じ「▸/▾ + ラベル」に揃えてある。
-          */}
+      {githubLaneHasContent && !extrasCollapsed && (
+        <div className="week-grid-github">
           <button
             type="button"
             className="week-grid-github-gutter"
-            onClick={toggleGitHubLaneCollapsed}
-            aria-expanded={!githubLaneCollapsed}
+            onClick={toggleExtrasCollapsed}
+            aria-expanded
             aria-controls="week-grid-github-region"
-            title={githubLaneCollapsed ? "GitHub レーンを開く" : "GitHub レーンを畳む"}
+            title="タスクと GitHub を畳む"
           >
             <span className="week-grid-github-caret" aria-hidden="true">
-              {githubLaneCollapsed ? "▸" : "▾"}
+              ▾
             </span>
             <span className="week-grid-github-label">GitHub</span>
           </button>
           <div className="week-grid-github-viewport" id="week-grid-github-region">
             <div className="week-grid-github-strip" style={stripStyle}>
-              {githubPanels.map(({ panelStart, dayLayouts, dayCounts }) => (
+              {githubPanels.map(({ panelStart, dayLayouts }) => (
                 <div
                   className="week-grid-github-panel"
                   key={panelStart.toString()}
                   style={panelColumnsStyle}
                 >
-                  {githubLaneCollapsed
-                    ? dayCounts.map((count, dayIndex) => {
-                        const date = panelStart.add({ days: dayIndex });
-                        return (
-                          <GitHubLaneCollapsedDay
-                            // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、展開時と同じ流儀)
-                            key={dayIndex}
-                            count={count}
-                            dateLabel={`${date.month}/${date.day}`}
-                          />
-                        );
-                      })
-                    : dayLayouts.map(({ visibleGroups, releases, overflowCount }, dayIndex) => (
-                        // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
-                        <GitHubLane
-                          key={dayIndex}
-                          groups={visibleGroups}
-                          releases={releases}
-                          overflowCount={overflowCount}
-                        />
-                      ))}
+                  {dayLayouts.map(({ visibleGroups, releases, overflowCount }, dayIndex) => (
+                    // eslint-disable-next-line react/no-array-index-key -- 列の並びは固定(dayCount ぶんの日付インデックス、タスクレーンと同じ流儀)
+                    <GitHubLane
+                      key={dayIndex}
+                      groups={visibleGroups}
+                      releases={releases}
+                      overflowCount={overflowCount}
+                    />
+                  ))}
                 </div>
               ))}
             </div>

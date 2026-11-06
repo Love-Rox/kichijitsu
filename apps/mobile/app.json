@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "kichijitsu",
+    "slug": "kichijitsu",
+    "scheme": "kichijitsu",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      ["expo-notifications", { "enableRemoteNotifications": false }],
+      "@react-native-community/datetimepicker"
+    ],
+    "ios": {
+      "bundleIdentifier": "cc.love-rox.kichijitsu",
+      "appleTeamId": "M296DX39G6",
+      "supportsTablet": false,
+      "buildNumber": "8",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#FAF7F2"
+  }
+}

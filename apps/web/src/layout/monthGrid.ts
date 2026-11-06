@@ -86,6 +86,24 @@ export interface MonthCellChips {
 
 const DEFAULT_MAX_CHIPS_PER_CELL = 4;
 
+// セルの縦の内訳(components/MonthView.css と対応。CSS を変えたらここも合わせる)
+const CELL_PADDING_AND_BORDER_PX = 3 * 2 + 1; // padding 3px 上下 + border-bottom 1px
+const CELL_HEADER_GAP_PX = 2; // .month-cell の gap(日付行とチップ領域の間)
+const CELL_DATE_ROW_PX = 16; // 日付行(今日バッジの高さ)
+const CHIP_ROW_PX = 16; // .month-chip の line-height
+const CHIP_GAP_PX = 1; // .month-cell-chips の gap
+
+/**
+ * セルの高さ(px)に収まるチップ行の数。「+N」の行も1行として数える。
+ * 以前は 1 セル 4 件固定で、窓が小さいと溢れて切れ、大きいと余白が余っていた。
+ * 最低 1 行は返す(日付だけのセルにはしない)。
+ */
+export function monthChipRowCapacity(cellHeightPx: number): number {
+  const chipsArea =
+    cellHeightPx - CELL_PADDING_AND_BORDER_PX - CELL_HEADER_GAP_PX - CELL_DATE_ROW_PX;
+  return Math.max(1, Math.floor((chipsArea + CHIP_GAP_PX) / (CHIP_ROW_PX + CHIP_GAP_PX)));
+}
+
 /**
  * days の各日について、その日に属するチップ(終日予定 + 時刻予定)を
  * 「終日を先に、時刻予定は開始時刻順」で並べ、maxChipsPerCell 件を超える分は
@@ -105,6 +123,12 @@ export function bucketMonthChips(
   allDayGroups: readonly AllDayOccurrenceGroup[],
   timeZone: string,
   maxChipsPerCell: number = DEFAULT_MAX_CHIPS_PER_CELL,
+  /**
+   * セルに収まる行数(「+N」の行を含む。monthChipRowCapacity の値)。指定すると
+   * maxChipsPerCell を無視し、全件が収まるなら全件、溢れるなら「+N」の1行ぶんを
+   * 空けた件数だけ見せる。
+   */
+  rowCapacity?: number,
 ): MonthCellChips[] {
   return days.map(({ date }) => {
     const dateStr = date.toString();
@@ -134,7 +158,13 @@ export function bucketMonthChips(
       }));
 
     const all = [...allDayChips, ...timedChips];
-    const visible = all.slice(0, maxChipsPerCell);
+    const visibleCount =
+      rowCapacity === undefined
+        ? maxChipsPerCell
+        : all.length <= rowCapacity
+          ? all.length
+          : Math.max(1, rowCapacity - 1);
+    const visible = all.slice(0, visibleCount);
     const overflowCount = all.length - visible.length;
 
     return { date, visible, overflowCount };

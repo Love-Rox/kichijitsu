@@ -231,7 +231,7 @@
   position: absolute;
   top: 3px;
   right: 3px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
   padding: 1px 4px;
   border-radius: 3px;
@@ -651,19 +651,19 @@
 /* 「主催者」「自分」の注記。名前より一段落として、名前の読み取りを邪魔しない */
 .event-detail-guest-note {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
 .event-detail-guest-mail {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-faint);
   overflow-wrap: anywhere;
 }
 
 .event-detail-guest-status {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
@@ -720,7 +720,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .event-detail-guest-add {
@@ -744,7 +744,7 @@
 
 .event-detail-guest-note-line {
   margin: 6px 0 0;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
@@ -1035,4 +1035,60 @@
   .event {
     min-height: 18px;
   }
+}
+
+/* 予定の種別(予定/不在)の切り替え (2026-11-06)。クイック作成と詳細フォームで共有 */
+.event-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-kind-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--c-line-elevated);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.event-kind-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--c-ink-mute);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+
+.event-kind-tab + .event-kind-tab {
+  border-left: 1px solid var(--c-line-elevated);
+}
+
+.event-kind-tab[aria-pressed="true"] {
+  background: var(--c-accent);
+  color: #fff;
+}
+
+.event-kind-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--c-ink-mute);
+}
+
+/* クイック作成ポップオーバー(時間帯を選んだ直後、2026-11-06) */
+.event-quick-create {
+  max-height: min(400px, calc(100vh - 16px));
+}
+
+.event-quick-create-title {
+  font-size: 14px;
+}
+
+.event-quick-create-time {
+  margin: 0;
+  font-size: 12px;
+  color: var(--c-ink-mute);
 }

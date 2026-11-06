@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "kichijitsu",
-  "version": "0.1.9",
+  "version": "0.1.14",
   "identifier": "cc.love-rox.kichijitsu",
   "build": {
     "frontendDist": "https://kichijitsu.love-rox.cc/app"
@@ -11,6 +11,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "kichijitsu",
         "url": "https://kichijitsu.love-rox.cc/app",
         "width": 1200,
@@ -25,6 +26,10 @@
     }
   },
   "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzMjFGQTBCQjYxODQwREIKUldUYlFCaTJDL29ob3hlb01FRUwwa1J5SjdOWVM4eWlQdlJWd2d0SUJlQkNVeWlOak1IWnBXNXUK",
+      "endpoints": ["https://github.com/Love-Rox/kichijitsu/releases/latest/download/latest.json"]
+    },
     "deep-link": {
       "desktop": {
         "schemes": ["kichijitsu"]
@@ -33,6 +38,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",

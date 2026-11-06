@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Temporal } from "@js-temporal/polyfill";
@@ -25,6 +25,7 @@ import {
 } from "../layout/groupDuplicates";
 import {
   bucketMonthChips,
+  monthChipRowCapacity,
   monthGridDays,
   monthGridRangeMs,
   type MonthCellChips,
@@ -38,6 +39,7 @@ import {
 } from "../layout/gridMetrics";
 import { resolveDisplayColor } from "../layout/eventColors";
 import { useCloseOnOutsideOrEscape } from "../hooks/useCloseOnOutsideOrEscape";
+import { isWorkingLocation } from "../layout/workingLocationRail";
 import { EventDetailCard, type CalendarInfo } from "./EventBlock";
 import { PlaceIcon } from "./icons";
 import "./MonthView.css";
@@ -50,7 +52,7 @@ interface MonthViewProps {
   timeZone: string;
   visibleCalendarKeys: Set<string>;
   calendarLookup: Map<string, CalendarInfo>;
-  onDelete: (occurrence: Occurrence) => void;
+  onDelete: (occurrence: Occurrence | AllDayOccurrence) => void;
   /** 詳細ポップオーバーの編集フォーム「保存」から呼ばれる(フェーズ2、2026-07-22。WeekGrid と同じ流儀) */
   onSaveEdit: (occurrence: Occurrence, draft: EventEditDraft) => Promise<void>;
   onSaveAllDayEdit: (occurrence: AllDayOccurrence, draft: EventEditDraft) => Promise<void>;
@@ -161,6 +163,23 @@ export function MonthView({
     [visibleAllDayOccurrences],
   );
 
+  // セルの高さに合わせて、1 セルに出すチップ数を決める。月グリッドは 6 週が等分なので、
+  // グリッド全体の高さ ÷ 週数 = セルの高さ。計測前(初回描画)は null で従来の 4 件固定。
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [rowCapacity, setRowCapacity] = useState<number | null>(null);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const measure = () => {
+      const cellHeight = grid.clientHeight / 6;
+      if (cellHeight > 0) setRowCapacity(monthChipRowCapacity(cellHeight));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
+
   // days と bucketMonthChips の結果は同じ順序(行優先42セル)を保つため、
   // index を揃えて inMonth をチップデータへ合流させる(検索なしの O(n) zip)
   const cells = useMemo<MonthCellData[]>(() => {
@@ -169,9 +188,11 @@ export function MonthView({
       groupedOccurrences,
       groupedAllDayOccurrences,
       timeZone,
+      undefined,
+      rowCapacity ?? undefined,
     );
     return chipCells.map((cell, i) => ({ ...cell, inMonth: days[i].inMonth }));
-  }, [days, groupedOccurrences, groupedAllDayOccurrences, timeZone]);
+  }, [days, groupedOccurrences, groupedAllDayOccurrences, timeZone, rowCapacity]);
 
   const weeks = useMemo(() => {
     const rows: MonthCellData[][] = [];
@@ -210,7 +231,7 @@ export function MonthView({
           </div>
         ))}
       </div>
-      <div className="month-view-grid">
+      <div className="month-view-grid" ref={gridRef}>
         {weeks.map((week, weekIndex) => (
           // eslint-disable-next-line react/no-array-index-key -- 週の並びは固定(monthGridWeeks が決定的に生成)
           <div className="month-view-week" key={weekIndex}>
@@ -379,6 +400,14 @@ export function MonthView({
               groupMembers={detail.chip.group.members}
               calendarLookup={calendarLookup}
               onClose={() => setDetail(null)}
+              onDelete={
+                (detailSubject as AllDayOccurrence).source === "google" &&
+                !isWorkingLocation(detailSubject as AllDayOccurrence) &&
+                (detailSubject as AllDayOccurrence).isMirror !== true
+                  ? () => onDelete(detailSubject as AllDayOccurrence)
+                  : undefined
+              }
+              deleteAsksGuestNotify={shouldAskGuestNotify(detailSubject as AllDayOccurrence)}
               timeZone={timeZone}
               editDraft={
                 isEditableEventSubject(detailSubject)

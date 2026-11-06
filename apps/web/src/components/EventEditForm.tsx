@@ -13,6 +13,8 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { EditScopeCancelledError } from "../sync/recurrenceScope";
+import { DEFAULT_AUTO_DECLINE } from "../sync/eventCreate";
+import { EventKindFields, type EventKindValue } from "./EventKindFields";
 
 /**
  * 書き込み先カレンダーの選択 (2026-07-29 全項目入力)。作成モードでのみ渡す ―― 既存予定の
@@ -124,6 +126,24 @@ export function EventEditForm({
     });
   }
 
+  const isOoo = isCreate && draft.eventType === "outOfOffice";
+  const kindValue: EventKindValue = {
+    kind: isOoo ? "outOfOffice" : "default",
+    autoDecline: draft.autoDecline ?? DEFAULT_AUTO_DECLINE,
+    declineMessage: draft.declineMessage ?? "",
+  };
+
+  function handleKindChange(next: EventKindValue) {
+    // 不在は終日にできない: 切り替えたら時刻予定へ戻す(終日 → 時刻の既定 9:00–10:00)
+    if (next.kind === "outOfOffice" && draft.isAllDay) handleToggleAllDay(false);
+    setDraft((prev) => ({
+      ...prev,
+      eventType: next.kind,
+      autoDecline: next.autoDecline,
+      declineMessage: next.declineMessage,
+    }));
+  }
+
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (validationError || submitting) return;
@@ -154,6 +174,7 @@ export function EventEditForm({
 
   return (
     <form className="event-edit-form" onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
+      {isCreate && <EventKindFields value={kindValue} onChange={handleKindChange} />}
       <label className="event-edit-field">
         <span className="event-edit-label">タイトル</span>
         <input
@@ -196,7 +217,7 @@ export function EventEditForm({
         />
       </label>
 
-      {canToggleAllDay && (
+      {canToggleAllDay && !isOoo && (
         <label className="event-edit-checkbox-field">
           <input
             type="checkbox"
@@ -291,13 +312,7 @@ export function EventEditForm({
           className="event-edit-save-btn"
           disabled={submitting || validationError !== null}
         >
-          {isCreate
-            ? submitting
-              ? "作成中…"
-              : "作成"
-            : submitting
-              ? "保存中…"
-              : "保存"}
+          {isCreate ? (submitting ? "作成中…" : "作成") : submitting ? "保存中…" : "保存"}
         </button>
         <button
           type="button"

@@ -10,12 +10,15 @@
 import { useCallback, useState } from "react";
 import type { IDBPDatabase } from "idb";
 import {
+  deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
+  putAllDayOccurrences,
   putOccurrence,
   putOverride,
   type KichijitsuDB,
 } from "../../db/database";
-import type { Occurrence } from "../../model/types";
+import type { AllDayOccurrence, Occurrence } from "../../model/types";
+import type { AllDayStore } from "../../store/allDayStore";
 import type { OccurrenceStore } from "../../store/occurrenceStore";
 import { buildEventDeleteRequest } from "../../sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "../../sync/guestNotify";
@@ -27,16 +30,18 @@ import { runDetached, snapshotOverride } from "./optimisticWrites";
 export function useDeleteOccurrence({
   db,
   store,
+  allDayStore,
   checkedFetch,
   flashSaveError,
 }: {
   db: IDBPDatabase<KichijitsuDB> | null;
   store: OccurrenceStore;
+  allDayStore: AllDayStore;
   checkedFetch: CheckedFetch;
   flashSaveError: () => void;
 }): {
-  deleteOccurrence: (occurrence: Occurrence) => void;
-  deleteConfirm: { occurrence: Occurrence } | null;
+  deleteOccurrence: (occurrence: Occurrence | AllDayOccurrence) => void;
+  deleteConfirm: { occurrence: Occurrence | AllDayOccurrence } | null;
   confirmDelete: (scope: RecurrenceScope, notify: GuestNotify) => void;
   cancelDelete: () => void;
 } {
@@ -46,7 +51,9 @@ export function useDeleteOccurrence({
    * 削除はポップオーバー内のインライン2段階確認だけで完了する (従来と同じ)。
    * moveConfirm と違い**まだ何も書き換えていない**ので、キャンセルは state を落とすだけ。
    */
-  const [deleteConfirm, setDeleteConfirm] = useState<{ occurrence: Occurrence } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ occurrence: Occurrence | AllDayOccurrence } | null>(
+    null,
+  );
 
   // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
   // から呼ばれる。occurrence を即座に store/IndexedDB から取り除き、シリーズ由来の
@@ -61,10 +68,37 @@ export function useDeleteOccurrence({
   // buildEventDeleteRequest の中の resolveSendUpdates が安全側 (externalOnly) に倒す
   // ―― 知らせる相手がいないのだから Google 側の結果は従来と1つも変わらない。
   const runDelete = useCallback(
-    (occurrence: Occurrence, notify?: GuestNotify) => {
+    (occurrence: Occurrence | AllDayOccurrence, notify?: GuestNotify) => {
       if (!db) return;
       runDetached("kichijitsu: failed to delete occurrence", async () => {
         if (!db) return;
+
+        // 終日予定 (2026-11-06): 入れ先のストアが違うだけで手順は同じ。終日は繰り返しを
+        // 持たない (seriesId が常に null) ので override には触れない
+        if (!("startMs" in occurrence)) {
+          const allDay = occurrence;
+          allDayStore.remove([allDay.id]);
+          await deleteAllDayOccurrencesByIds(db, [allDay.id]);
+
+          const req = buildEventDeleteRequest(allDay, notify);
+          let allDayOk = false;
+          if (req) {
+            ({ ok: allDayOk } = await postWriteBack(
+              checkedFetch,
+              "/api/event/delete",
+              req,
+              allDay.id,
+            ));
+          } else {
+            logSkippedWriteBack("EventDeleteRequest", allDay.id, "delete");
+          }
+          if (allDayOk) return;
+
+          allDayStore.update(allDay);
+          await putAllDayOccurrences(db, [allDay]);
+          flashSaveError();
+          return;
+        }
 
         const override = await snapshotOverride(db, occurrence);
 
@@ -97,7 +131,7 @@ export function useDeleteOccurrence({
         flashSaveError();
       });
     },
-    [db, store, checkedFetch, flashSaveError],
+    [db, store, allDayStore, checkedFetch, flashSaveError],
   );
 
   // ---- ゲストのいる予定の削除確認 (2026-07-31) ----
@@ -106,7 +140,7 @@ export function useDeleteOccurrence({
   // 一度に訊く (components/MoveConfirmDialog.tsx の purpose='delete')。
   // **判定は移動・編集と同じ shouldAskGuestNotify** ―― 削除用の条件は作らない。
   const deleteOccurrence = useCallback(
-    (occurrence: Occurrence) => {
+    (occurrence: Occurrence | AllDayOccurrence) => {
       if (shouldAskGuestNotify(occurrence)) {
         setDeleteConfirm({ occurrence });
         return;
