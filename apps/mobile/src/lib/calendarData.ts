@@ -9,6 +9,7 @@ import { expandSeries } from "@kichijitsu/web/expansion/expandSeries";
 import type { EventSeries, InstanceOverride } from "@kichijitsu/web/model/series";
 import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
 import { mapGoogleEvents } from "@kichijitsu/web/sync/mapGoogle";
+import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { apiFetch } from "./api";
 import { sessionFingerprint } from "./auth";
 import {
@@ -243,18 +244,113 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
   }
 }
 
+/**
+ * 繰り返しの展開結果のキャッシュ。
+ *
+ * 繰り返しの展開 (expandSeries) は、シリーズの開始日から 1 日ずつ数え上げるので、**表示する範囲の
+ * 長さによらず、1 回あたりが重い**(実測: 65 シリーズで約 900ms、開発モード)。以前は、日ごとに
+ * 展開していたため、月表示で 42 回 = 約 43 秒、週表示で約 6 秒止まっていた。
+ * そこで、(1) 表示範囲を 1 回の呼び出しにまとめ、(2) 約 6 か月ぶんの塊 (CHUNK) 単位で、シリーズごとに
+ * 結果を覚える。同期でシリーズや例外インスタンスが入れ替わったら、そのシリーズぶんだけ作り直す
+ * (読み込み直したオブジェクトは別物になるので、変わっていないカレンダーのキャッシュは生き残る)。
+ */
+const CHUNK_MS = 180 * 86_400_000;
+const CHUNK_MARGIN_MS = 86_400_000; // 塊の境目をまたぐ予定を取りこぼさない余白(重複は id で除く)
+const expandCache = new WeakMap<EventSeries, { sig: string; chunks: Map<number, Occurrence[]> }>();
+const objectIds = new WeakMap<object, number>();
+let nextObjectId = 1;
+const idOf = (o: object): number => {
+  let id = objectIds.get(o);
+  if (id === undefined) objectIds.set(o, (id = nextObjectId++));
+  return id;
+};
+
+function expandCached(
+  series: EventSeries,
+  overrides: InstanceOverride[],
+  startMs: number,
+  endMs: number,
+): Occurrence[] {
+  const sig = overrides.map(idOf).join(",");
+  let entry = expandCache.get(series);
+  if (!entry || entry.sig !== sig) {
+    entry = { sig, chunks: new Map() };
+    expandCache.set(series, entry);
+  }
+  const out: Occurrence[] = [];
+  const seen = new Set<string>();
+  for (let c = Math.floor(startMs / CHUNK_MS); c <= Math.floor((endMs - 1) / CHUNK_MS); c++) {
+    let chunk = entry.chunks.get(c);
+    if (!chunk) {
+      chunk = expandSeries({
+        series,
+        overrides,
+        windowStartMs: c * CHUNK_MS - CHUNK_MARGIN_MS,
+        windowEndMs: (c + 1) * CHUNK_MS + CHUNK_MARGIN_MS,
+      });
+      entry.chunks.set(c, chunk);
+    }
+    for (const o of chunk) {
+      if (!seen.has(o.id)) {
+        seen.add(o.id);
+        out.push(o);
+      }
+    }
+  }
+  return out;
+}
+
+/** シリーズごとの例外インスタンス。data.overrides の配列が同じ間は、作り直さない。 */
+const overridesIndex = new WeakMap<InstanceOverride[], Map<string, InstanceOverride[]>>();
+function overridesOf(data: CalendarData, seriesId: string): InstanceOverride[] {
+  let index = overridesIndex.get(data.overrides);
+  if (!index) {
+    index = new Map();
+    for (const ov of data.overrides) {
+      const list = index.get(ov.seriesId);
+      if (list) list.push(ov);
+      else index.set(ov.seriesId, [ov]);
+    }
+    overridesIndex.set(data.overrides, index);
+  }
+  return index.get(seriesId) ?? [];
+}
+
 /** [startMs, endMs) に重なる時刻予定 (単発 + 繰り返しの展開結果) を開始順に返す。 */
 export function occurrencesInRange(data: CalendarData, startMs: number, endMs: number): Occurrence[] {
-  const out = data.singles.filter((o) => o.startMs < endMs && o.endMs > startMs);
+  const t0 = Date.now();
+  const overlaps = (o: Occurrence) => o.startMs < endMs && o.endMs > startMs;
+  const out = data.singles.filter(overlaps);
   for (const series of data.series) {
-    const overrides = data.overrides.filter((ov) => ov.seriesId === series.id);
-    out.push(
-      ...expandSeries({ series, overrides, windowStartMs: startMs, windowEndMs: endMs }).filter(
-        (o) => o.startMs < endMs && o.endMs > startMs,
-      ),
+    out.push(...expandCached(series, overridesOf(data, series.id), startMs, endMs).filter(overlaps));
+  }
+  if (__DEV__) console.log(`PERF expand ${data.series.length} series ${Date.now() - t0}ms`);
+  return out.sort((a, b) => a.startMs - b.startMs || b.endMs - a.endMs);
+}
+
+/**
+ * 複数の日ぶんの時刻予定を、日付 (YYYY-MM-DD) ごとに分けて返す。範囲全体で 1 回だけ展開してから
+ * 日に振り分ける(日ごとに展開し直さない)。予定は、掛かる日すべてに入る。
+ */
+export function occurrencesByDay(
+  data: CalendarData,
+  days: Temporal.PlainDate[],
+  timeZone: string,
+): Map<string, Occurrence[]> {
+  const out = new Map<string, Occurrence[]>();
+  if (days.length === 0) return out;
+  const first = dayStartMs(days[0], timeZone);
+  const last = dayStartMs(days[days.length - 1].add({ days: 1 }), timeZone);
+  const all = occurrencesInRange(data, first, last);
+  for (const day of days) {
+    const start = dayStartMs(day, timeZone);
+    const end = dayStartMs(day.add({ days: 1 }), timeZone);
+    out.set(
+      day.toString(),
+      all.filter((o) => o.startMs < end && o.endMs > start),
     );
   }
-  return out.sort((a, b) => a.startMs - b.startMs || b.endMs - a.endMs);
+  return out;
 }
 
 /** 日付 (YYYY-MM-DD, 両端含む) が [dayStart, dayEnd) の日に掛かる終日予定。 */
