@@ -158,7 +158,15 @@ export function CalendarScreen({
               setForm(null);
               if (target) {
                 createEvent(draft, target, timeZone, onChange).catch((e) =>
-                  Alert.alert("作成できませんでした", "もう一度お試しください。\n" + String(e)),
+                  Alert.alert(
+                    draft.eventType === "outOfOffice" ? "不在を作成できませんでした" : "作成できませんでした",
+                    draft.eventType === "outOfOffice"
+                      ? // Google は、不在を Workspace(エンタープライズ)のカレンダー以外には作らせない
+                        // (個人の Gmail では 400 "can only be created on an enterprise calendar")
+                        "不在は、Google Workspace(職場・学校)アカウントのメインのカレンダーにだけ作れます。" +
+                        "個人の Gmail では作れません。"
+                      : "もう一度お試しください。\n" + String(e),
+                  ),
                 );
               }
               return;
