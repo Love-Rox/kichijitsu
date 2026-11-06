@@ -31,6 +31,11 @@ import {
   type RecurrenceScope,
 } from "@kichijitsu/web/sync/recurrenceScope";
 import { buildEventRsvpRequest } from "@kichijitsu/web/sync/eventRsvp";
+import {
+  applyGuestChangesLocally,
+  buildEventGuestsRequest,
+  type GuestChange,
+} from "@kichijitsu/web/sync/eventGuests";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import { ApiError, apiFetch } from "./api";
 import type { CalendarData } from "./calendarData";
@@ -338,4 +343,46 @@ export async function rsvp(
   apply((d) => ({ ...d, singles: d.singles.map((o) => (o.id === updated.id ? updated : o)) }));
   await upsertSingle(updated);
   return updated;
+}
+
+/** 手元(画面の状態と SQLite)に、単発の予定 1 件を書き込む。ゲスト編集の楽観更新とロールバックに使う。 */
+async function writeLocalSubject(subject: EventSubject, apply: ApplyChange): Promise<void> {
+  if (!isTimed(subject)) {
+    apply((d) => ({ ...d, allDays: d.allDays.map((a) => (a.id === subject.id ? subject : a)) }));
+    await upsertAllDay(subject);
+    return;
+  }
+  apply((d) => ({ ...d, singles: d.singles.map((o) => (o.id === subject.id ? subject : o)) }));
+  await upsertSingle(subject);
+}
+
+/**
+ * ゲストの追加・削除。Web 版と同じく、**楽観更新 + ロールバック**: 押した瞬間に一覧へ反映し、
+ * サーバーが拒否したら元に戻す。送るのは差分(追加/削除するメール)だけで、サーバーが read-modify-write
+ * する。主催者の単発予定だけが対象(canEditGuests)。招待は常に通知される(サーバー側で固定)。
+ * 反映後の予定を返す(押したあとの一覧をすぐ見せるため)。
+ */
+export async function editGuests(
+  subject: EventSubject,
+  change: GuestChange,
+  apply: ApplyChange,
+): Promise<EventSubject> {
+  const request = buildEventGuestsRequest(subject, change);
+  if (!request) throw new Error("この予定のゲストは変更できません");
+  const optimistic = { ...subject, attendees: applyGuestChangesLocally(subject.attendees, change) } as EventSubject;
+  await writeLocalSubject(optimistic, apply);
+  try {
+    const res = await apiFetch<{ ok: boolean }>("/api/event/guests", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    if (!res?.ok) throw new Error("サーバーがゲストの変更を受け付けませんでした");
+  } catch (e) {
+    await writeLocalSubject(subject, apply); // ロールバック
+    if (e instanceof ApiError && e.status === 422) {
+      throw new Error("主催者でない予定のゲストは変更できません");
+    }
+    throw e;
+  }
+  return optimistic;
 }
