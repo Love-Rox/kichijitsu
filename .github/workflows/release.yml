@@ -104,10 +104,11 @@ jobs:
         run: |
           set -euo pipefail
           dmg=$(jq -er '[.[] | select(endswith(".dmg"))][0]' <<<"$ARTIFACT_PATHS")
-          xcrun stapler validate "$dmg"
           mnt=$(mktemp -d)
           hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet
           trap 'hdiutil detach "$mnt" -quiet' EXIT
+          # tauri が公証して staple するのは DMG ではなく中の .app なので、検証対象も .app。
+          xcrun stapler validate "$mnt/kichijitsu.app"
           codesign --verify --deep --strict --verbose=2 "$mnt/kichijitsu.app"
           spctl --assess --type execute --verbose=2 "$mnt/kichijitsu.app"
 
