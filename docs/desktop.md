@@ -345,6 +345,31 @@ PR commit の author.login 絞り込み・null 除外・昇順ソート、など
 3. フロントエンド同梱（オフラインバイナリ）化は CORS + 認証方式の見直しが
    要るため、当面は今回のリモート URL 方式のまま運用する
 
+## 署名・公証と自動アップデート（2026-11-06〜、上の「署名回避」方針を置き換え）
+
+下の「Mac 配布」節は 2026-07-21 時点の**無署名運用**の記録。2026-11 に Apple Developer
+へ個人で契約し、方針を次のとおり変えた。
+
+- **署名・公証**: Developer ID Application で署名し、Apple の公証を受ける。`release.yml` が
+  GitHub secrets(`APPLE_*` 6 件)で行い、ビルド後に stapler / codesign / spctl で実ファイルを
+  検証する。公証チケットが付くのは DMG ではなく中の `.app`。
+- **自動アップデート**(`src-tauri/src/updater.rs`): 更新するのは**シェルだけ**(画面は Web を
+  デプロイすれば全員に届く)。起動 30 秒後と 6 時間おきに確認し、新しい版があれば取得して
+  適用し、通知する。再起動は強制せず、トレイ「アップデートを確認」で反映する。確認・適用は
+  Rust 側だけで行い、webview から呼べる IPC は作らない(capabilities にも `updater:*` を
+  与えない)。
+- **更新用の署名鍵**は Apple の証明書とは別物(minisign)。公開鍵は `tauri.conf.json` の
+  `plugins.updater.pubkey`、秘密鍵は GitHub secrets の `TAURI_SIGNING_PRIVATE_KEY`
+  (パスワードを付けた場合は `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)。**秘密鍵を失うと、
+  既存の利用者へ更新を出せなくなる**(新しい鍵のアプリを手動で入れ直してもらうしかない)。
+  必ずバックアップを取ること。
+- 配信先は `https://github.com/Love-Rox/kichijitsu/releases/latest/download/latest.json`。
+  `tauri-action` が `latest.json` を作り、`release.yml` の「Verify updater manifest」が
+  `darwin-aarch64` / `darwin-x86_64` の url と signature を確かめる。
+- 自動更新を入れる前に配った版(v0.1.11 まで)には更新機能が無い。一度だけ手動で入れ直す。
+- Homebrew cask は `auto_updates true`。自動更新と二重にならないよう、`brew upgrade` は
+  既定では更新しない(`--greedy` で更新)。
+
 ## Mac 配布: Homebrew cask + 署名回避（2026-07-21 ユーザー決定）
 
 - **配布は Homebrew cask（自前 tap）**。Apple の署名・公証（Developer Program 有料 + notarization）は**行わない**（無料運用）。

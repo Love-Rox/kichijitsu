@@ -44,6 +44,10 @@
 // verifier を webview に踏ませる」の3つだけ（下記 open_external_login /
 // handle_auth_deep_link）。
 
+// 自動アップデート(デスクトップ専用、updater.rs 冒頭のコメント参照)
+#[cfg(desktop)]
+mod updater;
+
 use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
@@ -799,8 +803,10 @@ pub fn run() {
             // --- トレイ常駐 ---
             let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
             let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
+            let update_i =
+                MenuItem::with_id(app, "update", "アップデートを確認", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -811,6 +817,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "toggle" => toggle_main_window(app),
                     "reload" => reload_main_window(app),
+                    "update" => updater::spawn_manual_check(app.clone()),
                     // アプリの唯一の真の終了経路。tauri-plugin-window-state は
                     // 既定でウィンドウ破棄時にしか状態を保存しないが、この
                     // アプリは「閉じる」でウィンドウを破棄しない(下記
@@ -835,6 +842,18 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // --- 自動アップデート ---
+            // プラグインの登録・状態の保持・定期確認。webview から呼べる IPC は作らず、
+            // 確認と適用は Rust 側だけで行う(updater.rs 冒頭のコメント参照)。
+            // 署名の公開鍵と配信先は tauri.conf.json の plugins.updater。
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.manage(updater::UpdateState::default());
+                updater::spawn_periodic_check(app.handle().clone());
+            }
 
             // --- グローバルショートカット ---
             // モバイルには存在しないプラグインなので #[cfg(desktop)] で囲む

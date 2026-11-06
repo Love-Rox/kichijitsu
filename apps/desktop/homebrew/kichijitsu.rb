@@ -24,18 +24,19 @@ cask "kichijitsu" do
     strategy :github_latest
   end
 
+  # アプリ自身が起動中に更新を確認して自動で差し替える(apps/desktop/src-tauri/src/updater.rs)。
+  # 宣言しておくと、`brew upgrade` が自動更新するアプリを重ねて更新しなくなる
+  # (更新したいときは `brew upgrade --greedy`)。
+  auto_updates true
+
   depends_on macos: :ventura
 
   app "kichijitsu.app"
 
   caveats <<~EOS
-    kichijitsu は無署名で配布されています。Gatekeeper が初回起動をブロックするため、
-    インストール後に隔離属性を外してください:
-      xattr -rd com.apple.quarantine #{appdir}/kichijitsu.app
-    (外さない場合は、初回起動がブロックされたら
-     システム設定 → プライバシーとセキュリティ → 「このまま開く」)
-    ※ Homebrew 6 はダウンロードをサンドボックスで実行するため、
-      従来の --no-quarantine 指定では隔離を回避できません。
+    kichijitsu は Developer ID で署名し、Apple の公証を受けています。
+    起動中に自動で更新を確認し、新しい版を見つけると、取得してから通知します。
+    トレイのメニュー「アップデートを確認」で再起動すると反映されます。
 
     認証に GitHub CLI を使用します: brew install gh && gh auth login
   EOS

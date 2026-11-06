@@ -53,9 +53,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # アップデータ用の署名鍵。無いと tauri は更新用の成果物(.sig / latest.json)を作らず、
+          # 自動アップデートが黙って配られなくなる。パスワードは鍵を無パスワードで作った場合に空。
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           missing=0
-          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY; do
             if [ -z "${!k}" ]; then echo "::error::secrets.$k が未設定です"; missing=1; fi
           done
           exit $missing
@@ -75,6 +78,10 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # 自動アップデート(tauri-plugin-updater)の署名鍵。公開鍵は tauri.conf.json の
+          # plugins.updater.pubkey。tauri-action が latest.json もリリースへ上げる。
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           # ワークスペースなので apps/desktop 直下にロックファイルが無く、tauri-action が
@@ -111,6 +118,22 @@ jobs:
           xcrun stapler validate "$mnt/kichijitsu.app"
           codesign --verify --deep --strict --verbose=2 "$mnt/kichijitsu.app"
           spctl --assess --type execute --verbose=2 "$mnt/kichijitsu.app"
+
+      # 自動アップデートの配信物を確かめる。latest.json が無い・署名が空だと、既存の利用者へ
+      # 更新が届かないのにリリースだけ成功して見える。
+      - name: Verify updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          gh release download "$TAG_NAME" --pattern latest.json --dir "$dir"
+          for platform in darwin-aarch64 darwin-x86_64; do
+            jq -e --arg p "$platform" '.platforms[$p] | (.url | length > 0) and (.signature | length > 0)' "$dir/latest.json" >/dev/null \
+              || { echo "::error::latest.json の $platform に url / signature がありません"; exit 1; }
+          done
+          echo "latest.json: version=$(jq -r .version "$dir/latest.json")"
 
       # Love-Rox/homebrew-tap の Casks/kichijitsu.rb を更新する。
       # 手作業だと忘れたときに「リリースは出ているのに brew では古いまま」という、
