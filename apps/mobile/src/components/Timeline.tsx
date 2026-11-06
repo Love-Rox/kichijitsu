@@ -9,24 +9,26 @@ import { allDaysOnDate, occurrencesInRange, type CalendarData } from "../lib/cal
 import type { EventSubject } from "../lib/mutations";
 
 /**
- * 3日表示のタイムライン (モバイルの既定ビュー)。
+ * 日 / 3日 / 週 のタイムライン (3日がモバイルの既定ビュー)。表示する日数は dayCount で決まる。
  * 予定の変換・繰り返し展開・重なり配置は Web 版と同じロジック (apps/web/src) をそのまま使う。
  */
 const HOUR_HEIGHT = 52;
 const GUTTER = 40;
-const DAYS = 3;
 /** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する範囲 (Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの) */
 const HEADER_WINDOW_MS = 36 * 60_000;
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
-export function ThreeDayTimeline({
+export function Timeline({
   data,
   start,
+  dayCount,
   today,
   timeZone,
   onSelect,
 }: {
   data: CalendarData;
+  /** 表示する日数 (1 = 日、3 = 3日、7 = 週)。 */
+  dayCount: number;
   start: Temporal.PlainDate;
   today: Temporal.PlainDate;
   timeZone: string;
@@ -34,9 +36,12 @@ export function ThreeDayTimeline({
 }) {
   const t = useTheme();
 
+  /** 列が狭い表示(週)かどうか。予定の文字・余白を詰める。 */
+  const compact = dayCount >= 5;
+
   const days = useMemo(
-    () => Array.from({ length: DAYS }, (_, i) => start.add({ days: i })),
-    [start],
+    () => Array.from({ length: dayCount }, (_, i) => start.add({ days: i })),
+    [start, dayCount],
   );
 
   const columns = useMemo(() => {
@@ -179,16 +184,21 @@ export function ThreeDayTimeline({
                       left: `${slot.leftFrac * 100}%`,
                       width: `${slot.widthFrac * 100}%`,
                       zIndex: slot.stackIndex,
-                      paddingHorizontal: 3,
+                      paddingHorizontal: compact ? 1 : 3,
                       paddingVertical: 1,
-                      borderLeftWidth: 3,
+                      borderLeftWidth: compact ? 2 : 3,
                       borderLeftColor: o.isOutOfOffice ? t.uiInkFaint : o.color,
                       borderRadius: 4,
                       backgroundColor: o.isOutOfOffice ? `${t.uiInkFaint}40` : t.eventBg(o.color),
                       overflow: "hidden",
                     }}
                   >
-                    <Text numberOfLines={height > 36 ? 2 : 1} style={{ fontSize: 11, color: t.ink }}>
+                    <Text
+                      // 行数は、ブロックの高さに収まる分だけ(狭い列で、1 文字ずつ折り返されて
+                      // 縦に伸びすぎないように)。週表示は、列が狭いので文字も小さくする
+                      numberOfLines={Math.max(1, Math.floor((height - 2) / (compact ? 12 : 14)))}
+                      style={{ fontSize: compact ? 9.5 : 11, lineHeight: compact ? 12 : 14, color: t.ink }}
+                    >
                       {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
                     </Text>
                   </Pressable>

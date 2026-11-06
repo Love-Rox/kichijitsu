@@ -23,9 +23,18 @@ import {
 import { EventDetailSheet } from "./EventDetailSheet";
 import { EventFormSheet, type FormTarget } from "./EventFormSheet";
 import { MonthAgenda } from "./MonthAgenda";
-import { ThreeDayTimeline } from "./ThreeDayTimeline";
+import { mondayOf } from "@kichijitsu/web/layout/monthGrid";
+import { Timeline } from "./Timeline";
 
-type View3 = "3day" | "month";
+type ViewKind = "day" | "3day" | "week" | "month";
+const VIEWS: [ViewKind, string][] = [
+  ["day", "日"],
+  ["3day", "3日"],
+  ["week", "週"],
+  ["month", "月"],
+];
+/** タイムライン系のビューが一度に出す日数。 */
+const DAY_COUNT: Record<Exclude<ViewKind, "month">, number> = { day: 1, "3day": 3, week: 7 };
 
 const SCOPE_LABELS: Record<RecurrenceScope, string> = { this: "この予定のみ", all: "すべての予定" };
 
@@ -62,8 +71,9 @@ export function CalendarScreen({
   const t = useTheme();
   const timeZone = useMemo(() => Temporal.Now.timeZoneId(), []);
   const today = useMemo(() => Temporal.Now.plainDateISO(timeZone), [timeZone]);
-  const [view, setView] = useState<View3>("3day");
-  // 3日表示では先頭日、月表示では表示中の月(と、選んだ日)を兼ねる
+  const [view, setView] = useState<ViewKind>("3day");
+  // 表示の基準日。日・3日では先頭日、週ではその週(月曜始まり)、月では表示中の月を決める。
+  // 月表示では、これとは別に、選んだ日 (selected) を持つ
   const [anchor, setAnchor] = useState(today);
   const [selected, setSelected] = useState(today);
   const [detail, setDetail] = useState<EventSubject | null>(null);
@@ -92,7 +102,14 @@ export function CalendarScreen({
 
   /** 作成の初期の開始: 表示中の日が今日なら次の正時、それ以外ならその日の 9 時。 */
   const openForm = () => {
-    const day = view === "3day" ? (anchor.until(today).days >= 0 && anchor.until(today).days < 3 ? today : anchor) : selected;
+    // タイムライン系は、今日が表示範囲に入っていれば今日、なければ先頭日。月表示は、選んだ日
+    const day =
+      view === "month"
+        ? selected
+        : (() => {
+            const offset = timelineStart.until(today).days;
+            return offset >= 0 && offset < DAY_COUNT[view] ? today : timelineStart;
+          })();
     const now = Date.now();
     const start = day.equals(today)
       ? Math.ceil(now / 3_600_000) * 3_600_000
@@ -100,8 +117,20 @@ export function CalendarScreen({
     setForm({ mode: "create", startMs: start });
   };
 
+  // タイムラインの先頭日: 週は、基準日を含む週の月曜
+  const timelineStart = view === "week" ? mondayOf(anchor) : anchor;
+
   const move = (dir: 1 | -1) => {
-    setAnchor((a) => (view === "3day" ? a.add({ days: 3 * dir }) : a.add({ months: dir }).with({ day: 1 })));
+    setAnchor((a) => (view === "month" ? a.add({ months: dir }).with({ day: 1 }) : a.add({ days: DAY_COUNT[view] * dir })));
+  };
+  /** ビューの切り替え。月表示で選んでいた日を、他のビューの基準日として引き継ぐ。 */
+  const changeView = (next: ViewKind) => {
+    if (view === "month" && next !== "month") setAnchor(selected);
+    if (view !== "month" && next === "month") {
+      setAnchor(timelineStart);
+      setSelected(timelineStart);
+    }
+    setView(next);
   };
   const goToday = () => {
     setAnchor(today);
@@ -121,17 +150,17 @@ export function CalendarScreen({
           <Text style={{ fontSize: 22 }}>›</Text>
         </Pressable>
         <Text style={{ fontSize: 15, fontWeight: "600" }}>
-          {anchor.year}年{anchor.month}月
+          {timelineStart.year}年{timelineStart.month}月
         </Text>
         <Pressable onPress={openForm} hitSlop={8} style={{ marginLeft: "auto" }}>
           <Text style={{ fontSize: 24, color: t.accent }}>＋</Text>
         </Pressable>
         <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: t.line, overflow: "hidden" }}>
-          {([["3day", "3日"], ["month", "月"]] as const).map(([v, label]) => (
+          {VIEWS.map(([v, label]) => (
             <Pressable
               key={v}
-              onPress={() => setView(v)}
-              style={{ paddingHorizontal: 12, paddingVertical: 4, backgroundColor: view === v ? t.accent : undefined }}
+              onPress={() => changeView(v)}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: view === v ? t.accent : undefined }}
             >
               <Text style={{ fontSize: 13, color: view === v ? t.onAccent : t.inkMute }}>{label}</Text>
             </Pressable>
@@ -139,10 +168,11 @@ export function CalendarScreen({
         </View>
       </View>
 
-      {view === "3day" ? (
-        <ThreeDayTimeline
+      {view !== "month" ? (
+        <Timeline
           data={data}
-          start={anchor}
+          start={timelineStart}
+          dayCount={DAY_COUNT[view]}
           today={today}
           timeZone={timeZone}
           onSelect={setDetail}
