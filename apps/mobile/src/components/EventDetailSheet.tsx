@@ -3,7 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { useState } from "react";
 import { Alert, Linking, Modal, Pressable, ScrollView, View } from "react-native";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import { Text } from "./ui";
+import { Text, TextInput } from "./ui";
 import {
   detectMeetingProvider,
   meetingLocationLabel,
@@ -16,6 +16,12 @@ import {
   GUEST_STATUS_LABEL,
 } from "@kichijitsu/web/layout/guestList";
 import type { GuestNotify } from "@kichijitsu/web/sync/guestNotify";
+import {
+  canEditGuests,
+  parseGuestEmailInput,
+  type GuestChange,
+  type GuestEmailError,
+} from "@kichijitsu/web/sync/eventGuests";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
 
@@ -28,6 +34,7 @@ export function EventDetailSheet({
   onEdit,
   onDelete,
   onRsvp,
+  onEditGuests,
 }: {
   subject: EventSubject | null;
   timeZone: string;
@@ -38,6 +45,8 @@ export function EventDetailSheet({
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
   /** 自分の出欠の変更。反映後の予定を返す(押したボタンの状態をすぐ見せるため)。失敗したら例外。 */
   onRsvp: (subject: EventSubject, status: RsvpResponseStatus) => Promise<EventSubject>;
+  /** ゲストの追加・削除。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
+  onEditGuests: (subject: EventSubject, change: GuestChange) => Promise<EventSubject>;
 }) {
   const t = useTheme();
   // 出欠を変えた後の予定。開いている予定と同じものなら、こちらを表示に使う
@@ -56,6 +65,31 @@ export function EventDetailSheet({
     } finally {
       setRsvpBusy(false);
     }
+  };
+  const [guestInput, setGuestInput] = useState("");
+  const [guestError, setGuestError] = useState<string | null>(null);
+  const [guestBusy, setGuestBusy] = useState(false);
+  const changeGuests = async (change: GuestChange) => {
+    if (!view || guestBusy) return;
+    setGuestBusy(true);
+    setGuestError(null);
+    try {
+      setUpdated(await onEditGuests(view, change));
+      setGuestInput("");
+    } catch (e) {
+      setGuestError(String((e as Error).message ?? e));
+    } finally {
+      setGuestBusy(false);
+    }
+  };
+  const addGuest = () => {
+    if (!view) return;
+    const parsed = parseGuestEmailInput(guestInput, view.attendees);
+    if (!parsed.ok) {
+      setGuestError(GUEST_EMAIL_ERROR_TEXT[parsed.reason]);
+      return;
+    }
+    void changeGuests({ addEmails: [parsed.email] });
   };
   const run = async (s: EventSubject, notify: GuestNotify | undefined) => {
     onClose();
@@ -93,6 +127,60 @@ export function EventDetailSheet({
       })()
     : undefined;
   const guests = view ? buildGuestListView(view.attendees, view.attendeesOmitted) : null;
+  // 主催者の単発予定だけ、ゲストを追加・削除できる(Web 版と同じ条件)
+  const editableGuests = view ? canEditGuests(view) : false;
+  const confirmRemoveGuest = (label: string, email: string) =>
+    Alert.alert("ゲストを外しますか?", label, [
+      { text: "キャンセル", style: "cancel" },
+      { text: "外す", style: "destructive", onPress: () => void changeGuests({ removeEmails: [email] }) },
+    ]);
+
+  const guestAddUi = editableGuests ? (
+                  <View style={{ marginTop: 10 }}>
+                    <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                      <TextInput
+                        value={guestInput}
+                        onChangeText={(v) => {
+                          setGuestInput(v);
+                          setGuestError(null);
+                        }}
+                        placeholder="ゲストのメールアドレス"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        onSubmitEditing={addGuest}
+                        style={{
+                          flex: 1,
+                          borderWidth: 1,
+                          borderColor: t.line,
+                          borderRadius: 8,
+                          paddingHorizontal: 10,
+                          paddingVertical: 7,
+                        }}
+                      />
+                      <Pressable
+                        onPress={addGuest}
+                        disabled={guestBusy}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          backgroundColor: t.accent,
+                          opacity: guestBusy ? 0.5 : 1,
+                        }}
+                      >
+                        <Text style={{ color: t.onAccent, fontWeight: "700" }}>追加</Text>
+                      </Pressable>
+                    </View>
+                    {guestError ? (
+                      <Text style={{ marginTop: 6, fontSize: 12, color: t.accent }}>{guestError}</Text>
+                    ) : null}
+                    <Text style={{ marginTop: 6, fontSize: 11, color: t.inkSub }}>
+                      追加すると、そのゲストに招待が送られます。
+                    </Text>
+                  </View>
+                
+  ) : null;
 
   return (
     <Modal
@@ -184,14 +272,27 @@ export function EventDetailSheet({
                 ) : null}
                 {(showAllGuests ? guests.guests : guests.guests.slice(0, GUEST_PREVIEW_COUNT)).map((g) => (
                   <View key={g.key} style={{ paddingVertical: 6 }}>
-                    <Text numberOfLines={1}>
-                      {g.label}
-                      {g.note ? `(${g.note})` : ""}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: t.inkSub }} numberOfLines={1}>
-                      {GUEST_STATUS_LABEL[g.responseStatus]}
-                      {g.subLabel ? ` ・ ${g.subLabel}` : ""}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1}>
+                          {g.label}
+                          {g.note ? `(${g.note})` : ""}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: t.inkSub }} numberOfLines={1}>
+                          {GUEST_STATUS_LABEL[g.responseStatus]}
+                          {g.subLabel ? ` ・ ${g.subLabel}` : ""}
+                        </Text>
+                      </View>
+                      {editableGuests && g.removable && g.email ? (
+                        <Pressable
+                          hitSlop={8}
+                          disabled={guestBusy}
+                          onPress={() => confirmRemoveGuest(g.label, g.email!)}
+                        >
+                          <Text style={{ color: t.accent, opacity: guestBusy ? 0.4 : 1 }}>外す</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
                 ))}
                 {guests.guests.length > GUEST_PREVIEW_COUNT ? (
@@ -201,11 +302,17 @@ export function EventDetailSheet({
                     </Text>
                   </Pressable>
                 ) : null}
+                {guestAddUi}
                 {guests.rooms.length > 0 ? (
                   <Text style={{ fontSize: 12, color: t.inkSub, marginTop: 4 }}>
                     会議室: {guests.rooms.join("、")}
                   </Text>
                 ) : null}
+              </View>
+            ) : editableGuests ? (
+              <View style={{ marginTop: 20 }}>
+                <Text style={{ fontWeight: "600" }}>ゲスト</Text>
+                {guestAddUi}
               </View>
             ) : null}
             {description ? (
@@ -232,6 +339,15 @@ export function EventDetailSheet({
     </Modal>
   );
 }
+
+/** 入力の弾き方。理由ごとに直し方が違うので、文を分ける。 */
+const GUEST_EMAIL_ERROR_TEXT: Record<GuestEmailError, string> = {
+  empty: "メールアドレスを入力してください",
+  invalid: "メールアドレスの形になっていません",
+  tooLong: "メールアドレスが長すぎます",
+  duplicate: "すでにゲストに入っています",
+  self: "自分自身は追加できません",
+};
 
 function whenLabel(s: EventSubject, timeZone: string): string {
   if (isTimed(s)) {
