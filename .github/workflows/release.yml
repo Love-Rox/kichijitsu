@@ -43,12 +43,38 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # secret が欠けると tauri は署名を黙って飛ばし、無署名の DMG をそのままリリースしてしまう。
+      # 「署名したつもりで未署名」を避けるため、ビルド前に必須 secret の存在を確認する。
+      - name: Check Apple signing secrets
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!k}" ]; then echo "::error::secrets.$k が未設定です"; missing=1; fi
+          done
+          exit $missing
+
       - uses: tauri-apps/tauri-action@v0.6.2
         # 後段の cask 更新が artifactPaths 出力 (アップロードした実ファイルのパス) を
         # 参照するため id を振る。
         id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Developer ID Application 証明書による署名と Apple の公証 (notarization)。
+          # tauri が APPLE_CERTIFICATE から一時キーチェーンを作って署名し、
+          # APPLE_ID / APPLE_PASSWORD (App 用パスワード) / APPLE_TEAM_ID で公証・staple まで行う。
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
           # ワークスペースなので apps/desktop 直下にロックファイルが無く、tauri-action が
@@ -63,17 +89,27 @@ jobs:
             brew install --cask love-rox/tap/kichijitsu
             brew upgrade --cask kichijitsu
             ```
-            ※ 無署名配布のため、初回起動が Gatekeeper にブロックされた場合は隔離属性を外してください:
-            ```
-            xattr -rd com.apple.quarantine "/Applications/kichijitsu.app"
-            ```
-            （外さない場合は、システム設定 → プライバシーとセキュリティ → 「このまま開く」でも起動できます）
+            ※ Developer ID で署名し Apple の公証を受けています。
 
             cask のインストールには GitHub CLI の認証が必要です: `brew install gh && gh auth login`
 
             **DMG を直接ダウンロードする場合**
             下の `kichijitsu_*_universal.dmg` を使用してください。
           args: --target universal-apple-darwin
+
+      # 配布物が本当に署名・公証済みか、実ファイルで確かめる。失敗ならリリースを失敗扱いにする。
+      - name: Verify signature and notarization
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          dmg=$(jq -er '[.[] | select(endswith(".dmg"))][0]' <<<"$ARTIFACT_PATHS")
+          xcrun stapler validate "$dmg"
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet
+          trap 'hdiutil detach "$mnt" -quiet' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mnt/kichijitsu.app"
+          spctl --assess --type execute --verbose=2 "$mnt/kichijitsu.app"
 
       # Love-Rox/homebrew-tap の Casks/kichijitsu.rb を更新する。
       # 手作業だと忘れたときに「リリースは出ているのに brew では古いまま」という、
