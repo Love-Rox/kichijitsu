@@ -30,7 +30,9 @@ import {
   isSeriesInstance,
   type RecurrenceScope,
 } from "@kichijitsu/web/sync/recurrenceScope";
-import { apiFetch } from "./api";
+import { buildEventRsvpRequest } from "@kichijitsu/web/sync/eventRsvp";
+import type { RsvpResponseStatus } from "@kichijitsu/shared";
+import { ApiError, apiFetch } from "./api";
 import type { CalendarData } from "./calendarData";
 import {
   removeAllDay,
@@ -289,4 +291,51 @@ export async function saveEdit(
   }
   apply((d) => ({ ...d, singles: [...d.singles.filter((o) => o.id !== nextOcc.id), nextOcc] }));
   await upsertSingle(nextOcc);
+}
+
+/**
+ * 自分の出欠を変える(参加 / 未定 / 不参加)。Web 版と同じ「保存ボタン方式」: サーバーが受け付けて
+ * から手元へ反映する。招待されていない予定は 422 になるので、専用のメッセージにする。
+ * 反映後の予定を返す(詳細シートが、押したボタンの状態を、すぐ見せられるように)。
+ */
+export async function rsvp(
+  subject: EventSubject,
+  status: RsvpResponseStatus,
+  apply: ApplyChange,
+  data: CalendarData,
+): Promise<EventSubject> {
+  const request = buildEventRsvpRequest(subject, status);
+  if (!request) throw new Error("この予定には返信できません");
+  try {
+    const res = await apiFetch<{ ok: boolean }>("/api/event/rsvp", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    if (!res?.ok) throw new Error("サーバーが返信を受け付けませんでした");
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 422) {
+      throw new Error("招待されていない予定には返信できません");
+    }
+    throw e;
+  }
+
+  // ---- ここまで来たら書き戻しは成功済み。手元へ反映する ----
+  const updated = { ...subject, responseStatus: status } as EventSubject;
+  if (!isTimed(updated)) {
+    apply((d) => ({ ...d, allDays: d.allDays.map((a) => (a.id === updated.id ? updated : a)) }));
+    await upsertAllDay(updated);
+    return updated;
+  }
+  const ref = resolveOverrideRef(subject as Occurrence);
+  if (ref) {
+    // 繰り返しの1回分: 例外インスタンス (override) に返信を残す(再展開で元に戻らないように)
+    const existing = data.overrides.find((o) => o.id === ref.id) ?? null;
+    const merged = mergeOverridePatch({ ref, existing, fields: { responseStatus: status } });
+    apply((d) => ({ ...d, overrides: [...d.overrides.filter((o) => o.id !== merged.id), merged] }));
+    await upsertOverride(merged);
+    return updated;
+  }
+  apply((d) => ({ ...d, singles: d.singles.map((o) => (o.id === updated.id ? updated : o)) }));
+  await upsertSingle(updated);
+  return updated;
 }

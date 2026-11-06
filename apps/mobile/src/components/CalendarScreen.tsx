@@ -14,6 +14,7 @@ import {
   createEvent,
   deleteEvent,
   isTimed,
+  rsvp,
   saveEdit,
   type ApplyChange,
   type AskScope,
@@ -211,6 +212,7 @@ export function CalendarScreen({
           setForm({ mode: "edit", subject });
         }}
         onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
+        onRsvp={(subject, status) => rsvp(subject, status, onChange, data)}
       />
     </View>
   );
