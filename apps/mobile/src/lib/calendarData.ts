@@ -26,14 +26,22 @@ export interface CalendarData {
 
 const DEVICE_ID = "mobile-spike";
 
+/** 開発用の計測ログ。Metro のログに `PERF label ms` で出る。 */
+async function timed<T>(label: string, run: () => Promise<T> | T): Promise<T> {
+  const t0 = Date.now();
+  const result = await run();
+  if (__DEV__) console.log(`PERF ${label} ${Date.now() - t0}ms`);
+  return result;
+}
+
 export async function loadCalendarData(): Promise<CalendarData | null> {
-  const me = await apiFetch<MeResponse>("/api/me");
+  const me = await timed("me", () => apiFetch<MeResponse>("/api/me"));
   if (!me || !me.connected || me.accounts.length === 0) return null;
   const account = me.accounts[0];
 
   const calendars =
-    (await apiFetch<CalendarListEntryDTO[]>(
-      `/api/calendars?accountId=${encodeURIComponent(account.id)}`,
+    (await timed("calendars", () =>
+      apiFetch<CalendarListEntryDTO[]>(`/api/calendars?accountId=${encodeURIComponent(account.id)}`),
     )) ?? [];
   const visibleIds = me.visibleCalendars[account.id];
   const targets = calendars.filter((c) =>
@@ -47,22 +55,32 @@ export async function loadCalendarData(): Promise<CalendarData | null> {
     series: [],
     overrides: [],
   };
-  for (const cal of targets) {
-    const sync = await apiFetch<SyncResponse>("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({
-        accountId: account.id,
-        calendarId: cal.id,
-        deviceId: DEVICE_ID,
-        forceFull: true,
-      }),
-    });
-    const events: GoogleEventDTO[] = sync?.events ?? [];
-    const mapped = mapGoogleEvents(events, {
-      accountId: account.id,
-      calendarId: cal.id,
-      defaultColor: cal.backgroundColor,
-    });
+  // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる。
+  // 計測: 9 カレンダーの合計 約 17 秒のうち、サーバーの同期が約 14 秒で、最大の 1 件が約 6 秒)。
+  const results = await Promise.all(
+    targets.map(async (cal) => {
+      const sync = await timed(`sync ${cal.summary}`, () =>
+        apiFetch<SyncResponse>("/api/sync", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: account.id,
+            calendarId: cal.id,
+            deviceId: DEVICE_ID,
+            forceFull: true,
+          }),
+        }),
+      );
+      const events: GoogleEventDTO[] = sync?.events ?? [];
+      return timed(`map ${cal.summary} (${events.length} events)`, () =>
+        mapGoogleEvents(events, {
+          accountId: account.id,
+          calendarId: cal.id,
+          defaultColor: cal.backgroundColor,
+        }),
+      );
+    }),
+  );
+  for (const mapped of results) {
     data.singles.push(...mapped.singles);
     data.allDays.push(...mapped.allDays);
     data.series.push(...mapped.series);
