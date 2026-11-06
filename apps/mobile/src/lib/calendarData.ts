@@ -34,7 +34,19 @@ async function timed<T>(label: string, run: () => Promise<T> | T): Promise<T> {
   return result;
 }
 
-export async function loadCalendarData(): Promise<CalendarData | null> {
+/** 読み込みの進み具合 (画面の「読み込み中」表示用)。 */
+export interface LoadProgress {
+  /** いま何をしているか */
+  phase: "account" | "calendars" | "sync";
+  /** sync のとき: 完了したカレンダー数 / 全体 */
+  done: number;
+  total: number;
+}
+
+export async function loadCalendarData(
+  onProgress?: (p: LoadProgress) => void,
+): Promise<CalendarData | null> {
+  onProgress?.({ phase: "account", done: 0, total: 0 });
   const me = await timed("me", () => apiFetch<MeResponse>("/api/me"));
   if (!me || !me.connected || me.accounts.length === 0) return null;
   const account = me.accounts[0];
@@ -43,6 +55,7 @@ export async function loadCalendarData(): Promise<CalendarData | null> {
     (await timed("calendars", () =>
       apiFetch<CalendarListEntryDTO[]>(`/api/calendars?accountId=${encodeURIComponent(account.id)}`),
     )) ?? [];
+  onProgress?.({ phase: "calendars", done: 0, total: 0 });
   const visibleIds = me.visibleCalendars[account.id];
   const targets = calendars.filter((c) =>
     visibleIds && visibleIds.length > 0 ? visibleIds.includes(c.id) : c.primary,
@@ -55,6 +68,8 @@ export async function loadCalendarData(): Promise<CalendarData | null> {
     series: [],
     overrides: [],
   };
+  let done = 0;
+  onProgress?.({ phase: "sync", done, total: targets.length });
   // カレンダーごとの同期は互いに独立なので並行して取る(直列だと待ち時間が足し算になる。
   // 計測: 9 カレンダーの合計 約 17 秒のうち、サーバーの同期が約 14 秒で、最大の 1 件が約 6 秒)。
   const results = await Promise.all(
@@ -71,13 +86,16 @@ export async function loadCalendarData(): Promise<CalendarData | null> {
         }),
       );
       const events: GoogleEventDTO[] = sync?.events ?? [];
-      return timed(`map ${cal.summary} (${events.length} events)`, () =>
+      const mapped = await timed(`map ${cal.summary} (${events.length} events)`, () =>
         mapGoogleEvents(events, {
           accountId: account.id,
           calendarId: cal.id,
           defaultColor: cal.backgroundColor,
         }),
       );
+      done += 1;
+      onProgress?.({ phase: "sync", done, total: targets.length });
+      return mapped;
     }),
   );
   for (const mapped of results) {
