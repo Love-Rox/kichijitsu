@@ -91,3 +91,10 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - 同期完了・編集・前面復帰・設定変更のたびに、予約を丸ごと作り直す(1.5 秒待ってから)。14 日先まで、iOS の上限 64 件に収まるよう直近 60 件。
 - 終日・不在・不参加の予定は通知しない。通知時刻が過ぎた予定は予約しない。ログアウトで予約を全消去。
 - 設定(オン/オフ、何分前か)はこの端末だけ(meta: `notifyEnabled` / `notifyLeadMinutes`)。既定はオフ、オンにした時に許可を求める。
+
+## ホーム画面ウィジェット
+- `apps/mobile/targets/widget/`(Swift / WidgetKit)。`@bacons/apple-targets` の config plugin が、`prebuild --clean` のたびに ios/ へターゲットを生成する(ios/ は生成物でコミットしない)。
+- データ: アプリ(JS)が `src/lib/widgetSync.ts` で、直近 7 日・12 件の予定(終日・不在・不参加を除く)を、App Group `group.cc.love-rox.kichijitsu` の UserDefaults("events" に JSON)へ書き、ウィジェットを再読み込みさせる。通知の予約と同じ契機(同期・編集・前面復帰)で更新。
+- ログアウトでは `clearWidget()` で空にする(ロック画面・ホーム画面に予定の題が残らないように)。
+- サイズは小(直近 2 件)・中(直近 4 件)。予定の開始・終了の時刻で表示が切り替わる。
+- 署名: ウィジェット用の App ID(`cc.love-rox.kichijitsu.widget`)と App Group の登録が要る。Apple ID でサインインした Xcode に任せる(`xcodebuild ... -allowProvisioningUpdates`、API キー無し)と自動で登録される。**権限の低い API キーでは作れない**。
