@@ -37,7 +37,7 @@
   border: 1px solid var(--c-github);
   border-radius: 999px;
   padding: 0 5px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   font-weight: 600;
   color: var(--c-github);
@@ -48,7 +48,7 @@
 /* 単位は数字より一段落として、パッと見は件数そのものが目に入るようにする */
 .github-collapsed-count-unit {
   margin-left: 1px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 400;
 }
 
@@ -90,7 +90,7 @@
 
 .github-milestone-diamond {
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--c-github);
 }
 
@@ -109,7 +109,7 @@
   white-space: nowrap;
   min-width: 0;
   flex: 1 1 auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-sub);
 }
 
@@ -129,7 +129,7 @@
   border: 1px solid var(--c-line);
   border-radius: 999px;
   padding: 1px 6px 1px 5px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--c-ink);
   background: var(--c-bg);
@@ -148,7 +148,7 @@
 
 .github-item-chip-kind {
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-github);
 }
@@ -167,7 +167,7 @@
 /* milestone グループ数の上限を超えた分をまとめる「+N」表示(AllDayBar の .allday-overflow と同じ流儀) */
 .github-overflow {
   padding-left: 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-sub);
   cursor: default;
 }
@@ -237,6 +237,6 @@
   white-space: nowrap;
   min-width: 0;
   flex: 1 1 auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-sub);
 }

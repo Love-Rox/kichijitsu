@@ -231,7 +231,7 @@
   position: absolute;
   top: 3px;
   right: 3px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
   padding: 1px 4px;
   border-radius: 3px;
@@ -651,19 +651,19 @@
 /* 「主催者」「自分」の注記。名前より一段落として、名前の読み取りを邪魔しない */
 .event-detail-guest-note {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
 .event-detail-guest-mail {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-faint);
   overflow-wrap: anywhere;
 }
 
 .event-detail-guest-status {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
@@ -720,7 +720,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .event-detail-guest-add {
@@ -744,7 +744,7 @@
 
 .event-detail-guest-note-line {
   margin: 6px 0 0;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-ink-mute);
 }
 
