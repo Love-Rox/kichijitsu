@@ -123,6 +123,7 @@
 .week-grid-allday-strip,
 .week-grid-tasks-strip,
 .week-grid-github-strip,
+.week-grid-extras-strip,
 .week-grid-days-strip {
   transform: translateX(calc(var(--strip-base, -33.3333%) + var(--swipe-dx, 0px)));
 }
@@ -133,6 +134,7 @@
 .week-grid.is-swiping .week-grid-allday-strip,
 .week-grid.is-swiping .week-grid-tasks-strip,
 .week-grid.is-swiping .week-grid-github-strip,
+.week-grid.is-swiping .week-grid-extras-strip,
 .week-grid.is-swiping .week-grid-days-strip {
   transition: none !important;
 }
@@ -375,15 +377,6 @@
 }
 
 /*
- * 畳んでいるときは高さの上限を外す (中身は件数バッジ1行だけで、そもそも伸びない)。
- * 上の max-height: 30vh を残すと、画面が極端に低いとき (30vh がバッジ1行より小さいとき) に
- * 畳んだレーンまで切られてしまう ―― 畳んだ状態は「常に全部見えている」のが前提なので外す。
- */
-.week-grid-github.is-collapsed {
-  max-height: none;
-}
-
-/*
  * align-self: flex-start が無いと、レーンの max-height: 30vh を超えたぶんが**スクロールもできずに
  * 黙って消える** (2026-08-04 修正、実測: 週表示・高さ 718px の窓で中身 317px → 214px に切られ、
  * issue 4件が完全に見えなくなっていた)。
@@ -418,6 +411,115 @@
   grid-template-columns: repeat(7, 1fr);
   align-items: start;
   padding: 2px 0;
+}
+
+/*
+ * ---- 補助レーン(タスク + GitHub)を畳んだ1行 (2026-11-06) ----
+ * 日ごとの件数だけを1行に出す。高さは中身の量に左右されない(ピル1行ぶん + 余白)。
+ * 構造 (gutter / viewport / strip / panel) と週送りスライドは他のレーンと同じ流儀。
+ * scrollbar-gutter: stable は終日・タスク・GitHub レーンと同じ理由(列のずれを防ぐ)。
+ */
+.week-grid-extras {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--c-line);
+  scrollbar-gutter: stable;
+}
+
+.week-grid-extras-gutter,
+.week-grid-extras-toggle {
+  flex: 0 0 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--c-ui-ink-mute);
+  cursor: pointer;
+}
+
+.week-grid-extras-toggle {
+  align-items: flex-start;
+  align-self: flex-start;
+  padding-top: 3px;
+}
+
+.week-grid-extras-gutter:hover,
+.week-grid-extras-toggle:hover {
+  color: var(--c-ui-ink);
+}
+
+.week-grid-extras-gutter:focus-visible,
+.week-grid-extras-toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+
+.week-grid-extras-viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.week-grid-extras-strip {
+  display: flex;
+  width: 300%;
+}
+
+.week-grid-extras-panel {
+  flex: 0 0 33.3333%;
+  width: 33.3333%;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.extras-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 2px;
+}
+
+.extras-pill {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--c-line);
+  border-radius: 999px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--c-ui-ink);
+  background: var(--c-bg);
+  cursor: pointer;
+}
+
+.extras-pill:hover {
+  border-color: var(--c-ui-ink-mute);
+}
+
+.extras-pill--github {
+  border-color: var(--c-github);
+  color: var(--c-github);
+}
+
+/* 単位は数字より一段落とす。幅が足りない列では省略記号で切れる(件数そのものが先頭に残る) */
+.extras-pill-unit {
+  margin-left: 1px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---- 本体: 縦スクロールする領域 ---- */
