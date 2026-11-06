@@ -6,6 +6,8 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+  # postinstall は寄付のお知らせを出すだけなので動かさない（pnpm 12 は未指定だと install を止める）
+  core-js-pure: false
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.5.0
   vite-plus: 1.5.0
