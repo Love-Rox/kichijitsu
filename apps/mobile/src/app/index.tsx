@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Button, FlatList, SafeAreaView, Text, View } from "react-native";
+import { ActivityIndicator, Button, FlatList, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   CalendarListEntryDTO,
   GoogleEventDTO,
@@ -89,7 +90,7 @@ export default function Home() {
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 12 }}>吉日</Text>
+      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 12 }}>kichijitsu</Text>
       {state.kind === "loading" && <ActivityIndicator />}
       {state.kind === "signedOut" && (
         <View style={{ gap: 12 }}>
