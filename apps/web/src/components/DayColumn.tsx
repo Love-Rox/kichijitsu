@@ -22,6 +22,7 @@ import {
   type DroppedWorkItem,
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
+import { layoutOverlaps } from "../layout/overlapLayout";
 import { clusterOverflowSuffix } from "../layout/clusterByTopPx";
 import { packDayRailBands, railBandColumnCount } from "../layout/railItems";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
@@ -31,6 +32,7 @@ import {
   busyOverlapColors,
   cascadeStepFrac,
   COMPACT_THRESHOLD_PX,
+  EVENT_HEADER_PX,
   dayColumnLeftInsetPx,
   formatTime,
   isBusyPlaceholder,
@@ -296,16 +298,20 @@ export function DayColumn({
   const showNowLine = isToday && nowMs >= dayStartMs && nowMs < dayEndMs;
   const nowTop = msToTopPx(nowMs, dayStartMs, hourHeight);
 
-  // カスケードの前面/背面(WeekGrid.tsx から移設、ロジックは変更なし)
-  const stackZ = new Map<string, number>();
-  positioned
-    .map((p) => p.item.primary)
-    .sort((a, b) => {
-      const busyA = isBusyPlaceholder(a.title) ? 0 : 1;
-      const busyB = isBusyPlaceholder(b.title) ? 0 : 1;
-      return busyA - busyB || a.startMs - b.startMs || b.endMs - a.endMs;
-    })
-    .forEach((occ, rank) => stackZ.set(occ.id, rank));
+  // 予定の横位置と前後関係(UI 刷新 段階3)。旧来は packColumns の列番号に応じて
+  // 「左を 14% ずつずらして幅は残り全部」で重ねており、後のカードが先のカードの見出しを
+  // 覆っていた。layoutOverlaps は見出し(先頭 EVENT_HEADER_PX)が覆われない配置にする。
+  // Busy と辞退は背景層(全幅・最背面)で、他の予定の幅を奪わない。
+  const overlapSlots = layoutOverlaps(
+    positioned.map(({ item: group }) => ({
+      id: group.primary.id,
+      startMs: group.primary.startMs,
+      endMs: group.primary.endMs,
+      background:
+        isBusyPlaceholder(group.primary.title) || group.primary.responseStatus === "declined",
+    })),
+    (EVENT_HEADER_PX / hourHeight) * 3_600_000,
+  );
 
   // 2026-07-22 横ずれ解消リファクタ: OOO と勤務場所を1本のレール(同じ x=0 起点の列)に統合し、
   // 時間が重なる帯どうしだけを列パッキング(layout/railItems.ts の packDayRailBands →
@@ -641,17 +647,17 @@ export function DayColumn({
       onDragOver={handleColumnDragOver}
       onDrop={handleColumnDrop}
     >
-      {positioned.map(({ item: group, column, columnCount }) => {
+      {positioned.map(({ item: group, column }) => {
         const occurrence = group.primary;
         const topPx = msToTopPx(occurrence.startMs, dayStartMs, hourHeight);
         const heightPx = msRangeToHeightPx(occurrence.startMs, occurrence.endMs, hourHeight);
         // コンパクト表示の判定は px 基準(時間軸ズーム対応、2026-07-25)。既定ズームでは
         // 従来の「40分未満」と完全に一致する(gridMetrics.ts の COMPACT_THRESHOLD_PX 参照)
         const isCompact = heightPx < COMPACT_THRESHOLD_PX;
-        const step = cascadeStepFrac(columnCount);
-        const leftPct = column * step * 100;
-        const widthPct = 100 - leftPct;
-        const stackIndex = stackZ.get(occurrence.id) ?? column;
+        const slot = overlapSlots.get(occurrence.id);
+        const leftPct = (slot?.leftFrac ?? 0) * 100;
+        const widthPct = (slot?.widthFrac ?? 1) * 100;
+        const stackIndex = slot?.stackIndex ?? column;
         const blockedByBusyColors = isBusyPlaceholder(occurrence.title)
           ? []
           : busyOverlapColors(occurrence, busyIntervals);
