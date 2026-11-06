@@ -170,12 +170,12 @@ export function SettingsSheet({
           </View>
           {notify.enabled ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-              {LEAD_OPTIONS.map((m) => {
-                const on = notify.leadMinutes === m;
+              {(["google", ...LEAD_OPTIONS] as const).map((m) => {
+                const on = notify.lead === m;
                 return (
                   <Pressable
                     key={m}
-                    onPress={() => onChangeNotify({ ...notify, leadMinutes: m })}
+                    onPress={() => onChangeNotify({ ...notify, lead: m })}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 7,
@@ -185,11 +185,16 @@ export function SettingsSheet({
                       backgroundColor: on ? t.accent : undefined,
                     }}
                   >
-                    <Text style={{ color: on ? t.onAccent : t.inkMute }}>{m === 0 ? "開始時刻" : `${m} 分前`}</Text>
+                    <Text style={{ color: on ? t.onAccent : t.inkMute }}>{m === "google" ? "予定の設定に従う" : m === 0 ? "開始時刻" : `${m} 分前`}</Text>
                   </Pressable>
                 );
               })}
             </View>
+          ) : null}
+          {notify.enabled && notify.lead === "google" ? (
+            <Text style={{ marginTop: 8, fontSize: 12, color: t.inkSub }}>
+              Google カレンダーで、予定ごと(無ければカレンダーごと)に設定した通知の時刻に合わせます。通知を設定していない予定には出ません。
+            </Text>
           ) : null}
 
           <Pressable onPress={confirmSignOut} style={{ marginTop: 32, alignSelf: "flex-start" }}>

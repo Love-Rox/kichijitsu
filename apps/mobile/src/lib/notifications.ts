@@ -1,4 +1,11 @@
 import * as Notifications from "expo-notifications";
+import { calendarKey } from "@kichijitsu/web/layout/keys";
+import {
+  isReminderTarget,
+  resolveLeadMinutes,
+  type CalendarDefaultReminders,
+  type ReminderMode,
+} from "@kichijitsu/web/sync/reminderSchedule";
 import { occurrencesInRange, type CalendarData } from "./calendarData";
 import { getMeta, setMeta } from "./localDb";
 import { formatTime } from "./format";
@@ -14,12 +21,15 @@ const HORIZON_DAYS = 14;
 const ENABLED_KEY = "notifyEnabled";
 const LEAD_KEY = "notifyLeadMinutes";
 
+/** 固定で選べる「何分前」。 */
 export const LEAD_OPTIONS = [0, 5, 10, 15, 30] as const;
-export const DEFAULT_LEAD_MINUTES = 10;
+/** 何分前に通知するか: "google" は、予定ごと(無ければカレンダーごと)の Google の通知設定に従う(既定)。 */
+export type ReminderLead = "google" | number;
+export const DEFAULT_LEAD: ReminderLead = "google";
 
 export interface NotifySettings {
   enabled: boolean;
-  leadMinutes: number;
+  lead: ReminderLead;
 }
 
 export async function getNotifySettings(): Promise<NotifySettings> {
@@ -27,13 +37,13 @@ export async function getNotifySettings(): Promise<NotifySettings> {
   const n = Number(lead);
   return {
     enabled: enabled === "1",
-    leadMinutes: lead !== null && lead !== "" && Number.isFinite(n) ? n : DEFAULT_LEAD_MINUTES,
+    lead: lead === "google" || lead === null || lead === "" ? DEFAULT_LEAD : Number.isFinite(n) ? n : DEFAULT_LEAD,
   };
 }
 
 export async function saveNotifySettings(s: NotifySettings): Promise<void> {
   await setMeta(ENABLED_KEY, s.enabled ? "1" : "0");
-  await setMeta(LEAD_KEY, String(s.leadMinutes));
+  await setMeta(LEAD_KEY, String(s.lead));
 }
 
 /** アプリが前面にあるときも、通知をバナーで見せる。起動時に 1 回呼ぶ。 */
@@ -80,9 +90,31 @@ export function cancelAllReminders(): Promise<void> {
   return exclusive(() => Notifications.cancelAllScheduledNotificationsAsync());
 }
 
+/** 通知の文言「N 分後」。60 分・1 日で割り切れるときは、時間・日で書く。 */
+function leadLabel(lead: number): string {
+  if (lead >= 1440 && lead % 1440 === 0) return `${lead / 1440} 日後`;
+  if (lead >= 60 && lead % 60 === 0) return `${lead / 60} 時間後`;
+  return `${lead} 分後`;
+}
+
+/** カレンダーごとの既定の通知(分)。予定側が「既定を使う」のとき、分数はここにしかない。 */
+function calendarDefaultsOf(data: CalendarData): CalendarDefaultReminders {
+  const map = new Map<string, readonly number[]>();
+  for (const a of data.accounts) {
+    for (const c of a.all ?? a.calendars) {
+      if (c.defaultReminderMinutes) map.set(calendarKey(a.accountId, c.id), c.defaultReminderMinutes);
+    }
+  }
+  return map;
+}
+
 /**
  * 予約を作り直す。オフ・未許可なら取り消すだけ。終日・不在・不参加の予定は通知しない。
  * 通知の時刻が過ぎている予定(開始直前に開いたとき等)は、予約しない。
+ *
+ * 通知のタイミングは、設定が "google" なら予定ごとの通知設定に従う(1 つの予定に複数あれば全部)。
+ * Google 側で予定やカレンダーの通知設定が変わると、次の同期で予定のデータが差し替わり、この関数が
+ * 呼び直されるので、通知時刻も追随する。設定や予定の値は、毎回ここで読み直す(キャッシュしない)。
  */
 export function rescheduleReminders(data: CalendarData, timeZone: string): Promise<number> {
   const gen = ++generation;
@@ -95,20 +127,28 @@ export function rescheduleReminders(data: CalendarData, timeZone: string): Promi
     if (!(await Notifications.getPermissionsAsync()).granted) return 0;
 
     const now = Date.now();
-    const leadMs = settings.leadMinutes * 60_000;
-    const upcoming = occurrencesInRange(data, now, now + HORIZON_DAYS * 86_400_000)
-      .filter((o) => !o.isOutOfOffice && o.responseStatus !== "declined" && o.startMs - leadMs > now)
+    const mode: ReminderMode =
+      settings.lead === "google" ? { kind: "google" } : { kind: "fixed", minutes: settings.lead };
+    const defaults = calendarDefaultsOf(data);
+    const plan = occurrencesInRange(data, now, now + HORIZON_DAYS * 86_400_000)
+      .filter((o) => !o.isOutOfOffice && isReminderTarget(o))
+      .flatMap((o) =>
+        resolveLeadMinutes(o, mode, defaults)
+          .map((lead) => ({ o, lead, fireMs: o.startMs - lead * 60_000 }))
+          .filter((p) => p.fireMs > now),
+      )
+      .sort((a, b) => a.fireMs - b.fireMs)
       .slice(0, MAX_SCHEDULED);
 
     let count = 0;
-    for (const o of upcoming) {
+    for (const { o, lead, fireMs } of plan) {
       if (gen !== generation) return count; // 後ろの取り消し・作り直しが、全消去から始める
       const when = formatTime(o.startMs, timeZone);
       const where = o.location ? ` ・ ${o.location}` : "";
-      const body = settings.leadMinutes === 0 ? `${when} 開始${where}` : `${settings.leadMinutes} 分後(${when})${where}`;
+      const body = lead === 0 ? `${when} 開始${where}` : `${leadLabel(lead)}(${when})${where}`;
       await Notifications.scheduleNotificationAsync({
         content: { title: o.title || "(タイトルなし)", body },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(o.startMs - leadMs) },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(fireMs) },
       });
       count++;
     }

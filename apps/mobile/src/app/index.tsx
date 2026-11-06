@@ -51,7 +51,7 @@ export default function Home() {
   }, []);
 
   /** 予定の開始通知の設定(この端末だけ)。 */
-  const [notify, setNotify] = useState<NotifySettings>({ enabled: false, leadMinutes: 10 });
+  const [notify, setNotify] = useState<NotifySettings>({ enabled: false, lead: "google" });
   useEffect(() => {
     void getNotifySettings().then(setNotify);
   }, []);
@@ -160,7 +160,7 @@ export default function Home() {
         // 消せなかった場合も、ログアウトは続ける
       }
       // 通知の設定は clearAll で消えているので、画面の状態も合わせる(次のログインに持ち越さない)
-      setNotify({ enabled: false, leadMinutes: 10 });
+      setNotify({ enabled: false, lead: "google" });
     }
     await refresh();
   };
