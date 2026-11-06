@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_UPDATER_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzMjFGQTBCQjYxODQwREIKUldUYlFCaTJDL29ob3hlb01FRUwwa1J5SjdOWVM4eWlQdlJWd2d0SUJlQkNVeWlOak1IWnBXNXUK",
       "endpoints": ["https://github.com/Love-Rox/kichijitsu/releases/latest/download/latest.json"]
     },
     "deep-link": {

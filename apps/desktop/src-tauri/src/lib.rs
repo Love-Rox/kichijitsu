@@ -847,12 +847,20 @@ pub fn run() {
             // プラグインの登録・状態の保持・定期確認。webview から呼べる IPC は作らず、
             // 確認と適用は Rust 側だけで行う(updater.rs 冒頭のコメント参照)。
             // 署名の公開鍵と配信先は tauri.conf.json の plugins.updater。
+            // 更新は補助機能なので、プラグインの登録に失敗しても(設定の誤りなど)アプリ本体は
+            // 起動させる。`?` で setup ごと失敗させると、更新機能の不具合で起動不能になる。
+            // 状態(UpdateState)は常に登録する ―― トレイの「アップデートを確認」が参照するため。
+            // プラグインが無いときは、その確認が「失敗しました」と通知するだけで済む。
             #[cfg(desktop)]
             {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.manage(updater::UpdateState::default());
-                updater::spawn_periodic_check(app.handle().clone());
+                match app
+                    .handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())
+                {
+                    Ok(()) => updater::spawn_periodic_check(app.handle().clone()),
+                    Err(e) => eprintln!("kichijitsu: 自動アップデートを有効にできませんでした: {e}"),
+                }
             }
 
             // --- グローバルショートカット ---
