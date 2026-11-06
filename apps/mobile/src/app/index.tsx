@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Pressable, View } from "react-native";
 import { Text } from "../components/ui";
 import { CalendarScreen } from "../components/CalendarScreen";
+import { Wordmark } from "../components/Wordmark";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { clearAll } from "../lib/localDb";
@@ -110,7 +111,9 @@ export default function Home() {
   return (
     <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: insets.top + 8, backgroundColor: t.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-        <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>kichijitsu</Text>
+        <View style={{ flex: 1 }}>
+          <Wordmark height={22} />
+        </View>
         {state.kind === "ready" && (
           <Pressable onPress={() => setSettingsOpen(true)} hitSlop={10} accessibilityLabel="メニュー">
             <Text style={{ fontSize: 22, color: t.inkMute }}>⋯</Text>

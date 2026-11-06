@@ -71,6 +71,12 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - **同じ version で再アップロードするときは `ios.buildNumber` を上げる**(app.json。重複は拒否される)。
 - dSYM の警告(React.framework など)は、クラッシュ報告の記号化にだけ効く。配布には影響しない。
 - アイコンは `node brand/gen-ios-icon.js` で再生成する。
+- タイトルのロゴタイプは `brand/wordmark.svg` を使う(`components/Wordmark.tsx`、react-native-svg)。
+  `apps/mobile/src/assets/wordmarkSvg.ts` は生成物で、`node brand/gen-mobile-wordmark.js` で再生成する
+  (j の点の朱だけをテーマのアクセント色に差し替えられるよう、プレースホルダにしてある)。
+- シミュレータのデバッグ構成のビルドが、`facebook::react::Sealable::Sealable()` の未解決でリンクに失敗する
+  ことがある(実機用のリリース構成は通る)。見た目の確認だけなら `npx expo run:ios --configuration Release`
+  でシミュレータに入れられる(JS は同梱されるので Metro 不要)。
 - 初回は 2026-11-06 に build 1 (version 0.1.0) をアップロード。
 
 ## 次にやること
