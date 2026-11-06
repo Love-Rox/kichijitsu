@@ -2,7 +2,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../theme";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Button, Pressable, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Button, Pressable, View } from "react-native";
+import { Temporal } from "@js-temporal/polyfill";
 import { Text } from "../components/ui";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { Wordmark } from "../components/Wordmark";
@@ -10,6 +11,14 @@ import { SettingsSheet } from "../components/SettingsSheet";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { clearAll } from "../lib/localDb";
 import { getDefaultCalendar, setCalendarVisible, setDefaultCalendar } from "../lib/settings";
+import {
+  cancelAllReminders,
+  ensureNotifyPermission,
+  getNotifySettings,
+  rescheduleReminders,
+  saveNotifySettings,
+  type NotifySettings,
+} from "../lib/notifications";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -39,6 +48,36 @@ export default function Home() {
   useEffect(() => {
     void getDefaultCalendar().then((k) => setDefaultKey(k || null));
   }, []);
+
+  /** 予定の開始通知の設定(この端末だけ)。 */
+  const [notify, setNotify] = useState<NotifySettings>({ enabled: false, leadMinutes: 10 });
+  useEffect(() => {
+    void getNotifySettings().then(setNotify);
+  }, []);
+  /** 前面に戻るたびに値が変わり、通知の予約を作り直させる。 */
+  const [foregroundTick, setForegroundTick] = useState(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => s === "active" && setForegroundTick((n) => n + 1));
+    return () => sub.remove();
+  }, []);
+  const readyData = state.kind === "ready" && !state.syncing ? state.data : null;
+  useEffect(() => {
+    if (!readyData) return;
+    // 同期や編集の直後に重なって走らないよう、少し待ってから予約し直す
+    const id = setTimeout(() => {
+      void rescheduleReminders(readyData, Temporal.Now.timeZoneId()).catch(() => undefined);
+    }, 1500);
+    return () => clearTimeout(id);
+  }, [readyData, notify, foregroundTick]);
+
+  const changeNotify = async (next: NotifySettings) => {
+    if (next.enabled && !notify.enabled && !(await ensureNotifyPermission())) {
+      Alert.alert("通知が許可されていません", "iOS の設定アプリ → kichijitsu → 通知 から許可してください。");
+      return;
+    }
+    setNotify(next);
+    await saveNotifySettings(next);
+  };
 
   const controller = useRef<AbortController | null>(null);
   /** 進行中の読み込みの完了を待つため(ログアウトが、書き込みの完了を待ってから全消去する)。 */
@@ -91,6 +130,7 @@ export default function Home() {
     // 待たないと、消した後に書き込みが残りうる。消去が失敗しても、セッションは必ず捨てる
     await inflight.current;
     try {
+      await cancelAllReminders().catch(() => undefined);
       await clearAll();
     } finally {
       await signOut();
@@ -191,6 +231,8 @@ export default function Home() {
           setDefaultKey(key);
           void setDefaultCalendar(key);
         }}
+        notify={notify}
+        onChangeNotify={changeNotify}
         onSignOut={signOutNow}
       />
       <StatusBar style="auto" />
