@@ -572,7 +572,7 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 
 1. 予定の色の変更 — **済み**(詳細カードの「色」欄。繰り返しの予定は、その回だけ)
 2. アクセント色のテーマ — **済み**(設定 →「テーマ」の下に「アクセント色」。モバイルと同じ 6 色)
-3. アイコンのフラット化(Phosphor duotone。モバイルと同じ系統)
+3. アイコンのフラット化(Phosphor duotone。モバイルと同じ系統) — **済み**(`components/icons.tsx`。Slack・Meet・Zoom・Teams のブランドマークは、そのまま)
 4. 会議リンク(Meet など)を予定から作る
 5. 複数タイムゾーン
 6. デスクトップ固有(メニューバーに次の予定、など)
@@ -589,3 +589,7 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 - `<html data-accent="…">` で、`theme.css` のアクセント系トークンを差し替える。CSS は `node brand/gen-web-accents.mjs` が表から作る(`src/theme-accents.css`、手で直さない)。既定の朱は属性なし。ライト/ダークは `light-dark()`、半透明用の `--c-accent-rgb` だけは `theme.css` と同じ 3 か所に分けて書く。
 - 濃い字(`--c-accent-ink`)と縁(`--c-accent-soft-line`)は、朱の値から逆算した割合で自動で作る。色を足すときは、コントラストを目で確かめること。
 - 保存は localStorage(`kichijitsu:accent`)。初回描画前の適用は `app/index.html` のインラインスクリプト(許す名前を手で書いてある。`ACCENT_KEYS` を変えたら直す)。ログアウトでは消さない(テーマ設定と同じ扱い)。
+
+### アイコン
+- `components/icons.tsx` の UI アイコン 12 個(ピン・パネル・カレンダー・歯車・横三点・タイマー・タグ・検索・拡大/縮小・ビデオ・場所)を、Phosphor duotone(MIT)に差し替えた。形のデータは `components/iconPaths.ts`(生成物。`node brand/gen-web-icons.mjs`。手順はスクリプトの先頭)。コンポーネント名と props は変えていないので、呼び出し側は無変更。
+- 色は `fill="currentColor"` で親の `color` に従う(薄い面は不透明度 0.2 の層)。
