@@ -52,7 +52,7 @@ use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, Url, WindowEvent,
 };
@@ -375,8 +375,19 @@ const TOGGLE_WINDOW_SHORTCUT: &str = "CmdOrCtrl+Shift+K";
 /// 押下まで拾ってしまう(誤爆)。そのためハンドラ側では
 /// `reload_main_window_if_focused` を通し、ウィンドウがフォーカス中または
 /// 表示中のときだけ実際にリロードする(setup() 内の登録箇所を参照)。
-#[cfg(desktop)]
+#[cfg(all(desktop, not(target_os = "macos")))]
 const RELOAD_SHORTCUT: &str = "CmdOrCtrl+R";
+
+/// アプリを終了する(唯一の真の終了経路。トレイの「終了」と、アプリメニューの「終了」が呼ぶ)。
+///
+/// tauri-plugin-window-state は既定でウィンドウ破棄時にしか状態を保存しないが、このアプリは「閉じる」で
+/// ウィンドウを破棄しない(on_window_event 参照)ため、破棄イベントが一度も発生しないまま
+/// `app.exit(0)` でプロセスごと終了しうる。終了直前に明示的に保存しないと、ウィンドウの位置・大きさが
+/// 一切残らないので、exit の前に必ず保存する。
+fn quit_app(app: &tauri::AppHandle) {
+    let _ = app.save_window_state(StateFlags::all());
+    app.exit(0);
+}
 
 /// メインウィンドウの表示状態をトグルする。
 ///
@@ -435,7 +446,7 @@ fn reload_main_window(app: &tauri::AppHandle) {
 /// `CmdOrCtrl+R` グローバルショートカットのハンドラ専用のガード。トレイの
 /// 「再読み込み」メニュー(ユーザーが明示的にクリックした操作)はこのガードを
 /// 経由せず常にリロードしてよいため呼ばない(RELOAD_SHORTCUT のコメント参照)。
-#[cfg(desktop)]
+#[cfg(all(desktop, not(target_os = "macos")))]
 fn reload_main_window_if_focused(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -1115,6 +1126,74 @@ pub fn run() {
                 });
             }
 
+            // --- アプリメニュー(macOS、画面上部のメニューバー)---
+            // 自前で組むと、標準のメニューが置き換わるので、標準の項目(編集のコピー/ペーストなど)も
+            // こちらで並べる(無いと、webview で Cmd+C / Cmd+V が効かなくなる)。足したのは、
+            // 「表示 > 再読み込み」(Cmd+R)。終了は、ウィンドウ位置を保存する quit_app を通す。
+            // イベントの id は、トレイのメニュー("reload" / "quit" など)と取り違えないよう "app-" を付ける。
+            #[cfg(target_os = "macos")]
+            {
+                let h = app.handle();
+                let app_menu = Submenu::with_items(
+                    h,
+                    "kichijitsu",
+                    true,
+                    &[
+                        &PredefinedMenuItem::about(h, Some("kichijitsu について"), None)?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::services(h, Some("サービス"))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::hide(h, Some("kichijitsu を隠す"))?,
+                        &PredefinedMenuItem::hide_others(h, Some("ほかを隠す"))?,
+                        &PredefinedMenuItem::show_all(h, Some("すべてを表示"))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &MenuItem::with_id(h, "app-quit", "kichijitsu を終了", true, Some("CmdOrCtrl+Q"))?,
+                    ],
+                )?;
+                let edit_menu = Submenu::with_items(
+                    h,
+                    "編集",
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(h, Some("取り消す"))?,
+                        &PredefinedMenuItem::redo(h, Some("やり直す"))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::cut(h, Some("カット"))?,
+                        &PredefinedMenuItem::copy(h, Some("コピー"))?,
+                        &PredefinedMenuItem::paste(h, Some("ペースト"))?,
+                        &PredefinedMenuItem::select_all(h, Some("すべてを選択"))?,
+                    ],
+                )?;
+                let view_menu = Submenu::with_items(
+                    h,
+                    "表示",
+                    true,
+                    &[
+                        &MenuItem::with_id(h, "app-reload", "再読み込み", true, Some("CmdOrCtrl+R"))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::fullscreen(h, Some("フルスクリーンにする"))?,
+                    ],
+                )?;
+                let window_menu = Submenu::with_items(
+                    h,
+                    "ウィンドウ",
+                    true,
+                    &[
+                        &PredefinedMenuItem::minimize(h, Some("しまう"))?,
+                        &PredefinedMenuItem::maximize(h, Some("拡大/縮小"))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::close_window(h, Some("閉じる"))?,
+                    ],
+                )?;
+                let menubar = Menu::with_items(h, &[&app_menu, &edit_menu, &view_menu, &window_menu])?;
+                app.set_menu(menubar)?;
+                app.on_menu_event(|app, event| match event.id.as_ref() {
+                    "app-reload" => reload_main_window(app),
+                    "app-quit" => quit_app(app),
+                    _ => {}
+                });
+            }
+
             // --- トレイ常駐 ---
             // メニューの中身(次の会議・今日の予定)は、web から set_tray_info で渡されるたびに作り直す。
             // 起動直後(web がまだ何も渡していない間)は、固定の 4 項目だけ
@@ -1144,10 +1223,7 @@ pub fn run() {
                     // 発生しないまま app.exit(0) でプロセスごと終了しうる。
                     // 終了直前に明示 save しないとウィンドウ位置/サイズが
                     // 一切永続化されないため、exit の前に必ず保存する。
-                    "quit" => {
-                        let _ = app.save_window_state(StateFlags::all());
-                        app.exit(0);
-                    }
+                    "quit" => quit_app(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -1231,6 +1307,9 @@ pub fn run() {
 
                 // CmdOrCtrl+R (RELOAD_SHORTCUT のコメント参照): 誤爆防止のため
                 // フォーカス/表示ガード付きの reload_main_window_if_focused を通す。
+                // macOS では、アプリメニュー「表示 > 再読み込み」の Cmd+R(アプリが前面のときだけ効く)に
+                // 任せるので、グローバルには登録しない(二重に動くのと、他のアプリの Cmd+R を奪うのを避ける)
+                #[cfg(not(target_os = "macos"))]
                 app.global_shortcut()
                     .on_shortcut(RELOAD_SHORTCUT, |app, _shortcut, event| {
                         if event.state() == ShortcutState::Pressed {
