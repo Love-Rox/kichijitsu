@@ -138,6 +138,26 @@ export function Timeline({
   const hourHeightRef = useRef(hourHeight);
   hourHeightRef.current = hourHeight;
 
+  /**
+   * 開いたときに見せる位置(px): 今日が範囲に入っていれば現在時刻の少し上、そうでなければ 7 時。
+   * 倍率(1 時間の高さ)によって位置が変わるので、倍率を引数に取る。
+   */
+  const initialOffsetFor = (h: number) => {
+    const n = Date.now();
+    const inRange = Array.from({ length: dayCount }, (_, i) => start.add({ days: i })).some(
+      (d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone),
+    );
+    if (!inRange) return 7 * h;
+    const hour = (n - dayStartMs(Temporal.Now.plainDateISO(timeZone), timeZone)) / HOUR_MS;
+    // 画面の下端より上に収まるよう、24 時間分の高さを超えない範囲で
+    return Math.max(0, Math.min((hour - 2) * h, 14 * h));
+  };
+  /**
+   * 利用者がスクロールやピンチをしたか。まだなら、スクロール位置は開いたときの初期位置のまま
+   * (初期位置の設定では onScroll が鳴らず、scrollY は 0 のままなので、比で補正すると 0 時に戻ってしまう)。
+   */
+  const touched = useRef(false);
+
   // 前回の倍率を、端末から読み戻す(画面の上端の時刻が動かないよう、スクロール位置も合わせる)
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +165,9 @@ export function Timeline({
       .then((v) => {
         const h = clampHourHeight(Number(v));
         if (cancelled || !Number.isFinite(h) || v === null || h === hourHeightRef.current) return;
-        pendingScroll.current = (scrollY.current * h) / hourHeightRef.current;
+        pendingScroll.current = touched.current
+          ? (scrollY.current * h) / hourHeightRef.current
+          : initialOffsetFor(h);
         setHourHeight(h);
       })
       .catch(() => undefined);
@@ -188,7 +210,9 @@ export function Timeline({
         const b = pinchBase.current;
         b.dist = Math.max(touchDistance(e), 1);
         b.h0 = hourHeightRef.current;
-        b.y0 = scrollY.current;
+        // まだ触っていないなら、スクロール位置は初期位置のまま(scrollY は 0 のままなので使えない)
+        b.y0 = touched.current ? scrollY.current : initialOffsetFor(hourHeightRef.current);
+        touched.current = true;
         b.focal0 = touchCenterY(e) - b.top;
         setPinching(true);
       },
@@ -299,17 +323,8 @@ export function Timeline({
     };
   }, []);
 
-  // 最初に見せる位置: 今日が範囲に入っていれば現在時刻の少し上、そうでなければ 7 時。開いたときだけ決める
-  const [initialOffset] = useState(() => {
-    const n = Date.now();
-    const inRange = Array.from({ length: dayCount }, (_, i) => start.add({ days: i })).some(
-      (d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone),
-    );
-    if (!inRange) return 7 * hourHeight;
-    const hour = (n - dayStartMs(Temporal.Now.plainDateISO(timeZone), timeZone)) / HOUR_MS;
-    // 画面の下端より上に収まるよう、24 時間分の高さを超えない範囲で
-    return Math.max(0, Math.min((hour - 2) * hourHeight, 14 * hourHeight));
-  });
+  // 最初に見せる位置。開いたときだけ決める(倍率の読み戻しでも、触るまでは同じ基準で作り直す)
+  const [initialOffset] = useState(() => initialOffsetFor(hourHeight));
 
   // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない。ピンチでは展開し直さない)
   const byDay = useMemo(() => occurrencesByDay(data, days, timeZone), [data, days, timeZone]);
@@ -407,6 +422,9 @@ export function Timeline({
       <Animated.ScrollView
         ref={scrollRef}
         contentOffset={{ x: 0, y: initialOffset }}
+        onScrollBeginDrag={() => {
+          touched.current = true;
+        }}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollAnim } } }], {
           useNativeDriver: true,
           listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
