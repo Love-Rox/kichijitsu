@@ -14,7 +14,9 @@
 import { useCallback } from "react";
 import type { IDBPDatabase } from "idb";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
-import { getOverride, putOverride, type KichijitsuDB } from "../../db/database";
+import { getOverride, getSeries, putOverride, putSeries, type KichijitsuDB } from "../../db/database";
+import { reexpandCurrentWindow } from "../../expansion/ensureExpanded";
+import type { RecurrenceScope } from "../../sync/recurrenceScope";
 import type { AllDayOccurrence, Occurrence } from "../../model/types";
 import type { AllDayStore } from "../../store/allDayStore";
 import type { OccurrenceStore } from "../../store/occurrenceStore";
@@ -41,7 +43,11 @@ export function useAttendeeMutations({
   checkedFetch: CheckedFetch;
 }): {
   rsvp: (subject: Occurrence | AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
-  editGuests: (subject: Occurrence | AllDayOccurrence, change: GuestChange) => Promise<void>;
+  editGuests: (
+    subject: Occurrence | AllDayOccurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
 } {
   // ---- RSVP (参加ステータス変更、フェーズ2、2026-07-22) ----
   // 編集フォームと同じ「保存ボタン方式」(押した瞬間に楽観反映はしない、await 完了後に反映)。
@@ -93,11 +99,51 @@ export function useAttendeeMutations({
   // 送るのは**差分だけ**。attendees 配列そのものは送らない ―― 手元の一覧は50件で打ち切られて
   // いることがあり、全置換すると手元に無い参加者を巻き添えで消してしまう (sync/eventGuests.ts)。
   const editGuests = useCallback(
-    async (subject: Occurrence | AllDayOccurrence, change: GuestChange): Promise<void> => {
-      const req = buildEventGuestsRequest(subject, change);
+    async (
+      subject: Occurrence | AllDayOccurrence,
+      change: GuestChange,
+      scope: RecurrenceScope = "this",
+    ): Promise<void> => {
+      const req = buildEventGuestsRequest(subject, change, scope);
       if (!req) {
         throw new Error("kichijitsu: could not build EventGuestsRequest");
       }
+
+      // ---- 繰り返しの予定 (この予定のみ / すべての予定、2026-11-07) ----
+      // 楽観更新はしない(色の変更と同じ「成功してから反映」)。書き込み先がインスタンスか親かで、
+      // 戻すべき場所(その回の override / series レコード)が変わるため、先に動かすと戻し損ねる。
+      if ("startMs" in subject && subject.seriesId) {
+        const seriesRes = await sendJson(checkedFetch, "POST", "/api/event/guests", req);
+        if (!seriesRes.ok) {
+          if (seriesRes.status === 422) throw new GuestNotOrganizerError();
+          throw new Error(`kichijitsu: POST /api/event/guests failed: ${seriesRes.status}`);
+        }
+        if (!db) return;
+        if (scope === "all") {
+          const series = await getSeries(db, subject.seriesId);
+          if (series) {
+            await putSeries(db, {
+              ...series,
+              attendees: applyGuestChangesLocally(series.attendees, change),
+            });
+            await reexpandCurrentWindow(db, store);
+            return;
+          }
+        }
+        const next = applyGuestChangesLocally(subject.attendees, change);
+        await writeSubject(db, { store, allDayStore }, { ...subject, attendees: next });
+        // その回の override にも残す(再展開でシリーズ側の一覧に戻らないように)
+        const overrideRef = resolveOverrideRef(subject);
+        if (overrideRef) {
+          const existing = await getOverride(db, overrideRef.id);
+          await putOverride(
+            db,
+            mergeOverridePatch({ ref: overrideRef, existing, fields: { attendees: next } }),
+          );
+        }
+        return;
+      }
+
       // 楽観表示 (サーバーが行う read-modify-write の予測)。db が未オープンなら
       // 見た目だけ先に動かすことはせず、書き込みだけ行う
       const nextAttendees = applyGuestChangesLocally(subject.attendees, change);

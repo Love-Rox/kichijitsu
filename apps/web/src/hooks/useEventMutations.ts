@@ -150,7 +150,11 @@ export interface EventMutationsController {
    * POST /api/event/guests、失敗で元へ戻して reject する。422 は GuestNotOrganizerError。
    * 導線を出してよいかの判定は sync/eventGuests.ts の canEditGuests (呼び出し側が使う)。
    */
-  editGuests: (subject: Occurrence | AllDayOccurrence, change: GuestChange) => Promise<void>;
+  editGuests: (
+    subject: Occurrence | AllDayOccurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
   /**
    * 予定の色の変更 (onSetColor)。サーバー (POST /api/event/color) が受け付けてから手元へ反映する
    * (保存ボタン方式)。繰り返しの予定は scope で「この回だけ」(省略時)か「シリーズ全体」を選ぶ。

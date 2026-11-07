@@ -126,11 +126,11 @@ export interface EventDetailCardProps {
   onRsvp?: (status: RsvpResponseStatus) => Promise<void>;
   /**
    * ゲスト (参加者) の追加・削除 (2026-07-31)。**渡されたときだけ**ゲスト欄が編集できる
-   * ―― 呼び出し側が sync/eventGuests.ts の canEditGuests で判定済み (自分が主催の、
-   * 繰り返しでない Google 予定のみ)。渡さなければ従来どおり表示のみ。
+   * ―― 呼び出し側が sync/eventGuests.ts の canEditGuests で判定済み (自分が主催の
+   * Google 予定。繰り返しは適用範囲 scope を添えて呼ぶ)。渡さなければ従来どおり表示のみ。
    * 422 (主催者でない) は GuestNotOrganizerError を reject する取り決め。
    */
-  onEditGuests?: (change: GuestChange) => Promise<void>;
+  onEditGuests?: (change: GuestChange, scope?: RecurrenceScope) => Promise<void>;
   /**
    * 予定の色の変更。**渡されたときだけ**「色」欄を出す ―― 呼び出し側が sync/eventColor.ts の
    * canSetEventColor で判定済み (Google の予定のみ)。calendarColor は、個別色を外したときに表示する
@@ -340,6 +340,7 @@ export function EventDetailCard({
           <GuestSection
             view={guestList}
             attendees={subject.attendees}
+            isRecurring={!!subject.seriesId}
             onEditGuests={onEditGuests}
           />
         )}
@@ -466,13 +467,18 @@ function ColorSectionForSubject({
 function GuestSection({
   view,
   attendees,
+  isRecurring,
   onEditGuests,
 }: {
   view: GuestListView | null;
   attendees?: EventAttendee[];
-  onEditGuests?: (change: GuestChange) => Promise<void>;
+  /** 繰り返しの予定なら、変更の適用範囲(この予定のみ/すべての予定)を選ばせる */
+  isRecurring: boolean;
+  onEditGuests?: (change: GuestChange, scope?: RecurrenceScope) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  /** 既定は影響の小さい「この予定のみ」(「すべて」はシリーズ全員に通知が飛ぶ) */
+  const [scope, setScope] = useState<RecurrenceScope>("this");
   const [draftEmail, setDraftEmail] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   /** 送信中のアドレス (追加でも削除でも)。二重送信 = 招待メールの重複を防ぐ */
@@ -498,7 +504,7 @@ function GuestSection({
     if (!onEditGuests || pending) return;
     setPending(key);
     setActionError(null);
-    onEditGuests(change)
+    onEditGuests(change, isRecurring ? scope : undefined)
       .then(() => {
         setDraftEmail("");
         setInputError(null);
@@ -621,6 +627,27 @@ function GuestSection({
           ))}
         </ul>
       )}
+      {expanded && onEditGuests && isRecurring && (
+        <div className="event-detail-guests-scope" role="group" aria-label="ゲストを変える範囲">
+          {(
+            [
+              ["this", "この予定のみ"],
+              ["all", "すべての予定"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className="event-detail-guests-scope-btn"
+              aria-pressed={scope === value}
+              disabled={pending !== null}
+              onClick={() => setScope(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {expanded && onEditGuests && (
         <div className="event-detail-guest-add">
           <input
@@ -655,7 +682,9 @@ function GuestSection({
       {expanded && onEditGuests && (
         // 「黙ってメールを送らない」ための注記。押す前に必ず目に入る位置に置く
         <p className="event-detail-guest-note-line">
-          追加・外すと、Google からゲスト全員に通知メールが届きます。
+          {isRecurring && scope === "all"
+            ? "追加・外すと、シリーズ全体のゲスト全員に Google から通知メールが届きます。"
+            : "追加・外すと、Google からゲスト全員に通知メールが届きます。"}
         </p>
       )}
       {inputError && <p className="event-detail-guest-error">{inputError}</p>}

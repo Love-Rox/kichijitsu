@@ -682,6 +682,33 @@
   text-decoration: line-through;
 }
 
+/* 繰り返しの予定のゲスト変更の適用範囲(この予定のみ/すべての予定)。色の範囲切り替えと同じ見た目 */
+.event-detail-guests-scope {
+  display: inline-flex;
+  margin-top: 8px;
+  border: 1px solid var(--c-line-warm);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.event-detail-guests-scope-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--c-ink-sub);
+  cursor: pointer;
+}
+
+.event-detail-guests-scope-btn[aria-pressed="true"] {
+  background: var(--c-accent);
+  color: var(--c-on-accent, #fff);
+}
+
+.event-detail-guests-scope-btn:disabled {
+  opacity: 0.5;
+}
+
 /* 見出し行の右端に置く開閉ボタン */
 .event-detail-guests-toggle {
   margin-left: auto;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
@@ -143,7 +144,11 @@ interface EventBlockProps {
    * 詳細ポップオーバーのゲスト欄から呼ばれる (ゲストの追加・削除、2026-07-31)。
    * **編集できる予定のときだけ** EventDetailCard へ渡す (canEditGuests、下の呼び出し参照)。
    */
-  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onEditGuests: (
+    occurrence: Occurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
   /** 詳細ポップオーバーの色の選択から呼ばれる (予定の色の変更)。色を変えられる予定のときだけ渡す */
   onSetColor: SetEventColor;
   /** 詳細ポップオーバーの「Meet を追加」から呼ばれる。会議の無い、編集できる予定のときだけ渡す */
@@ -837,7 +842,9 @@ export function EventBlock({
             rsvpStatus={occurrence.responseStatus}
             onRsvp={(status) => onRsvp(occurrence, status)}
             onEditGuests={
-              canEditGuests(occurrence) ? (change) => onEditGuests(occurrence, change) : undefined
+              canEditGuests(occurrence)
+                ? (change, scope) => onEditGuests(occurrence, change, scope)
+                : undefined
             }
             onSetColor={
               canSetEventColor(occurrence)

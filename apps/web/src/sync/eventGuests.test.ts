@@ -173,8 +173,10 @@ describe("canEditGuests", () => {
     expect(canEditGuests(subject({ isOrganizer: false }))).toBe(false);
   });
 
-  it("繰り返しシリーズ由来なら false", () => {
-    expect(canEditGuests(subject({ seriesId: "g:acct-1:cal-1:series-1" }))).toBe(false);
+  it("繰り返しの1回分は originalStartMs があれば true、無ければ false", () => {
+    const series = { seriesId: "g:acct-1:cal-1:series-1" };
+    expect(canEditGuests(subject({ ...series, originalStartMs: 1_800_000_000_000 }))).toBe(true);
+    expect(canEditGuests(subject(series))).toBe(false);
   });
 
   it("Google 由来でなければ false", () => {
@@ -197,6 +199,29 @@ describe("canEditGuests", () => {
 
   it("id が Google の形でなければ false", () => {
     expect(canEditGuests(subject({ id: "dummy-guests-1" }))).toBe(false);
+  });
+});
+
+describe("buildEventGuestsRequest (繰り返し)", () => {
+  const recurring = subject({
+    id: "g:acct-1:cal-1:series-1:1800000000000",
+    seriesId: "g:acct-1:cal-1:series-1",
+    originalStartMs: Date.UTC(2027, 0, 15, 1, 0, 0),
+  });
+
+  it("この予定のみ: インスタンス id 宛て", () => {
+    const req = buildEventGuestsRequest(recurring, { addEmails: ["a@example.com"] }, "this");
+    expect(req?.eventId).toBe("series-1_20270115T010000Z");
+  });
+
+  it("すべての予定: 親(シリーズ)の id 宛て", () => {
+    const req = buildEventGuestsRequest(recurring, { addEmails: ["a@example.com"] }, "all");
+    expect(req?.eventId).toBe("series-1");
+  });
+
+  it("scope を省略すると この予定のみ", () => {
+    const req = buildEventGuestsRequest(recurring, { removeEmails: ["a@example.com"] });
+    expect(req?.eventId).toBe("series-1_20270115T010000Z");
   });
 });
 
