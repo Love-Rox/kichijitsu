@@ -44,10 +44,21 @@ describe("addEventMeet", () => {
 });
 
 describe("conferenceUrlFrom", () => {
-  it("prefers hangoutLink", () => {
+  it("uses hangoutLink when there are no entry points", () => {
     expect(conferenceUrlFrom({ hangoutLink: "https://meet.google.com/abc-defg-hij" })).toBe(
       "https://meet.google.com/abc-defg-hij",
     );
+  });
+  it("only returns http(s) URLs (the value becomes an href in the UI)", () => {
+    expect(conferenceUrlFrom({ hangoutLink: "javascript:alert(1)" })).toBeUndefined();
+    expect(
+      conferenceUrlFrom({
+        conferenceData: { entryPoints: [{ entryPointType: "video", uri: "javascript:alert(1)" }] },
+      }),
+    ).toBeUndefined();
+    expect(
+      conferenceUrlFrom({ conferenceData: { entryPoints: [{ entryPointType: "phone", uri: "tel:+81312345678" }] } }),
+    ).toBeUndefined();
   });
   it("falls back to the video entry point", () => {
     expect(

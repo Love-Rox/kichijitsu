@@ -42,7 +42,8 @@ export function useEventMeet({
       }
       const body = (await res.json().catch(() => undefined)) as EventMeetResponse | undefined;
       const conferenceUrl = body?.conferenceUrl;
-      if (!db || !conferenceUrl) return;
+      // 画面でリンク(href)になる値なので、サーバーを信用しきらず、http/https だけを保存する
+      if (!db || !conferenceUrl || !/^https?:\/\//i.test(conferenceUrl)) return;
 
       const patch = { conferenceUrl, hasConference: true };
       await writeSubject(db, { store, allDayStore }, { ...subject, ...patch });

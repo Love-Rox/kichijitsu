@@ -1,6 +1,7 @@
 import type { EventMeetRequest } from "@kichijitsu/shared";
 import { GoogleApiError } from "./errors";
 import { addEventMeet } from "../google/event-meet";
+import { deriveConferenceUrl } from "./google-events";
 import { DEFAULT_SEND_UPDATES } from "./patch-event";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -21,21 +22,20 @@ export interface EventMeetCoreDeps {
 }
 
 /**
- * Google の応答から、会議の参加 URL を取り出す。`hangoutLink` が正本で、無ければ conferenceData の
- * 動画の入口 (entryPointType=video) を見る。会議がまだ作られている途中 (status が pending) などで
- * どちらも無いときは undefined(予定のほうには、次の同期でリンクが入る)。
+ * Google の応答から、会議の参加 URL を取り出す。同期が予定の会議 URL を決める関数
+ * (core/google-events.ts の deriveConferenceUrl)をそのまま使うので、**http/https の URL だけ**が
+ * 通り(tel: や javascript: などは除外)、同期があとで入れる URL とも必ず一致する。この値は
+ * 画面でリンク(href)になるので、スキームの検査を、ここで通さずに返さない。
+ * 会議がまだ作られている途中(status が pending)などで、URL が無いときは undefined
+ * (予定のほうには、次の同期でリンクが入る)。
  */
 export function conferenceUrlFrom(event: unknown): string | undefined {
   if (!event || typeof event !== "object") return undefined;
-  const e = event as {
-    hangoutLink?: unknown;
-    conferenceData?: { entryPoints?: { entryPointType?: unknown; uri?: unknown }[] };
-  };
-  if (typeof e.hangoutLink === "string" && e.hangoutLink.length > 0) return e.hangoutLink;
-  const video = e.conferenceData?.entryPoints?.find(
-    (p) => p.entryPointType === "video" && typeof p.uri === "string" && p.uri.length > 0,
+  const e = event as { hangoutLink?: unknown; conferenceData?: unknown };
+  return deriveConferenceUrl(
+    e.conferenceData,
+    typeof e.hangoutLink === "string" ? e.hangoutLink : undefined,
   );
-  return typeof video?.uri === "string" ? video.uri : undefined;
 }
 
 /**
