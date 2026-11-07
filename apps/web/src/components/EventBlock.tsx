@@ -743,6 +743,11 @@ export function EventBlock({
               ))}
             </span>
           )}
+        {/*
+         * 中身(時刻・タイトル・場所)を 1 つにまとめる。スマホ幅では、ここが sticky になり、長い予定を
+         * 下へスクロールしても、見えている範囲の最上部に残る(EventBlock.css の .event-body 参照)。
+         */}
+        <div className="event-body">
         {isCompact ? (
           <span className="event-line">
             <span className="event-time">{formatTime(occurrence.startMs, timeZone)}</span>
@@ -806,6 +811,7 @@ export function EventBlock({
             )}
           </>
         )}
+        </div>
         <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
       </div>
       {detailPos &&
