@@ -7,6 +7,9 @@ import { LEAD_OPTIONS, type NotifySettings } from "../lib/notifications";
 import { useTheme } from "../theme";
 import { Text } from "./ui";
 import { Icon } from "./Icon";
+import { ThemePanel } from "./ThemePanel";
+import { ACCENTS, APPEARANCES } from "../lib/accents";
+import { useThemePrefs } from "../lib/themePrefs";
 
 /**
  * 設定メニュー(下から出るシート)。アカウントごとのカレンダーの表示/非表示、新しい予定の
@@ -37,6 +40,9 @@ export function SettingsSheet({
   onSignOut: () => void;
 }) {
   const t = useTheme();
+  const themePrefs = useThemePrefs();
+  /** シートの中の画面: 設定の一覧 / カラーテーマ */
+  const [page, setPage] = useState<"main" | "theme">("main");
   // 切り替えの途中(サーバーの応答前)の見た目。応答が来たら、再読み込みされたデータに任せる
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
@@ -78,13 +84,41 @@ export function SettingsSheet({
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-          <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>設定</Text>
-          <Pressable onPress={onClose} hitSlop={10}>
+          {page === "theme" ? (
+            <Pressable onPress={() => setPage("main")} hitSlop={10} style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 2 }}>
+              <Icon name="caretLeft" color={t.accent} size={20} />
+              <Text style={{ fontSize: 20, fontWeight: "700" }}>カラーテーマ</Text>
+            </Pressable>
+          ) : (
+            <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>設定</Text>
+          )}
+          <Pressable
+            onPress={() => {
+              setPage("main");
+              onClose();
+            }}
+            hitSlop={10}
+          >
             <Text style={{ color: t.accent, fontSize: 15, fontWeight: "700" }}>完了</Text>
           </Pressable>
         </View>
 
         <ScrollView>
+          {page === "theme" ? (
+            <ThemePanel />
+          ) : (
+            <>
+          <Pressable
+            onPress={() => setPage("theme")}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, marginBottom: 14, gap: 8 }}
+          >
+            <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: t.accent }} />
+            <Text style={{ flex: 1 }}>カラーテーマ</Text>
+            <Text style={{ fontSize: 13, color: t.inkSub }}>
+              {APPEARANCES.find((o) => o.key === themePrefs.appearance)?.label} ・ {ACCENTS[themePrefs.accent].label}
+            </Text>
+            <Icon name="caretRight" color={t.inkSub} size={16} />
+          </Pressable>
           {(data?.accounts ?? []).map((a) => {
             const all = a.all ?? a.calendars;
             const shown = new Set(a.calendars.map((c) => c.id));
@@ -206,6 +240,8 @@ export function SettingsSheet({
           <Text style={{ marginTop: 28, fontSize: 12, color: t.inkSub }} selectable>
             kichijitsu {Application.nativeApplicationVersion ?? "?"} ({Application.nativeBuildVersion ?? "?"})
           </Text>
+            </>
+          )}
         </ScrollView>
       </View>
     </Modal>
