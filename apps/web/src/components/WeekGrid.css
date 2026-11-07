@@ -686,14 +686,12 @@
 }
 
 /*
- * スマホ幅: 日列のはみ出しを切る .week-grid-days-viewport を overflow: clip にする(2026-11-07)。
+ * 日列のはみ出しを切る .week-grid-days-viewport を overflow: clip にする(2026-11-07)。
  * hidden のままだと、この要素が「スクロールの枠」になり、中の予定カードの sticky(長い予定のタイトルを
  * 最上部に残す。EventBlock.css の .event-body)が、実際にスクロールする .week-grid-scroll ではなく、
  * 動かないこの要素を基準にしてしまい、効かない。clip は同じ切り抜きで、枠を作らない。
  * (週送りのスライドは transform なので、この要素のスクロールには依存していない)
  */
-@media (max-width: 640px) {
-  .week-grid-days-viewport {
-    overflow: clip;
-  }
+.week-grid-days-viewport {
+  overflow: clip;
 }
