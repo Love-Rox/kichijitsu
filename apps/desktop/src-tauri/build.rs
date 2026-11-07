@@ -11,7 +11,9 @@ fn main() {
                 "validate_gh_path",
                 "notify",
                 "open_external_login",
-                "set_tray_status",
+                "set_tray_info",
+                "get_autostart",
+                "set_autostart",
             ])),
     )
     .expect("failed to run tauri-build");

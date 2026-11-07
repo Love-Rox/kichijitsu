@@ -15,7 +15,7 @@
  * 行頭アイコンの種別。実際の SVG コンポーネント/グリフへの対応付けは ToolbarMenu.tsx が持つ
  * ―― このモジュールを React 非依存に保つため、ここでは識別子だけを扱う。
  */
-export type ToolbarMenuIconId = "calendar" | "timer" | "gear" | "sync" | "help" | "google";
+export type ToolbarMenuIconId = "calendar" | "timer" | "gear" | "sync" | "reload" | "help" | "google";
 
 export type ToolbarMenuItemId =
   | "zoom"
@@ -24,6 +24,7 @@ export type ToolbarMenuItemId =
   | "settings"
   | "sync"
   | "connect-google"
+  | "reload"
   | "help"
   | "privacy"
   | "terms";
@@ -81,13 +82,15 @@ export interface ToolbarMenuInput {
   onToggleGitHubPane: () => void;
   onOpenSettings: () => void;
   onSync: () => void;
+  /** アプリの再読み込み(キャッシュを捨てて読み直す)。連携状態に関わらず常に出す */
+  onReload: () => void;
   onToggleHelp: () => void;
   onConnectGoogle: () => void;
 }
 
 /**
  * 並び順の意図: 上から「表示の見え方(ズーム)」→「画面を開く(カレンダー/実績/設定)」→
- * 「実行する(同期)」→「補助(ヘルプ)」→「法的リンク」。よく触るものほど上(親指が届く
+ * 「実行する(同期・再読み込み)」→「補助(ヘルプ)」→「法的リンク」。よく触るものほど上(親指が届く
  * 側)に置く、という優先ではなく、元のツールバーの左→右の並びをそのまま縦に倒した順序に
  * してある ―― 広幅から狭幅に切り替えたときに「どこへ行ったか」を探しやすくするため。
  *
@@ -158,6 +161,16 @@ export function buildToolbarMenuItems(input: ToolbarMenuInput): ToolbarMenuItem[
       onClick: input.onConnectGoogle,
     });
   }
+
+  items.push({
+    kind: "action",
+    id: "reload",
+    icon: "reload",
+    label: "再読み込み",
+    ariaLabel: "再読み込み",
+    title: "再読み込み(最新の画面に入れ替える)",
+    onClick: input.onReload,
+  });
 
   items.push({
     kind: "action",

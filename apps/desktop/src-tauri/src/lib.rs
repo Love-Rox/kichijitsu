@@ -52,7 +52,7 @@ use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, Url, WindowEvent,
 };
@@ -486,26 +486,276 @@ fn clamp_notify_text(text: &str, max: usize) -> String {
     format!("{head}…")
 }
 
-/// トレイの ID。set_tray_status が引く
+/// トレイの ID。set_tray_info が引く
 const TRAY_ID: &str = "main";
 /// メニューバーに出すタイトルの上限(文字数)。web 側は 18 文字+「あと◯分」程度に収めているので、余裕を見た値
 const TRAY_TITLE_MAX_CHARS: usize = 40;
+/// トレイのメニューに並べる、今日の予定の最大件数
+const TRAY_MAX_EVENTS: usize = 8;
+/// トレイのメニュー 1 項目の文字数の上限
+const TRAY_LABEL_MAX_CHARS: usize = 48;
+/// 「次の会議に参加」のグローバルショートカット。
+/// 他のアプリが使っていて登録できなくても、起動は止めない(登録の失敗はログに出すだけ)。
+/// Cmd+Shift+J のような、よくある組み合わせは、ほかのアプリと奪い合うので、Option を足した。
+const JOIN_MEETING_SHORTCUT: &str = "CmdOrCtrl+Alt+J";
+/// 「予定を作る」のグローバルショートカット(ウィンドウを前面に出して、作成フォームを開く)。
+/// Cmd+Shift+N は Finder などの「新規」と衝突するので、Option を足した。
+const QUICK_CREATE_SHORTCUT: &str = "CmdOrCtrl+Alt+N";
 
-/// メニューバー(トレイ)に、次の予定の文言を出す(2026-11-07)。
+/// トレイのメニューに出している内容のうち、メニューを押したときに必要なもの。
+/// 会議の URL は、web からここへ渡されて検証済みのものだけを持ち、**メニュー/ショートカットを押したときにだけ**
+/// 開く(web から「この URL を開け」と直接頼む口は作らない: 脅威モデルは open_external_login と同じ)。
+#[derive(Default)]
+struct TrayInfo {
+    join_url: Option<String>,
+    /// メニューに並べた今日の予定の開始時刻(epoch ms)。押した項目を、web へ伝えるのに使う
+    event_starts: Vec<i64>,
+}
+
+struct TrayState(Mutex<TrayInfo>);
+
+/// 会議の URL として開いてよいか。http(s) で、ホストがあり、長すぎないものだけ。
+fn validate_join_url(raw: &str) -> Option<String> {
+    if raw.len() > 2000 {
+        return None;
+    }
+    let url = Url::parse(raw.trim()).ok()?;
+    if is_openable_external_url(&url) {
+        Some(url.to_string())
+    } else {
+        None
+    }
+}
+
+/// トレイのメニューを組み立てる。上から: 会議に参加 / 今日の予定 / 区切り / 表示・再読み込み・アップデート・終了。
+fn build_tray_menu(
+    app: &tauri::AppHandle,
+    join_label: Option<&str>,
+    event_labels: &[String],
+) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::new(app)?;
+    if let Some(label) = join_label {
+        menu.append(&MenuItem::with_id(
+            app,
+            "join",
+            format!("会議に参加: {label}"),
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    if event_labels.is_empty() {
+        menu.append(&MenuItem::with_id(
+            app,
+            "no-events",
+            "今日の残りの予定はありません",
+            false,
+            None::<&str>,
+        )?)?;
+    }
+    for (i, label) in event_labels.iter().enumerate() {
+        menu.append(&MenuItem::with_id(app, format!("ev:{i}"), label, true, None::<&str>)?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    for (id, text) in [
+        ("toggle", "表示/隠す"),
+        ("reload", "再読み込み"),
+        ("update", "アップデートを確認"),
+        ("quit", "終了"),
+    ] {
+        menu.append(&MenuItem::with_id(app, id, text, true, None::<&str>)?)?;
+    }
+    Ok(menu)
+}
+
+/// メインウィンドウを前面に出す(隠れていても、最小化されていても)。
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// web 側へ、デスクトップからの合図を送る(`kichijitsu-desktop` という window のイベント)。
+/// `detail` は JS のオブジェクトリテラルで、**定数と整数だけ**から作ること(利用者の文字列を混ぜない)。
+fn dispatch_web_event(app: &tauri::AppHandle, detail: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.eval(format!(
+            "window.dispatchEvent(new CustomEvent('kichijitsu-desktop', {{ detail: {detail} }}))"
+        ));
+    }
+}
+
+/// 「次の会議に参加」: web から渡された(検証済みの)URL を、既定のブラウザで開く。
+fn join_next_meeting(app: &tauri::AppHandle) {
+    let url = app
+        .state::<TrayState>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|info| info.join_url.clone());
+    match url {
+        Some(url) => {
+            if let Err(e) = tauri_plugin_opener::open_url(url, None::<&str>) {
+                eprintln!("kichijitsu: 会議を開けませんでした: {e}");
+            }
+        }
+        None => eprintln!("kichijitsu: 参加できる次の会議がありません"),
+    }
+}
+
+/// トレイの「今日の予定」を押した: ウィンドウを前面に出して、その予定の日へ移るよう、web に伝える。
+fn focus_tray_event(app: &tauri::AppHandle, index: usize) {
+    let start = app
+        .state::<TrayState>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|info| info.event_starts.get(index).copied());
+    show_main_window(app);
+    if let Some(ms) = start {
+        dispatch_web_event(app, &format!("{{ kind: 'focusEvent', startMs: {ms} }}"));
+    }
+}
+
+/// メニューバー(トレイ)の表示と、メニューの中身を、web から渡された内容に更新する(2026-11-07)。
 ///
-/// 判定は web 側(apps/web/src/sync/trayNextEvent.ts)で、ここは渡された文言を出すだけ
-/// (notify と同じ分担)。`title` は macOS ではアイコンの横に文字として出る(Windows/Linux は
-/// タイトルを出せないので、`tooltip` だけが効く)。空文字なら、アイコンだけに戻す。
+/// 判定(次の予定・次の会議・今日の予定)は web 側(apps/web/src/sync/trayNextEvent.ts)で、
+/// ここは渡された文言を出すだけ(notify と同じ分担)。`title` は macOS ではアイコンの横に文字として出る
+/// (Windows/Linux はタイトルを出せないので、`tooltip` とメニューだけが効く)。空文字なら、アイコンだけに戻す。
+/// 会議の URL は、検証して、メニュー/ショートカットを押したときにだけ開く(TrayInfo のコメント参照)。
 #[tauri::command]
-fn set_tray_status(app: tauri::AppHandle, title: String, tooltip: String) -> Result<(), String> {
+fn set_tray_info(
+    app: tauri::AppHandle,
+    title: String,
+    tooltip: String,
+    join_label: Option<String>,
+    join_url: Option<String>,
+    event_labels: Vec<String>,
+    event_starts: Vec<i64>,
+) -> Result<(), String> {
     let tray = app
         .tray_by_id(TRAY_ID)
         .ok_or_else(|| "トレイがありません".to_string())?;
+
+    let join = match (join_label, join_url.as_deref().and_then(validate_join_url)) {
+        (Some(label), Some(url)) => Some((clamp_notify_text(&label, TRAY_LABEL_MAX_CHARS), url)),
+        _ => None,
+    };
+    let count = event_labels.len().min(event_starts.len()).min(TRAY_MAX_EVENTS);
+    let labels: Vec<String> = event_labels
+        .iter()
+        .take(count)
+        .map(|l| clamp_notify_text(l, TRAY_LABEL_MAX_CHARS))
+        .collect();
+
+    {
+        let state = app.state::<TrayState>();
+        let mut info = state
+            .0
+            .lock()
+            .map_err(|_| "トレイの状態を更新できませんでした".to_string())?;
+        info.join_url = join.as_ref().map(|(_, url)| url.clone());
+        info.event_starts = event_starts.into_iter().take(count).collect();
+    }
+
+    let menu = build_tray_menu(&app, join.as_ref().map(|(label, _)| label.as_str()), &labels)
+        .map_err(|e| format!("トレイのメニューを作れませんでした: {e}"))?;
+    tray.set_menu(Some(menu))
+        .map_err(|e| format!("トレイのメニューを変えられませんでした: {e}"))?;
     let title = clamp_notify_text(&title, TRAY_TITLE_MAX_CHARS);
     tray.set_title(if title.is_empty() { None } else { Some(title) })
         .map_err(|e| format!("トレイのタイトルを変えられませんでした: {e}"))?;
     tray.set_tooltip(Some(clamp_notify_text(&tooltip, NOTIFY_MAX_CHARS)))
         .map_err(|e| format!("トレイの説明を変えられませんでした: {e}"))
+}
+
+// ============================================================================
+// ログイン時に自動起動(macOS、2026-11-07)
+// ============================================================================
+//
+// LaunchAgent(~/Library/LaunchAgents/<identifier>.autostart.plist)を置くと、ログイン時に起動する
+// (ファイルを消せば、やめる)。新しいライブラリは足さず、plist を直接書く。macOS 以外は未対応。
+// 既定はオフ。設定画面のチェックボックス(web)から、get_autostart / set_autostart を呼ぶ。
+
+const AUTOSTART_LABEL: &str = "cc.love-rox.kichijitsu.autostart";
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// LaunchAgent の plist の中身。`exe` は、起動する実行ファイルの絶対パス。
+fn autostart_plist(label: &str, exe: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{}</string>
+  <key>ProgramArguments</key><array><string>{}</string></array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+"#,
+        xml_escape(label),
+        xml_escape(exe)
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn autostart_path() -> Result<std::path::PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "ホームフォルダが分かりません".to_string())?;
+    Ok(std::path::Path::new(&home)
+        .join("Library/LaunchAgents")
+        .join(format!("{AUTOSTART_LABEL}.plist")))
+}
+
+/// ログイン時に自動起動する設定になっているか。
+#[tauri::command]
+fn get_autostart() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        autostart_path().map(|p| p.exists()).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// ログイン時の自動起動を、オン/オフする。
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let path = autostart_path()?;
+        if enabled {
+            let exe = std::env::current_exe()
+                .map_err(|e| format!("実行ファイルの場所が分かりません: {e}"))?;
+            let exe = exe
+                .to_str()
+                .ok_or_else(|| "実行ファイルの場所を文字にできません".to_string())?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("フォルダを作れませんでした: {e}"))?;
+            }
+            std::fs::write(&path, autostart_plist(AUTOSTART_LABEL, exe))
+                .map_err(|e| format!("設定を書けませんでした: {e}"))
+        } else {
+            match std::fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(format!("設定を消せませんでした: {e}")),
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = enabled;
+        Err("この OS では、自動起動は未対応です".to_string())
+    }
 }
 
 /// web 側から呼ぶネイティブ通知。予定のリマインダー通知の送出口。
@@ -810,7 +1060,9 @@ pub fn run() {
             validate_gh_path,
             notify,
             open_external_login,
-            set_tray_status
+            set_tray_info,
+            get_autostart,
+            set_autostart
         ])
         .setup(|app| {
             // --- メインウィンドウ ---
@@ -864,12 +1116,10 @@ pub fn run() {
             }
 
             // --- トレイ常駐 ---
-            let toggle_i = MenuItem::with_id(app, "toggle", "表示/隠す", true, None::<&str>)?;
-            let reload_i = MenuItem::with_id(app, "reload", "再読み込み", true, None::<&str>)?;
-            let update_i =
-                MenuItem::with_id(app, "update", "アップデートを確認", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
+            // メニューの中身(次の会議・今日の予定)は、web から set_tray_info で渡されるたびに作り直す。
+            // 起動直後(web がまだ何も渡していない間)は、固定の 4 項目だけ
+            app.manage(TrayState(Mutex::new(TrayInfo::default())));
+            let menu = build_tray_menu(app.handle(), None, &[])?;
 
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
@@ -881,6 +1131,12 @@ pub fn run() {
                     "toggle" => toggle_main_window(app),
                     "reload" => reload_main_window(app),
                     "update" => updater::spawn_manual_check(app.clone()),
+                    "join" => join_next_meeting(app),
+                    id if id.starts_with("ev:") => {
+                        if let Ok(index) = id["ev:".len()..].parse::<usize>() {
+                            focus_tray_event(app, index);
+                        }
+                    }
                     // アプリの唯一の真の終了経路。tauri-plugin-window-state は
                     // 既定でウィンドウ破棄時にしか状態を保存しないが、この
                     // アプリは「閉じる」でウィンドウを破棄しない(下記
@@ -948,6 +1204,30 @@ pub fn run() {
                             toggle_main_window(app);
                         }
                     })?;
+
+                // 次の会議に参加 / 予定を作る。他のアプリと組み合わせが衝突して登録できなくても、
+                // アプリの起動は止めない(`?` で setup ごと失敗させない)
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    JOIN_MEETING_SHORTCUT,
+                    |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            join_next_meeting(app);
+                        }
+                    },
+                ) {
+                    eprintln!("kichijitsu: {JOIN_MEETING_SHORTCUT} を登録できませんでした: {e}");
+                }
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    QUICK_CREATE_SHORTCUT,
+                    |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            show_main_window(app);
+                            dispatch_web_event(app, "{ kind: 'quickCreate' }");
+                        }
+                    },
+                ) {
+                    eprintln!("kichijitsu: {QUICK_CREATE_SHORTCUT} を登録できませんでした: {e}");
+                }
 
                 // CmdOrCtrl+R (RELOAD_SHORTCUT のコメント参照): 誤爆防止のため
                 // フォーカス/表示ガード付きの reload_main_window_if_focused を通す。
@@ -1452,5 +1732,39 @@ mod tests {
         // tauri.conf.json の plugins.deep-link.desktop.schemes と
         // apps/sync/src/core/desktop-auth.ts の DESKTOP_DEEP_LINK_SCHEME と同じ値であること。
         assert_eq!(DEEP_LINK_SCHEME, "kichijitsu");
+    }
+
+    // --- トレイの次の会議・自動起動 (2026-11-07) ---
+
+    #[test]
+    fn validate_join_url_accepts_only_http_and_https() {
+        assert_eq!(
+            validate_join_url("https://meet.google.com/abc-defg-hij").as_deref(),
+            Some("https://meet.google.com/abc-defg-hij")
+        );
+        assert!(validate_join_url("http://example.com/room").is_some());
+        // 空白は削る。スキームが違うもの・ホストが無いものは通さない
+        assert!(validate_join_url("  https://zoom.us/j/1  ").is_some());
+        assert!(validate_join_url("javascript:alert(1)").is_none());
+        assert!(validate_join_url("file:///etc/passwd").is_none());
+        assert!(validate_join_url("kichijitsu://auth?ticket=x").is_none());
+        assert!(validate_join_url("tel:+81000").is_none());
+        assert!(validate_join_url("not a url").is_none());
+        assert!(validate_join_url("").is_none());
+    }
+
+    #[test]
+    fn validate_join_url_rejects_too_long_input() {
+        let long = format!("https://example.com/{}", "a".repeat(2100));
+        assert!(validate_join_url(&long).is_none());
+    }
+
+    #[test]
+    fn autostart_plist_escapes_the_executable_path() {
+        let plist = autostart_plist("cc.example.autostart", "/Apps/a&b <c>/kichijitsu");
+        assert!(plist.contains("<string>cc.example.autostart</string>"));
+        assert!(plist.contains("<string>/Apps/a&amp;b &lt;c&gt;/kichijitsu</string>"));
+        assert!(plist.contains("<key>RunAtLoad</key><true/>"));
+        assert!(!plist.contains("a&b"));
     }
 }

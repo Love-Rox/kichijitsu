@@ -22,6 +22,8 @@ import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
 import { useEventReminders } from "./hooks/useEventReminders";
 import { useTrayNextEvent } from "./hooks/useTrayNextEvent";
+import { useDesktopEvents } from "./hooks/useDesktopEvents";
+import { plainDateOfMs } from "./layout/dayTime";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
@@ -852,6 +854,12 @@ function App() {
   });
   // メニューバー(トレイ)に次の予定を出す(デスクトップ版のみ)
   useTrayNextEvent({ store, timeZone, enabled: canNotifyNatively() });
+  // デスクトップからの合図: 「予定を作る」のグローバルショートカット / トレイの「今日の予定」を押した
+  const handleFocusEvent = useCallback(
+    (startMs: number) => handleNavigateToDay(plainDateOfMs(startMs, timeZone)),
+    [handleNavigateToDay, timeZone],
+  );
+  useDesktopEvents({ onQuickCreate: handleNewEventShortcut, onFocusEvent: handleFocusEvent });
 
   // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
   // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した

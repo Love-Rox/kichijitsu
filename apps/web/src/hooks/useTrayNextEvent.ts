@@ -7,9 +7,8 @@
 import { useEffect } from "react";
 import type { OccurrenceStore } from "../store/occurrenceStore";
 import {
-  buildTrayStatus,
+  buildTrayInfo,
   getTrayNextEventEnabled,
-  pickNextEvent,
   setTrayStatus,
   TRAY_LOOKAHEAD_MS,
 } from "../sync/trayNextEvent";
@@ -36,9 +35,9 @@ export function useTrayNextEvent({
       const nowMs = Date.now();
       // 設定は毎 tick 読む(設定モーダルは localStorage に直接書く)。オフなら、出したものを消す
       const status = getTrayNextEventEnabled()
-        ? buildTrayStatus(pickNextEvent(store.getRange(nowMs, nowMs + TRAY_LOOKAHEAD_MS), nowMs), nowMs, timeZone)
-        : { title: "", tooltip: "kichijitsu" };
-      const key = `${status.title}\n${status.tooltip}`;
+        ? buildTrayInfo(store.getRange(nowMs, nowMs + TRAY_LOOKAHEAD_MS), nowMs, timeZone)
+        : { title: "", tooltip: "kichijitsu", eventLabels: [], eventStarts: [] };
+      const key = JSON.stringify(status);
       if (key === last) return;
       last = key;
       void setTrayStatus(status);

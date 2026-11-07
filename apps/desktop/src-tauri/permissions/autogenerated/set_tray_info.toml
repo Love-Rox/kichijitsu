@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-tray-info"
+description = "Enables the set_tray_info command without any pre-configured scope."
+commands.allow = ["set_tray_info"]
+
+[[permission]]
+identifier = "deny-set-tray-info"
+description = "Denies the set_tray_info command without any pre-configured scope."
+commands.deny = ["set_tray_info"]
