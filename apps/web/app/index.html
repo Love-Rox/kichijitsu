@@ -53,6 +53,12 @@
     <script>
       (function () {
         try {
+          // アクセント色 (sync/accentPref.ts)。既定の朱・未設定・壊れた値は属性なし。許す値は
+          // layout/accentPalette.ts の ACCENT_KEYS と同じ(theme-accents.css に規則がある名前だけ)
+          var accent = localStorage.getItem("kichijitsu:accent");
+          if (/^(indigo|green|purple|orange|sumi)$/.test(accent || "")) {
+            document.documentElement.setAttribute("data-accent", accent);
+          }
           var pref = localStorage.getItem("kichijitsu:theme");
           // "auto" / 未設定 / 壊れた値はすべて OS 連動 = 何もしないのが正しい状態
           if (pref !== "light" && pref !== "dark") return;

@@ -12,6 +12,10 @@ describe("isLogoutClearableStorageKey", () => {
     expect(isLogoutClearableStorageKey("kichijitsu:reminderNotified")).toBe(true);
   });
 
+  it("kichijitsu:accent も例外(配色設定なので残す)", () => {
+    expect(isLogoutClearableStorageKey("kichijitsu:accent")).toBe(false);
+  });
+
   it("kichijitsu:theme だけは例外(配色設定なので残す)", () => {
     expect(isLogoutClearableStorageKey("kichijitsu:theme")).toBe(false);
   });

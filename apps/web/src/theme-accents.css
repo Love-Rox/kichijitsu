@@ -1,0 +1,86 @@
+/* 生成物: node brand/gen-web-accents.mjs で作り直す(元の表は src/layout/accentPalette.ts)。手で直さない。 */
+
+:root[data-accent="indigo"] {
+  --c-accent: light-dark(#3f5fc4, #7b97ee);
+  --c-accent-strong: light-dark(#2f4aa0, #9bb2ff);
+  --c-accent-ink: light-dark(#263b80, #b6c6f6);
+  --c-accent-soft: light-dark(#e1e7f8, #232a45);
+  --c-accent-soft-line: light-dark(#ced7f2, #354067);
+  --c-accent-rgb: 63, 95, 196;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="indigo"]:not([data-theme="light"]) {
+    --c-accent-rgb: 123, 151, 238;
+  }
+}
+:root[data-accent="indigo"][data-theme="dark"] {
+  --c-accent-rgb: 123, 151, 238;
+}
+
+:root[data-accent="green"] {
+  --c-accent: light-dark(#2f8f5b, #4fc183);
+  --c-accent-strong: light-dark(#226e44, #72dba0);
+  --c-accent-ink: light-dark(#1b5836, #9eddbb);
+  --c-accent-soft: light-dark(#dff0e6, #1f3a2b);
+  --c-accent-soft-line: light-dark(#cae4d5, #29553d);
+  --c-accent-rgb: 47, 143, 91;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="green"]:not([data-theme="light"]) {
+    --c-accent-rgb: 79, 193, 131;
+  }
+}
+:root[data-accent="green"][data-theme="dark"] {
+  --c-accent-rgb: 79, 193, 131;
+}
+
+:root[data-accent="purple"] {
+  --c-accent: light-dark(#8a4fc4, #b58aee);
+  --c-accent-strong: light-dark(#6c3aa0, #cba8ff);
+  --c-accent-ink: light-dark(#562e80, #d6bff6);
+  --c-accent-soft: light-dark(#ece1f7, #33264a);
+  --c-accent-soft-line: light-dark(#e0cff1, #4d3a6b);
+  --c-accent-rgb: 138, 79, 196;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="purple"]:not([data-theme="light"]) {
+    --c-accent-rgb: 181, 138, 238;
+  }
+}
+:root[data-accent="purple"][data-theme="dark"] {
+  --c-accent-rgb: 181, 138, 238;
+}
+
+:root[data-accent="orange"] {
+  --c-accent: light-dark(#d9731a, #f0954a);
+  --c-accent-strong: light-dark(#b05a10, #ffb06b);
+  --c-accent-ink: light-dark(#8d480d, #f7c59b);
+  --c-accent-soft: light-dark(#f9e6d3, #3f2c1a);
+  --c-accent-soft-line: light-dark(#f5d8bd, #624124);
+  --c-accent-rgb: 217, 115, 26;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="orange"]:not([data-theme="light"]) {
+    --c-accent-rgb: 240, 149, 74;
+  }
+}
+:root[data-accent="orange"][data-theme="dark"] {
+  --c-accent-rgb: 240, 149, 74;
+}
+
+:root[data-accent="sumi"] {
+  --c-accent: light-dark(#4a4a52, #c4c4cc);
+  --c-accent-strong: light-dark(#2f2f35, #e0e0e6);
+  --c-accent-ink: light-dark(#26262a, #dfdfe3);
+  --c-accent-soft: light-dark(#e8e8ec, #34343a);
+  --c-accent-soft-line: light-dark(#d5d5da, #515157);
+  --c-accent-rgb: 74, 74, 82;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="sumi"]:not([data-theme="light"]) {
+    --c-accent-rgb: 196, 196, 204;
+  }
+}
+:root[data-accent="sumi"][data-theme="dark"] {
+  --c-accent-rgb: 196, 196, 204;
+}
