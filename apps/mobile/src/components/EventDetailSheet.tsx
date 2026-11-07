@@ -10,11 +10,7 @@ import {
   meetingProviderLabel,
   resolveMeetingUrl,
 } from "@kichijitsu/web/layout/meetingLinks";
-import {
-  buildGuestListView,
-  GUEST_PREVIEW_COUNT,
-  GUEST_STATUS_LABEL,
-} from "@kichijitsu/web/layout/guestList";
+import { buildGuestListView, GUEST_STATUS_LABEL } from "@kichijitsu/web/layout/guestList";
 import type { GuestNotify } from "@kichijitsu/web/sync/guestNotify";
 import {
   canEditGuests,
@@ -27,6 +23,8 @@ import { canAddMeet } from "@kichijitsu/web/sync/eventMeet";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
 
+/** 畳んだ状態で見せる行数。これを超えた分は「他 N 人を表示」の中に隠す(Web は、ゲスト欄ごと畳むので持たない) */
+const GUEST_PREVIEW_COUNT = 5;
 
 /** 予定の詳細(下から出るシート)。削除はここから。 */
 export function EventDetailSheet({
