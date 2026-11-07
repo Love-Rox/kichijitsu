@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "kichijitsu-desktop"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "getrandom 0.3.4",
  "serde_json",
