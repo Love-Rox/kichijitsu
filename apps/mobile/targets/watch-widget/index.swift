@@ -25,6 +25,7 @@ struct ComplicationEvent: Decodable {
     let title: String
     let startMs: Double
     let endMs: Double
+    let color: String?   // カレンダーの色("#RRGGBB")。古いデータには無い
     var start: Date { Date(timeIntervalSince1970: startMs / 1000) }
     var end: Date { Date(timeIntervalSince1970: endMs / 1000) }
 }
@@ -71,7 +72,13 @@ private func clockText(_ e: ComplicationEvent, at date: Date) -> String {
 
 struct ComplicationView: View {
     @Environment(\.widgetFamily) var family
+    @Environment(\.widgetRenderingMode) var renderingMode
     let entry: Entry
+
+    /// カレンダーの色。フルカラーの文字盤だけで使う(単色の文字盤では、システムが 1 色に染める)
+    private func tint(_ e: ComplicationEvent) -> Color? {
+        renderingMode == .fullColor ? parseHex(e.color) : nil
+    }
 
     var body: some View {
         let next = entry.events.first
@@ -86,6 +93,7 @@ struct ComplicationView: View {
                         Text(e.title).font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
                     }
                     .padding(.horizontal, 4)
+                    .foregroundStyle(tint(e) ?? Color.primary)
                 } else {
                     Image(systemName: "calendar")
                 }
@@ -96,6 +104,7 @@ struct ComplicationView: View {
             if let e = next {
                 Text(clockText(e, at: entry.date))
                     .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(tint(e) ?? Color.primary)
                     .widgetLabel { Text(e.title) }
                     .widgetAccentable()
             } else {
@@ -114,11 +123,18 @@ struct ComplicationView: View {
                     Text("予定はありません").font(.system(size: 14, weight: .semibold))
                 } else {
                     ForEach(Array(entry.events.prefix(2).enumerated()), id: \.offset) { _, e in
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(e.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                            Text("\(e.start.formatted(timeFormat))–\(e.end.formatted(timeFormat))")
-                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        // 左に、カレンダーの色の縦棒(単色の文字盤では、システムの色になる)
+                        HStack(spacing: 5) {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(tint(e) ?? Color.primary)
+                                .frame(width: 3)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(e.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                                Text("\(e.start.formatted(timeFormat))–\(e.end.formatted(timeFormat))")
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
