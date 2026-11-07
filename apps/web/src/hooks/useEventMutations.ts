@@ -13,6 +13,7 @@ import type { CheckedFetch } from "../sync/httpJson";
 import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { useAttendeeMutations } from "./mutations/useAttendeeMutations";
 import { useEventColor } from "./mutations/useEventColor";
+import { useEventMeet } from "./mutations/useEventMeet";
 import { useCreateEvent } from "./mutations/useCreateEvent";
 import { useDeleteOccurrence } from "./mutations/useDeleteOccurrence";
 import { useOccurrencePersist } from "./mutations/useOccurrencePersist";
@@ -159,6 +160,11 @@ export interface EventMutationsController {
     colorId: string | null,
     calendarColor: string,
   ) => Promise<void>;
+  /**
+   * 既存の予定に Google Meet を追加 (onAddMeet)。サーバー (POST /api/event/meet) が受け付けて、
+   * 会議の URL が返ってから手元へ反映する (保存ボタン方式)。繰り返しの予定はシリーズ全体に付く。
+   */
+  addMeet: (subject: Occurrence) => Promise<void>;
   /** タスクの完了トグル (onToggleTask)。枡チェックボックスのタップから呼ばれる */
   toggleTask: (task: TaskItem) => void;
 }
@@ -223,6 +229,8 @@ export function useEventMutations({
 
   const { setColor } = useEventColor({ db, store, allDayStore, checkedFetch });
 
+  const { addMeet } = useEventMeet({ db, store, allDayStore, checkedFetch });
+
   const { toggleTask } = useToggleTask({ db, taskStore, checkedFetch, flashSaveError });
 
   return {
@@ -245,6 +253,7 @@ export function useEventMutations({
     rsvp,
     editGuests,
     setColor,
+    addMeet,
     toggleTask,
   };
 }

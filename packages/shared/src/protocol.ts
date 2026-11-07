@@ -743,6 +743,27 @@ export interface EventColorResponse {
 }
 
 /**
+ * POST /api/event/meet — 既存の予定に Google Meet の会議を追加する (conferenceData.createRequest)。
+ * eventId は、繰り返しの1回分ならインスタンス id、シリーズ全体なら親の id (EventPatchRequest と同じ規則)。
+ * 会議のリンクは予定の中身なので、ゲストへの通知は時刻・タイトルの変更と同じ既定
+ * (外部ゲストにだけメール。core/patch-event.ts の DEFAULT_SEND_UPDATES) で送る。
+ */
+export interface EventMeetRequest {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+}
+
+export interface EventMeetResponse {
+  ok: boolean;
+  /**
+   * 作られた会議の参加 URL。Google が会議をまだ作っている途中のときは付かない
+   * (予定のほうには、次の同期でリンクが入る)。
+   */
+  conferenceUrl?: string;
+}
+
+/**
  * POST /api/event/guests — 予定のゲスト (参加者) を追加・削除する (2026-07-31)。
  *
  * ## 配列ではなく差分を送る

@@ -34,6 +34,7 @@ import {
 import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
 import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
 import { patchEventColorWithRetry } from "../core/event-color";
+import { addEventMeetWithRetry } from "../core/event-meet";
 import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
 import { editEventGuestsWithRetry } from "../core/guest-event";
 import type { MirrorEventBody } from "../core/block-reconcile";
@@ -391,6 +392,21 @@ export class UserSyncDO extends DurableObject<Env> {
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
       patchEventColorWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId, colorId }),
+    );
+  }
+
+  /**
+   * POST /api/event/meet: 既存の予定に Google Meet の会議を追加し、参加 URL を返す
+   * (core/event-meet.ts と google/event-meet.ts のコメント参照)。URL は、Google が会議を
+   * まだ作っている途中なら付かない(予定のほうには、次の同期でリンクが入る)。
+   */
+  async addEventMeet(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+  ): Promise<RpcResult<{ conferenceUrl?: string }>> {
+    return runRpc(() =>
+      addEventMeetWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId }),
     );
   }
 

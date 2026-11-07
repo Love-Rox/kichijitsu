@@ -23,6 +23,7 @@ import type { CalendarInfo } from "./calendarInfo";
 import { MeetingProviderIcon } from "./meetingProviderIcon";
 import { PlaceIcon, VideoIcon } from "./icons";
 import { EventEditForm } from "./EventEditForm";
+import { AddMeetButton } from "./AddMeetButton";
 import { EventColorSection } from "./EventColorSection";
 
 /**
@@ -136,6 +137,11 @@ export interface EventDetailCardProps {
    * そのカレンダーの色 (このカードが calendarLookup から引いて渡す)。
    */
   onSetColor?: (colorId: string | null, calendarColor: string) => Promise<void>;
+  /**
+   * 既存の予定に Google Meet を追加。**渡されたときだけ**ボタンを出す ―― 呼び出し側が
+   * sync/eventMeet.ts の canAddMeet で判定済み(会議の無い、編集できる Google の予定のみ)。
+   */
+  onAddMeet?: () => Promise<void>;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -169,6 +175,7 @@ export function EventDetailCard({
   onRsvp,
   onEditGuests,
   onSetColor,
+  onAddMeet,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -293,6 +300,9 @@ export function EventDetailCard({
             <MeetingProviderIcon provider={meeting.provider} width={12} height={12} />
             {meeting.meetingLinkLabel}
           </a>
+        )}
+        {onAddMeet && !meeting.meetingUrl && (
+          <AddMeetButton isRecurring={!!subject.seriesId} onAddMeet={onAddMeet} />
         )}
         {/* 場所行は「location が参加リンクそのものではない」ときだけ出す(判定は
             layout/eventDetailView.ts の locationRow、2026-07-25)。 */}

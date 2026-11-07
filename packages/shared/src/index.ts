@@ -37,6 +37,8 @@ export type {
   EventRsvpRequest,
   EventColorRequest,
   EventColorResponse,
+  EventMeetRequest,
+  EventMeetResponse,
   EventRsvpResponse,
   EventGuestsRequest,
   EventGuestsResponse,

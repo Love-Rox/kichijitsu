@@ -19,6 +19,7 @@ import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { GuestChange } from "../sync/eventGuests";
 import type { SetEventColor } from "../sync/eventColor";
+import type { AddEventMeet } from "../sync/eventMeet";
 import type { DroppedWorkItem } from "../sync/planned";
 import { hasOccurrenceTimeChanged } from "../sync/moveConfirm";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
@@ -191,6 +192,8 @@ interface WeekGridProps {
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更。時刻予定は DayColumn、終日は AllDayBar へ流す(同じ関数) */
   onSetColor: SetEventColor;
+  /** Meet の追加(時刻予定だけ。DayColumn へ流す) */
+  onAddMeet: AddEventMeet;
   /** 新規予定の既定の書き込み先。null なら空き領域クリック/ドラッグでの新規作成を無効化する(DayColumn 参照) */
   writeTarget: WriteTargetCandidate | null;
   /** 詳細フォームの「カレンダー」欄で選べる書き込み先の全候補(2026-07-29 全項目入力、DayColumn 参照) */
@@ -331,6 +334,7 @@ export function WeekGrid({
   onEditGuests,
   onAllDayEditGuests,
   onSetColor,
+  onAddMeet,
   writeTarget,
   writeTargets,
   onCreateEvent,
@@ -1319,6 +1323,7 @@ export function WeekGrid({
                       onRsvp={onRsvp}
                       onEditGuests={onEditGuests}
                       onSetColor={onSetColor}
+                      onAddMeet={onAddMeet}
                       calendarLookup={calendarLookup}
                       writeTarget={writeTarget}
                       writeTargets={writeTargets}

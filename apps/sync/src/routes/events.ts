@@ -17,6 +17,7 @@ import type {
   EventGuestsResponse,
   EventPatchResponse,
   EventColorResponse,
+  EventMeetResponse,
   EventRsvpRequest,
   EventRsvpResponse,
   SyncRequest,
@@ -29,6 +30,7 @@ import { isValidEventPatchRequest } from "../core/patch-event";
 import { isValidEventDeleteRequest } from "../core/delete-event";
 import { isValidEventGuestsRequest } from "../core/guest-edit";
 import { isValidEventColorRequest } from "../core/event-color";
+import { isValidEventMeetRequest } from "../core/event-meet";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-protocol";
@@ -176,6 +178,26 @@ eventRoutes.post("/api/event/color", requireAuth, async (c) => {
     return c.json<ApiError>({ error: "color_failed" }, 409);
   }
   return c.json<EventColorResponse>({ ok: true });
+});
+
+// 既存の予定に Google Meet の会議を追加する。認可は /api/event/patch と同じ。失敗は一律 409。
+eventRoutes.post("/api/event/meet", requireAuth, async (c) => {
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
+  if (!isValidEventMeetRequest(body)) return c.json<ApiError>({ error: "missing_fields" }, 400);
+
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId);
+  const result = await stub.addEventMeet(body.accountId, body.calendarId, body.eventId);
+  if (!result.ok) {
+    console.warn(
+      `event meet failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    );
+    return c.json<ApiError>({ error: "meet_failed" }, 409);
+  }
+  return c.json<EventMeetResponse>({ ok: true, conferenceUrl: result.data.conferenceUrl });
 });
 
 // 予定のゲスト (参加者) を追加・削除する (2026-07-31)。認可チェック (requireAuth +
