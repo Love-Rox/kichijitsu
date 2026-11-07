@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Animated, AppState, PanResponder, Pressable, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
+import { Animated, AppState, PanResponder, Pressable, useWindowDimensions, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
 import { FONT_SCALE, Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
@@ -29,6 +29,15 @@ const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** ドラッグで時間を動かすときの刻み(15 分)。 */
 const SNAP_MS = 15 * 60_000;
 const HOUR_MS = 3_600_000;
+/**
+ * 横に並べる日数(長い巻き紙の長さ)。表示するのは、そのうちの dayCount 日ぶんで、横にスクロールすると、
+ * 前後の日が連続して見える。端に近づいたら、見えない所で、範囲を入れ替える(内容は同じなので、気付かない)。
+ */
+const WINDOW_DAYS = 41;
+/** 巻き紙の先頭から、表示の先頭日までの日数(範囲の入れ替えの後も、この位置に置く)。 */
+const BEFORE_DAYS = 16;
+/** 端からこの日数より近づいたら、範囲を入れ替える。 */
+const EDGE_DAYS = 5;
 /** ドラッグ中の予定。mode: move=掴んで動かす、resize=下端を掴んで終了を動かす。 */
 interface DragState {
   o: Occurrence;
@@ -45,6 +54,7 @@ export function Timeline({
   timeZone,
   onSelect,
   onMove,
+  onVisibleStart,
 }: {
   data: CalendarData;
   /**
@@ -58,16 +68,60 @@ export function Timeline({
   today: Temporal.PlainDate;
   timeZone: string;
   onSelect: (subject: EventSubject) => void;
+  /** 横にスクロールして、表示の先頭日が変わった(指を離して止まった)とき。 */
+  onVisibleStart?: (start: Temporal.PlainDate) => void;
 }) {
   const t = useTheme();
 
   /** 列が狭い表示(週)かどうか。予定の文字・余白を詰める。 */
   const compact = dayCount >= 5;
 
+  // ---- 横の巻き紙 ----
+  // 前後に長く並べた日の列を、横のスクロールで連続して動かす。1 列の幅で止まる(吸着)。
+  const { width: screenW } = useWindowDimensions();
+  const colW = Math.max(1, (screenW - GUTTER) / dayCount);
+  const [windowStart, setWindowStart] = useState(() => start.subtract({ days: BEFORE_DAYS }));
   const days = useMemo(
-    () => Array.from({ length: dayCount }, (_, i) => start.add({ days: i })),
-    [start, dayCount],
+    () => Array.from({ length: WINDOW_DAYS }, (_, i) => windowStart.add({ days: i })),
+    [windowStart],
   );
+  const hScrollRef = useRef<ScrollViewInstance>(null);
+  /** 横のスクロール位置(ネイティブ側で更新)。日付の見出しを、帯と同じだけ動かすのに使う。 */
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const curX = useRef(0);
+  const startRef = useRef(start);
+  startRef.current = start;
+  const idxOf = (d: Temporal.PlainDate) => windowStart.until(d, { largestUnit: "days" }).days;
+  const [initialX] = useState(() => BEFORE_DAYS * colW);
+
+  // 帯の範囲か、1 列の幅が変わったら、表示の先頭日が左端に来るように合わせる(アニメーションなし)
+  useLayoutEffect(() => {
+    const x = idxOf(startRef.current) * colW;
+    hScrollRef.current?.scrollTo({ x, animated: false });
+    scrollX.setValue(x);
+    curX.current = x;
+  }, [colW, windowStart]);
+
+  // 表示の先頭日が外から変わった(前へ/次へ・今日・表示の切り替え)とき: 帯の中なら、そこまで動かす。外なら、範囲を入れ替える
+  useEffect(() => {
+    const idx = idxOf(start);
+    if (idx < 0 || idx > WINDOW_DAYS - dayCount) {
+      setWindowStart(start.subtract({ days: BEFORE_DAYS }));
+      return;
+    }
+    const x = idx * colW;
+    if (Math.abs(x - curX.current) > 1) hScrollRef.current?.scrollTo({ x, animated: true });
+  }, [start]);
+
+  /** 指を離して止まったとき: 左端の日を求めて伝える。端に近ければ、範囲を入れ替える。 */
+  const settleX = (x: number) => {
+    const idx = Math.round(x / colW);
+    const d = windowStart.add({ days: idx });
+    if (!d.equals(startRef.current)) onVisibleStart?.(d);
+    if (idx < EDGE_DAYS || idx > WINDOW_DAYS - dayCount - EDGE_DAYS) {
+      setWindowStart(d.subtract({ days: BEFORE_DAYS }));
+    }
+  };
 
   // ---- 縦の拡大・縮小(2 本指のピンチ) ----
   const [hourHeight, setHourHeight] = useState(DEFAULT_HOUR_HEIGHT);
@@ -164,10 +218,9 @@ export function Timeline({
   const [pending, setPending] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const latest = useRef<DragState | null>(null);
-  const rowWidth = useRef(0);
   // PanResponder は一度だけ作るので、最新の値は ref 越しに読む
-  const live = useRef({ days, dayCount, timeZone, onMove, hourHeight });
-  live.current = { days, dayCount, timeZone, onMove, hourHeight };
+  const live = useRef({ days, dayCount, timeZone, onMove, hourHeight, colW });
+  live.current = { days, dayCount, timeZone, onMove, hourHeight, colW };
 
   const dayIndexOf = (ms: number) =>
     live.current.days.findIndex(
@@ -178,16 +231,15 @@ export function Timeline({
 
   /** 掴んだ位置からの移動量 (dx, dy) から、動かした後の開始・終了を求める。 */
   const compute = (base: DragState, dx: number, dy: number): DragState => {
-    const { days: ds, dayCount: n, timeZone: tz } = live.current;
+    const { days: ds, timeZone: tz, colW } = live.current;
     const deltaMs = Math.round((dy / live.current.hourHeight) * 60 / 15) * SNAP_MS;
     if (base.mode === "resize") {
       return { ...base, endMs: Math.max(base.startMs + SNAP_MS, base.endMs + deltaMs) };
     }
-    const colW = (rowWidth.current - GUTTER) / n;
     const from = dayIndexOf(base.startMs);
     let dayDelta = 0;
     if (from >= 0 && colW > 0) {
-      const to = Math.min(n - 1, Math.max(0, from + Math.round(dx / colW)));
+      const to = Math.min(ds.length - 1, Math.max(0, from + Math.round(dx / colW)));
       dayDelta = dayStartMs(ds[to], tz) - dayStartMs(ds[from], tz);
     }
     const startMs = base.startMs + deltaMs + dayDelta;
@@ -250,7 +302,9 @@ export function Timeline({
   // 最初に見せる位置: 今日が範囲に入っていれば現在時刻の少し上、そうでなければ 7 時。開いたときだけ決める
   const [initialOffset] = useState(() => {
     const n = Date.now();
-    const inRange = days.some((d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone));
+    const inRange = Array.from({ length: dayCount }, (_, i) => start.add({ days: i })).some(
+      (d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone),
+    );
     if (!inRange) return 7 * hourHeight;
     const hour = (n - dayStartMs(Temporal.Now.plainDateISO(timeZone), timeZone)) / HOUR_MS;
     // 画面の下端より上に収まるよう、24 時間分の高さを超えない範囲で
@@ -287,11 +341,18 @@ export function Timeline({
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: "row", marginLeft: GUTTER }}>
+      <View style={{ marginLeft: GUTTER, overflow: "hidden" }}>
+      <Animated.View
+        style={{
+          flexDirection: "row",
+          width: colW * WINDOW_DAYS,
+          transform: [{ translateX: scrollX.interpolate({ inputRange: [0, 1], outputRange: [0, -1] }) }],
+        }}
+      >
         {columns.map(({ date, allDay }) => {
           const isToday = date.equals(today);
           return (
-            <View key={date.toString()} style={{ flex: 1, alignItems: "center", paddingBottom: 4 }}>
+            <View key={date.toString()} style={{ width: colW, alignItems: "center", paddingBottom: 4 }}>
               <Text style={{ fontSize: 12, color: isToday ? t.accent : t.inkMute }}>
                 {WEEKDAYS[date.dayOfWeek - 1]}
               </Text>
@@ -339,6 +400,7 @@ export function Timeline({
             </View>
           );
         })}
+      </Animated.View>
       </View>
 
       <View ref={wrapRef} style={{ flex: 1 }} onLayout={measureTop} {...pinch.panHandlers}>
@@ -357,13 +419,7 @@ export function Timeline({
         scrollEnabled={drag === null && !pinching}
         style={{ flex: 1, borderTopWidth: 1, borderTopColor: t.line }}
       >
-        <View
-          style={{ flexDirection: "row", height: 24 * hourHeight }}
-          onLayout={(e) => {
-            rowWidth.current = e.nativeEvent.layout.width;
-          }}
-          {...pan.panHandlers}
-        >
+        <View style={{ flexDirection: "row", height: 24 * hourHeight }} {...pan.panHandlers}>
           <View style={{ width: GUTTER }}>
             {Array.from({ length: 24 }, (_, h) => (
               <Text
@@ -380,30 +436,46 @@ export function Timeline({
               </Text>
             ))}
           </View>
+          <Animated.ScrollView
+            ref={hScrollRef}
+            horizontal
+            style={{ flex: 1 }}
+            contentOffset={{ x: initialX, y: 0 }}
+            // 1 列の幅で止まる。指で動かした分だけ、連続して動く(ページの切り替えではなく、巻き紙のように)
+            snapToInterval={colW}
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+              useNativeDriver: true,
+              listener: (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+                curX.current = e.nativeEvent.contentOffset.x;
+              },
+            })}
+            onMomentumScrollEnd={(e) => settleX(e.nativeEvent.contentOffset.x)}
+            // 予定を掴んでいる間・ピンチの間は、横にもスクロールさせない
+            scrollEnabled={drag === null && !pinching}
+          >
+          <View style={{ width: colW * WINDOW_DAYS, height: 24 * hourHeight, flexDirection: "row" }}>
+          {/* 時間の罫線は、帯全体で 1 組(日ごとには引かない) */}
+          {Array.from({ length: 24 }, (_, h) => (
+            <View
+              key={h}
+              pointerEvents="none"
+              style={{ position: "absolute", top: h * hourHeight, left: 0, right: 0, height: 1, backgroundColor: t.lineWarm }}
+            />
+          ))}
           {columns.map(({ date, dayStart, dayEnd, items, slots }) => (
             <View
               key={date.toString()}
               style={{
-                flex: 1,
+                width: colW,
                 borderLeftWidth: 1,
                 borderLeftColor: t.line,
                 // 今日の列は、デスクトップ版と同じく hoverTint をごく薄く敷く
                 backgroundColor: date.equals(today) ? t.todayBg : undefined,
               }}
             >
-              {Array.from({ length: 24 }, (_, h) => (
-                <View
-                  key={h}
-                  style={{
-                    position: "absolute",
-                    top: h * hourHeight,
-                    left: 0,
-                    right: 0,
-                    height: 1,
-                    backgroundColor: t.lineWarm,
-                  }}
-                />
-              ))}
               {/* 現在時刻の線(今日の列だけ)。予定の上に重ね、タップは素通しにする */}
               {nowMs >= dayStart && nowMs < dayEnd ? (
                 <View
@@ -512,7 +584,6 @@ export function Timeline({
           {drag && dayIndexOf(drag.startMs) >= 0 ? (
             (() => {
               const idx = dayIndexOf(drag.startMs);
-              const colW = (rowWidth.current - GUTTER) / dayCount;
               const top = ((drag.startMs - dayStartMs(days[idx], timeZone)) / HOUR_MS) * hourHeight;
               const height = Math.max(((drag.endMs - drag.startMs) / HOUR_MS) * hourHeight, 22);
               return (
@@ -520,7 +591,7 @@ export function Timeline({
                   pointerEvents="none"
                   style={{
                     position: "absolute",
-                    left: GUTTER + idx * colW + 1,
+                    left: idx * colW + 1,
                     width: colW - 2,
                     top,
                     height,
@@ -542,6 +613,8 @@ export function Timeline({
               );
             })()
           ) : null}
+          </View>
+          </Animated.ScrollView>
         </View>
       </Animated.ScrollView>
       </View>

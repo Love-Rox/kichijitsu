@@ -150,10 +150,10 @@ export function CalendarScreen({
     );
   };
 
-  // ---- 横スワイプで、前後へ移る(日・3日・週は 1 日ずつ、月は 1 か月) ----
+  // ---- 月表示の横スワイプ: 前後の月へ移る ----
   // 指に合わせて内容が横に動き、一定以上動かして離すと切り替わる。足りなければ元に戻る。
-  // 日・3日・週は、1 日ぶん(= 1 列の幅)だけ動かす: 「前へ/次へ」のボタンは期間ぶんだが、スワイプは自然に 1 日ずつ。
   // 切り替わるときは、いまの内容を横へ出し、(再描画のあと)新しい内容を反対側から入れる。
+  // 日・3日・週は、これではなく、Timeline が横に長い巻き紙としてスクロールする(onVisibleStart で先頭日だけを受け取る)。
   const slideX = useRef(new Animated.Value(0)).current;
   const contentWidth = useRef(0);
   /** 切り替えの後に、新しい内容を入れる向き(1 = 次の期間 → 右から入る、-1 = 前、0 = 入れない) */
@@ -166,14 +166,16 @@ export function CalendarScreen({
   };
   /** 切り替えで動かす幅: 日・3日・週は 1 列ぶん、月は全体 */
   const slideDistance = () => (contentWidth.current || 360) / (view === "month" ? 1 : DAY_COUNT[view]);
-  const live = useRef({ swipeMove, slideDistance, busy });
-  live.current = { swipeMove, slideDistance, busy };
+  const live = useRef({ swipeMove, slideDistance, busy, isMonth: view === "month" });
+  live.current = { swipeMove, slideDistance, busy, isMonth: view === "month" };
 
   const swipe = useRef(
     PanResponder.create({
       // 横に大きく、縦より十分多く動いたときだけ奪う(縦スクロール・タップを邪魔しない)。
       // 予定の長押しドラッグ・2 本指のピンチは、Timeline の側が capture で先に奪うので、ここには来ない
       onMoveShouldSetPanResponder: (e, g) =>
+        // 月表示だけ(日・3日・週は、Timeline が、横の巻き紙として自分でスクロールする)
+        live.current.isMonth &&
         !live.current.busy &&
         e.nativeEvent.touches.length === 1 &&
         Math.abs(g.dx) > 14 &&
@@ -277,6 +279,8 @@ export function CalendarScreen({
           today={today}
           timeZone={timeZone}
           onSelect={setDetail}
+          // 横にスクロールして止まったら、その先頭日を、基準日にする(再描画で画面を差し替えない)
+          onVisibleStart={(d) => setAnchor(d)}
           onMove={(o, startMs, endMs) =>
             // ドラッグでの移動は、編集フォームの保存と同じ経路(適用範囲・ゲストへの通知も訊く)
             saveEdit(
