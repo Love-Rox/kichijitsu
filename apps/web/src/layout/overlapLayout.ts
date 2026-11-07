@@ -17,6 +17,10 @@
  *    越えない(越えると見出しを覆うため)。
  *
  * 列(クラスタ)の分割は packColumns と同じ「推移的に重なるものを1塊」とする。
+ *
+ * 5. (layoutOverlapsCapped のみ)横に並べるレーンの数に上限を置ける。上限を超えるレーンの予定は
+ *    隠し、その塊に「+N」のチップを 1 つ出す(チップを押すと、その塊だけ上限なしで開く)。
+ *    狭い細切れの帯が並んで、どれも読めなくなるのを避けるため。
  */
 
 export interface OverlapInput {
@@ -26,6 +30,35 @@ export interface OverlapInput {
   /** true なら背景層。全幅・最背面で、他の予定のレーン計算に参加しない */
   background: boolean;
 }
+
+/** layoutOverlapsCapped が出す「+N」チップ(上限を超えた予定のある塊ごとに 1 つ) */
+export interface OverlapChip {
+  /** 塊の識別子 = 塊の最初の予定の開始時刻(ms)。開いている塊の集合のキーに使う */
+  key: number;
+  /** チップを置く位置の時刻(隠れた予定のうち、いちばん早い開始。開いているときは塊の最初の開始) */
+  startMs: number;
+  /** 隠れている予定の数(開いているときは 0) */
+  hiddenCount: number;
+  /** この塊を、上限なしで開いているか(true なら、押すと畳む) */
+  expanded: boolean;
+}
+
+export interface OverlapResult {
+  slots: Map<string, OverlapSlot>;
+  /** 上限を超えて隠した予定の id(slots には入らない) */
+  hidden: Set<string>;
+  chips: OverlapChip[];
+}
+
+export interface OverlapCap {
+  /** 横に並べる最大のレーン数(これを超える塊は、超えた分を隠す) */
+  maxLanes: number;
+  /** 上限なしで開いている塊のキー(OverlapChip.key) */
+  expanded?: ReadonlySet<number>;
+}
+
+/** 隠した予定がある塊で、チップのために右端に空ける幅(列幅に対する割合) */
+export const CHIP_RESERVE_FRAC = 0.16;
 
 export interface OverlapSlot {
   /** 0〜1。列の左端からの位置 */
@@ -59,7 +92,26 @@ export function layoutOverlaps(
   items: readonly OverlapInput[],
   headerMs: number,
 ): Map<string, OverlapSlot> {
+  return layoutCore(items, headerMs).slots;
+}
+
+/** layoutOverlaps に、レーン数の上限(と「+N」チップ)を足したもの。上限の規則は、冒頭の 5. 参照。 */
+export function layoutOverlapsCapped(
+  items: readonly OverlapInput[],
+  headerMs: number,
+  cap: OverlapCap,
+): OverlapResult {
+  return layoutCore(items, headerMs, cap);
+}
+
+function layoutCore(
+  items: readonly OverlapInput[],
+  headerMs: number,
+  cap?: OverlapCap,
+): OverlapResult {
   const out = new Map<string, OverlapSlot>();
+  const hidden = new Set<string>();
+  const chips: OverlapChip[] = [];
 
   // 背景層は先に確定する。stackIndex は 0..(背景数-1) で、本体はその後ろから振る
   const backgrounds = items
@@ -104,16 +156,43 @@ export function layoutOverlaps(
       }
       laneOf.push(lane);
     });
-    const laneCount = laneWindowEnd.length;
+    const fullLaneCount = laneWindowEnd.length;
+
+    // レーン数の上限(cap)。超える塊は、上限以降のレーンの予定を隠し、右端にチップの場所を空ける
+    const clusterKey = cluster[0].startMs;
+    const overflowing = cap !== undefined && fullLaneCount > cap.maxLanes;
+    const expanded = overflowing && cap!.expanded?.has(clusterKey) === true;
+    const capped = overflowing && !expanded;
+    const laneCount = capped ? cap!.maxLanes : fullLaneCount;
+    const usableFrac = capped ? 1 - CHIP_RESERVE_FRAC : 1;
+    if (capped) {
+      const hiddenStarts: number[] = [];
+      cluster.forEach((item, idx) => {
+        if (laneOf[idx] >= laneCount) {
+          hidden.add(item.id);
+          hiddenStarts.push(item.startMs);
+        }
+      });
+      chips.push({
+        key: clusterKey,
+        startMs: Math.min(...hiddenStarts),
+        hiddenCount: hiddenStarts.length,
+        expanded: false,
+      });
+    } else if (expanded) {
+      chips.push({ key: clusterKey, startMs: clusterKey, hiddenCount: 0, expanded: true });
+    }
 
     cluster.forEach((item, idx) => {
       const lane = laneOf[idx];
+      if (hidden.has(item.id)) return;
 
       // 右へ広げる: 見出しの窓が重なる予定のいるレーンの手前まで
       let span = 1;
       for (let k = lane + 1; k < laneCount; k++) {
         const blocked = cluster.some(
-          (_, j) => laneOf[j] === k && windowsOverlap(windows[idx], windows[j]),
+          (c, j) =>
+            laneOf[j] === k && !hidden.has(c.id) && windowsOverlap(windows[idx], windows[j]),
         );
         if (blocked) break;
         span++;
@@ -122,20 +201,22 @@ export function layoutOverlaps(
       // 同じレーンで先に始まり、まだ続いている予定の数だけ右へずらす
       let depth = 0;
       for (let j = 0; j < idx; j++) {
-        if (laneOf[j] === lane && cluster[j].endMs > item.startMs) depth++;
+        if (laneOf[j] === lane && !hidden.has(cluster[j].id) && cluster[j].endMs > item.startMs) {
+          depth++;
+        }
       }
 
-      const laneWidth = span / laneCount;
+      const laneWidth = (span / laneCount) * usableFrac;
       const maxDepth = Math.max(0, Math.floor((laneWidth - MIN_WIDTH_FRAC) / STACK_INDENT_FRAC));
       const indent = Math.min(depth, maxDepth) * STACK_INDENT_FRAC;
 
       out.set(item.id, {
-        leftFrac: lane / laneCount + indent,
+        leftFrac: (lane / laneCount) * usableFrac + indent,
         widthFrac: laneWidth - indent,
         stackIndex: z++,
       });
     });
   }
 
-  return out;
+  return { slots: out, hidden, chips };
 }

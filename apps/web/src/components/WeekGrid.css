@@ -171,8 +171,18 @@
 }
 
 .week-grid-day-header .date {
-  font-size: 13px;
+  font-size: 16px; /* 日付の数字を大きく(見渡しやすさ、2026-11-07)。曜日は小さいまま */
   font-weight: 600;
+}
+
+/* 土日と、今日より前の日: 見出しの曜日を少し淡く(今日は下で朱) */
+.week-grid-day-header.is-weekend .weekday {
+  color: var(--c-ink-sub);
+}
+
+.week-grid-day-header.is-past .date {
+  color: var(--c-ink-sub);
+  font-weight: 500;
 }
 
 .week-grid-day-header.is-today .weekday {
@@ -188,8 +198,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
   border-radius: 26%;
   background: var(--c-accent);
   color: var(--c-on-accent);
@@ -592,6 +603,12 @@
   background-image: var(--hour-grid-lines);
 }
 
+/* 土日と過去の日の地: ごく薄く色づけて、週の中での位置が一目で分かるようにする。今日は下で上書き */
+.week-grid-day-column.is-weekend,
+.week-grid-day-column.is-past {
+  background-color: rgba(var(--c-ink-sub-rgb), 0.045);
+}
+
 .week-grid-day-column.is-today {
   background-color: rgba(var(--c-hover-tint-rgb), 0.04);
 }
@@ -629,6 +646,10 @@
   }
 
   .week-grid-day-header .date {
+    font-size: 14px;
+  }
+
+  .week-grid-day-header.is-today .date {
     font-size: 12px;
   }
 }

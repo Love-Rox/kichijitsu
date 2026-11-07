@@ -188,7 +188,7 @@
   position: absolute;
   width: 12px; /* RAIL_BAND_WIDTH_PX と揃える。gridMetrics.ts の dayColumnLeftInsetPx が
                   この幅(× 列数)+隙間ぶん予定カードの左インセットを広げる */
-  opacity: 0.88; /* 矩形化で面積が増えたぶん、細線だった頃 (0.7) より少し濃くして視認性を保つ */
+  opacity: 0.5; /* 予定より目立たないよう、普段は薄く(2026-11-07 見渡しやすさ。ホバー/フォーカスで 1) */
   border-radius: 3px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う */
   cursor: pointer;
@@ -269,7 +269,7 @@
   position: absolute;
   width: 12px; /* RAIL_BAND_WIDTH_PX と揃える */
   background-color: var(--c-masu); /* brand 薄墨(usuzumi)。カレンダー色/朱(--logo-aka)は使わない */
-  opacity: 0.68; /* 毎日出ても重すぎないよう抑える ―― OOO 帯の 0.88 よりはっきり薄くしてある */
+  opacity: 0.4; /* 毎日出ても重すぎないよう抑える ―― OOO 帯(0.5)よりさらに薄くしてある */
   border-radius: 3px;
   pointer-events: none; /* 実際の当たり判定は ::before (下記) が担う。day-ooo-line と同じ手法 */
   cursor: pointer;
@@ -436,4 +436,33 @@
   white-space: nowrap;
   font-size: 12px;
   color: var(--c-ui-ink-strong);
+}
+
+/*
+ * 重なった予定の「+N」/「畳む」チップ(2026-11-07)。上限を超えて隠した予定のある塊の右端に置く
+ * (配置は layout/overlapLayout.ts の CHIP_RESERVE_FRAC が右端を空けている)。予定カードの上に出す。
+ */
+.overlap-chip {
+  position: absolute;
+  right: 2px;
+  z-index: 950;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--c-accent);
+  background: var(--c-surface);
+  border: 1px solid var(--c-accent-soft-line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.overlap-chip:hover {
+  background: var(--c-accent-soft);
+}
+
+.overlap-chip:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
 }
