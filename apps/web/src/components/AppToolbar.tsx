@@ -4,6 +4,7 @@ import { LogoMark, LogoWordmark } from "./Logo";
 import { MasuIndicator } from "./MasuIndicator";
 import { RunningTimersIndicator } from "./RunningTimersIndicator";
 import { ToolbarMenu } from "./ToolbarMenu";
+import { reloadApp } from "../sync/reloadApp";
 import { buildToolbarErrorNotes } from "./toolbarErrorNotes";
 import { startGoogleAuth } from "../sync/desktopAuth";
 import { CalendarIcon, GearIcon, SearchIcon, TimerIcon } from "./icons";
@@ -449,6 +450,9 @@ export function AppToolbar({
             // 利用者が明示的に押した経路 (上の toolbar-sync-btn と同じ理由)
             onSync={() => {
               void runSync("manual");
+            }}
+            onReload={() => {
+              void reloadApp();
             }}
             onToggleHelp={() => setHelpOpen((v) => !v)}
             onConnectGoogle={() => {

@@ -15,6 +15,7 @@ function input(overrides: Partial<ToolbarMenuInput> = {}): ToolbarMenuInput {
     onToggleGitHubPane: () => {},
     onOpenSettings: () => {},
     onSync: () => {},
+    onReload: () => {},
     onToggleHelp: () => {},
     onConnectGoogle: () => {},
     ...overrides,
@@ -24,13 +25,14 @@ function input(overrides: Partial<ToolbarMenuInput> = {}): ToolbarMenuInput {
 const ids = (i: ToolbarMenuInput) => buildToolbarMenuItems(i).map((item) => item.id);
 
 describe("buildToolbarMenuItems", () => {
-  it("全部揃っているときは ズーム→カレンダー→実績→設定→同期→ヘルプ→法的リンク の順", () => {
+  it("全部揃っているときは ズーム→カレンダー→実績→設定→同期→再読み込み→ヘルプ→法的リンク の順", () => {
     expect(ids(input())).toEqual([
       "zoom",
       "calendar",
       "actuals",
       "settings",
       "sync",
+      "reload",
       "help",
       "privacy",
       "terms",
@@ -47,7 +49,7 @@ describe("buildToolbarMenuItems", () => {
 
   it("連携アカウントが無ければ カレンダー/設定/同期 を出さず、代わりに Google 連携を出す", () => {
     const got = ids(input({ hasAccounts: false, hasGitHub: false }));
-    expect(got).toEqual(["zoom", "connect-google", "help", "privacy", "terms"]);
+    expect(got).toEqual(["zoom", "connect-google", "reload", "help", "privacy", "terms"]);
   });
 
   it("法的リンクは連携状態に関わらず常に含まれる(未ログインのスマホでは唯一の導線)", () => {
@@ -88,13 +90,14 @@ describe("buildToolbarMenuItems", () => {
         onToggleGitHubPane: () => called.push("actuals"),
         onOpenSettings: () => called.push("settings"),
         onSync: () => called.push("sync"),
+        onReload: () => called.push("reload"),
         onToggleHelp: () => called.push("help"),
       }),
     );
     for (const item of items) {
       if (item.kind === "action") item.onClick();
     }
-    expect(called).toEqual(["calendar", "actuals", "settings", "sync", "help"]);
+    expect(called).toEqual(["calendar", "actuals", "settings", "sync", "reload", "help"]);
   });
 
   it("プライバシー/規約はリンク(href)として返る", () => {

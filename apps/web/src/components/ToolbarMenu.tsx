@@ -185,6 +185,8 @@ function menuIcon(icon: ToolbarMenuIconId): ReactNode {
       return <GearIcon width={14} height={14} />;
     case "sync":
       return "⟳";
+    case "reload":
+      return "↻";
     case "help":
       return "?";
     case "google":
