@@ -136,4 +136,4 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - 設定メニュー →「カラーテーマ」で、**外観**(システムに従う / ライト / ダーク)と**アクセント色**(朱[既定]・藍・緑・紫・橙・墨)を選ぶ。選ぶとすぐ反映され、端末の SQLite(meta: `themeAppearance` / `themeAccent`)に保存される。
 - 外観は `Appearance.setColorScheme` で OS 側の見た目を上書きする(`lib/themePrefs.ts`。システムに従うときは `"unspecified"`)。確認ダイアログ・キーボード・日時ピッカーも、アプリの外観に揃う。
 - アクセント色は `lib/accents.ts` の表(ライト/ダークごとに、アクセント・濃いアクセント・淡い地の 3 色)。`theme.ts` が、選んだ色でパレットを差し替える(`useTheme()` が `useThemePrefs()` を読む)。文字・背景・予定カードの色は変えない。色を足すときは `ACCENTS` に足す。
-- 起動直後、保存した設定を読み戻すまでの一瞬は、既定の見た目で出る。ホーム画面のウィジェット(Swift)は、まだこの設定に従わない。
+- 起動直後、保存した設定を読み戻すまでの一瞬は、既定の見た目で出る。ホーム画面のウィジェットには、**アクセント色だけ**が届く(App Group の `theme` キーに、ライト用・ダーク用の色を JSON で書く。`widgetSync.ts` の `writeWidgetTheme`)。ウィジェットの明暗は OS に従い、アプリ内の外観の上書きは届かない(iOS の仕様)。

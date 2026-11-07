@@ -2,6 +2,7 @@ import { Appearance } from "react-native";
 import { useSyncExternalStore } from "react";
 import { getMeta, setMeta } from "./localDb";
 import { ACCENTS, DEFAULT_ACCENT, type AccentKey, type AppearancePref } from "./accents";
+import { writeWidgetTheme } from "./widgetSync";
 
 /**
  * カラーテーマの設定(外観 + アクセント色)。端末の SQLite(meta)に保存し、変えると全画面が再描画される。
@@ -23,6 +24,15 @@ function applyAppearance(a: AppearancePref) {
   Appearance.setColorScheme(a === "system" ? "unspecified" : a);
 }
 
+/** ウィジェットのアクセント色を合わせる。ウィジェットの失敗(未対応の環境など)で、設定の変更を止めない。 */
+function pushWidgetTheme(accent: AccentKey) {
+  try {
+    writeWidgetTheme(accent);
+  } catch {
+    /* ウィジェットが無い環境 */
+  }
+}
+
 function emit() {
   for (const l of listeners) l();
 }
@@ -36,6 +46,7 @@ export async function loadThemePrefs(): Promise<void> {
     prefs = { appearance, accent };
     applyAppearance(appearance);
     emit();
+    pushWidgetTheme(accent);
   } catch {
     /* 既定のまま */
   }
@@ -46,7 +57,10 @@ export function setThemePrefs(next: Partial<ThemePrefs>): void {
   if (next.appearance !== undefined) applyAppearance(prefs.appearance);
   emit();
   if (next.appearance !== undefined) void setMeta(APPEARANCE_KEY, prefs.appearance).catch(() => undefined);
-  if (next.accent !== undefined) void setMeta(ACCENT_KEY, prefs.accent).catch(() => undefined);
+  if (next.accent !== undefined) {
+    void setMeta(ACCENT_KEY, prefs.accent).catch(() => undefined);
+    pushWidgetTheme(prefs.accent);
+  }
 }
 
 export function useThemePrefs(): ThemePrefs {

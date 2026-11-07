@@ -74,7 +74,7 @@ export function ThemePanel() {
         </View>
       </View>
       <Text style={{ marginTop: 14, fontSize: 12, color: t.inkSub }}>
-        予定の色(カレンダーの色)は変わりません。ホーム画面のウィジェットは、今のところ元の色のままです。
+        予定の色(カレンダーの色)は変わりません。ホーム画面のウィジェットには、アクセント色だけが反映されます(明るさは OS の設定に従います)。
       </Text>
     </View>
   );
