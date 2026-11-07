@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { ActivityIndicator, Alert, Pressable, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ActivityIndicator, Alert, Animated, PanResponder, Pressable, View } from "react-native";
 import { Text } from "./ui";
 import { Icon } from "./Icon";
 import type { CalendarData } from "../lib/calendarData";
@@ -147,6 +147,54 @@ export function CalendarScreen({
       setAnchor((a) => (view === "month" ? a.add({ months: dir }).with({ day: 1 }) : a.add({ days: DAY_COUNT[view] * dir }))),
     );
   };
+
+  // ---- 横スワイプで、前後の期間へ移る(日・3日・週・月) ----
+  // 指に合わせて内容が横に動き、一定以上動かして離すと、期間が切り替わる(「前へ/次へ」と同じ移動)。足りなければ元に戻る。
+  // 切り替わるときは、いまの内容を横へ出し、(再描画のあと)新しい内容を反対側から入れる。
+  const slideX = useRef(new Animated.Value(0)).current;
+  const contentWidth = useRef(0);
+  /** 切り替えの後に、新しい内容を入れる向き(1 = 次の期間 → 右から入る、-1 = 前、0 = 入れない) */
+  const slideIn = useRef<0 | 1 | -1>(0);
+  // 最新の状態は、PanResponder (一度だけ作る) から、ref 越しに読む
+  const live = useRef({ move, busy });
+  live.current = { move, busy };
+
+  const swipe = useRef(
+    PanResponder.create({
+      // 横に大きく、縦より十分多く動いたときだけ奪う(縦スクロール・タップを邪魔しない)。
+      // 予定の長押しドラッグ・2 本指のピンチは、Timeline の側が capture で先に奪うので、ここには来ない
+      onMoveShouldSetPanResponder: (e, g) =>
+        !live.current.busy &&
+        e.nativeEvent.touches.length === 1 &&
+        Math.abs(g.dx) > 14 &&
+        Math.abs(g.dx) > Math.abs(g.dy) * 1.8,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_, g) => slideX.setValue(g.dx * 0.7), // 少し重く(指より控えめに動く)
+      onPanResponderRelease: (_, g) => {
+        const w = contentWidth.current || 360;
+        const dir: 1 | -1 = g.dx < 0 ? 1 : -1; // 左へスワイプ = 次の期間
+        const committed = Math.abs(g.dx) > Math.min(90, w * 0.25) || Math.abs(g.vx) > 0.5;
+        if (!committed || live.current.busy) {
+          Animated.spring(slideX, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
+          return;
+        }
+        Animated.timing(slideX, { toValue: -dir * w, duration: 130, useNativeDriver: true }).start(() => {
+          slideIn.current = dir;
+          live.current.move(dir);
+        });
+      },
+      onPanResponderTerminate: () =>
+        Animated.spring(slideX, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
+    }),
+  ).current;
+  // 切り替わった(再描画が終わった)ら、新しい内容を反対側から入れる
+  useEffect(() => {
+    if (slideIn.current === 0) return;
+    const w = contentWidth.current || 360;
+    slideX.setValue(slideIn.current * w);
+    slideIn.current = 0;
+    Animated.timing(slideX, { toValue: 0, duration: 180, useNativeDriver: true }).start();
+  }, [view, anchor, selected, slideX]);
   /** ビューの切り替え。月表示で選んでいた日を、他のビューの基準日として引き継ぐ。 */
   const changeView = (next: ViewKind) => {
     if (next === view) return;
@@ -202,7 +250,13 @@ export function CalendarScreen({
         </View>
       </View>
 
-      <View style={{ flex: 1 }}>
+      <Animated.View
+        style={{ flex: 1, transform: [{ translateX: slideX }] }}
+        onLayout={(e) => {
+          contentWidth.current = e.nativeEvent.layout.width;
+        }}
+        {...swipe.panHandlers}
+      >
       {view !== "month" ? (
         <Timeline
           data={data}
@@ -256,7 +310,7 @@ export function CalendarScreen({
           <ActivityIndicator size="large" color={t.accent} />
         </View>
       ) : null}
-      </View>
+      </Animated.View>
 
       {form !== null && (
         <EventFormSheet
