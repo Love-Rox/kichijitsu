@@ -3,3 +3,6 @@ dist/
 *.local
 .DS_Store
 .dev.vars
+
+# ブラウザ自動操作(Playwright MCP)の作業ファイル
+.playwright-mcp/
