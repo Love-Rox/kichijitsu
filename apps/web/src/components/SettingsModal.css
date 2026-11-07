@@ -516,3 +516,44 @@
   line-height: 1.6;
   color: var(--c-ink-sub);
 }
+
+/* ---- タイムゾーン(複数タイムゾーン、2026-11-07) ---- */
+.settings-modal-tz-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.settings-modal-tz-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.settings-modal-tz-offset {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+}
+
+.settings-modal-tz-remove {
+  font-size: 12px;
+  color: var(--c-accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.settings-modal-tz-add {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-modal-tz-add select {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}

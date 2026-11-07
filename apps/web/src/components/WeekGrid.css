@@ -47,6 +47,14 @@
    * JS 側が 0 を渡して消す ―― 15分間隔が 9px を切ると罫線がハッチのように見えるため。
    */
   --hour-height: 48px;
+  /*
+   * 時刻軸(ガター)の幅 = 基準の列 + 並べる別タイムゾーンの列 × 個数。--tz-count は WeekGrid.tsx が
+   * インラインで与える(別タイムゾーンが無ければ 0 = 従来どおり 60px)。終日・タスク・GitHub などの
+   * 各レーンのガターも、この幅に揃える(日列が、全レーンで縦にそろうように)。
+   */
+  --gutter-base: 60px;
+  --tz-col-w: 54px;
+  --gutter-total: calc(var(--gutter-base) + var(--tz-count, 0) * var(--tz-col-w));
   --hour-quarter-alpha: 0.22;
   /*
    * 時間罫線 1サイクル(=1時間)ぶんの背景。時間ガター(.week-grid-gutter)と日列
@@ -99,7 +107,8 @@
 }
 
 .week-grid-header-gutter {
-  flex: 0 0 60px;
+  position: relative;
+  flex: 0 0 var(--gutter-total);
 }
 
 .week-grid-header-viewport {
@@ -208,7 +217,7 @@
 }
 
 .week-grid-allday-gutter {
-  flex: 0 0 60px;
+  flex: 0 0 var(--gutter-total);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -259,7 +268,7 @@
 .week-grid-tasks-gutter {
   position: sticky;
   top: 0;
-  flex: 0 0 60px;
+  flex: 0 0 var(--gutter-total);
   align-self: flex-start;
   display: flex;
   align-items: flex-start;
@@ -339,7 +348,7 @@
    */
   position: sticky;
   top: 0;
-  flex: 0 0 60px;
+  flex: 0 0 var(--gutter-total);
   align-self: flex-start;
   display: flex;
   align-items: flex-start;
@@ -428,7 +437,7 @@
 
 .week-grid-extras-gutter,
 .week-grid-extras-toggle {
-  flex: 0 0 60px;
+  flex: 0 0 calc(60px + var(--tz-count, 0) * var(--tz-col-w));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -538,7 +547,7 @@
 
 .week-grid-gutter {
   position: relative;
-  flex: 0 0 60px;
+  flex: 0 0 var(--gutter-total);
   height: calc(var(--hour-height) * 24);
   background-image: var(--hour-grid-lines);
 }
@@ -596,12 +605,13 @@
  * ガターが縮んだぶんそのまま日列が広がる)。
  */
 @media (max-width: 640px) {
-  .week-grid-header-gutter,
-  .week-grid-allday-gutter,
-  .week-grid-tasks-gutter,
-  .week-grid-github-gutter,
-  .week-grid-gutter {
-    flex-basis: 40px;
+  .week-grid {
+    --gutter-base: 40px;
+    --tz-col-w: 52px;
+  }
+
+  .tz-header {
+    padding-right: 3px;
   }
 
   .hour-label {
@@ -621,4 +631,35 @@
   .week-grid-day-header .date {
     font-size: 12px;
   }
+}
+
+/*
+ * ---- 複数タイムゾーン(2026-11-07) ----
+ * 時刻軸の脇に並べる、別タイムゾーンの時刻。基準の列(右端、従来の .hour-label)の左へ、近い順に並べる。
+ * 各列は var(--tz-col-w) 幅で、文字は列の右寄せ(基準の列と同じ 8px の内側余白)。
+ */
+.hour-label--secondary {
+  color: var(--c-ink-sub);
+}
+
+.tz-header {
+  position: absolute;
+  bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-right: 8px;
+  box-sizing: border-box;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--c-ink-sub);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tz-header-city {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
 }

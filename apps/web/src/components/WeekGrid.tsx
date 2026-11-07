@@ -75,6 +75,12 @@ import { AllDayBar } from "./AllDayBar";
 import { DayColumn } from "./DayColumn";
 import { TaskRow } from "./TaskRow";
 import { GitHubLane } from "./GitHubLane";
+import {
+  hourLabelsIn,
+  timeZoneCity,
+  timeZoneOffsetLabel,
+} from "../layout/secondaryTimeZones";
+import { useSecondaryTimeZones } from "../sync/secondaryTimeZonesPref";
 import "./WeekGrid.css";
 
 const INITIAL_SCROLL_HOUR = 8;
@@ -1041,9 +1047,29 @@ export function WeekGrid({
    * 注: 横スワイプ追従の --swipe-dx はこの同じ要素に命令的にセットされるが、React は
    * style オブジェクトに現れないカスタムプロパティを削除しないため競合しない。
    */
+  // 複数タイムゾーン: 並べる別タイムゾーン(基準 = 端末のタイムゾーンと同じものは除く)の、時刻の列と見出し。
+  // ラベルは、いま見えている範囲の最初の日を基準に作る(夏時間の切り替えは、その日の分)
+  const secondaryTimeZones = useSecondaryTimeZones(timeZone);
+  const secondaryColumns = useMemo(
+    () =>
+      secondaryTimeZones.map((tz) => ({
+        timeZone: tz,
+        city: timeZoneCity(tz),
+        offset: timeZoneOffsetLabel(tz, weekStart),
+        labels: hourLabelsIn(tz, timeZone, weekStart),
+      })),
+    [secondaryTimeZones, timeZone, weekStart],
+  );
+  const primaryColumn = {
+    timeZone,
+    city: timeZoneCity(timeZone),
+    offset: timeZoneOffsetLabel(timeZone, weekStart),
+  };
+
   const gridRootStyle = {
     "--hour-height": `${hourHeight}px`,
     "--hour-quarter-alpha": hourHeight < 36 ? "0" : "0.22",
+    "--tz-count": secondaryColumns.length,
   } as CSSProperties;
 
   /*
@@ -1066,7 +1092,31 @@ export function WeekGrid({
       onLostPointerCapture={swipeHandlers.onLostPointerCapture}
     >
       <div className="week-grid-header">
-        <div className="week-grid-header-gutter" />
+        <div className="week-grid-header-gutter">
+          {/* 別タイムゾーンを並べているときだけ、各列の見出し(都市名と UTC からのずれ)を出す */}
+          {secondaryColumns.length > 0 &&
+            [...[...secondaryColumns].reverse(), primaryColumn].map((col, k, all) => {
+              // 左から、別タイムゾーン(遠い順)→ 基準(右端)。secondaryColumns[0] が基準の隣
+              const fromRight = all.length - 1 - k;
+              return (
+                <div
+                  key={col.timeZone}
+                  className="tz-header"
+                  title={col.timeZone}
+                  style={{
+                    right:
+                      fromRight === 0
+                        ? 0
+                        : `calc(var(--gutter-base) + ${fromRight - 1} * var(--tz-col-w))`,
+                    width: fromRight === 0 ? "var(--gutter-base)" : "var(--tz-col-w)",
+                  }}
+                >
+                  <span className="tz-header-city">{col.city}</span>
+                  <span>{col.offset}</span>
+                </div>
+              );
+            })}
+        </div>
         <div className="week-grid-header-viewport">
           <div className="week-grid-header-strip" style={stripStyle}>
             {weekPanels.map(({ panelStart, days }) => (
@@ -1295,6 +1345,21 @@ export function WeekGrid({
                 {hour}:00
               </div>
             ))}
+            {/* 別タイムゾーンの時刻(基準の時刻軸の各行と、同じ高さに並べる) */}
+            {secondaryColumns.map((col, k) =>
+              col.labels.map((label, hour) => (
+                <div
+                  key={`${col.timeZone}-${hour}`}
+                  className="hour-label hour-label--secondary"
+                  style={{
+                    top: minutesToPx(hour * 60, hourHeight),
+                    right: `calc(var(--gutter-base) + ${k} * var(--tz-col-w) + 8px)`,
+                  }}
+                >
+                  {label}
+                </div>
+              )),
+            )}
           </div>
 
           <div className="week-grid-days-viewport" ref={daysViewportRef}>
