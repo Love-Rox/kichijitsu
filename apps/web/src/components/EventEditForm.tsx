@@ -228,6 +228,17 @@ export function EventEditForm({
         </label>
       )}
 
+      {isCreate && !isOoo && (
+        <label className="event-edit-checkbox-field">
+          <input
+            type="checkbox"
+            checked={draft.addMeet === true}
+            onChange={(e) => setDraft({ ...draft, addMeet: e.target.checked })}
+          />
+          Google Meet の会議を追加
+        </label>
+      )}
+
       {draft.isAllDay ? (
         <div className="event-edit-datetime-row">
           <label className="event-edit-field">
