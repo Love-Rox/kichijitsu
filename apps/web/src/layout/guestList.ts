@@ -7,7 +7,7 @@ import type { EventAttendee } from "../model/types";
  * ここに切り出してあるのは、判断が全部データの話だから ―― 会議室を人から外す、自分と
  * 主催者を先頭へ持ち上げる、表示名が無い相手はメールで代替する、応答が無い行を未返信と
  * みなす。どれもコンポーネントの中に散らすと確かめようがなくなる。
- * コンポーネント側に残すのは「何行まで畳むか」の開閉状態だけ (GUEST_PREVIEW_COUNT)。
+ * コンポーネント側に残すのは開閉状態だけ (畳むと名前を1行、開くと一覧と入力欄)。
  */
 
 /** 一覧に出す応答状態。Google が値を返さない行は未返信 (needsAction) に寄せる (下記 normalize) */
@@ -47,9 +47,6 @@ export interface GuestListView {
   /** 出欠の内訳。0人の区分は出さない。例「参加 3・未定 1・未返信 8」 */
   summaryLabel: string;
 }
-
-/** 畳んだ状態で見せる行数。これを超えた分は「他 N 人を表示」の中に隠す */
-export const GUEST_PREVIEW_COUNT = 5;
 
 /**
  * 応答状態の日本語ラベル。**既存の RSVP ボタン (EventDetailCard の RsvpButtons) と

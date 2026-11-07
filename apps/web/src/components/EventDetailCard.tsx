@@ -7,7 +7,6 @@ import { calendarKey } from "../layout/keys";
 import { resolveEventDetailMeetingView } from "../layout/eventDetailView";
 import {
   buildGuestListView,
-  GUEST_PREVIEW_COUNT,
   GUEST_STATUS_LABEL,
   type GuestListView,
 } from "../layout/guestList";
@@ -483,8 +482,17 @@ function GuestSection({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const guests = view?.guests ?? [];
-  const hiddenCount = guests.length - GUEST_PREVIEW_COUNT;
-  const shown = expanded ? guests : guests.slice(0, GUEST_PREVIEW_COUNT);
+  // 畳んでいる間も「誰が招待されているか」は1行で見せる(表示名、無ければメール)。
+  // 一覧(応答状態・外す導線)と入力欄は開いたときだけ(2026-11-07、PC で入力欄が大きいとの声)。
+  const namesLine = guests.map((g) => g.label).join("、");
+  const canToggle = Boolean(onEditGuests) || guests.length > 0;
+  const toggleLabel = expanded
+    ? "閉じる"
+    : onEditGuests
+      ? guests.length > 0
+        ? "編集"
+        : "追加"
+      : "詳細";
 
   function runChange(change: GuestChange, key: string) {
     if (!onEditGuests || pending) return;
@@ -519,20 +527,24 @@ function GuestSection({
 
   return (
     <div className="event-detail-guests">
-      {view && (
-        <div className="event-detail-guests-head">
-          <span className="event-detail-guests-count">{view.countLabel}</span>
-          {view.summaryLabel && (
-            <span className="event-detail-guests-summary">{view.summaryLabel}</span>
-          )}
-        </div>
-      )}
-      {/* 参加者ゼロで編集できる予定。人数も内訳も出しようが無いので、見出しだけ置く */}
-      {!view && (
-        <div className="event-detail-guests-head">
-          <span className="event-detail-guests-count">ゲスト</span>
-        </div>
-      )}
+      <div className="event-detail-guests-head">
+        {/* 参加者ゼロで編集できる予定は人数も内訳も出しようが無いので、見出しだけ置く */}
+        <span className="event-detail-guests-count">{view ? view.countLabel : "ゲスト"}</span>
+        {view?.summaryLabel && (
+          <span className="event-detail-guests-summary">{view.summaryLabel}</span>
+        )}
+        {canToggle && (
+          <button
+            type="button"
+            className="event-detail-text-btn event-detail-guests-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {toggleLabel}
+          </button>
+        )}
+      </div>
+      {!expanded && namesLine && <div className="event-detail-guests-names">{namesLine}</div>}
       {/*
        * 会議室・機材 (resource) は人ではないので一覧に混ぜず、場所行と同じピンアイコンで
        * 1行にまとめる(押さえてある部屋が分かればよく、部屋ごとの「応答状態」に意味は無い)。
@@ -543,9 +555,9 @@ function GuestSection({
           {view.rooms.join("、")}
         </div>
       )}
-      {shown.length > 0 && (
-        <ul className={expanded ? "event-detail-guest-list is-expanded" : "event-detail-guest-list"}>
-          {shown.map((guest) => (
+      {expanded && guests.length > 0 && (
+        <ul className="event-detail-guest-list is-expanded">
+          {guests.map((guest) => (
             <li key={guest.key} className={`event-detail-guest is-${guest.responseStatus}`}>
               <span className="event-detail-guest-who">
                 <span className="event-detail-guest-name">
@@ -609,17 +621,7 @@ function GuestSection({
           ))}
         </ul>
       )}
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          className="event-detail-text-btn event-detail-guests-toggle"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "折りたたむ" : `他 ${hiddenCount} 人を表示`}
-        </button>
-      )}
-      {onEditGuests && (
+      {expanded && onEditGuests && (
         <div className="event-detail-guest-add">
           <input
             type="email"
@@ -650,7 +652,7 @@ function GuestSection({
           </button>
         </div>
       )}
-      {onEditGuests && (
+      {expanded && onEditGuests && (
         // 「黙ってメールを送らない」ための注記。押す前に必ず目に入る位置に置く
         <p className="event-detail-guest-note-line">
           追加・外すと、Google からゲスト全員に通知メールが届きます。

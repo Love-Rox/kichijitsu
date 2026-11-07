@@ -682,8 +682,19 @@
   text-decoration: line-through;
 }
 
+/* 見出し行の右端に置く開閉ボタン */
 .event-detail-guests-toggle {
-  margin-top: 6px;
+  margin-left: auto;
+}
+
+/* 畳んでいる間の招待済みの人。1行に収め、溢れたら省略(人数は見出しにある) */
+.event-detail-guests-names {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---- ゲストの追加・削除 (2026-07-31) ----
