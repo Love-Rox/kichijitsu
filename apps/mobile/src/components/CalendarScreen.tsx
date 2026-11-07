@@ -388,7 +388,7 @@ export function CalendarScreen({
         onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
         onRsvp={(subject, status) => rsvp(subject, status, onChange, data)}
         onEditGuests={(subject, change) => editGuests(subject, change, onChange)}
-        onSetColor={(subject, colorId) => setEventColor(subject, colorId, onChange, data)}
+        onSetColor={(subject, colorId, scope) => setEventColor(subject, colorId, onChange, data, scope)}
         onAddMeet={(subject) => addEventMeet(subject, onChange)}
       />
     </View>

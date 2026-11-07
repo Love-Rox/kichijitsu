@@ -6,12 +6,17 @@
  * ちらつきのほうが紛らわしいため。ゲストへのメールは出ない(色は見た目の属性。サーバーが
  * sendUpdates=none で書く)。
  *
- * 繰り返しの予定は「この回だけ」の色を変える(Google のインスタンスに colorId を書く)。手元でも
- * その回の override に色を残し、再展開でシリーズ側の色に戻らないようにする。
+ * 繰り返しの予定は、scope で範囲を選ぶ(Google カレンダーと同じ「この予定のみ/すべての予定」)。
+ *  - "this"(省略時): その回だけ。Google のインスタンスに colorId を書き、手元でもその回の override に
+ *    色を残して、再展開でシリーズ側の色に戻らないようにする。
+ *  - "all": シリーズ全体。親の予定に colorId を書き、手元では series レコードの色を書き換えて再展開する。
+ *    その回だけ個別の色を付けた回(override に色がある回)は、Google と同じく、その色のまま残る。
  */
 import { useCallback } from "react";
 import type { IDBPDatabase } from "idb";
-import { getOverride, putOverride, type KichijitsuDB } from "../../db/database";
+import { getOverride, getSeries, putOverride, putSeries, type KichijitsuDB } from "../../db/database";
+import { reexpandCurrentWindow } from "../../expansion/ensureExpanded";
+import type { RecurrenceScope } from "../../sync/recurrenceScope";
 import { EVENT_COLORS } from "../../layout/eventColorChoices";
 import type { AllDayOccurrence, Occurrence } from "../../model/types";
 import type { AllDayStore } from "../../store/allDayStore";
@@ -40,6 +45,7 @@ export function useEventColor({
     subject: Occurrence | AllDayOccurrence,
     colorId: string | null,
     calendarColor: string,
+    scope?: RecurrenceScope,
   ) => Promise<void>;
 } {
   const setColor = useCallback(
@@ -47,8 +53,9 @@ export function useEventColor({
       subject: Occurrence | AllDayOccurrence,
       colorId: string | null,
       calendarColor: string,
+      scope: RecurrenceScope = "this",
     ): Promise<void> => {
-      const req = buildEventColorRequest(subject, colorId);
+      const req = buildEventColorRequest(subject, colorId, scope);
       if (!req) {
         throw new Error("kichijitsu: could not build EventColorRequest");
       }
@@ -60,6 +67,14 @@ export function useEventColor({
 
       const hex = colorId ? EVENT_COLORS.find((c) => c.id === colorId)?.hex : calendarColor;
       const patch = { color: hex ?? calendarColor, hasCustomColor: colorId !== null };
+      if (scope === "all" && "startMs" in subject && subject.seriesId) {
+        const series = await getSeries(db, subject.seriesId);
+        if (series) {
+          await putSeries(db, { ...series, ...patch });
+          await reexpandCurrentWindow(db, store);
+          return;
+        }
+      }
       await writeSubject(db, { store, allDayStore }, { ...subject, ...patch });
       if ("startMs" in subject) {
         // シリーズ由来の1回分は override にも色を残す(再展開で戻らないように)

@@ -1,3 +1,4 @@
+import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { useState } from "react";
 import type { Ref } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
@@ -136,7 +137,11 @@ export interface EventDetailCardProps {
    * canSetEventColor で判定済み (Google の予定のみ)。calendarColor は、個別色を外したときに表示する
    * そのカレンダーの色 (このカードが calendarLookup から引いて渡す)。
    */
-  onSetColor?: (colorId: string | null, calendarColor: string) => Promise<void>;
+  onSetColor?: (
+    colorId: string | null,
+    calendarColor: string,
+    scope: RecurrenceScope,
+  ) => Promise<void>;
   /**
    * 既存の予定に Google Meet を追加。**渡されたときだけ**ボタンを出す ―― 呼び出し側が
    * sync/eventMeet.ts の canAddMeet で判定済み(会議の無い、編集できる Google の予定のみ)。
@@ -408,7 +413,11 @@ function ColorSectionForSubject({
 }: {
   subject: EventDetailSubject;
   calendarLookup: Map<string, CalendarInfo>;
-  onSetColor: (colorId: string | null, calendarColor: string) => Promise<void>;
+  onSetColor: (
+    colorId: string | null,
+    calendarColor: string,
+    scope: RecurrenceScope,
+  ) => Promise<void>;
 }) {
   const color = subject.color ?? "var(--c-unknown-calendar)";
   const calendarColor =

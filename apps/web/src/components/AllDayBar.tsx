@@ -252,7 +252,7 @@ export function AllDayBar({
             // 不在は編集導線を出さない (上の editDraft と同じ理由)
             onSetColor={
               !isOoo && canSetEventColor(occurrence)
-                ? (colorId, calendarColor) => onSetColor(occurrence, colorId, calendarColor)
+                ? (colorId, calendarColor, scope) => onSetColor(occurrence, colorId, calendarColor, scope)
                 : undefined
             }
           />,
