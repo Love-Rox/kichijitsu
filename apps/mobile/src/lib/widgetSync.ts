@@ -49,6 +49,8 @@ export function updateWidget(data: CalendarData, filters: WidgetFilters = DEFAUL
       startMs: o.startMs,
       endMs: o.endMs,
       color: o.color,
+      // Watch の詳細に出す(ウィジェットは使わない)
+      location: o.location || undefined,
     }));
   writeShared(KEY, JSON.stringify({ updatedAt: now, events }));
   ExtensionStorage.reloadWidget();
