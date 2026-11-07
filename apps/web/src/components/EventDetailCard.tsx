@@ -14,9 +14,12 @@ import { clampPopoverPosition, stripHtmlToPlainText } from "./eventPopoverShared
 import { RsvpNotAttendeeError } from "../sync/eventRsvp";
 import {
   GuestNotOrganizerError,
+  GuestSplitUnsupportedError,
   parseGuestEmailInput,
+  splitRefusalMessage,
   type GuestChange,
   type GuestEmailError,
+  type GuestScope,
 } from "../sync/eventGuests";
 import type { EventEditDraft } from "../sync/eventEdit";
 import type { CalendarInfo } from "./calendarInfo";
@@ -130,7 +133,7 @@ export interface EventDetailCardProps {
    * Google 予定。繰り返しは適用範囲 scope を添えて呼ぶ)。渡さなければ従来どおり表示のみ。
    * 422 (主催者でない) は GuestNotOrganizerError を reject する取り決め。
    */
-  onEditGuests?: (change: GuestChange, scope?: RecurrenceScope) => Promise<void>;
+  onEditGuests?: (change: GuestChange, scope?: GuestScope) => Promise<void>;
   /**
    * 予定の色の変更。**渡されたときだけ**「色」欄を出す ―― 呼び出し側が sync/eventColor.ts の
    * canSetEventColor で判定済み (Google の予定のみ)。calendarColor は、個別色を外したときに表示する
@@ -474,11 +477,13 @@ function GuestSection({
   attendees?: EventAttendee[];
   /** 繰り返しの予定なら、変更の適用範囲(この予定のみ/すべての予定)を選ばせる */
   isRecurring: boolean;
-  onEditGuests?: (change: GuestChange, scope?: RecurrenceScope) => Promise<void>;
+  onEditGuests?: (change: GuestChange, scope?: GuestScope) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   /** 既定は影響の小さい「この予定のみ」(「すべて」はシリーズ全員に通知が飛ぶ) */
-  const [scope, setScope] = useState<RecurrenceScope>("this");
+  const [scope, setScope] = useState<GuestScope>("this");
+  /** 「これ以降」の成功後に出す案内(分割の反映は次の同期で届く) */
+  const [infoNote, setInfoNote] = useState<string | null>(null);
   const [draftEmail, setDraftEmail] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   /** 送信中のアドレス (追加でも削除でも)。二重送信 = 招待メールの重複を防ぐ */
@@ -504,8 +509,12 @@ function GuestSection({
     if (!onEditGuests || pending) return;
     setPending(key);
     setActionError(null);
+    setInfoNote(null);
     onEditGuests(change, isRecurring ? scope : undefined)
       .then(() => {
+        if (isRecurring && scope === "following") {
+          setInfoNote("「これ以降」を新しい繰り返しに分けました。反映まで少しお待ちください。");
+        }
         setDraftEmail("");
         setInputError(null);
         setConfirmingRemoval(null);
@@ -515,7 +524,9 @@ function GuestSection({
         setActionError(
           err instanceof GuestNotOrganizerError
             ? "この予定のゲストは変更できません (主催者のみ)"
-            : "変更できませんでした（元に戻しました）",
+            : err instanceof GuestSplitUnsupportedError
+              ? splitRefusalMessage(err.reason)
+              : "変更できませんでした（元に戻しました）",
         );
       })
       .finally(() => setPending(null));
@@ -632,6 +643,7 @@ function GuestSection({
           {(
             [
               ["this", "この予定のみ"],
+              ["following", "これ以降"],
               ["all", "すべての予定"],
             ] as const
           ).map(([value, label]) => (
@@ -684,9 +696,12 @@ function GuestSection({
         <p className="event-detail-guest-note-line">
           {isRecurring && scope === "all"
             ? "追加・外すと、シリーズ全体のゲスト全員に Google から通知メールが届きます。"
-            : "追加・外すと、Google からゲスト全員に通知メールが届きます。"}
+            : isRecurring && scope === "following"
+              ? "この回から先を新しい繰り返しに分けます。ゲスト全員に Google から通知メールが届きます。"
+              : "追加・外すと、Google からゲスト全員に通知メールが届きます。"}
         </p>
       )}
+      {infoNote && <p className="event-detail-guest-note-line">{infoNote}</p>}
       {inputError && <p className="event-detail-guest-error">{inputError}</p>}
       {actionError && <p className="event-detail-guest-error">{actionError}</p>}
     </div>

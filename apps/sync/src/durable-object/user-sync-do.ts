@@ -37,6 +37,10 @@ import { patchEventColorWithRetry } from "../core/event-color";
 import { addEventMeetWithRetry } from "../core/event-meet";
 import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
 import { editEventGuestsWithRetry } from "../core/guest-event";
+import {
+  editGuestsFollowingWithRetry,
+  type EditGuestsFollowingResult,
+} from "../core/guest-following";
 import type { MirrorEventBody } from "../core/block-reconcile";
 import {
   scanMirrorEventsWithRetry,
@@ -430,6 +434,28 @@ export class UserSyncDO extends DurableObject<Env> {
   ): Promise<RpcResult<void>> {
     return runRpc(() =>
       editEventGuestsWithRetry(this.buildEventWriteDeps(accountId), {
+        calendarId,
+        eventId,
+        addEmails,
+        removeEmails,
+      }),
+    );
+  }
+
+  /**
+   * 「これ以降」でゲストを変える (シリーズの分割、2026-11-07)。eventId は対象の回の
+   * インスタンス id。安全に分割できない予定は SplitUnsupportedError → runRpc が
+   * 422 split_unsupported:<reason> として RpcResult に載せる (書き込みは何も行っていない)。
+   */
+  async editEventGuestsFollowing(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    addEmails: string[] | undefined,
+    removeEmails: string[] | undefined,
+  ): Promise<RpcResult<EditGuestsFollowingResult>> {
+    return runRpc(() =>
+      editGuestsFollowingWithRetry(this.buildEventWriteDeps(accountId), {
         calendarId,
         eventId,
         addEmails,

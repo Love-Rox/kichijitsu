@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { createPortal } from "react-dom";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
@@ -14,7 +13,7 @@ import {
 } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
 import { EventKindFields, type EventKindValue } from "./EventKindFields";
-import type { GuestChange } from "../sync/eventGuests";
+import type { GuestChange, GuestScope } from "../sync/eventGuests";
 import type { SetEventColor } from "../sync/eventColor";
 import type { AddEventMeet } from "../sync/eventMeet";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
@@ -171,7 +170,7 @@ interface DayColumnProps {
   onEditGuests: (
     occurrence: Occurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
   /** EventBlock へそのまま流す (予定の色の変更) */
   onSetColor: SetEventColor;

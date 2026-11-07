@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { RecurrenceScope } from "../sync/recurrenceScope";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { GitHubActivityDTO, GitHubCiRunDTO, RsvpResponseStatus } from "@kichijitsu/shared";
@@ -18,7 +17,7 @@ import type { TimeEntryStore } from "../store/timeEntryStore";
 import { useRunningTimeEntries } from "../store/timeEntryStore";
 import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
-import type { GuestChange } from "../sync/eventGuests";
+import type { GuestChange, GuestScope } from "../sync/eventGuests";
 import type { SetEventColor } from "../sync/eventColor";
 import type { AddEventMeet } from "../sync/eventMeet";
 import type { DroppedWorkItem } from "../sync/planned";
@@ -198,7 +197,7 @@ interface WeekGridProps {
   onEditGuests: (
     occurrence: Occurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更。時刻予定は DayColumn、終日は AllDayBar へ流す(同じ関数) */

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
@@ -28,7 +27,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
-import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { canEditGuests, type GuestChange, type GuestScope } from "../sync/eventGuests";
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
@@ -147,7 +146,7 @@ interface EventBlockProps {
   onEditGuests: (
     occurrence: Occurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
   /** 詳細ポップオーバーの色の選択から呼ばれる (予定の色の変更)。色を変えられる予定のときだけ渡す */
   onSetColor: SetEventColor;
