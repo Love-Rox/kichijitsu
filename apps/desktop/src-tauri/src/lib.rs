@@ -486,6 +486,28 @@ fn clamp_notify_text(text: &str, max: usize) -> String {
     format!("{head}…")
 }
 
+/// トレイの ID。set_tray_status が引く
+const TRAY_ID: &str = "main";
+/// メニューバーに出すタイトルの上限(文字数)。web 側は 18 文字+「あと◯分」程度に収めているので、余裕を見た値
+const TRAY_TITLE_MAX_CHARS: usize = 40;
+
+/// メニューバー(トレイ)に、次の予定の文言を出す(2026-11-07)。
+///
+/// 判定は web 側(apps/web/src/sync/trayNextEvent.ts)で、ここは渡された文言を出すだけ
+/// (notify と同じ分担)。`title` は macOS ではアイコンの横に文字として出る(Windows/Linux は
+/// タイトルを出せないので、`tooltip` だけが効く)。空文字なら、アイコンだけに戻す。
+#[tauri::command]
+fn set_tray_status(app: tauri::AppHandle, title: String, tooltip: String) -> Result<(), String> {
+    let tray = app
+        .tray_by_id(TRAY_ID)
+        .ok_or_else(|| "トレイがありません".to_string())?;
+    let title = clamp_notify_text(&title, TRAY_TITLE_MAX_CHARS);
+    tray.set_title(if title.is_empty() { None } else { Some(title) })
+        .map_err(|e| format!("トレイのタイトルを変えられませんでした: {e}"))?;
+    tray.set_tooltip(Some(clamp_notify_text(&tooltip, NOTIFY_MAX_CHARS)))
+        .map_err(|e| format!("トレイの説明を変えられませんでした: {e}"))
+}
+
 /// web 側から呼ぶネイティブ通知。予定のリマインダー通知の送出口。
 ///
 /// # なぜ判定を Rust に持たせないのか
@@ -787,7 +809,8 @@ pub fn run() {
             app_version,
             validate_gh_path,
             notify,
-            open_external_login
+            open_external_login,
+            set_tray_status
         ])
         .setup(|app| {
             // --- メインウィンドウ ---
@@ -848,7 +871,7 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&toggle_i, &reload_i, &update_i, &quit_i])?;
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 // メニューは右クリックのみで開く。左クリックは表示/隠すトグル専用

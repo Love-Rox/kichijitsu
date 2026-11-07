@@ -11,6 +11,7 @@ import { GitHubSection } from "./settings/GitHubSection";
 import { LogoutControl } from "./settings/LogoutControl";
 import { McpTokensSection } from "./settings/McpTokensSection";
 import { ReminderSection } from "./settings/ReminderSection";
+import { TraySection } from "./settings/TraySection";
 import { ResyncControl } from "./settings/ResyncControl";
 import { ThemeSection } from "./settings/ThemeSection";
 import { TimeZoneSection } from "./settings/TimeZoneSection";
@@ -206,6 +207,7 @@ export function SettingsModal({
          * 完結するため props に依存しない。
          */}
         {isTauri() && <ReminderSection />}
+        {isTauri() && <TraySection />}
 
         {/*
          * テーマ (ダークモード切替、ユーザー要望、2026-07-26)。連携系のセクションとは

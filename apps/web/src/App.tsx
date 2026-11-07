@@ -21,6 +21,7 @@ import { useBlockMirrorCleanup } from "./hooks/useBlockMirrorCleanup";
 import { useCalendarSync } from "./hooks/useCalendarSync";
 import { useEventMutations } from "./hooks/useEventMutations";
 import { useEventReminders } from "./hooks/useEventReminders";
+import { useTrayNextEvent } from "./hooks/useTrayNextEvent";
 import { useGitHubData, useGitHubPrCommitEstimates } from "./hooks/useGitHubData";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useGoogleAccounts } from "./hooks/useGoogleAccounts";
@@ -848,6 +849,8 @@ function App() {
     enabled: canNotifyNatively(),
     calendarDefaults: calendarDefaultReminders,
   });
+  // メニューバー(トレイ)に次の予定を出す(デスクトップ版のみ)
+  useTrayNextEvent({ store, timeZone, enabled: canNotifyNatively() });
 
   // 設定モーダル(SettingsModal、UI 改善で中央モーダルへ格上げ、2026-07-22)の外側クリック・
   // Escape での自動クローズは、コンポーネント自身が持つ useCloseOnOutsideOrEscape に一本化した
