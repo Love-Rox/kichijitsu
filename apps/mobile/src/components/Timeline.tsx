@@ -98,11 +98,18 @@ export function Timeline({
     };
   }, []);
 
+  // 高さを変えた直後は、ScrollView の中身の高さがまだ古いことがあり、そこで scrollTo すると、
+  // 新しい位置が古い高さに切り詰められてズレる。まずここで合わせ(多くはこれで足りる)、
+  // 中身の高さが実際に変わったときの通知(onContentSizeChange)で、もう一度合わせて確定する。
   useLayoutEffect(() => {
     if (pendingScroll.current === null) return;
     scrollRef.current?.scrollTo({ y: Math.max(0, pendingScroll.current), animated: false });
-    pendingScroll.current = null;
   }, [hourHeight]);
+  const settleScroll = () => {
+    if (pendingScroll.current === null) return;
+    scrollRef.current?.scrollTo({ y: Math.max(0, pendingScroll.current), animated: false });
+    pendingScroll.current = null;
+  };
 
   const touchDistance = (e: GestureResponderEvent) => {
     const [a, b] = e.nativeEvent.touches;
@@ -340,6 +347,7 @@ export function Timeline({
           scrollY.current = e.nativeEvent.contentOffset.y;
         }}
         scrollEventThrottle={16}
+        onContentSizeChange={settleScroll}
         // 予定を掴んでいる間・ピンチの間は、スクロールさせない(指の動きを、予定の移動・拡大縮小に使うため)
         scrollEnabled={drag === null && !pinching}
         style={{ flex: 1, borderTopWidth: 1, borderTopColor: t.line }}
