@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AppState, PanResponder, Pressable, ScrollView, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
+import { Animated, AppState, PanResponder, Pressable, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
 import { FONT_SCALE, Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
@@ -75,6 +75,8 @@ export function Timeline({
   const scrollRef = useRef<ScrollViewInstance>(null);
   const wrapRef = useRef<HostInstance>(null);
   const scrollY = useRef(0);
+  // スクロール位置(ネイティブ側で、毎フレーム更新)。長い予定のタイトルを、見えている範囲の最上部へ寄せるのに使う
+  const scrollAnim = useRef(new Animated.Value(0)).current;
   /** 拡大・縮小の後に合わせるスクロール位置(描画のあと、高さが変わってから反映する)。 */
   const pendingScroll = useRef<number | null>(null);
   /** ピンチの間の基準: 開始時の指の間隔・倍率・スクロール位置、指の中心の画面内の位置、窓の上端。 */
@@ -340,12 +342,15 @@ export function Timeline({
       </View>
 
       <View ref={wrapRef} style={{ flex: 1 }} onLayout={measureTop} {...pinch.panHandlers}>
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollRef}
         contentOffset={{ x: 0, y: initialOffset }}
-        onScroll={(e) => {
-          scrollY.current = e.nativeEvent.contentOffset.y;
-        }}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollAnim } } }], {
+          useNativeDriver: true,
+          listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+            scrollY.current = e.nativeEvent.contentOffset.y;
+          },
+        })}
         scrollEventThrottle={16}
         onContentSizeChange={settleScroll}
         // 予定を掴んでいる間・ピンチの間は、スクロールさせない(指の動きを、予定の移動・拡大縮小に使うため)
@@ -433,6 +438,11 @@ export function Timeline({
                 const e = Math.min(o.endMs, dayEnd);
                 const top = ((s - dayStart) / 3_600_000) * hourHeight;
                 const height = Math.max(((e - s) / 3_600_000) * hourHeight, 18);
+                // タイトルの行数は、ブロックの高さに収まる分。ただし、長い予定は 3 行まで(残りの高さは、
+                // タイトルが動ける余地にする: スクロールで上端が画面の外に出たら、タイトルを最上部へ寄せる)
+                const lineH = (compact ? 12 : 14) * FONT_SCALE;
+                const lines = Math.min(3, Math.max(1, Math.floor((height - 2) / lineH)));
+                const stickyRange = Math.max(0, height - 3 - lines * lineH);
                 return (
                   <Pressable
                     key={o.id}
@@ -456,14 +466,32 @@ export function Timeline({
                       overflow: "hidden",
                     }}
                   >
-                    <Text
-                      // 行数は、ブロックの高さに収まる分だけ(狭い列で、1 文字ずつ折り返されて
-                      // 縦に伸びすぎないように)。週表示は、列が狭いので文字も小さくする
-                      numberOfLines={Math.max(1, Math.floor((height - 2) / ((compact ? 12 : 14) * FONT_SCALE)))}
-                      style={{ fontSize: compact ? 9.5 : 11, lineHeight: compact ? 12 : 14, color: t.ink }}
+                    <Animated.View
+                      style={
+                        stickyRange > 4
+                          ? {
+                              transform: [
+                                {
+                                  translateY: scrollAnim.interpolate({
+                                    inputRange: [top, top + stickyRange],
+                                    outputRange: [0, stickyRange],
+                                    extrapolate: "clamp",
+                                  }),
+                                },
+                              ],
+                            }
+                          : undefined
+                      }
                     >
-                      {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
-                    </Text>
+                      <Text
+                        // 行数は、ブロックの高さに収まる分だけ(狭い列で、1 文字ずつ折り返されて
+                        // 縦に伸びすぎないように)。長い予定は 3 行まで。週表示は、列が狭いので文字も小さくする
+                        numberOfLines={lines}
+                        style={{ fontSize: compact ? 9.5 : 11, lineHeight: compact ? 12 : 14, color: t.ink }}
+                      >
+                        {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
+                      </Text>
+                    </Animated.View>
                     {/* 下端: 長押しで掴むと、終了時刻を伸縮できる(十分な高さの予定だけ) */}
                     {onMove && height >= 32 && isEditableEventSubject(o) && !o.isOutOfOffice ? (
                       <Pressable
@@ -515,7 +543,7 @@ export function Timeline({
             })()
           ) : null}
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
       </View>
     </View>
   );
