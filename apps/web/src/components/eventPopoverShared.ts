@@ -77,8 +77,8 @@ export function stripHtmlToPlainText(html: string): string {
 }
 
 /** 詳細ポップオーバーの想定サイズ。ビューポート外にはみ出さないようクランプするための概算値 */
-const DETAIL_POPOVER_WIDTH = 300;
-const DETAIL_POPOVER_MAX_HEIGHT = 420;
+const DETAIL_POPOVER_WIDTH = 340;
+const DETAIL_POPOVER_MAX_HEIGHT = 480;
 const DETAIL_POPOVER_MARGIN = 8;
 
 function clamp(value: number, lo: number, hi: number): number {

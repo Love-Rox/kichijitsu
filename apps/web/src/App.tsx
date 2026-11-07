@@ -70,6 +70,7 @@ import {
 } from "./layout/oooAllDayPlacement";
 import { timelineRangeMs } from "./layout/viewRange";
 import "./App.css";
+import "./mobile-look.css";
 
 /**
  * モバイル対応フェーズ2(docs/multiplatform.md): 週ビュー('week')に加えて、狭幅向けの
