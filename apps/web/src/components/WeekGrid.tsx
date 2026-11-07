@@ -1049,7 +1049,13 @@ export function WeekGrid({
    */
   // 複数タイムゾーン: 並べる別タイムゾーン(基準 = 端末のタイムゾーンと同じものは除く)の、時刻の列と見出し。
   // ラベルは、いま見えている範囲の最初の日を基準に作る(夏時間の切り替えは、その日の分)
-  const secondaryTimeZones = useSecondaryTimeZones(timeZone);
+  // 狭い画面(幅 640px 以下)では、時刻の列が増えると予定の幅が足りなくなるので、基準の隣の1つだけにする
+  const narrowForTz = useMediaQuery("(max-width: 640px)");
+  const allSecondaryTimeZones = useSecondaryTimeZones(timeZone);
+  const secondaryTimeZones = useMemo(
+    () => (narrowForTz ? allSecondaryTimeZones.slice(0, 1) : allSecondaryTimeZones),
+    [narrowForTz, allSecondaryTimeZones],
+  );
   const secondaryColumns = useMemo(
     () =>
       secondaryTimeZones.map((tz) => ({

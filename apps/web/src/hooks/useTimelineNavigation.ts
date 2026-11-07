@@ -5,7 +5,12 @@ import { stepAnchor } from "../layout/dayGrid";
 import { resolveMiniMonthNavigation } from "../layout/miniMonth";
 import { mondayOf } from "../layout/monthGrid";
 import { readStored, writeStored } from "../layout/localStore";
-import { dayCountForView, initialTimelineStart, isView } from "../layout/viewRange";
+import {
+  dayCountForView,
+  initialTimelineStart,
+  isView,
+  startOnViewSwitch,
+} from "../layout/viewRange";
 
 /**
  * 「今どの期間を見ているか」(view / timelineStart / monthCursor)とその移動操作だけを持つフック。
@@ -158,7 +163,10 @@ export function useTimelineNavigation({ isNarrow }: { isNarrow: boolean }): Time
         if (next === "month") {
           setMonthCursor(timelineStart.with({ day: 1 }));
         } else if (view === "month") {
-          setTimelineStart(next === "week" ? mondayOf(monthCursor) : monthCursor);
+          setTimelineStart(startOnViewSwitch("month", next, monthCursor));
+        } else if (next !== "week") {
+          // 週 → 3日/1日: 今週を見ていたなら、月曜ではなく今日から始める
+          setTimelineStart(startOnViewSwitch(view, next, timelineStart));
         }
         setView(next);
       });

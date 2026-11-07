@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import { Temporal } from "@js-temporal/polyfill";
-import { dayCountForView, initialTimelineStart, isView, timelineRangeMs } from "./viewRange";
+import {
+  dayCountForView,
+  initialTimelineStart,
+  isView,
+  startOnViewSwitch,
+  timelineRangeMs,
+} from "./viewRange";
 
 describe("isView", () => {
   it("既知の4つだけを View とみなす", () => {
@@ -66,5 +72,36 @@ describe("timelineRangeMs", () => {
     const { fromMs, toMs } = timelineRangeMs(start, 1, "Asia/Tokyo");
     expect(fromMs).toBe(Date.UTC(2026, 6, 19, 15));
     expect(toMs - fromMs).toBe(24 * 60 * 60_000);
+  });
+});
+
+describe("startOnViewSwitch", () => {
+  const today = Temporal.PlainDate.from("2026-07-23"); // 木曜
+  const d = (s: string) => Temporal.PlainDate.from(s);
+
+  it("今週の週表示から3日/1日へ: 月曜ではなく今日から始める", () => {
+    expect(startOnViewSwitch("week", "day3", d("2026-07-20"), today).toString()).toBe("2026-07-23");
+    expect(startOnViewSwitch("week", "day1", d("2026-07-20"), today).toString()).toBe("2026-07-23");
+  });
+
+  it("過去の週を見ているときは、その週の先頭のまま", () => {
+    expect(startOnViewSwitch("week", "day3", d("2026-07-06"), today).toString()).toBe("2026-07-06");
+  });
+
+  it("今月の月表示から3日へ: 1日ではなく今日から", () => {
+    expect(startOnViewSwitch("month", "day3", d("2026-07-01"), today).toString()).toBe("2026-07-23");
+  });
+
+  it("別の月の月表示から3日へ: その月の1日", () => {
+    expect(startOnViewSwitch("month", "day3", d("2026-09-01"), today).toString()).toBe("2026-09-01");
+  });
+
+  it("今月の月表示から週へ: 今日を含む週の月曜", () => {
+    expect(startOnViewSwitch("month", "week", d("2026-07-01"), today).toString()).toBe("2026-07-20");
+  });
+
+  it("3日から1日へ: 今日が範囲にあれば今日、無ければ先頭のまま", () => {
+    expect(startOnViewSwitch("day3", "day1", d("2026-07-22"), today).toString()).toBe("2026-07-23");
+    expect(startOnViewSwitch("day3", "day1", d("2026-07-10"), today).toString()).toBe("2026-07-10");
   });
 });
