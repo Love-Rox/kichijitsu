@@ -66,6 +66,7 @@ import {
   zoomedScrollTop,
 } from "../layout/gridMetrics";
 import { panelAnchors } from "../layout/dayGrid";
+import { initialScrollTop } from "../layout/initialScroll";
 import { shouldClearSelectionOnPointerDown } from "../layout/swipeNav";
 import { useSwipeNavigation } from "../hooks/useSwipeNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -83,7 +84,6 @@ import {
 import { useSecondaryTimeZones } from "../sync/secondaryTimeZonesPref";
 import "./WeekGrid.css";
 
-const INITIAL_SCROLL_HOUR = 8;
 const SLIDE_MS = 200;
 
 /**
@@ -398,10 +398,22 @@ export function WeekGrid({
     return () => clearInterval(id);
   }, []);
 
-  // 初期スクロール位置を朝8時あたりに合わせる(マウント時の1回だけ ―― 以後のズーム変更では
-  // 下の useLayoutEffect が「見ている時刻」を保つ方向に補正するので、ここへ戻してはいけない)
+  // 初期スクロール位置: 基本は朝8時あたり、今日が見えていて現在時刻が画面外なら現在時刻が収まる位置へ
+  // (マウント時の1回だけ ―― 以後のズーム変更では下の useLayoutEffect が「見ている時刻」を保つ方向に
+  // 補正するので、ここへ戻してはいけない)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: minutesToPx(INITIAL_SCROLL_HOUR * 60, hourHeight) });
+    const el = scrollRef.current;
+    if (!el) return;
+    const nowDate = plainDateOfMs(nowMs, timeZone);
+    const todayShown = Temporal.PlainDate.compare(nowDate, weekStart) >= 0 &&
+      Temporal.PlainDate.compare(nowDate, weekStart.add({ days: dayCount - 1 })) <= 0;
+    const nowMinutes = todayShown
+      ? (() => {
+          const t = Temporal.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(timeZone);
+          return t.hour * 60 + t.minute;
+        })()
+      : null;
+    el.scrollTo({ top: initialScrollTop(nowMinutes, hourHeight, el.clientHeight) });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- マウント時のみ。hourHeight の変化は別 effect で扱う
   }, []);
 
