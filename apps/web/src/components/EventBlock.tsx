@@ -29,6 +29,7 @@ import {
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
+import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { canDuplicateOccurrence } from "../sync/eventCreate";
 import {
@@ -145,6 +146,8 @@ interface EventBlockProps {
   onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
   /** 詳細ポップオーバーの色の選択から呼ばれる (予定の色の変更)。色を変えられる予定のときだけ渡す */
   onSetColor: SetEventColor;
+  /** 詳細ポップオーバーの「Meet を追加」から呼ばれる。会議の無い、編集できる予定のときだけ渡す */
+  onAddMeet: AddEventMeet;
   /**
    * スマホの操作体系(2026-07-26、ユーザー要望): true のとき「タップで選択 → 選択中だけ
    * ドラッグで移動/リサイズ」に切り替える。WeekGrid からは longPressCreate(=isNarrow、
@@ -228,6 +231,7 @@ export function EventBlock({
   onRsvp,
   onEditGuests,
   onSetColor,
+  onAddMeet,
   selectBeforeDrag = false,
   isSelected = false,
   onSelect,
@@ -834,6 +838,7 @@ export function EventBlock({
                 ? (colorId, calendarColor) => onSetColor(occurrence, colorId, calendarColor)
                 : undefined
             }
+            onAddMeet={canAddMeet(occurrence) ? () => onAddMeet(occurrence) : undefined}
           />,
           document.body,
         )}

@@ -18,6 +18,7 @@ import {
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
+import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
@@ -65,6 +66,8 @@ interface MonthViewProps {
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更 (時刻予定・終日予定とも同じ関数) */
   onSetColor: SetEventColor;
+  /** Meet の追加(時刻予定のチップだけ) */
+  onAddMeet: AddEventMeet;
   /** 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。WeekGrid.declinedVisibility と同じ意味 */
   declinedVisibility: DeclinedVisibilitySettings;
   /**
@@ -119,6 +122,7 @@ export function MonthView({
   onEditGuests,
   onAllDayEditGuests,
   onSetColor,
+  onAddMeet,
   onNavigateToDay,
   declinedVisibility,
 }: MonthViewProps) {
@@ -397,6 +401,11 @@ export function MonthView({
               onSetColor={
                 canSetEventColor(detailSubject)
                   ? (colorId, calendarColor) => onSetColor(detailSubject, colorId, calendarColor)
+                  : undefined
+              }
+              onAddMeet={
+                canAddMeet(detailSubject as Occurrence)
+                  ? () => onAddMeet(detailSubject as Occurrence)
                   : undefined
               }
             />

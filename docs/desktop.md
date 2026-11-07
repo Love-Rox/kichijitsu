@@ -573,7 +573,7 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 1. 予定の色の変更 — **済み**(詳細カードの「色」欄。繰り返しの予定は、その回だけ)
 2. アクセント色のテーマ — **済み**(設定 →「テーマ」の下に「アクセント色」。モバイルと同じ 6 色)
 3. アイコンのフラット化(Phosphor duotone。モバイルと同じ系統) — **済み**(`components/icons.tsx`。Slack・Meet・Zoom・Teams のブランドマークは、そのまま)
-4. 会議リンク(Meet など)を予定から作る
+4. 会議リンク(Meet)を予定から作る — **既存の予定に追加するところまで済み**(詳細カードの「Google Meet を追加」)。作成時に付ける・モバイルは未着手
 5. 複数タイムゾーン
 6. デスクトップ固有(メニューバーに次の予定、など)
 
@@ -593,3 +593,9 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 ### アイコン
 - `components/icons.tsx` の UI アイコン 12 個(ピン・パネル・カレンダー・歯車・横三点・タイマー・タグ・検索・拡大/縮小・ビデオ・場所)を、Phosphor duotone(MIT)に差し替えた。形のデータは `components/iconPaths.ts`(生成物。`node brand/gen-web-icons.mjs`。手順はスクリプトの先頭)。コンポーネント名と props は変えていないので、呼び出し側は無変更。
 - 色は `fill="currentColor"` で親の `color` に従う(薄い面は不透明度 0.2 の層)。
+
+### Meet の追加
+- サーバー: `POST /api/event/meet`(`core/event-meet.ts`・`google/event-meet.ts`)。`events.patch` に `conferenceData.createRequest`(`hangoutsMeet`)を送る。**`conferenceDataVersion=1` が無いと、Google は黙って何もしない**ので必ず付ける。`requestId`(冪等キー)は 401 の再送でも同じ値を使い、会議が二重に作られないようにする。会議の作成が失敗(200 + `status: failure`)のときは、エラーにする。ゲストへの通知は、時刻・タイトルの変更と同じ既定(外部ゲストにだけ。`DEFAULT_SEND_UPDATES`)。
+- Web: `hooks/mutations/useEventMeet.ts`(サーバーが URL を返してから、手元の予定にリンクを書く「保存ボタン方式」)。繰り返しの予定は、シリーズ全体に付く(手元で先に更新するのは、操作した回だけ。ほかの回は次の同期で入る)。URL が返らなかった(Google がまだ作っている途中)ときは、次の同期でリンクが入る。
+- 出す条件(`sync/eventMeet.ts` の `canAddMeet`): 編集できる Google の予定で、まだ会議が無く、不在・勤務場所・ミラーでないもの。終日の予定には出さない。
+- 未着手: 予定の作成フォームで「Meet を付ける」(作成 → すぐ追加、で足せる)、モバイルのボタン。

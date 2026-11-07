@@ -1,0 +1,28 @@
+/* 詳細カードの「Google Meet を追加」。会議が無い予定にだけ出る、小さな文字ボタン */
+.event-detail-add-meet {
+  margin-top: 6px;
+}
+
+.event-detail-add-meet-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--c-accent);
+  background: transparent;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.event-detail-add-meet-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.event-detail-add-meet-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--c-ink-sub);
+}

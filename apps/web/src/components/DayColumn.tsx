@@ -15,6 +15,7 @@ import type { EventEditDraft } from "../sync/eventEdit";
 import { EventKindFields, type EventKindValue } from "./EventKindFields";
 import type { GuestChange } from "../sync/eventGuests";
 import type { SetEventColor } from "../sync/eventColor";
+import type { AddEventMeet } from "../sync/eventMeet";
 import type { GitHubActivityCluster } from "../sync/mapActivity";
 import { ciMarkerStatusClass, ciStatusLabel, type GitHubCiCluster } from "../sync/mapCiRuns";
 import {
@@ -165,6 +166,8 @@ interface DayColumnProps {
   onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
   /** EventBlock へそのまま流す (予定の色の変更) */
   onSetColor: SetEventColor;
+  /** EventBlock へそのまま流す (Meet の追加) */
+  onAddMeet: AddEventMeet;
   calendarLookup: Map<string, CalendarInfo>;
   /** 新規予定の既定の書き込み先。null なら(未連携・カレンダー未選択)空き領域クリックでの作成を無効化する */
   writeTarget: WriteTargetCandidate | null;
@@ -295,6 +298,7 @@ export function DayColumn({
   onRsvp,
   onEditGuests,
   onSetColor,
+  onAddMeet,
   calendarLookup,
   writeTarget,
   writeTargets,
@@ -748,6 +752,7 @@ export function DayColumn({
             onRsvp={onRsvp}
             onEditGuests={onEditGuests}
             onSetColor={onSetColor}
+            onAddMeet={onAddMeet}
             calendarLookup={calendarLookup}
             // 「タップで選択してからドラッグ」は横スワイプ日移動と同じ条件(=スマホ幅)でだけ
             // 有効にする。longPressCreate は isNarrow がそのまま降りてきている値
