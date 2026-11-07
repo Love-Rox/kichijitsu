@@ -103,7 +103,7 @@ export default function Home() {
   /** 進行中の読み込みの完了を待つため(ログアウトが、書き込みの完了を待ってから全消去する)。 */
   const inflight = useRef<Promise<unknown> | null>(null);
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, forceFull = false) => {
     controller.current?.abort();
     const mine = new AbortController();
     controller.current = mine;
@@ -120,6 +120,7 @@ export default function Home() {
       let latest: LoadProgress | null = null;
       const run = loadCalendarData({
         signal: mine.signal,
+        forceFull,
         onProgress: (progress) => {
           if (!isCurrent()) return;
           latest = progress;
@@ -262,6 +263,10 @@ export default function Home() {
         notify={notify}
         onChangeNotify={changeNotify}
         onSignOut={signOutNow}
+        onForceSync={() => {
+          setSettingsOpen(false);
+          void refresh(true, true);
+        }}
       />
       <StatusBar style="auto" />
     </View>

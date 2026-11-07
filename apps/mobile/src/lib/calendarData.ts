@@ -74,6 +74,8 @@ export interface LoadOptions {
   onPartial?: (data: CalendarData) => void;
   /** 中止の合図。ログアウトや再読み込みで立つ。立ったら、以後データベースへも画面へも書かない。 */
   signal?: AbortSignal;
+  /** true なら、サーバーの同期トークンを無視して、全カレンダーを取り直す(設定の「強制同期」)。 */
+  forceFull?: boolean;
 }
 
 function compose(
@@ -106,7 +108,7 @@ function compose(
  *   - ネットワークに繋がらなくても、保存済みのデータは見られる。
  */
 export async function loadCalendarData(options: LoadOptions = {}): Promise<CalendarData | null> {
-  const { onProgress, onPartial, signal } = options;
+  const { onProgress, onPartial, signal, forceFull } = options;
   const aborted = () => signal?.aborted === true;
 
   // 手元のデータは「いまのセッション」のものでなければ見せない。保存時に、セッション値の
@@ -206,7 +208,12 @@ export async function loadCalendarData(options: LoadOptions = {}): Promise<Calen
           const sync = await timed(`sync ${cal.summary}`, () =>
             apiFetch<SyncResponse>("/api/sync", {
               method: "POST",
-              body: JSON.stringify({ accountId: account.accountId, calendarId: cal.id, deviceId }),
+              body: JSON.stringify({
+                accountId: account.accountId,
+                calendarId: cal.id,
+                deviceId,
+                ...(forceFull ? { forceFull: true } : {}),
+              }),
               signal,
             }),
           );

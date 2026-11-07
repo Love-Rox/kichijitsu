@@ -25,6 +25,7 @@ export function SettingsSheet({
   notify,
   onChangeNotify,
   onSignOut,
+  onForceSync,
 }: {
   visible: boolean;
   data: CalendarData | null;
@@ -38,6 +39,8 @@ export function SettingsSheet({
   notify: NotifySettings;
   onChangeNotify: (next: NotifySettings) => void;
   onSignOut: () => void;
+  /** 強制同期: 全カレンダーを、Google から取り直す(シートを閉じて、画面の同期表示に任せる)。 */
+  onForceSync: () => void;
 }) {
   const t = useTheme();
   const themePrefs = useThemePrefs();
@@ -231,6 +234,18 @@ export function SettingsSheet({
               Google カレンダーで、予定ごと(無ければカレンダーごと)に設定した通知の時刻に合わせます。通知を設定していない予定には出ません。
             </Text>
           ) : null}
+
+          <Text style={{ fontSize: 13, color: t.inkSub, marginTop: 24, marginBottom: 6 }}>同期</Text>
+          <Pressable
+            onPress={onForceSync}
+            disabled={data === null}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, gap: 8, opacity: data === null ? 0.4 : 1 }}
+          >
+            <Text style={{ color: t.accent, fontSize: 15 }}>今すぐ強制同期</Text>
+          </Pressable>
+          <Text style={{ fontSize: 12, color: t.inkSub }}>
+            予定が合わないときに、すべてのカレンダーを Google から取り直します(通常の同期は、変更分だけを取ります)。
+          </Text>
 
           <Pressable onPress={confirmSignOut} style={{ marginTop: 32, alignSelf: "flex-start" }}>
             <Text style={{ color: t.accent, fontSize: 15 }}>ログアウト</Text>
