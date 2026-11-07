@@ -1,5 +1,6 @@
 import { ExtensionStorage } from "@bacons/apple-targets";
 import { occurrencesInRange, type CalendarData } from "./calendarData";
+import { ACCENTS, type AccentKey } from "./accents";
 
 /**
  * ホーム画面のウィジェット(targets/widget)へ、直近の予定を渡す。App Group の UserDefaults に
@@ -26,6 +27,16 @@ export function updateWidget(data: CalendarData): void {
       color: o.color,
     }));
   storage.set(KEY, JSON.stringify({ updatedAt: now, events }));
+  ExtensionStorage.reloadWidget();
+}
+
+/**
+ * アプリのアクセント色を、ウィジェットへ渡す(ライト用・ダーク用の組)。ウィジェットの明暗は OS に従うので、
+ * 両方を渡す。予定の内容ではないので、ログアウトでは消さない。
+ */
+export function writeWidgetTheme(accent: AccentKey): void {
+  const c = ACCENTS[accent];
+  storage.set("theme", JSON.stringify({ light: c.light.accent, dark: c.dark.accent }));
   ExtensionStorage.reloadWidget();
 }
 
