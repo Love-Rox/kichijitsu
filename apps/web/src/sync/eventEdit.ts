@@ -45,6 +45,11 @@ export interface EventEditDraft {
   autoDecline?: OutOfOfficeAutoDecline;
   /** 不在のときの辞退メッセージ(空なら送らない) */
   declineMessage?: string;
+  /**
+   * 新規作成のときだけ使う: 作ったあとに Google Meet の会議を付ける。作成の API には会議の指定が無いので、
+   * 予定を作って確定 id が分かってから、既存の予定への Meet 追加(POST /api/event/meet)を続けて呼ぶ。
+   */
+  addMeet?: boolean;
 }
 
 /** 時刻予定 (Occurrence) → draft。isAllDay は常に false */

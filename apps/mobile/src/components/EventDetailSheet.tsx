@@ -23,6 +23,7 @@ import {
   type GuestEmailError,
 } from "@kichijitsu/web/sync/eventGuests";
 import { colorIdOf, EVENT_COLORS } from "../lib/eventColors";
+import { canAddMeet } from "@kichijitsu/web/sync/eventMeet";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
 
@@ -37,6 +38,7 @@ export function EventDetailSheet({
   onRsvp,
   onEditGuests,
   onSetColor,
+  onAddMeet,
 }: {
   subject: EventSubject | null;
   timeZone: string;
@@ -51,6 +53,8 @@ export function EventDetailSheet({
   onEditGuests: (subject: EventSubject, change: GuestChange) => Promise<EventSubject>;
   /** 予定の色の変更(null はカレンダーの色に戻す)。反映後の予定を返す。失敗したら例外。 */
   onSetColor: (subject: EventSubject, colorId: string | null, scope: "this" | "all") => Promise<EventSubject>;
+  /** Google Meet の会議を付ける。反映後の予定を返す。失敗したら例外。 */
+  onAddMeet: (subject: EventSubject) => Promise<EventSubject>;
 }) {
   const t = useTheme();
   // 出欠を変えた後の予定。開いている予定と同じものなら、こちらを表示に使う
@@ -82,6 +86,20 @@ export function EventDetailSheet({
       Alert.alert("色を変えられませんでした", String((e as Error).message ?? e));
     } finally {
       setColorBusy(false);
+    }
+  };
+  const [meetBusy, setMeetBusy] = useState(false);
+  const addMeet = async () => {
+    if (!view || meetBusy) return;
+    setMeetBusy(true);
+    try {
+      const next = await onAddMeet(view);
+      setUpdated(next);
+      if (next === view) Alert.alert("Meet を追加しました", "リンクの反映に少し時間がかかります。しばらくしてから開き直してください。");
+    } catch (e) {
+      Alert.alert("Meet を付けられませんでした", String((e as Error).message ?? e));
+    } finally {
+      setMeetBusy(false);
     }
   };
   const [guestInput, setGuestInput] = useState("");
@@ -235,6 +253,27 @@ export function EventDetailSheet({
                 }}
               >
                 <Text style={{ color: t.onAccent, fontWeight: "700" }}>{meetingLabel} に参加</Text>
+              </Pressable>
+            ) : null}
+            {!meetingUrl && canAddMeet(view) ? (
+              <Pressable
+                disabled={meetBusy}
+                onPress={() => void addMeet()}
+                style={{
+                  marginTop: 16,
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 16,
+                  paddingVertical: 9,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: t.line,
+                  opacity: meetBusy ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: t.accent, fontWeight: "700" }}>
+                  {meetBusy ? "追加中…" : "Google Meet を追加"}
+                  {view.seriesId ? "(繰り返しすべて)" : ""}
+                </Text>
               </Pressable>
             ) : null}
             {view.location && view.location.trim() !== meetingUrl ? (

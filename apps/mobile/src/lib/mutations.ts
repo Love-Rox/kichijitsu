@@ -5,7 +5,8 @@ import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
 import { buildEventColorRequest } from "@kichijitsu/web/sync/eventColor";
 import { buildEventDeleteRequest } from "@kichijitsu/web/sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "@kichijitsu/web/sync/guestNotify";
-import type { EventColorRequest, EventCreateResponse } from "@kichijitsu/shared";
+import type { EventColorRequest, EventCreateResponse, EventMeetResponse } from "@kichijitsu/shared";
+import { buildEventMeetRequest } from "@kichijitsu/web/sync/eventMeet";
 import { GOOGLE_COLOR_MAP } from "@kichijitsu/web/sync/mapGoogle";
 import {
   buildEventCreateRequest,
@@ -143,23 +144,34 @@ export async function createEvent(
   target: WriteTargetCandidate,
   timeZone: string,
   apply: ApplyChange,
-): Promise<void> {
+): Promise<{ meetFailed: boolean }> {
+  // 作成時に Meet を付ける指定: 予定ができたあとに、既存の予定への追加を続けて呼ぶ(失敗しても予定は残す)
+  const attachMeet = async (eventId: string): Promise<string | undefined | "failed"> => {
+    if (!draft.addMeet || draft.eventType === "outOfOffice") return undefined;
+    try {
+      return await postMeet({ accountId: target.accountId, calendarId: target.calendarId, eventId });
+    } catch {
+      return "failed";
+    }
+  };
   if (draft.isAllDay) {
     const pending = buildPendingAllDayOccurrence({ draft, target, timeZone });
     apply((d) => ({ ...d, allDays: [...d.allDays, pending] }));
     await upsertAllDay(pending);
     try {
       const eventId = await postCreate(draft, target, timeZone);
-      const finalized = finalizeCreatedAllDayOccurrence(pending, target, eventId);
+      let finalized = finalizeCreatedAllDayOccurrence(pending, target, eventId);
+      const meet = await attachMeet(eventId);
+      if (meet && meet !== "failed") finalized = { ...finalized, conferenceUrl: meet, hasConference: true };
       apply((d) => ({ ...d, allDays: [...d.allDays.filter((a) => a.id !== pending.id), finalized] }));
       await removeAllDay(pending.id);
       await upsertAllDay(finalized);
+      return { meetFailed: meet === "failed" };
     } catch (e) {
       apply((d) => ({ ...d, allDays: d.allDays.filter((a) => a.id !== pending.id) }));
       await removeAllDay(pending.id);
       throw e;
     }
-    return;
   }
 
   const pending = buildPendingOccurrence({ draft, target });
@@ -167,15 +179,43 @@ export async function createEvent(
   await upsertSingle(pending);
   try {
     const eventId = await postCreate(draft, target, timeZone);
-    const finalized = finalizeCreatedOccurrence(pending, target, eventId);
+    let finalized = finalizeCreatedOccurrence(pending, target, eventId);
+    const meet = await attachMeet(eventId);
+    if (meet && meet !== "failed") finalized = { ...finalized, conferenceUrl: meet, hasConference: true };
     apply((d) => ({ ...d, singles: [...d.singles.filter((o) => o.id !== pending.id), finalized] }));
     await removeSingle(pending.id);
     await upsertSingle(finalized);
+    return { meetFailed: meet === "failed" };
   } catch (e) {
     apply((d) => ({ ...d, singles: d.singles.filter((o) => o.id !== pending.id) }));
     await removeSingle(pending.id);
     throw e;
   }
+}
+
+/** POST /api/event/meet。会議の URL(http/https のみ)を返す。Google がまだ作っている途中なら undefined。 */
+async function postMeet(req: { accountId: string; calendarId: string; eventId: string }): Promise<string | undefined> {
+  const res = await apiFetch<EventMeetResponse>("/api/event/meet", { method: "POST", body: JSON.stringify(req) });
+  if (!res?.ok) throw new Error("サーバーが Meet の追加を受け付けませんでした");
+  const url = res.conferenceUrl;
+  return url && /^https?:\/\//i.test(url) ? url : undefined;
+}
+
+/** 既存の予定に Google Meet を付ける。繰り返しは、シリーズ全体に付く(手元に出るのは、開いている 1 回分だけ)。 */
+export async function addEventMeet(subject: EventSubject, apply: ApplyChange): Promise<EventSubject> {
+  const req = buildEventMeetRequest(subject);
+  if (!req) throw new Error("この予定には Meet を付けられません");
+  let url: string | undefined;
+  try {
+    url = await postMeet(req);
+  } catch (e) {
+    if (e instanceof ApiError) throw new Error("Meet を付けられませんでした(" + e.status + ")");
+    throw e;
+  }
+  if (!url) return subject; // Google が作っている途中。次の同期でリンクが入る
+  const updated = { ...subject, conferenceUrl: url, hasConference: true } as EventSubject;
+  await writeLocalSubject(updated, apply);
+  return updated;
 }
 
 async function postCreate(

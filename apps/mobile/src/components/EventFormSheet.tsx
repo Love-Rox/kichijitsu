@@ -183,6 +183,16 @@ export function EventFormSheet({
               </Row>
             )}
 
+            {!isEdit && !isOoo && (
+              <Row label="Google Meet">
+                <Switch
+                  value={draft.addMeet === true}
+                  onValueChange={(v) => set({ addMeet: v })}
+                  trackColor={{ true: t.accent }}
+                />
+              </Row>
+            )}
+
             {draft.isAllDay ? (
               <>
                 <Row label="開始日">
