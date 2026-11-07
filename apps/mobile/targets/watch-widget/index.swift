@@ -64,6 +64,11 @@ struct Provider: TimelineProvider {
 
 private let timeFormat: Date.FormatStyle = .dateTime.hour().minute()
 
+/// 小さい枠に出す時刻。これから始まる予定は開始時刻、進行中の予定は「〜終了時刻」
+private func clockText(_ e: ComplicationEvent, at date: Date) -> String {
+    date >= e.start ? "〜\(e.end.formatted(timeFormat))" : e.start.formatted(timeFormat)
+}
+
 struct ComplicationView: View {
     @Environment(\.widgetFamily) var family
     let entry: Entry
@@ -71,6 +76,32 @@ struct ComplicationView: View {
     var body: some View {
         let next = entry.events.first
         switch family {
+        case .accessoryCircular:
+            // 小さい丸: 次の予定の時刻(進行中なら、終わる時刻)と、題名の頭の数文字
+            ZStack {
+                AccessoryWidgetBackground()
+                if let e = next {
+                    VStack(spacing: 0) {
+                        Text(clockText(e, at: entry.date)).font(.system(size: 15, weight: .semibold)).minimumScaleFactor(0.6).lineLimit(1)
+                        Text(e.title).font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .padding(.horizontal, 4)
+                } else {
+                    Image(systemName: "calendar")
+                }
+            }
+            .widgetAccentable()
+        case .accessoryCorner:
+            // 角: 時刻を曲線の内側に、題名を外周のラベルに
+            if let e = next {
+                Text(clockText(e, at: entry.date))
+                    .font(.system(size: 20, weight: .semibold))
+                    .widgetLabel { Text(e.title) }
+                    .widgetAccentable()
+            } else {
+                Image(systemName: "calendar")
+                    .widgetLabel { Text("予定なし") }
+            }
         case .accessoryInline:
             if let e = next {
                 Text("\(e.start.formatted(timeFormat)) \(e.title)")
@@ -106,6 +137,6 @@ struct KichijitsuWatchWidget: Widget {
         }
         .configurationDisplayName("次の予定")
         .description("これからの予定を文字盤に表示します。")
-        .supportedFamilies([.accessoryRectangular, .accessoryInline])
+        .supportedFamilies([.accessoryRectangular, .accessoryInline, .accessoryCircular, .accessoryCorner])
     }
 }
