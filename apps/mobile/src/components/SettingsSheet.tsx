@@ -6,6 +6,7 @@ import type { AccountCalendars, CalendarData } from "../lib/calendarData";
 import { LEAD_OPTIONS, type NotifySettings } from "../lib/notifications";
 import { useTheme } from "../theme";
 import { Text } from "./ui";
+import { Icon } from "./Icon";
 
 /**
  * 設定メニュー(下から出るシート)。アカウントごとのカレンダーの表示/非表示、新しい予定の
@@ -148,7 +149,7 @@ export function SettingsSheet({
                 onPress={() => onSetDefault(opt.key)}
                 style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7, gap: 10 }}
               >
-                <Text style={{ color: selected ? t.accent : t.inkSub }}>{selected ? "●" : "○"}</Text>
+                <Icon name={selected ? "radioOn" : "radioOff"} color={selected ? t.accent : t.inkSub} size={20} />
                 {opt.color ? (
                   <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: opt.color }} />
                 ) : null}

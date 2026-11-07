@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { Text } from "./ui";
+import { Icon } from "./Icon";
 import type { CalendarData } from "../lib/calendarData";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import {
@@ -170,23 +171,23 @@ export function CalendarScreen({
   return (
     <View style={{ flex: 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 6, gap: 10 }}>
-        <Pressable onPress={() => move(-1)} hitSlop={8}>
-          <Text style={{ fontSize: 22 }}>‹</Text>
+        <Pressable onPress={() => move(-1)} hitSlop={8} accessibilityLabel="前へ">
+          <Icon name="caretLeft" color={t.ink} size={22} />
         </Pressable>
         <Pressable onPress={goToday} hitSlop={8}>
           <Text style={{ fontSize: 14, color: t.accent }}>今日</Text>
         </Pressable>
-        <Pressable onPress={() => move(1)} hitSlop={8}>
-          <Text style={{ fontSize: 22 }}>›</Text>
+        <Pressable onPress={() => move(1)} hitSlop={8} accessibilityLabel="次へ">
+          <Icon name="caretRight" color={t.ink} size={22} />
         </Pressable>
         <Text style={{ fontSize: 15, fontWeight: "600" }}>
           {timelineStart.year}年{timelineStart.month}月
         </Text>
-        <Pressable onPress={() => setSearchOpen(true)} hitSlop={8} style={{ marginLeft: "auto" }}>
-          <Text style={{ fontSize: 18 }}>🔍</Text>
+        <Pressable onPress={() => setSearchOpen(true)} hitSlop={8} style={{ marginLeft: "auto" }} accessibilityLabel="検索">
+          <Icon name="search" color={t.ink} size={22} />
         </Pressable>
-        <Pressable onPress={openForm} hitSlop={8}>
-          <Text style={{ fontSize: 24, color: t.accent }}>＋</Text>
+        <Pressable onPress={openForm} hitSlop={8} accessibilityLabel="予定を作る">
+          <Icon name="plus" color={t.accent} size={24} />
         </Pressable>
         <View style={{ flexDirection: "row", borderRadius: 6, borderWidth: 1, borderColor: t.line, overflow: "hidden" }}>
           {VIEWS.map(([v, label]) => (

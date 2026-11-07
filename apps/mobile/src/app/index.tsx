@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Button, Pressable, View } from "react-native";
 import { Temporal } from "@js-temporal/polyfill";
 import { Text } from "../components/ui";
+import { Icon } from "../components/Icon";
 import { CalendarScreen } from "../components/CalendarScreen";
 import { Wordmark } from "../components/Wordmark";
 import { SettingsSheet } from "../components/SettingsSheet";
@@ -183,7 +184,7 @@ export default function Home() {
         </View>
         {state.kind === "ready" && (
           <Pressable onPress={() => setSettingsOpen(true)} hitSlop={10} accessibilityLabel="メニュー">
-            <Text style={{ fontSize: 22, color: t.inkMute }}>⋯</Text>
+            <Icon name="more" color={t.inkMute} size={26} />
           </Pressable>
         )}
       </View>

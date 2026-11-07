@@ -1,7 +1,7 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AppState, PanResponder, Pressable, ScrollView, View } from "react-native";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AppState, PanResponder, Pressable, ScrollView, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
 import { Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
@@ -9,16 +9,22 @@ import { allDaysOnDate, occurrencesByDay, type CalendarData } from "../lib/calen
 import type { Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
 import { formatTime } from "../lib/format";
+import { getMeta, setMeta } from "../lib/localDb";
 import type { EventSubject } from "../lib/mutations";
 
 /**
  * 日 / 3日 / 週 のタイムライン (3日がモバイルの既定ビュー)。表示する日数は dayCount で決まる。
  * 予定の変換・繰り返し展開・重なり配置は Web 版と同じロジック (apps/web/src) をそのまま使う。
  */
-const HOUR_HEIGHT = 52;
+const DEFAULT_HOUR_HEIGHT = 52;
+/** ピンチで変えられる 1 時間の高さ(px)の範囲。下限は 24 時間がほぼ 1 画面に入る高さ。 */
+const MIN_HOUR_HEIGHT = 28;
+const MAX_HOUR_HEIGHT = 160;
+const ZOOM_KEY = "timelineHourHeight";
+const clampHourHeight = (h: number) => Math.round(Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, h)));
 const GUTTER = 40;
-/** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する範囲 (Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの) */
-const HEADER_WINDOW_MS = 36 * 60_000;
+/** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する高さ(px)。Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの(36 分 × 52px/時) */
+const HEADER_WINDOW_PX = (36 / 60) * DEFAULT_HOUR_HEIGHT;
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** ドラッグで時間を動かすときの刻み(15 分)。 */
 const SNAP_MS = 15 * 60_000;
@@ -63,6 +69,86 @@ export function Timeline({
     [start, dayCount],
   );
 
+  // ---- 縦の拡大・縮小(2 本指のピンチ) ----
+  const [hourHeight, setHourHeight] = useState(DEFAULT_HOUR_HEIGHT);
+  const [pinching, setPinching] = useState(false);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const wrapRef = useRef<HostInstance>(null);
+  const scrollY = useRef(0);
+  /** 拡大・縮小の後に合わせるスクロール位置(描画のあと、高さが変わってから反映する)。 */
+  const pendingScroll = useRef<number | null>(null);
+  /** ピンチの間の基準: 開始時の指の間隔・倍率・スクロール位置、指の中心の画面内の位置、窓の上端。 */
+  const pinchBase = useRef({ dist: 1, h0: DEFAULT_HOUR_HEIGHT, y0: 0, focal0: 0, top: 0 });
+  const hourHeightRef = useRef(hourHeight);
+  hourHeightRef.current = hourHeight;
+
+  // 前回の倍率を、端末から読み戻す(画面の上端の時刻が動かないよう、スクロール位置も合わせる)
+  useEffect(() => {
+    let cancelled = false;
+    void getMeta(ZOOM_KEY)
+      .then((v) => {
+        const h = clampHourHeight(Number(v));
+        if (cancelled || !Number.isFinite(h) || v === null || h === hourHeightRef.current) return;
+        pendingScroll.current = (scrollY.current * h) / hourHeightRef.current;
+        setHourHeight(h);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (pendingScroll.current === null) return;
+    scrollRef.current?.scrollTo({ y: Math.max(0, pendingScroll.current), animated: false });
+    pendingScroll.current = null;
+  }, [hourHeight]);
+
+  const touchDistance = (e: GestureResponderEvent) => {
+    const [a, b] = e.nativeEvent.touches;
+    return Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+  };
+  const touchCenterY = (e: GestureResponderEvent) => {
+    const [a, b] = e.nativeEvent.touches;
+    return (a.pageY + b.pageY) / 2;
+  };
+  const measureTop = () => wrapRef.current?.measureInWindow((_x, y) => (pinchBase.current.top = y));
+
+  const pinch = useRef(
+    PanResponder.create({
+      // 2 本指になったら、子のスクロール・予定のタップより先に奪う(予定を掴んでいる間は除く)
+      onStartShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length === 2 && dragRef.current === null,
+      onMoveShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length === 2 && dragRef.current === null,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => {
+        measureTop();
+        const b = pinchBase.current;
+        b.dist = Math.max(touchDistance(e), 1);
+        b.h0 = hourHeightRef.current;
+        b.y0 = scrollY.current;
+        b.focal0 = touchCenterY(e) - b.top;
+        setPinching(true);
+      },
+      onPanResponderMove: (e) => {
+        if (e.nativeEvent.touches.length < 2) return;
+        const b = pinchBase.current;
+        const next = clampHourHeight((b.h0 * touchDistance(e)) / b.dist);
+        if (next === hourHeightRef.current) return;
+        // 指の中心の下にある時刻が、動かないように、スクロール位置を合わせる
+        const focal = touchCenterY(e) - b.top;
+        pendingScroll.current = ((b.y0 + b.focal0) * next) / b.h0 - focal;
+        setHourHeight(next);
+      },
+      onPanResponderRelease: () => endPinch(),
+      onPanResponderTerminate: () => endPinch(),
+    }),
+  ).current;
+
+  const endPinch = () => {
+    setPinching(false);
+    void setMeta(ZOOM_KEY, String(hourHeightRef.current)).catch(() => undefined);
+  };
+
   // ---- ドラッグ(長押しで予定を掴む) ----
   const [drag, setDrag] = useState<DragState | null>(null);
   /** 保存の応答待ちの間、動かした後の位置を出し続けるための値(完了で外す)。 */
@@ -71,8 +157,8 @@ export function Timeline({
   const latest = useRef<DragState | null>(null);
   const rowWidth = useRef(0);
   // PanResponder は一度だけ作るので、最新の値は ref 越しに読む
-  const live = useRef({ days, dayCount, timeZone, onMove });
-  live.current = { days, dayCount, timeZone, onMove };
+  const live = useRef({ days, dayCount, timeZone, onMove, hourHeight });
+  live.current = { days, dayCount, timeZone, onMove, hourHeight };
 
   const dayIndexOf = (ms: number) =>
     live.current.days.findIndex(
@@ -84,7 +170,7 @@ export function Timeline({
   /** 掴んだ位置からの移動量 (dx, dy) から、動かした後の開始・終了を求める。 */
   const compute = (base: DragState, dx: number, dy: number): DragState => {
     const { days: ds, dayCount: n, timeZone: tz } = live.current;
-    const deltaMs = Math.round((dy / HOUR_HEIGHT) * 60 / 15) * SNAP_MS;
+    const deltaMs = Math.round((dy / live.current.hourHeight) * 60 / 15) * SNAP_MS;
     if (base.mode === "resize") {
       return { ...base, endMs: Math.max(base.startMs + SNAP_MS, base.endMs + deltaMs) };
     }
@@ -156,15 +242,16 @@ export function Timeline({
   const [initialOffset] = useState(() => {
     const n = Date.now();
     const inRange = days.some((d) => n >= dayStartMs(d, timeZone) && n < dayStartMs(d.add({ days: 1 }), timeZone));
-    if (!inRange) return 7 * HOUR_HEIGHT;
+    if (!inRange) return 7 * hourHeight;
     const hour = (n - dayStartMs(Temporal.Now.plainDateISO(timeZone), timeZone)) / HOUR_MS;
     // 画面の下端より上に収まるよう、24 時間分の高さを超えない範囲で
-    return Math.max(0, Math.min((hour - 2) * HOUR_HEIGHT, 14 * HOUR_HEIGHT));
+    return Math.max(0, Math.min((hour - 2) * hourHeight, 14 * hourHeight));
   });
 
+  // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない。ピンチでは展開し直さない)
+  const byDay = useMemo(() => occurrencesByDay(data, days, timeZone), [data, days, timeZone]);
   const columns = useMemo(() => {
-    // 表示する範囲全体で、予定の展開を 1 回だけ行い、日に振り分ける(日ごとに展開し直さない)
-    const byDay = occurrencesByDay(data, days, timeZone);
+    const headerWindowMs = (HEADER_WINDOW_PX / hourHeight) * HOUR_MS;
     return days.map((date) => {
       const dayStart = dayStartMs(date, timeZone);
       const dayEnd = dayStartMs(date.add({ days: 1 }), timeZone);
@@ -183,11 +270,11 @@ export function Timeline({
           // 不在は、他の予定の幅を奪わない背景の層として描く(全幅・最背面)
           background: o.isOutOfOffice === true,
         })),
-        HEADER_WINDOW_MS,
+        headerWindowMs,
       );
       return { date, dayStart, dayEnd, items, slots, allDay: allDaysOnDate(data, date) };
     });
-  }, [days, data, timeZone, pending]);
+  }, [days, byDay, data, timeZone, pending, hourHeight]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -245,14 +332,20 @@ export function Timeline({
         })}
       </View>
 
+      <View ref={wrapRef} style={{ flex: 1 }} onLayout={measureTop} {...pinch.panHandlers}>
       <ScrollView
+        ref={scrollRef}
         contentOffset={{ x: 0, y: initialOffset }}
-        // 予定を掴んでいる間は、スクロールさせない(指の縦の動きを、予定の移動に使うため)
-        scrollEnabled={drag === null}
+        onScroll={(e) => {
+          scrollY.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+        // 予定を掴んでいる間・ピンチの間は、スクロールさせない(指の動きを、予定の移動・拡大縮小に使うため)
+        scrollEnabled={drag === null && !pinching}
         style={{ flex: 1, borderTopWidth: 1, borderTopColor: t.line }}
       >
         <View
-          style={{ flexDirection: "row", height: 24 * HOUR_HEIGHT }}
+          style={{ flexDirection: "row", height: 24 * hourHeight }}
           onLayout={(e) => {
             rowWidth.current = e.nativeEvent.layout.width;
           }}
@@ -264,7 +357,7 @@ export function Timeline({
                 key={h}
                 style={{
                   position: "absolute",
-                  top: h * HOUR_HEIGHT - 7,
+                  top: h * hourHeight - 7,
                   right: 6,
                   fontSize: 11,
                   color: t.inkSub,
@@ -290,7 +383,7 @@ export function Timeline({
                   key={h}
                   style={{
                     position: "absolute",
-                    top: h * HOUR_HEIGHT,
+                    top: h * hourHeight,
                     left: 0,
                     right: 0,
                     height: 1,
@@ -304,7 +397,7 @@ export function Timeline({
                   pointerEvents="none"
                   style={{
                     position: "absolute",
-                    top: ((nowMs - dayStart) / HOUR_MS) * HOUR_HEIGHT - 1,
+                    top: ((nowMs - dayStart) / HOUR_MS) * hourHeight - 1,
                     left: 0,
                     right: 0,
                     height: 2,
@@ -330,8 +423,8 @@ export function Timeline({
                 if (!slot) return null;
                 const s = Math.max(o.startMs, dayStart);
                 const e = Math.min(o.endMs, dayEnd);
-                const top = ((s - dayStart) / 3_600_000) * HOUR_HEIGHT;
-                const height = Math.max(((e - s) / 3_600_000) * HOUR_HEIGHT, 18);
+                const top = ((s - dayStart) / 3_600_000) * hourHeight;
+                const height = Math.max(((e - s) / 3_600_000) * hourHeight, 18);
                 return (
                   <Pressable
                     key={o.id}
@@ -384,8 +477,8 @@ export function Timeline({
             (() => {
               const idx = dayIndexOf(drag.startMs);
               const colW = (rowWidth.current - GUTTER) / dayCount;
-              const top = ((drag.startMs - dayStartMs(days[idx], timeZone)) / HOUR_MS) * HOUR_HEIGHT;
-              const height = Math.max(((drag.endMs - drag.startMs) / HOUR_MS) * HOUR_HEIGHT, 22);
+              const top = ((drag.startMs - dayStartMs(days[idx], timeZone)) / HOUR_MS) * hourHeight;
+              const height = Math.max(((drag.endMs - drag.startMs) / HOUR_MS) * hourHeight, 22);
               return (
                 <View
                   pointerEvents="none"
@@ -415,6 +508,7 @@ export function Timeline({
           ) : null}
         </View>
       </ScrollView>
+      </View>
     </View>
   );
 }
