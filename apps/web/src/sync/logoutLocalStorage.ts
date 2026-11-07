@@ -9,6 +9,7 @@
  * 「消したはずのデータが残っている」という一番気付きにくく、かつ一番まずい壊れ方をする。
  * そのため接頭辞 `kichijitsu:` で走査し、例外 (テーマ設定) だけを明示的に除外する設計にした。
  */
+import { ACCENT_STORAGE_KEY } from "./accentPref";
 import { THEME_STORAGE_KEY } from "./themePref";
 
 const KICHIJITSU_STORAGE_PREFIX = "kichijitsu:";
@@ -16,14 +17,18 @@ const KICHIJITSU_STORAGE_PREFIX = "kichijitsu:";
 /**
  * ログアウト時に消してよい localStorage キーかどうか。
  *
- * 唯一の例外がテーマ設定 (kichijitsu:theme) ―― これは Google アカウントに紐づく個人データ
+ * 例外はテーマ設定 (kichijitsu:theme) とアクセント色 (kichijitsu:accent) の2つ ―― これは Google アカウントに紐づく個人データ
  * ではなく単なる配色の好みで、残しても「セッションと端末内のデータを消す」という
  * ログアウトの約束(仕様)を破らない。逆に消してしまうと、再ログイン後に配色が
  * 勝手に OS 連動へ戻るという利用者にとって不利益しかない副作用が起きるだけなので、
  * 明示的に除外する。
  */
 export function isLogoutClearableStorageKey(key: string): boolean {
-  return key.startsWith(KICHIJITSU_STORAGE_PREFIX) && key !== THEME_STORAGE_KEY;
+  return (
+    key.startsWith(KICHIJITSU_STORAGE_PREFIX) &&
+    key !== THEME_STORAGE_KEY &&
+    key !== ACCENT_STORAGE_KEY
+  );
 }
 
 /**

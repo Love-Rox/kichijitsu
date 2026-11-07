@@ -571,7 +571,7 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 モバイルで足したものと、Notion カレンダーでできることを目安に、次の順で進める(自然文での予定作成は MCP で足りるので外す。予約リンクは作らない)。
 
 1. 予定の色の変更 — **済み**(詳細カードの「色」欄。繰り返しの予定は、その回だけ)
-2. アクセント色のテーマ
+2. アクセント色のテーマ — **済み**(設定 →「テーマ」の下に「アクセント色」。モバイルと同じ 6 色)
 3. アイコンのフラット化(Phosphor duotone。モバイルと同じ系統)
 4. 会議リンク(Meet など)を予定から作る
 5. 複数タイムゾーン
@@ -583,3 +583,9 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 - 同期で取り込む例外インスタンスにも、`colorId` から色を入れる(`mapGoogle.ts` の `buildOverride`)。入れないと、この回の色が、次の同期でシリーズの色に戻る。
 - 色の候補(11 色と名前)は `layout/eventColorChoices.ts`。モバイルも共有する。
 - モバイルは、繰り返しの予定ではシリーズ全体の色を変える(Web はこの回だけ)。揃えるかは未定。
+
+### アクセント色
+- 表は `layout/accentPalette.ts`(Web・モバイル共通。モバイルの `lib/accents.ts` はこれを再エクスポートする)。
+- `<html data-accent="…">` で、`theme.css` のアクセント系トークンを差し替える。CSS は `node brand/gen-web-accents.mjs` が表から作る(`src/theme-accents.css`、手で直さない)。既定の朱は属性なし。ライト/ダークは `light-dark()`、半透明用の `--c-accent-rgb` だけは `theme.css` と同じ 3 か所に分けて書く。
+- 濃い字(`--c-accent-ink`)と縁(`--c-accent-soft-line`)は、朱の値から逆算した割合で自動で作る。色を足すときは、コントラストを目で確かめること。
+- 保存は localStorage(`kichijitsu:accent`)。初回描画前の適用は `app/index.html` のインラインスクリプト(許す名前を手で書いてある。`ACCENT_KEYS` を変えたら直す)。ログアウトでは消さない(テーマ設定と同じ扱い)。

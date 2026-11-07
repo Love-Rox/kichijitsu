@@ -3,6 +3,8 @@
  * 連携系のセクションと違って props に依存せず localStorage だけで完結する。
  */
 import { useState } from "react";
+import { ACCENT_KEYS, ACCENTS, type AccentKey } from "../../layout/accentPalette";
+import { getAccentPref, setAccentPref } from "../../sync/accentPref";
 import { getThemePref, setThemePref, type ThemePref } from "../../sync/themePref";
 
 /** テーマ3択の表示ラベル。値の正は sync/themePref.ts の ThemePref */
@@ -29,6 +31,7 @@ const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
  */
 export function ThemeSection() {
   const [pref, setPref] = useState<ThemePref>(() => getThemePref());
+  const [accent, setAccent] = useState<AccentKey>(() => getAccentPref());
 
   return (
     <section className="settings-modal-section">
@@ -56,6 +59,42 @@ export function ThemeSection() {
               }}
             />
             {option.label}
+          </label>
+        ))}
+      </div>
+
+      {/* アクセント色(2026-11-07)。外観とは別の軸。選んだ瞬間に保存と反映が済む(外観と同じ流儀) */}
+      <h4 className="settings-modal-subsection-title" id="settings-accent-title">
+        アクセント色
+      </h4>
+      <p className="settings-modal-section-desc">
+        ボタン・選択中の表示・今日のマークなどの色です。予定の色(カレンダーの色)は変わりません。
+      </p>
+      <div
+        className="settings-modal-theme-options"
+        role="radiogroup"
+        aria-labelledby="settings-accent-title"
+      >
+        {ACCENT_KEYS.map((key) => (
+          <label className="settings-modal-theme-option" key={key}>
+            <input
+              type="radio"
+              name="settings-accent"
+              value={key}
+              checked={accent === key}
+              onChange={() => {
+                setAccentPref(key);
+                setAccent(key);
+              }}
+            />
+            <span
+              className="settings-modal-accent-dot"
+              style={{
+                background: `light-dark(${ACCENTS[key].light.accent}, ${ACCENTS[key].dark.accent})`,
+              }}
+              aria-hidden="true"
+            />
+            {ACCENTS[key].label}
           </label>
         ))}
       </div>
