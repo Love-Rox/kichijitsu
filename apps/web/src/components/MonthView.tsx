@@ -180,7 +180,10 @@ export function MonthView({
     if (!grid) return;
     const measure = () => {
       const cellHeight = grid.clientHeight / 6;
-      if (cellHeight > 0) setRowCapacity(monthChipRowCapacity(cellHeight));
+      // スマホ幅は予定が色の点(横に 3〜4 個ずつ折り返す)になり、箱の 1 行(17px)より場所を取らない
+      // ので、同じ高さに、その 3 倍まで載せられる(MonthView.css のスマホ幅の規則と揃える)
+      const narrow = window.matchMedia("(max-width: 640px)").matches;
+      if (cellHeight > 0) setRowCapacity(monthChipRowCapacity(cellHeight) * (narrow ? 3 : 1));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -251,6 +254,7 @@ export function MonthView({
                   className={
                     "month-cell" +
                     (cell.inMonth ? "" : " month-cell--outside") +
+                    (cell.date.dayOfWeek >= 6 ? " month-cell--weekend" : "") +
                     (isToday ? " month-cell--today" : "")
                   }
                   onClick={() => onNavigateToDay(cell.date)}
@@ -300,6 +304,10 @@ export function MonthView({
                         isOoo || isWorkingLocation ? undefined : chip.group.primary.responseStatus;
                       const isDeclined = responseStatus === "declined";
                       const isNeedsAction = responseStatus === "needsAction";
+                      // 見渡しやすさ(2026-11-07): 時刻付きの通常の予定は、色の点 + 時刻 + タイトルの
+                      // 軽い表示にする(全部をベタ塗りの箱にすると、どれも同じ重さで目が滑るため)。
+                      // 終日・不在・勤務場所は、箱/帯のまま ―― 「その日の枠」を示すものなので、強さを残す
+                      const isDotChip = isTimedChip(chip) && !isOoo && !isWorkingLocation;
                       return (
                         <button
                           key={chip.key}
@@ -307,6 +315,7 @@ export function MonthView({
                           className={[
                             "month-chip",
                             `month-chip--${chip.kind}`,
+                            isDotChip ? "month-chip--dot" : "",
                             isOoo ? "month-chip--ooo" : "",
                             isWorkingLocation ? "month-chip--working-location" : "",
                             isDeclined ? "month-chip--declined" : "",
@@ -317,9 +326,11 @@ export function MonthView({
                           style={
                             isOoo || isWorkingLocation
                               ? undefined
-                              : isNeedsAction
-                                ? ({ "--rsvp-color": color } as CSSProperties)
-                                : {
+                              : isDotChip
+                                ? ({ "--chip-color": color } as CSSProperties)
+                                : isNeedsAction
+                                  ? ({ "--rsvp-color": color } as CSSProperties)
+                                  : {
                                     // 混合比はトークン (theme.css の --c-event-tint-chip、ダークで上がる)
                                     backgroundColor: `color-mix(in srgb, ${color} var(--c-event-tint-chip), var(--c-surface))`,
                                     borderLeftColor: color,
@@ -328,6 +339,7 @@ export function MonthView({
                           onClick={(e) => openDetail(chip, e)}
                           title={chip.title}
                         >
+                          {isDotChip && <span className="month-chip-dot" aria-hidden="true" />}
                           {isTimedChip(chip) && (
                             <span className="month-chip-time">
                               {formatTime(chip.startMs, timeZone)}

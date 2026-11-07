@@ -1,0 +1,207 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - img "kichijitsu" [ref=e6]
+      - img "kichijitsu" [ref=e15]
+    - generic [ref=e21]:
+      - button "前週" [ref=e22] [cursor=pointer]: ←
+      - button "今日" [ref=e23] [cursor=pointer]
+      - button "次週" [ref=e24] [cursor=pointer]: →
+      - button "予定を検索" [ref=e25] [cursor=pointer]
+    - group "表示切替" [ref=e29]:
+      - button "週" [pressed] [ref=e30] [cursor=pointer]
+      - button "月" [ref=e31] [cursor=pointer]
+    - group "時間軸の高さ (1時間 48px)" [ref=e32]:
+      - button "時間軸を縮める" [ref=e33] [cursor=pointer]
+      - combobox "時間軸の高さのプリセット" [ref=e37] [cursor=pointer]:
+        - option "コンパクト"
+        - option "標準" [selected]
+        - option "ゆったり"
+      - button "時間軸を広げる" [ref=e38] [cursor=pointer]
+    - generic [ref=e42]:
+      - generic [ref=e43]: 2026年11月
+      - generic "サーバーに接続できません。表示はローカルに保存されたデータです" [ref=e44]: オフライン
+      - button "Google 連携" [ref=e48] [cursor=pointer]
+      - button "キーボードショートカット一覧" [ref=e49] [cursor=pointer]: "?"
+      - generic [ref=e50]:
+        - link "プライバシー" [ref=e51] [cursor=pointer]:
+          - /url: /privacy.html
+        - link "規約" [ref=e52] [cursor=pointer]:
+          - /url: /terms.html
+  - main [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - generic "Europe/London" [ref=e58]:
+              - generic [ref=e59]: London
+              - generic [ref=e60]: GMT+0
+            - generic "America/New_York" [ref=e61]:
+              - generic [ref=e62]: New York
+              - generic [ref=e63]: GMT-5
+            - generic "Asia/Tokyo" [ref=e64]:
+              - generic [ref=e65]: Tokyo
+              - generic [ref=e66]: GMT+9
+          - generic [ref=e68]:
+            - generic [ref=e69]:
+              - generic [ref=e70]:
+                - generic [ref=e71]: 月
+                - generic [ref=e72]: "26"
+              - generic [ref=e73]:
+                - generic [ref=e74]: 火
+                - generic [ref=e75]: "27"
+              - generic [ref=e76]:
+                - generic [ref=e77]: 水
+                - generic [ref=e78]: "28"
+              - generic [ref=e79]:
+                - generic [ref=e80]: 木
+                - generic [ref=e81]: "29"
+              - generic [ref=e82]:
+                - generic [ref=e83]: 金
+                - generic [ref=e84]: "30"
+              - generic [ref=e85]:
+                - generic [ref=e86]: 土
+                - generic [ref=e87]: "31"
+              - generic [ref=e88]:
+                - generic [ref=e89]: 日
+                - generic [ref=e90]: "1"
+            - generic [ref=e91]:
+              - generic [ref=e92]:
+                - generic [ref=e93]: 月
+                - generic [ref=e94]: "2"
+              - generic [ref=e95]:
+                - generic [ref=e96]: 火
+                - generic [ref=e97]: "3"
+              - generic [ref=e98]:
+                - generic [ref=e99]: 水
+                - generic [ref=e100]: "4"
+              - generic [ref=e101]:
+                - generic [ref=e102]: 木
+                - generic [ref=e103]: "5"
+              - generic [ref=e104]:
+                - generic [ref=e105]: 金
+                - generic [ref=e106]: "6"
+              - generic [ref=e107]:
+                - generic [ref=e108]: 土
+                - generic [ref=e109]: "7"
+              - generic [ref=e111]:
+                - generic [ref=e112]: 日
+                - generic [ref=e113]: "8"
+            - generic [ref=e114]:
+              - generic [ref=e115]:
+                - generic [ref=e116]: 月
+                - generic [ref=e117]: "9"
+              - generic [ref=e118]:
+                - generic [ref=e119]: 火
+                - generic [ref=e120]: "10"
+              - generic [ref=e121]:
+                - generic [ref=e122]: 水
+                - generic [ref=e123]: "11"
+              - generic [ref=e124]:
+                - generic [ref=e125]: 木
+                - generic [ref=e126]: "12"
+              - generic [ref=e127]:
+                - generic [ref=e128]: 金
+                - generic [ref=e129]: "13"
+              - generic [ref=e130]:
+                - generic [ref=e131]: 土
+                - generic [ref=e132]: "14"
+              - generic [ref=e133]:
+                - generic [ref=e134]: 日
+                - generic [ref=e135]: "15"
+        - generic [ref=e136]:
+          - button "タスク" [ref=e137] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e138]: ▸
+          - generic [ref=e141]:
+            - generic [ref=e150]:
+              - button "1 件 GH" [ref=e156] [cursor=pointer]:
+                - text: "1"
+                - generic [ref=e157]: 件 GH
+              - button "15 件 GH" [ref=e159] [cursor=pointer]:
+                - text: "15"
+                - generic [ref=e160]: 件 GH
+              - button "4 件 GH" [ref=e162] [cursor=pointer]:
+                - text: "4"
+                - generic [ref=e163]: 件 GH
+            - generic [ref=e164]:
+              - button "12 件 GH" [ref=e166] [cursor=pointer]:
+                - text: "12"
+                - generic [ref=e167]: 件 GH
+              - button "2 件 GH" [ref=e170] [cursor=pointer]:
+                - text: "2"
+                - generic [ref=e171]: 件 GH
+        - generic [ref=e178]:
+          - generic [ref=e179]: 0:00
+          - generic [ref=e180]: 1:00
+          - generic [ref=e181]: 2:00
+          - generic [ref=e182]: 3:00
+          - generic [ref=e183]: 4:00
+          - generic [ref=e184]: 5:00
+          - generic [ref=e185]: 6:00
+          - generic [ref=e186]: 7:00
+          - generic [ref=e187]: 8:00
+          - generic [ref=e188]: 9:00
+          - generic [ref=e189]: 10:00
+          - generic [ref=e190]: 11:00
+          - generic [ref=e191]: 12:00
+          - generic [ref=e192]: 13:00
+          - generic [ref=e193]: 14:00
+          - generic [ref=e194]: 15:00
+          - generic [ref=e195]: 16:00
+          - generic [ref=e196]: 17:00
+          - generic [ref=e197]: 18:00
+          - generic [ref=e198]: 19:00
+          - generic [ref=e199]: 20:00
+          - generic [ref=e200]: 21:00
+          - generic [ref=e201]: 22:00
+          - generic [ref=e202]: 23:00
+          - generic [ref=e203]: 10:00
+          - generic [ref=e204]: 11:00
+          - generic [ref=e205]: 12:00
+          - generic [ref=e206]: 13:00
+          - generic [ref=e207]: 14:00
+          - generic [ref=e208]: 15:00
+          - generic [ref=e209]: 16:00
+          - generic [ref=e210]: 17:00
+          - generic [ref=e211]: 18:00
+          - generic [ref=e212]: 19:00
+          - generic [ref=e213]: 20:00
+          - generic [ref=e214]: 21:00
+          - generic [ref=e215]: 22:00
+          - generic [ref=e216]: 23:00
+          - generic [ref=e217]: 0:00
+          - generic [ref=e218]: 1:00
+          - generic [ref=e219]: 2:00
+          - generic [ref=e220]: 3:00
+          - generic [ref=e221]: 4:00
+          - generic [ref=e222]: 5:00
+          - generic [ref=e223]: 6:00
+          - generic [ref=e224]: 7:00
+          - generic [ref=e225]: 8:00
+          - generic [ref=e226]: 9:00
+          - generic [ref=e227]: 15:00
+          - generic [ref=e228]: 16:00
+          - generic [ref=e229]: 17:00
+          - generic [ref=e230]: 18:00
+          - generic [ref=e231]: 19:00
+          - generic [ref=e232]: 20:00
+          - generic [ref=e233]: 21:00
+          - generic [ref=e234]: 22:00
+          - generic [ref=e235]: 23:00
+          - generic [ref=e236]: 0:00
+          - generic [ref=e237]: 1:00
+          - generic [ref=e238]: 2:00
+          - generic [ref=e239]: 3:00
+          - generic [ref=e240]: 4:00
+          - generic [ref=e241]: 5:00
+          - generic [ref=e242]: 6:00
+          - generic [ref=e243]: 7:00
+          - generic [ref=e244]: 8:00
+          - generic [ref=e245]: 9:00
+          - generic [ref=e246]: 10:00
+          - generic [ref=e247]: 11:00
+          - generic [ref=e248]: 12:00
+          - generic [ref=e249]: 13:00
+          - generic [ref=e250]: 14:00
+      - generic:
+        - img "読み込み中"
