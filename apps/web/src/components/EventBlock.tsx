@@ -695,8 +695,8 @@ export function EventBlock({
         ]
           .filter(Boolean)
           .join(" ")}
-        // 列が狭いとタイトルが切れるので、ホバーで全文を読めるようにする(重なりが多い時間帯向け)
-        title={occurrence.title}
+        // ネイティブの title 属性は付けない。ホバーの全文表示は useHoverTooltip(カーソル追従)が担うので、
+        // 両方あると Tauri/ブラウザの標準ツールチップと二重に重なって出る(2026-11-07)。
         aria-selected={selectBeforeDrag ? isSelected : undefined}
         style={style}
         onPointerDown={handlePointerDownMove}
