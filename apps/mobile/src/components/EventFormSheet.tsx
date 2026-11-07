@@ -1,4 +1,5 @@
 import { useTheme } from "../theme";
+import { Icon } from "./Icon";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import type { OutOfOfficeAutoDecline } from "@kichijitsu/shared";
 import { useMemo, useState } from "react";
@@ -263,7 +264,7 @@ export function EventFormSheet({
                       onPress={() => set({ autoDecline: o.value })}
                       style={{ paddingVertical: 6, flexDirection: "row", gap: 8 }}
                     >
-                      <Text style={{ color: selected ? t.accent : t.inkSub }}>{selected ? "●" : "○"}</Text>
+                      <Icon name={selected ? "radioOn" : "radioOff"} color={selected ? t.accent : t.inkSub} size={20} />
                       <Text>{o.label}</Text>
                     </Pressable>
                   );
@@ -307,7 +308,7 @@ export function EventFormSheet({
                       onPress={() => setTargetKey(writeTargetKey(cand))}
                       style={{ paddingVertical: 6, flexDirection: "row", gap: 8, alignItems: "center" }}
                     >
-                      <Text style={{ color: selected ? t.accent : t.inkSub }}>{selected ? "●" : "○"}</Text>
+                      <Icon name={selected ? "radioOn" : "radioOff"} color={selected ? t.accent : t.inkSub} size={20} />
                       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cand.defaultColor }} />
                       <Text>{cand.label}</Text>
                     </Pressable>

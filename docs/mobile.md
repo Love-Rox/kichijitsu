@@ -124,3 +124,10 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - サーバーに `POST /api/event/color`(`core/event-color.ts`、`google/event-color.ts`)を追加: Google には `colorId` だけを `events.patch` する(外すときは null)。**ゲストへのメールは出さない**(`sendUpdates=none`。色は見た目だけの属性で、ゲストの予定の中身を変えないため)。
 - 手元への反映は保存ボタン方式(サーバーが受け付けてから、画面と SQLite を更新)。色の表は Web 版の `GOOGLE_COLOR_MAP`(`mapGoogle.ts`)と共通。
 - **サーバー(Worker)の変更を含む**: アプリより先に `pnpm deploy:sync` が要る(未デプロイだと、色の変更は 404 で失敗する)。
+
+## アイコンと縦の拡大・縮小
+- UI のアイコン(‹ › 🔍 ＋ ⋯ と、選択肢の ●/○)は、Phosphor duotone(MIT)の SVG を `react-native-svg` で描く(`components/Icon.tsx`)。m-ai-log と同じ系統で、薄い面 + 線を同じ色で重ねる。絵文字・記号は端末のフォントで見た目が変わるので使わない。
+- アイコンの形は `src/assets/iconsData.ts`(生成物)。足すときは `brand/gen-icons.js` の `ICONS` に 1 行足し、`npm pack @phosphor-icons/core` で取り出したフォルダを渡して再生成する(手順はスクリプトの先頭)。
+- タイムラインは 2 本指のピンチで縦に拡大・縮小できる(1 時間 28〜160px、既定 52px)。指の中心の下の時刻が動かないよう、スクロール位置を合わせる。倍率は端末に保存し(meta `timelineHourHeight`)、次回も引き継ぐ。ジェスチャ用のライブラリは足さず、`PanResponder` で 2 本指を拾う。予定を掴んでいる(ドラッグ中の)間は、ピンチを始めない。
+- 見出しの窓(重なり配置が予定の先頭を隠さない範囲)は px で持ち、倍率に合わせて ms に直す。予定の展開は倍率が変わっても作り直さない。
+- 文字の大きさは、共通の `Text` / `TextInput`(`components/ui.tsx`)の `FONT_SCALE`(1.15)で、まとめて拡大している(各画面の `fontSize` はそのまま。`lineHeight` も同じ倍率)。さらに大きく/小さくするときは、この値だけを変える。タイムラインの予定の行数の計算も、この倍率を使う。
