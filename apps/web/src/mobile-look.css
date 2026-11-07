@@ -1,0 +1,281 @@
+/*
+ * モバイル版の雰囲気に寄せる(2026-11-07、ユーザー依頼「Web版とモバイル版の見た目がかなり違う」)。
+ *
+ * 対象は、ツールバーとボタン / 文字の大きさと余白 / 予定の詳細・作成フォーム。予定カードの見た目は対象外。
+ * 配色はもともとモバイルが Web のパレットを写したものなので同じ。違っていたのは、形と密度:
+ *   - ボタン: Web は枠線付き(小さく、密) → モバイルは枠なし。押せる所だけ、薄い地の色で示す
+ *   - 切り替え(週/月、返信、適用範囲): 枠線 → 薄い地の「つまみ」。選択中だけアクセント色で塗る
+ *   - 文字: Web は 11〜13px → モバイルは約 1.15 倍(14〜16px)。詳細カードのタイトルは 18px 前後
+ *   - 角丸と余白: 6px → 8〜14px。詳細カードは、シートのようにゆったり
+ *
+ * 各コンポーネントの CSS は触らず、App.css のあとに読み込んで、同じ詳細度で上書きする(順序で勝つ)。
+ * 戻したいときは、このファイルの import を外せばよい。
+ */
+
+/* ---- ツールバー ---- */
+.toolbar {
+  height: 56px;
+  padding: 0 20px;
+}
+
+.toolbar .month-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+.toolbar-nav button,
+.toolbar-calendar-btn,
+.toolbar-actuals-btn,
+.account-summary,
+.toolbar-account > button {
+  font-size: 14px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+
+.toolbar-nav button:hover,
+.toolbar-calendar-btn:hover,
+.toolbar-actuals-btn:hover,
+.account-summary:hover,
+.toolbar-account > button:hover:not(:disabled) {
+  background: var(--c-surface-2);
+}
+
+/* ペインが開いている間の印は、朱の枠から、朱の文字と薄い朱の地へ */
+.toolbar-calendar-btn[aria-expanded="true"],
+.toolbar-actuals-btn[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--c-accent-soft);
+  color: var(--c-accent-strong);
+}
+
+/* 週/月と 3日/1日の切り替え: 枠線をやめて、薄い地に載せた「つまみ」 */
+.toolbar-view-toggle {
+  border: 0;
+  background: var(--c-surface-2);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.toolbar-view-toggle button {
+  font-size: 14px;
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 14px;
+}
+
+.toolbar-view-toggle button + button {
+  border-left: 0;
+}
+
+.toolbar-view-toggle button:hover {
+  background: var(--c-surface-active);
+}
+
+.toolbar-view-toggle button.is-active {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.offline-indicator {
+  font-size: 12px;
+}
+
+/* ⋯ メニューのボタンと、時間軸のズーム: 同じく、枠なし/つまみ */
+.toolbar-menu-toggle {
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.toolbar-menu-toggle:hover,
+.toolbar-menu-toggle[aria-expanded="true"] {
+  background: var(--c-surface-2);
+  color: var(--c-ink);
+}
+
+.hour-zoom {
+  border: 0;
+  background: var(--c-surface-2);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.hour-zoom button {
+  font-size: 14px;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.hour-zoom > * + * {
+  border-left: 0;
+}
+
+.hour-zoom button:hover:not(:disabled) {
+  background: var(--c-surface-active);
+}
+
+.toolbar-menu-panel {
+  border-radius: 14px;
+}
+
+.toolbar-menu-item {
+  font-size: 15px;
+  border-radius: 8px;
+}
+
+/* スマホ幅は横が足りないので、ボタンの余白だけ詰める */
+@media (max-width: 640px) {
+  .toolbar {
+    padding: 0 10px;
+  }
+
+  .toolbar-nav {
+    gap: 0;
+  }
+
+  .toolbar-nav button {
+    padding: 7px 8px;
+  }
+
+  .toolbar-view-toggle button {
+    padding: 5px 10px;
+  }
+
+  .toolbar .month-label {
+    font-size: 14px;
+  }
+}
+
+/* ---- 予定の詳細カード ---- */
+.event-detail-popover {
+  width: 340px;
+  max-height: 480px;
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.event-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.event-detail-datetime {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.event-detail-location,
+.event-detail-conference,
+.event-detail-description,
+.event-detail-link {
+  font-size: 14px;
+}
+
+.event-detail-description {
+  line-height: 1.5;
+}
+
+.event-detail-guests-head,
+.event-detail-guest-name,
+.event-detail-guest-status,
+.event-detail-guest-input,
+.event-detail-guests-toggle {
+  font-size: 13px;
+}
+
+.event-detail-guests-summary,
+.event-detail-guests-rooms,
+.event-detail-guest-mail,
+.event-detail-guest-note {
+  font-size: 12px;
+}
+
+/* 編集・削除などの文字ボタン: 下線をやめて、アクセント色の文字に(モバイルの「編集」「削除」と同じ) */
+.event-detail-actions {
+  gap: 20px;
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.event-detail-text-btn {
+  font-size: 15px;
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+.event-detail-text-btn:hover:not(:disabled) {
+  color: var(--c-accent-strong);
+}
+
+.event-detail-delete-confirm {
+  font-size: 13px;
+}
+
+/* 返信(参加/未定/不参加)と、色の適用範囲: モバイルと同じ、薄い地のつまみ */
+.event-detail-rsvp,
+.event-detail-colors {
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.event-detail-rsvp-label,
+.event-detail-colors-head {
+  font-size: 12px;
+}
+
+.event-detail-rsvp-buttons,
+.event-detail-colors-scope {
+  border: 0;
+  background: var(--c-surface-2);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.event-detail-rsvp-btn,
+.event-detail-colors-scope-btn {
+  font-size: 13px;
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 12px;
+}
+
+.event-detail-rsvp-btn + .event-detail-rsvp-btn {
+  border-left: 0;
+}
+
+.event-detail-rsvp-btn.is-selected,
+.event-detail-colors-scope-btn[aria-pressed="true"] {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.event-color-swatch {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---- 作成・編集フォーム ---- */
+.event-edit-label {
+  font-size: 12px;
+}
+
+.event-edit-input,
+.event-edit-textarea {
+  font-size: 15px;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.event-edit-checkbox-field {
+  font-size: 14px;
+  gap: 8px;
+}
