@@ -374,8 +374,9 @@ export function DayColumn({
   } = layoutOverlapsCapped(
     positioned.map(({ item: group }) => ({
       id: group.primary.id,
-      startMs: group.primary.startMs,
-      endMs: group.primary.endMs,
+      // 日をまたぐ予定は、この日の範囲に切る(続きの日にも、同じ並べ方で出す)
+      startMs: Math.max(group.primary.startMs, dayStartMs),
+      endMs: Math.min(group.primary.endMs, dayEndMs),
       background:
         isBusyPlaceholder(group.primary.title) || group.primary.responseStatus === "declined",
     })),
@@ -742,8 +743,11 @@ export function DayColumn({
         const occurrence = group.primary;
         // 上限を超えて隠した予定(「+N」のチップから開ける)
         if (hiddenIds.has(occurrence.id)) return null;
-        const topPx = msToTopPx(occurrence.startMs, dayStartMs, hourHeight);
-        const heightPx = msRangeToHeightPx(occurrence.startMs, occurrence.endMs, hourHeight);
+        // この日の範囲に切って描く(日をまたぐ予定は、前日の続きは 0:00 から、翌日へは 24:00 まで)
+        const shownStartMs = Math.max(occurrence.startMs, dayStartMs);
+        const shownEndMs = Math.min(occurrence.endMs, dayEndMs);
+        const topPx = msToTopPx(shownStartMs, dayStartMs, hourHeight);
+        const heightPx = msRangeToHeightPx(shownStartMs, shownEndMs, hourHeight);
         // コンパクト表示の判定は px 基準(時間軸ズーム対応、2026-07-25)。既定ズームでは
         // 従来の「40分未満」と完全に一致する(gridMetrics.ts の COMPACT_THRESHOLD_PX 参照)
         const isCompact = heightPx < COMPACT_THRESHOLD_PX;
@@ -774,6 +778,8 @@ export function DayColumn({
             timeZone={timeZone}
             dayIndex={dayIndex}
             dayStartMs={dayStartMs}
+            continuesFromPrev={occurrence.startMs < dayStartMs}
+            continuesToNext={occurrence.endMs > dayEndMs}
             weekDayStarts={weekDayStarts}
             onCommit={onCommit}
             onDuplicate={onDuplicate}

@@ -43,6 +43,7 @@ import type { OooAllDayPlacement } from "../layout/oooAllDayPlacement";
 import { dayCoveringOooAllDayGroups, splitDayCoveringOooGroups } from "../layout/oooDayCoverage";
 import {
   allDayOooRailItems,
+  isOutOfOffice,
   splitOutOfOfficeAllDayGroups,
   splitOutOfOfficeGroups,
   timedOooRailItems,
@@ -50,6 +51,7 @@ import {
 } from "../layout/oooRail";
 import {
   allDayWorkingLocationRailItems,
+  isWorkingLocation,
   splitWorkingLocationAllDayGroups,
   splitWorkingLocationGroups,
   timedWorkingLocationRailItems,
@@ -697,9 +699,14 @@ export function WeekGrid({
           dayStartMs(panelStart.add({ days: dayCount }), timeZone),
         ];
         const dayData = days.map((day, i) => {
-          const items = groupedOccurrences.filter(
-            (g) => g.primary.startMs >= dayStarts[i] && g.primary.startMs < dayEnds[i],
-          );
+          // 日をまたぐ時刻予定(例: 22:00〜翌 9:00)は、掛かる日すべての列に出す(続きの日にも描く)。
+          // 不在・勤務場所は従来どおり開始日だけ(レール側が別に扱う)
+          const items = groupedOccurrences.filter((g) => {
+            const { startMs, endMs } = g.primary;
+            if (startMs >= dayStarts[i] && startMs < dayEnds[i]) return true;
+            if (isOutOfOffice(g.primary) || isWorkingLocation(g.primary)) return false;
+            return startMs < dayStarts[i] && endMs > dayStarts[i];
+          });
           // 不在(Out of Office、2026-07-22): 通常の予定カードとして描画しないため、
           // packColumns の入力(cardGroups)から除外する(カスケード列を消費させない)。
           // 除外した分(oooGroups)は timedOooRailItems で分オフセットへ変換し、そのまま
@@ -712,8 +719,8 @@ export function WeekGrid({
           const { cardGroups, workingLocationGroups } = splitWorkingLocationGroups(oooCardGroups);
           const positioned = packColumns(
             cardGroups,
-            (g) => g.primary.startMs,
-            (g) => g.primary.endMs,
+            (g) => Math.max(g.primary.startMs, dayStarts[i]),
+            (g) => Math.min(g.primary.endMs, dayEnds[i]),
           );
           // 「1日を丸ごと覆う不在」を終日欄へ回す設定 (2026-07-29、layout/oooDayCoverage.ts):
           // その日を丸ごと覆う不在だけをレールから外す。既定の "timeline" では1件も動かない。
