@@ -153,12 +153,14 @@ export interface EventMutationsController {
   editGuests: (subject: Occurrence | AllDayOccurrence, change: GuestChange) => Promise<void>;
   /**
    * 予定の色の変更 (onSetColor)。サーバー (POST /api/event/color) が受け付けてから手元へ反映する
-   * (保存ボタン方式)。繰り返しの予定は、その回だけ。ゲストへのメールは出ない。
+   * (保存ボタン方式)。繰り返しの予定は scope で「この回だけ」(省略時)か「シリーズ全体」を選ぶ。
+   * ゲストへのメールは出ない。
    */
   setColor: (
     subject: Occurrence | AllDayOccurrence,
     colorId: string | null,
     calendarColor: string,
+    scope?: RecurrenceScope,
   ) => Promise<void>;
   /**
    * 既存の予定に Google Meet を追加 (onAddMeet)。サーバー (POST /api/event/meet) が受け付けて、

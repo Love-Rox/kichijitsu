@@ -51,3 +51,30 @@
   font-size: 11px;
   color: var(--c-danger);
 }
+
+/* 繰り返しの予定の適用範囲(この予定のみ/すべての予定)。小さな 2 択の切り替え */
+.event-detail-colors-scope {
+  display: inline-flex;
+  margin-bottom: 8px;
+  border: 1px solid var(--c-line-warm);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.event-detail-colors-scope-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--c-ink-sub);
+  cursor: pointer;
+}
+
+.event-detail-colors-scope-btn[aria-pressed="true"] {
+  background: var(--c-accent);
+  color: var(--c-on-accent, #fff);
+}
+
+.event-detail-colors-scope-btn:disabled {
+  opacity: 0.5;
+}

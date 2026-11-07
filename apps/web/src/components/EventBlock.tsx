@@ -841,7 +841,7 @@ export function EventBlock({
             }
             onSetColor={
               canSetEventColor(occurrence)
-                ? (colorId, calendarColor) => onSetColor(occurrence, colorId, calendarColor)
+                ? (colorId, calendarColor, scope) => onSetColor(occurrence, colorId, calendarColor, scope)
                 : undefined
             }
             onAddMeet={canAddMeet(occurrence) ? () => onAddMeet(occurrence) : undefined}

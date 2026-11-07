@@ -50,7 +50,7 @@ export function EventDetailSheet({
   /** ゲストの追加・削除。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
   onEditGuests: (subject: EventSubject, change: GuestChange) => Promise<EventSubject>;
   /** 予定の色の変更(null はカレンダーの色に戻す)。反映後の予定を返す。失敗したら例外。 */
-  onSetColor: (subject: EventSubject, colorId: string | null) => Promise<EventSubject>;
+  onSetColor: (subject: EventSubject, colorId: string | null, scope: "this" | "all") => Promise<EventSubject>;
 }) {
   const t = useTheme();
   // 出欠を変えた後の予定。開いている予定と同じものなら、こちらを表示に使う
@@ -71,11 +71,13 @@ export function EventDetailSheet({
     }
   };
   const [colorBusy, setColorBusy] = useState(false);
+  // 繰り返しの予定の色の適用範囲。既定は影響の小さい「この予定のみ」(Google カレンダーと同じ)
+  const [colorScope, setColorScope] = useState<"this" | "all">("this");
   const changeColor = async (colorId: string | null) => {
     if (!view || colorBusy || colorIdOf(view.color, view.hasCustomColor) === colorId) return;
     setColorBusy(true);
     try {
-      setUpdated(await onSetColor(view, colorId));
+      setUpdated(await onSetColor(view, colorId, colorScope));
     } catch (e) {
       Alert.alert("色を変えられませんでした", String((e as Error).message ?? e));
     } finally {
@@ -342,8 +344,40 @@ export function EventDetailSheet({
             {canDelete(view) && view.source === "google" ? (
               <View style={{ marginTop: 20, opacity: colorBusy ? 0.5 : 1 }}>
                 <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 8 }}>
-                  色{view.seriesId ? "(繰り返しの予定すべて)" : ""}
+                  色
                 </Text>
+                {view.seriesId ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignSelf: "flex-start",
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: t.line,
+                      overflow: "hidden",
+                      marginBottom: 10,
+                    }}
+                  >
+                    {(
+                      [
+                        ["this", "この予定のみ"],
+                        ["all", "すべての予定"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Pressable
+                        key={value}
+                        onPress={() => setColorScope(value)}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 5,
+                          backgroundColor: colorScope === value ? t.accent : undefined,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, color: colorScope === value ? t.onAccent : t.inkMute }}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
                   {[{ id: null as string | null, name: "カレンダーの色", hex: undefined as string | undefined }, ...EVENT_COLORS].map(
                     (c) => {

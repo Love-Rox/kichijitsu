@@ -2,7 +2,8 @@ import { instanceId } from "@kichijitsu/web/model/series";
 import type { InstanceOverride } from "@kichijitsu/web/model/series";
 import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
-import { buildEventDeleteRequest, rawGoogleEventId } from "@kichijitsu/web/sync/eventPatch";
+import { buildEventColorRequest } from "@kichijitsu/web/sync/eventColor";
+import { buildEventDeleteRequest } from "@kichijitsu/web/sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "@kichijitsu/web/sync/guestNotify";
 import type { EventColorRequest, EventCreateResponse } from "@kichijitsu/shared";
 import { GOOGLE_COLOR_MAP } from "@kichijitsu/web/sync/mapGoogle";
@@ -388,26 +389,25 @@ export async function editGuests(
   return optimistic;
 }
 
-/** 予定の色(Google の colorId)を変える。colorId が null なら、予定個別の色を外して、カレンダーの色に戻す。 */
+/**
+ * 予定の色(Google の colorId)を変える。colorId が null なら、予定個別の色を外して、カレンダーの色に戻す。
+ * 繰り返しの予定は scope で範囲を選ぶ(Web と同じ): "this" はその 1 回だけ(Google のインスタンスに書き、
+ * 手元は例外インスタンス override に残す)、"all" はシリーズ全体(親に書き、series の色を書き換える)。
+ */
 export async function setEventColor(
   subject: EventSubject,
   colorId: string | null,
   apply: ApplyChange,
   data: CalendarData,
+  scope: "this" | "all" = "this",
 ): Promise<EventSubject> {
   if (!subject.accountId || !subject.calendarId || subject.source !== "google") {
     throw new Error("この予定の色は変えられません");
   }
   const series = isTimed(subject) && subject.seriesId ? data.series.find((x) => x.id === subject.seriesId) : undefined;
   if (isTimed(subject) && subject.seriesId && !series) throw new Error("繰り返しの予定の元が見つかりません");
-  // 繰り返しは、シリーズ全体(親の event id)の色を変える。1 回分だけの色は、この版では扱わない
-  const eventId = rawGoogleEventId(series ? series.id : subject.id);
-  const request: EventColorRequest = {
-    accountId: subject.accountId,
-    calendarId: subject.calendarId,
-    eventId,
-    colorId: colorId ?? "",
-  };
+  const request: EventColorRequest | null = buildEventColorRequest(subject, colorId, scope);
+  if (!request) throw new Error("この予定の色は変えられません");
   try {
     const res = await apiFetch<{ ok: boolean }>("/api/event/color", {
       method: "POST",
@@ -422,6 +422,17 @@ export async function setEventColor(
   // ---- 書き戻しは成功済み。手元へ反映する(保存ボタン方式) ----
   const hex = colorId ? GOOGLE_COLOR_MAP[colorId] : calendarColorOf(data, subject);
   const patch = { color: hex, hasCustomColor: colorId !== null };
+  if (series && scope === "this") {
+    // 繰り返しの 1 回分: 例外インスタンス (override) に色を残す(再展開で、シリーズの色に戻らないように)
+    const ref = resolveOverrideRef(subject as Occurrence);
+    if (ref) {
+      const existing = data.overrides.find((o) => o.id === ref.id) ?? null;
+      const merged = mergeOverridePatch({ ref, existing, fields: patch });
+      apply((d) => ({ ...d, overrides: [...d.overrides.filter((o) => o.id !== merged.id), merged] }));
+      await upsertOverride(merged);
+    }
+    return { ...(subject as Occurrence), ...patch };
+  }
   if (series) {
     const nextSeries = { ...series, ...patch };
     apply((d) => ({ ...d, series: d.series.map((x) => (x.id === series.id ? nextSeries : x)) }));

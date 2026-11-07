@@ -1,6 +1,7 @@
 import type { EventColorRequest } from "@kichijitsu/shared";
 import type { AllDayOccurrence, Occurrence } from "../model/types";
 import { rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
+import type { RecurrenceScope } from "./recurrenceScope";
 
 /**
  * 予定の色(Google の colorId)を変える POST /api/event/color の、リクエスト組み立ての純関数群。
@@ -12,6 +13,8 @@ export type SetEventColor = (
   subject: Occurrence | AllDayOccurrence,
   colorId: string | null,
   calendarColor: string,
+  /** 繰り返しの予定の適用範囲。省略は「この回だけ」。繰り返しでない予定では無視される */
+  scope?: RecurrenceScope,
 ) => Promise<void>;
 
 /** buildEventColorRequest が必要とする最小形(Occurrence / AllDayOccurrence の共通部分)。 */
@@ -33,18 +36,22 @@ export function canSetEventColor(subject: ColorEditSubject): boolean {
 /**
  * subject と colorId から POST /api/event/color の body を作る。colorId が null なら、予定個別の色を外す
  * (サーバーへは空文字で送る)。変えられない相手・id のパースに失敗した相手は null。
- * シリーズ由来の1回分は、その回だけ(Google のインスタンス ID)の色を変える。
+ * シリーズ由来の1回分は、scope が "this"(省略時)ならその回だけ(Google のインスタンス ID)、
+ * "all" ならシリーズ全体(親の event id)の色を変える。
  */
 export function buildEventColorRequest(
   subject: ColorEditSubject,
   colorId: string | null,
+  scope: RecurrenceScope = "this",
 ): EventColorRequest | null {
   if (!canSetEventColor(subject)) return null;
   try {
     const eventId =
-      subject.seriesId && subject.originalStartMs !== undefined
-        ? seriesInstanceEventId(subject.seriesId, subject.originalStartMs)
-        : rawGoogleEventId(subject.id);
+      subject.seriesId && scope === "all"
+        ? rawGoogleEventId(subject.seriesId)
+        : subject.seriesId && subject.originalStartMs !== undefined
+          ? seriesInstanceEventId(subject.seriesId, subject.originalStartMs)
+          : rawGoogleEventId(subject.id);
     return {
       accountId: subject.accountId!,
       calendarId: subject.calendarId!,

@@ -120,7 +120,7 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - Admin 権限のキーは、手元に置かない(作ったら用が済み次第、App Store Connect で取り消す)。
 
 ## 予定の色の変更
-- 予定の詳細シートの「色」から、Google のイベント色 11 色と「カレンダーの色」(個別色を外す)を選ぶ。繰り返しの予定は、シリーズ全体の色を変える(1 回分だけの色は未対応)。
+- 予定の詳細シートの「色」から、Google のイベント色 11 色と「カレンダーの色」(個別色を外す)を選ぶ。繰り返しの予定は、「この予定のみ/すべての予定」を選ぶ(既定は、この予定のみ。Web と同じ)。
 - サーバーに `POST /api/event/color`(`core/event-color.ts`、`google/event-color.ts`)を追加: Google には `colorId` だけを `events.patch` する(外すときは null)。**ゲストへのメールは出さない**(`sendUpdates=none`。色は見た目だけの属性で、ゲストの予定の中身を変えないため)。
 - 手元への反映は保存ボタン方式(サーバーが受け付けてから、画面と SQLite を更新)。色の表は Web 版の `GOOGLE_COLOR_MAP`(`mapGoogle.ts`)と共通。
 - **サーバー(Worker)の変更を含む**: アプリより先に `pnpm deploy:sync` が要る(未デプロイだと、色の変更は 404 で失敗する)。

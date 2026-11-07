@@ -51,6 +51,20 @@ describe("buildEventColorRequest", () => {
     expect(req?.eventId).toBe("series-1_20260727T010000Z");
   });
 
+  it("scope が all なら、シリーズ全体(親の event id)を送る。this は、その回だけ", () => {
+    const sub = subject({
+      id: "g:acct-1:cal-1:series-1:1785128400000",
+      seriesId: "g:acct-1:cal-1:series-1",
+      originalStartMs: Date.UTC(2026, 6, 27, 1, 0, 0),
+    });
+    expect(buildEventColorRequest(sub, "3", "all")?.eventId).toBe("series-1");
+    expect(buildEventColorRequest(sub, "3", "this")?.eventId).toBe("series-1_20260727T010000Z");
+  });
+
+  it("繰り返しでない予定では、scope が all でも、その予定自身の id", () => {
+    expect(buildEventColorRequest(subject(), "3", "all")?.eventId).toBe("evt-1");
+  });
+
   it("変えられない予定は null", () => {
     expect(buildEventColorRequest(subject({ source: "github" }), "1")).toBeNull();
   });

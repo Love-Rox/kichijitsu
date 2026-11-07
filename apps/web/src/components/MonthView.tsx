@@ -412,7 +412,7 @@ export function MonthView({
               }
               onSetColor={
                 canSetEventColor(detailSubject)
-                  ? (colorId, calendarColor) => onSetColor(detailSubject, colorId, calendarColor)
+                  ? (colorId, calendarColor, scope) => onSetColor(detailSubject, colorId, calendarColor, scope)
                   : undefined
               }
               onAddMeet={
@@ -455,7 +455,7 @@ export function MonthView({
               }
               onSetColor={
                 canSetEventColor(detailSubject)
-                  ? (colorId, calendarColor) => onSetColor(detailSubject, colorId, calendarColor)
+                  ? (colorId, calendarColor, scope) => onSetColor(detailSubject, colorId, calendarColor, scope)
                   : undefined
               }
             />
