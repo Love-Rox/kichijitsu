@@ -50,6 +50,30 @@ export function initialTimelineStart(
 }
 
 /**
+ * ビューを切り替えたときの、新しい表示開始日。
+ * 3日/1日表示は「今日」から始めたいので、切り替え前に見ていた期間(週なら月曜から7日、月ならその月)に
+ * 今日が入っているときは今日にする。入っていなければ(過去や未来を見ているとき)、見ていた期間の先頭のまま。
+ * 週表示へ切り替えるときは月曜に揃える。月表示への切り替えは呼び出し側が monthCursor を決めるので対象外。
+ *
+ * - from: 切り替え前のビュー(month のときは monthCursor が先頭、期間はその月)
+ * - fromStart: 切り替え前の先頭日(month のときは monthCursor)
+ */
+export function startOnViewSwitch(
+  from: View,
+  next: Exclude<View, "month">,
+  fromStart: Temporal.PlainDate,
+  today: Temporal.PlainDate = Temporal.Now.plainDateISO(),
+): Temporal.PlainDate {
+  const containsToday =
+    from === "month"
+      ? fromStart.year === today.year && fromStart.month === today.month
+      : Temporal.PlainDate.compare(today, fromStart) >= 0 &&
+        Temporal.PlainDate.compare(today, fromStart.add({ days: dayCountForView(from) })) < 0;
+  if (next === "week") return mondayOf(from === "month" && containsToday ? today : fromStart);
+  return containsToday ? today : fromStart;
+}
+
+/**
  * [start, start+dayCount日) の epoch ms 範囲(timeZone の壁時計基準)。
  * week/day3/day1 のどのタイムラインビューでも共通で使う(モバイル対応フェーズ2で
  * dayCount=7 固定の weekRangeMs から一般化)。
