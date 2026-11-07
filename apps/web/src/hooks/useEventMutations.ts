@@ -12,6 +12,7 @@ import type { GuestNotify } from "../sync/guestNotify";
 import type { CheckedFetch } from "../sync/httpJson";
 import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { useAttendeeMutations } from "./mutations/useAttendeeMutations";
+import { useEventColor } from "./mutations/useEventColor";
 import { useCreateEvent } from "./mutations/useCreateEvent";
 import { useDeleteOccurrence } from "./mutations/useDeleteOccurrence";
 import { useOccurrencePersist } from "./mutations/useOccurrencePersist";
@@ -149,6 +150,15 @@ export interface EventMutationsController {
    * 導線を出してよいかの判定は sync/eventGuests.ts の canEditGuests (呼び出し側が使う)。
    */
   editGuests: (subject: Occurrence | AllDayOccurrence, change: GuestChange) => Promise<void>;
+  /**
+   * 予定の色の変更 (onSetColor)。サーバー (POST /api/event/color) が受け付けてから手元へ反映する
+   * (保存ボタン方式)。繰り返しの予定は、その回だけ。ゲストへのメールは出ない。
+   */
+  setColor: (
+    subject: Occurrence | AllDayOccurrence,
+    colorId: string | null,
+    calendarColor: string,
+  ) => Promise<void>;
   /** タスクの完了トグル (onToggleTask)。枡チェックボックスのタップから呼ばれる */
   toggleTask: (task: TaskItem) => void;
 }
@@ -211,6 +221,8 @@ export function useEventMutations({
 
   const { rsvp, editGuests } = useAttendeeMutations({ db, store, allDayStore, checkedFetch });
 
+  const { setColor } = useEventColor({ db, store, allDayStore, checkedFetch });
+
   const { toggleTask } = useToggleTask({ db, taskStore, checkedFetch, flashSaveError });
 
   return {
@@ -232,6 +244,7 @@ export function useEventMutations({
     saveEdit,
     rsvp,
     editGuests,
+    setColor,
     toggleTask,
   };
 }

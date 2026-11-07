@@ -23,6 +23,7 @@ import type { CalendarInfo } from "./calendarInfo";
 import { MeetingProviderIcon } from "./meetingProviderIcon";
 import { PlaceIcon, VideoIcon } from "./icons";
 import { EventEditForm } from "./EventEditForm";
+import { EventColorSection } from "./EventColorSection";
 
 /**
  * クリック詳細ポップオーバー一式(2026-07-25 リファクタ フェーズ1a で EventBlock.tsx から
@@ -46,6 +47,11 @@ export interface EventDetailSubject {
   link?: OccurrenceLink;
   accountId?: string;
   calendarId?: string;
+  /** Occurrence.color / hasCustomColor と同じ意味(色の選択欄が、今の色を示すのに使う) */
+  color?: string;
+  hasCustomColor?: boolean;
+  /** 繰り返しシリーズ由来なら親の id(色の変更が「この回だけ」になることを示すのに使う) */
+  seriesId?: string | null;
   /** Occurrence.isMirror / AllDayOccurrence.isMirror と同じ意味(自動生成 mirror かどうか) */
   isMirror?: boolean;
   /**
@@ -124,6 +130,12 @@ export interface EventDetailCardProps {
    * 422 (主催者でない) は GuestNotOrganizerError を reject する取り決め。
    */
   onEditGuests?: (change: GuestChange) => Promise<void>;
+  /**
+   * 予定の色の変更。**渡されたときだけ**「色」欄を出す ―― 呼び出し側が sync/eventColor.ts の
+   * canSetEventColor で判定済み (Google の予定のみ)。calendarColor は、個別色を外したときに表示する
+   * そのカレンダーの色 (このカードが calendarLookup から引いて渡す)。
+   */
+  onSetColor?: (colorId: string | null, calendarColor: string) => Promise<void>;
   /** React 19: 関数コンポーネントでも forwardRef 無しで ref を通常の prop として受け取れる */
   ref?: Ref<HTMLDivElement>;
 }
@@ -156,6 +168,7 @@ export function EventDetailCard({
   rsvpStatus,
   onRsvp,
   onEditGuests,
+  onSetColor,
   ref,
 }: EventDetailCardProps) {
   const { left, top } = clampPopoverPosition(position.x, position.y);
@@ -316,6 +329,13 @@ export function EventDetailCard({
             onEditGuests={onEditGuests}
           />
         )}
+        {onSetColor && (
+          <ColorSectionForSubject
+            subject={subject}
+            calendarLookup={calendarLookup}
+            onSetColor={onSetColor}
+          />
+        )}
         {memberCalendars.length > 0 && (
           <div className="event-detail-calendar-list">
             {memberCalendars.map((info) => (
@@ -369,6 +389,32 @@ const GUEST_EMAIL_ERROR_TEXT: Record<GuestEmailError, string> = {
   duplicate: "すでにゲストに入っています",
   self: "自分自身は追加できません",
 };
+
+/** 色の選択欄に、今の色とカレンダーの色(個別色を外したときの表示色)を渡す薄い橋渡し */
+function ColorSectionForSubject({
+  subject,
+  calendarLookup,
+  onSetColor,
+}: {
+  subject: EventDetailSubject;
+  calendarLookup: Map<string, CalendarInfo>;
+  onSetColor: (colorId: string | null, calendarColor: string) => Promise<void>;
+}) {
+  const color = subject.color ?? "var(--c-unknown-calendar)";
+  const calendarColor =
+    (subject.accountId && subject.calendarId
+      ? calendarLookup.get(calendarKey(subject.accountId, subject.calendarId))?.backgroundColor
+      : undefined) ?? color;
+  return (
+    <EventColorSection
+      color={color}
+      hasCustomColor={subject.hasCustomColor}
+      calendarColor={calendarColor}
+      isRecurring={!!subject.seriesId}
+      onSetColor={onSetColor}
+    />
+  );
+}
 
 /**
  * ゲスト (参加者) 欄 (2026-07-30、2026-07-31 に追加・削除を追加)。

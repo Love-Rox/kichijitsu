@@ -565,3 +565,21 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
   （プラグインの README）。同じ挙動にそろえるには `tauri-plugin-single-instance` の
   `deep-link` feature が要るが、現状の配布対象は macOS なので今回は入れていない
 - 本番へは `apps/sync/migrations/0014_desktop_auth_tickets.sql` の適用が必要
+
+## Notion カレンダー並みにする計画(2026-11-07〜)
+デスクトップは本番の Web 版をそのまま読むので、機能追加は Web 版(`apps/web`)への追加になる。
+モバイルで足したものと、Notion カレンダーでできることを目安に、次の順で進める(自然文での予定作成は MCP で足りるので外す。予約リンクは作らない)。
+
+1. 予定の色の変更 — **済み**(詳細カードの「色」欄。繰り返しの予定は、その回だけ)
+2. アクセント色のテーマ
+3. アイコンのフラット化(Phosphor duotone。モバイルと同じ系統)
+4. 会議リンク(Meet など)を予定から作る
+5. 複数タイムゾーン
+6. デスクトップ固有(メニューバーに次の予定、など)
+
+### 予定の色の変更
+- `POST /api/event/color`(モバイルと共通。サーバーは `apps/sync/src/core/event-color.ts`)。ゲストへのメールは出ない。
+- Web 版は `hooks/mutations/useEventColor.ts`(サーバーが受け付けてから手元へ反映する「保存ボタン方式」)。繰り返しの予定は、Google のインスタンス ID(`親ID_UTC開始`)へ書き、手元でも、その回の override に色(`color` + `hasCustomColor`)を残す。
+- 同期で取り込む例外インスタンスにも、`colorId` から色を入れる(`mapGoogle.ts` の `buildOverride`)。入れないと、この回の色が、次の同期でシリーズの色に戻る。
+- 色の候補(11 色と名前)は `layout/eventColorChoices.ts`。モバイルも共有する。
+- モバイルは、繰り返しの予定ではシリーズ全体の色を変える(Web はこの回だけ)。揃えるかは未定。
