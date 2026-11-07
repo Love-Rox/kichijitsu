@@ -18,6 +18,7 @@ import {
   rsvp,
   editGuests,
   setEventColor,
+  addEventMeet,
   saveEdit,
   type ApplyChange,
   type AskScope,
@@ -334,7 +335,16 @@ export function CalendarScreen({
             if (form.mode === "create") {
               setForm(null);
               if (target) {
-                createEvent(draft, target, timeZone, onChange).catch((e) =>
+                createEvent(draft, target, timeZone, onChange)
+                  .then((r) => {
+                    if (r.meetFailed) {
+                      Alert.alert(
+                        "予定は作成しました",
+                        "Meet は付けられませんでした。予定の詳細から、もう一度追加してください。",
+                      );
+                    }
+                  })
+                  .catch((e) =>
                   Alert.alert(
                     draft.eventType === "outOfOffice" ? "不在を作成できませんでした" : "作成できませんでした",
                     draft.eventType === "outOfOffice"
@@ -379,6 +389,7 @@ export function CalendarScreen({
         onRsvp={(subject, status) => rsvp(subject, status, onChange, data)}
         onEditGuests={(subject, change) => editGuests(subject, change, onChange)}
         onSetColor={(subject, colorId) => setEventColor(subject, colorId, onChange, data)}
+        onAddMeet={(subject) => addEventMeet(subject, onChange)}
       />
     </View>
   );

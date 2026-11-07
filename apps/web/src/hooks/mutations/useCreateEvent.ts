@@ -8,7 +8,7 @@
  */
 import { useCallback } from "react";
 import type { IDBPDatabase } from "idb";
-import type { EventCreateResponse } from "@kichijitsu/shared";
+import type { EventCreateResponse, EventMeetResponse } from "@kichijitsu/shared";
 import {
   deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
@@ -16,7 +16,7 @@ import {
   putOccurrence,
   type KichijitsuDB,
 } from "../../db/database";
-import type { Occurrence } from "../../model/types";
+import type { AllDayOccurrence, Occurrence } from "../../model/types";
 import type { AllDayStore } from "../../store/allDayStore";
 import type { OccurrenceStore } from "../../store/occurrenceStore";
 import {
@@ -25,14 +25,15 @@ import {
   buildPendingAllDayOccurrence,
   buildPendingOccurrence,
   duplicateWriteTarget,
+  isOutOfOfficeDraft,
   finalizeCreatedAllDayOccurrence,
   finalizeCreatedOccurrence,
   type EventCreateDraft,
   type WriteTargetCandidate,
 } from "../../sync/eventCreate";
-import type { CheckedFetch } from "../../sync/httpJson";
+import { sendJson, type CheckedFetch } from "../../sync/httpJson";
 import { postWriteBack } from "../../sync/writeBack";
-import { runDetached } from "./optimisticWrites";
+import { runDetached, writeSubject } from "./optimisticWrites";
 
 export function useCreateEvent({
   db,
@@ -77,7 +78,7 @@ export function useCreateEvent({
               pendingId: pending.id,
               show: () => allDayStore.update(pending),
               save: () => putAllDayOccurrences(database, [pending]),
-              finalize: async (eventId: string) => {
+              finalize: async (eventId: string): Promise<Occurrence | AllDayOccurrence> => {
                 const finalized = finalizeCreatedAllDayOccurrence(pending, target, eventId);
                 await deleteAllDayOccurrencesByIds(database, [pending.id]);
                 await putAllDayOccurrences(database, [finalized]);
@@ -85,6 +86,7 @@ export function useCreateEvent({
                   allDayStore.remove([pending.id]);
                   allDayStore.update(finalized);
                 });
+                return finalized;
               },
               rollback: async () => {
                 await deleteAllDayOccurrencesByIds(database, [pending.id]);
@@ -98,7 +100,7 @@ export function useCreateEvent({
               pendingId: pending.id,
               show: () => store.update(pending),
               save: () => putOccurrence(database, pending),
-              finalize: async (eventId: string) => {
+              finalize: async (eventId: string): Promise<Occurrence | AllDayOccurrence> => {
                 const finalized = finalizeCreatedOccurrence(pending, target, eventId);
                 await deleteOccurrencesByIds(database, [pending.id]);
                 await putOccurrence(database, finalized);
@@ -107,6 +109,7 @@ export function useCreateEvent({
                   store.remove([pending.id]);
                   store.update(finalized);
                 });
+                return finalized;
               },
               rollback: async () => {
                 await deleteOccurrencesByIds(database, [pending.id]);
@@ -131,7 +134,32 @@ export function useCreateEvent({
         );
 
         if (ok && eventId) {
-          await lane.finalize(eventId);
+          const finalized = await lane.finalize(eventId);
+          // 作成時に Meet を付ける指定: 予定ができたあとに、既存の予定への追加を続けて呼ぶ。
+          // 予定はもうできているので、ここで失敗してもロールバックはしない(詳細カードの Meet ボタンで付け直せる)
+          if (draft.addMeet && !isOutOfOfficeDraft(draft)) {
+            try {
+              const res = await sendJson(checkedFetch, "POST", "/api/event/meet", {
+                accountId: target.accountId,
+                calendarId: target.calendarId,
+                eventId,
+              });
+              if (!res.ok) throw new Error(`meet failed: ${res.status}`);
+              const body = (await res.json().catch(() => undefined)) as
+                | EventMeetResponse
+                | undefined;
+              const url = body?.conferenceUrl;
+              if (url && /^https?:\/\//i.test(url)) {
+                await writeSubject(
+                  database,
+                  { store, allDayStore },
+                  { ...finalized, conferenceUrl: url, hasConference: true },
+                );
+              }
+            } catch {
+              flashSaveError();
+            }
+          }
           return;
         }
 
