@@ -1,0 +1,126 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - img "kichijitsu" [ref=f2e6]
+      - img "kichijitsu" [ref=f2e15]
+    - generic [ref=f2e21]:
+      - button "前週" [ref=f2e22] [cursor=pointer]: ←
+      - button "今日" [ref=f2e23] [cursor=pointer]
+      - button "次週" [ref=f2e24] [cursor=pointer]: →
+      - button "予定を検索" [ref=f2e25] [cursor=pointer]
+    - group "表示切替" [ref=f2e29]:
+      - button "週" [pressed] [ref=f2e30] [cursor=pointer]
+      - button "月" [ref=f2e31] [cursor=pointer]
+    - group "時間軸の高さ (1時間 48px)" [ref=f2e32]:
+      - button "時間軸を縮める" [ref=f2e33] [cursor=pointer]
+      - combobox "時間軸の高さのプリセット" [ref=f2e37] [cursor=pointer]:
+        - option "コンパクト"
+        - option "標準" [selected]
+        - option "ゆったり"
+      - button "時間軸を広げる" [ref=f2e38] [cursor=pointer]
+    - generic [ref=f2e42]:
+      - generic [ref=f2e43]: 2026年11月
+      - button "Google 連携" [ref=f2e45] [cursor=pointer]
+      - button "キーボードショートカット一覧" [ref=f2e46] [cursor=pointer]: "?"
+      - generic [ref=f2e47]:
+        - link "プライバシー" [ref=f2e48] [cursor=pointer]:
+          - /url: /privacy.html
+        - link "規約" [ref=f2e49] [cursor=pointer]:
+          - /url: /terms.html
+  - main [ref=f2e50]:
+    - generic [ref=f2e51]:
+      - generic [ref=f2e52]:
+        - generic [ref=f2e56]:
+          - generic [ref=f2e57]:
+            - generic [ref=f2e58]:
+              - generic [ref=f2e59]: 月
+              - generic [ref=f2e60]: "26"
+            - generic [ref=f2e61]:
+              - generic [ref=f2e62]: 火
+              - generic [ref=f2e63]: "27"
+            - generic [ref=f2e64]:
+              - generic [ref=f2e65]: 水
+              - generic [ref=f2e66]: "28"
+            - generic [ref=f2e67]:
+              - generic [ref=f2e68]: 木
+              - generic [ref=f2e69]: "29"
+            - generic [ref=f2e70]:
+              - generic [ref=f2e71]: 金
+              - generic [ref=f2e72]: "30"
+            - generic [ref=f2e73]:
+              - generic [ref=f2e74]: 土
+              - generic [ref=f2e75]: "31"
+            - generic [ref=f2e76]:
+              - generic [ref=f2e77]: 日
+              - generic [ref=f2e78]: "1"
+          - generic [ref=f2e79]:
+            - generic [ref=f2e80]:
+              - generic [ref=f2e81]: 月
+              - generic [ref=f2e82]: "2"
+            - generic [ref=f2e83]:
+              - generic [ref=f2e84]: 火
+              - generic [ref=f2e85]: "3"
+            - generic [ref=f2e86]:
+              - generic [ref=f2e87]: 水
+              - generic [ref=f2e88]: "4"
+            - generic [ref=f2e89]:
+              - generic [ref=f2e90]: 木
+              - generic [ref=f2e91]: "5"
+            - generic [ref=f2e92]:
+              - generic [ref=f2e93]: 金
+              - generic [ref=f2e94]: "6"
+            - generic [ref=f2e95]:
+              - generic [ref=f2e96]: 土
+              - generic [ref=f2e97]: "7"
+            - generic [ref=f2e99]:
+              - generic [ref=f2e100]: 日
+              - generic [ref=f2e101]: "8"
+          - generic [ref=f2e102]:
+            - generic [ref=f2e103]:
+              - generic [ref=f2e104]: 月
+              - generic [ref=f2e105]: "9"
+            - generic [ref=f2e106]:
+              - generic [ref=f2e107]: 火
+              - generic [ref=f2e108]: "10"
+            - generic [ref=f2e109]:
+              - generic [ref=f2e110]: 水
+              - generic [ref=f2e111]: "11"
+            - generic [ref=f2e112]:
+              - generic [ref=f2e113]: 木
+              - generic [ref=f2e114]: "12"
+            - generic [ref=f2e115]:
+              - generic [ref=f2e116]: 金
+              - generic [ref=f2e117]: "13"
+            - generic [ref=f2e118]:
+              - generic [ref=f2e119]: 土
+              - generic [ref=f2e120]: "14"
+            - generic [ref=f2e121]:
+              - generic [ref=f2e122]: 日
+              - generic [ref=f2e123]: "15"
+        - generic [ref=f2e126]:
+          - generic [ref=f2e127]: 0:00
+          - generic [ref=f2e128]: 1:00
+          - generic [ref=f2e129]: 2:00
+          - generic [ref=f2e130]: 3:00
+          - generic [ref=f2e131]: 4:00
+          - generic [ref=f2e132]: 5:00
+          - generic [ref=f2e133]: 6:00
+          - generic [ref=f2e134]: 7:00
+          - generic [ref=f2e135]: 8:00
+          - generic [ref=f2e136]: 9:00
+          - generic [ref=f2e137]: 10:00
+          - generic [ref=f2e138]: 11:00
+          - generic [ref=f2e139]: 12:00
+          - generic [ref=f2e140]: 13:00
+          - generic [ref=f2e141]: 14:00
+          - generic [ref=f2e142]: 15:00
+          - generic [ref=f2e143]: 16:00
+          - generic [ref=f2e144]: 17:00
+          - generic [ref=f2e145]: 18:00
+          - generic [ref=f2e146]: 19:00
+          - generic [ref=f2e147]: 20:00
+          - generic [ref=f2e148]: 21:00
+          - generic [ref=f2e149]: 22:00
+          - generic [ref=f2e150]: 23:00
+      - generic:
+        - img "読み込み中"
