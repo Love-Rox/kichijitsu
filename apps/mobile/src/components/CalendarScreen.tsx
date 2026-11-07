@@ -123,8 +123,9 @@ export function CalendarScreen({
     setForm({ mode: "create", startMs: start });
   };
 
-  // タイムラインの先頭日: 週は、基準日を含む週の月曜
-  const timelineStart = view === "week" ? mondayOf(anchor) : anchor;
+  // タイムラインの先頭日: 基準日そのもの。週も、基準日から 7 日(スワイプで 1 日ずつ動くため、月曜には揃えない。
+  // 週表示に切り替えるときだけ、基準日を含む週の月曜へ揃える: changeView / goToday)
+  const timelineStart = anchor;
 
   // ---- 切り替え中の表示 ----
   // 表示の切り替え・移動では、予定の展開と描画で、一瞬 JS が止まる。押した直後に「反応している」ことが
@@ -149,16 +150,24 @@ export function CalendarScreen({
     );
   };
 
-  // ---- 横スワイプで、前後の期間へ移る(日・3日・週・月) ----
-  // 指に合わせて内容が横に動き、一定以上動かして離すと、期間が切り替わる(「前へ/次へ」と同じ移動)。足りなければ元に戻る。
+  // ---- 横スワイプで、前後へ移る(日・3日・週は 1 日ずつ、月は 1 か月) ----
+  // 指に合わせて内容が横に動き、一定以上動かして離すと切り替わる。足りなければ元に戻る。
+  // 日・3日・週は、1 日ぶん(= 1 列の幅)だけ動かす: 「前へ/次へ」のボタンは期間ぶんだが、スワイプは自然に 1 日ずつ。
   // 切り替わるときは、いまの内容を横へ出し、(再描画のあと)新しい内容を反対側から入れる。
   const slideX = useRef(new Animated.Value(0)).current;
   const contentWidth = useRef(0);
   /** 切り替えの後に、新しい内容を入れる向き(1 = 次の期間 → 右から入る、-1 = 前、0 = 入れない) */
   const slideIn = useRef<0 | 1 | -1>(0);
   // 最新の状態は、PanResponder (一度だけ作る) から、ref 越しに読む
-  const live = useRef({ move, busy });
-  live.current = { move, busy };
+  const swipeMove = (dir: 1 | -1) => {
+    switching(() =>
+      setAnchor((a) => (view === "month" ? a.add({ months: dir }).with({ day: 1 }) : a.add({ days: dir }))),
+    );
+  };
+  /** 切り替えで動かす幅: 日・3日・週は 1 列ぶん、月は全体 */
+  const slideDistance = () => (contentWidth.current || 360) / (view === "month" ? 1 : DAY_COUNT[view]);
+  const live = useRef({ swipeMove, slideDistance, busy });
+  live.current = { swipeMove, slideDistance, busy };
 
   const swipe = useRef(
     PanResponder.create({
@@ -173,15 +182,16 @@ export function CalendarScreen({
       onPanResponderMove: (_, g) => slideX.setValue(g.dx * 0.7), // 少し重く(指より控えめに動く)
       onPanResponderRelease: (_, g) => {
         const w = contentWidth.current || 360;
+        const slide = live.current.slideDistance();
         const dir: 1 | -1 = g.dx < 0 ? 1 : -1; // 左へスワイプ = 次の期間
         const committed = Math.abs(g.dx) > Math.min(90, w * 0.25) || Math.abs(g.vx) > 0.5;
         if (!committed || live.current.busy) {
           Animated.spring(slideX, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
           return;
         }
-        Animated.timing(slideX, { toValue: -dir * w, duration: 130, useNativeDriver: true }).start(() => {
+        Animated.timing(slideX, { toValue: -dir * slide, duration: 130, useNativeDriver: true }).start(() => {
           slideIn.current = dir;
-          live.current.move(dir);
+          live.current.swipeMove(dir);
         });
       },
       onPanResponderTerminate: () =>
@@ -191,7 +201,7 @@ export function CalendarScreen({
   // 切り替わった(再描画が終わった)ら、新しい内容を反対側から入れる
   useEffect(() => {
     if (slideIn.current === 0) return;
-    const w = contentWidth.current || 360;
+    const w = live.current.slideDistance();
     slideX.setValue(slideIn.current * w);
     slideIn.current = 0;
     Animated.timing(slideX, { toValue: 0, duration: 180, useNativeDriver: true }).start();
@@ -201,7 +211,8 @@ export function CalendarScreen({
     if (next === view) return;
     setPendingView(next); // 押したボタンを、すぐ選択状態にする
     switching(() => {
-      if (view === "month" && next !== "month") setAnchor(selected);
+      if (view === "month" && next !== "month") setAnchor(next === "week" ? mondayOf(selected) : selected);
+      else if (view !== "month" && next === "week") setAnchor(mondayOf(anchor));
       if (view !== "month" && next === "month") {
         setAnchor(timelineStart);
         setSelected(timelineStart);
@@ -212,7 +223,7 @@ export function CalendarScreen({
   const goToday = () => {
     if (anchor.equals(today) && selected.equals(today)) return;
     switching(() => {
-      setAnchor(today);
+      setAnchor(view === "week" ? mondayOf(today) : today);
       setSelected(today);
     });
   };
