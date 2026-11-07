@@ -2,9 +2,10 @@ import { instanceId } from "@kichijitsu/web/model/series";
 import type { InstanceOverride } from "@kichijitsu/web/model/series";
 import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
-import { buildEventDeleteRequest } from "@kichijitsu/web/sync/eventPatch";
+import { buildEventDeleteRequest, rawGoogleEventId } from "@kichijitsu/web/sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "@kichijitsu/web/sync/guestNotify";
-import type { EventCreateResponse } from "@kichijitsu/shared";
+import type { EventColorRequest, EventCreateResponse } from "@kichijitsu/shared";
+import { GOOGLE_COLOR_MAP } from "@kichijitsu/web/sync/mapGoogle";
 import {
   buildEventCreateRequest,
   buildPendingAllDayOccurrence,
@@ -385,4 +386,59 @@ export async function editGuests(
     throw e;
   }
   return optimistic;
+}
+
+/** 予定の色(Google の colorId)を変える。colorId が null なら、予定個別の色を外して、カレンダーの色に戻す。 */
+export async function setEventColor(
+  subject: EventSubject,
+  colorId: string | null,
+  apply: ApplyChange,
+  data: CalendarData,
+): Promise<EventSubject> {
+  if (!subject.accountId || !subject.calendarId || subject.source !== "google") {
+    throw new Error("この予定の色は変えられません");
+  }
+  const series = isTimed(subject) && subject.seriesId ? data.series.find((x) => x.id === subject.seriesId) : undefined;
+  if (isTimed(subject) && subject.seriesId && !series) throw new Error("繰り返しの予定の元が見つかりません");
+  // 繰り返しは、シリーズ全体(親の event id)の色を変える。1 回分だけの色は、この版では扱わない
+  const eventId = rawGoogleEventId(series ? series.id : subject.id);
+  const request: EventColorRequest = {
+    accountId: subject.accountId,
+    calendarId: subject.calendarId,
+    eventId,
+    colorId: colorId ?? "",
+  };
+  try {
+    const res = await apiFetch<{ ok: boolean }>("/api/event/color", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    if (!res?.ok) throw new Error("サーバーが色の変更を受け付けませんでした");
+  } catch (e) {
+    if (e instanceof ApiError) throw new Error("色を変えられませんでした(" + e.status + ")");
+    throw e;
+  }
+
+  // ---- 書き戻しは成功済み。手元へ反映する(保存ボタン方式) ----
+  const hex = colorId ? GOOGLE_COLOR_MAP[colorId] : calendarColorOf(data, subject);
+  const patch = { color: hex, hasCustomColor: colorId !== null };
+  if (series) {
+    const nextSeries = { ...series, ...patch };
+    apply((d) => ({ ...d, series: d.series.map((x) => (x.id === series.id ? nextSeries : x)) }));
+    await upsertSeries(nextSeries);
+    return { ...(subject as Occurrence), ...patch };
+  }
+  const updated = { ...subject, ...patch } as EventSubject;
+  await writeLocalSubject(updated, apply);
+  return updated;
+}
+
+/** 予定が属するカレンダーの色(個別色を外したときの表示色)。見つからなければ今の色のまま。 */
+function calendarColorOf(data: CalendarData, subject: EventSubject): string {
+  for (const a of data.accounts) {
+    if (a.accountId !== subject.accountId) continue;
+    const cal = (a.all ?? a.calendars).find((c) => c.id === subject.calendarId);
+    if (cal?.backgroundColor) return cal.backgroundColor;
+  }
+  return subject.color;
 }

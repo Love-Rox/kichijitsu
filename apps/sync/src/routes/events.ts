@@ -16,6 +16,7 @@ import type {
   EventDeleteResponse,
   EventGuestsResponse,
   EventPatchResponse,
+  EventColorResponse,
   EventRsvpRequest,
   EventRsvpResponse,
   SyncRequest,
@@ -27,6 +28,7 @@ import { isValidEventCreateRequest } from "../core/create-event";
 import { isValidEventPatchRequest } from "../core/patch-event";
 import { isValidEventDeleteRequest } from "../core/delete-event";
 import { isValidEventGuestsRequest } from "../core/guest-edit";
+import { isValidEventColorRequest } from "../core/event-color";
 import { respondFromRpcResult } from "./respond";
 import { repairWatchIfNeeded } from "../watch-registration";
 import { PROFILE_ID_HEADER } from "../durable-object/profile-hub-protocol";
@@ -154,6 +156,26 @@ eventRoutes.post("/api/event/rsvp", requireAuth, async (c) => {
   }
 
   return c.json<EventRsvpResponse>({ ok: true });
+});
+
+// 予定の色 (Google の colorId) を変える。認可は /api/event/patch と同じ。失敗は一律 409。
+eventRoutes.post("/api/event/color", requireAuth, async (c) => {
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
+  if (!isValidEventColorRequest(body)) return c.json<ApiError>({ error: "missing_fields" }, 400);
+
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId);
+  const result = await stub.setEventColor(body.accountId, body.calendarId, body.eventId, body.colorId);
+  if (!result.ok) {
+    console.warn(
+      `event color failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    );
+    return c.json<ApiError>({ error: "color_failed" }, 409);
+  }
+  return c.json<EventColorResponse>({ ok: true });
 });
 
 // 予定のゲスト (参加者) を追加・削除する (2026-07-31)。認可チェック (requireAuth +

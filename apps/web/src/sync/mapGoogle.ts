@@ -69,7 +69,7 @@ function eventKey(ctx: MapGoogleContext, eventId: string): string {
  * Google Calendar のイベント色 (colorId "1".."11") から kichijitsu の hex へのマップ。
  * 値は Google Calendar の公式パレットに準拠 (アプリの既存 COLORS 系統に近い色相)。
  */
-const GOOGLE_COLOR_MAP: Record<string, string> = {
+export const GOOGLE_COLOR_MAP: Record<string, string> = {
   "1": "#7986cb", // Lavender
   "2": "#33b679", // Sage
   "3": "#8e24aa", // Grape

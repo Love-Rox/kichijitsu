@@ -725,6 +725,24 @@ export interface EventRsvpResponse {
 }
 
 /**
+ * POST /api/event/color — 予定の色 (Google の colorId) を変える。
+ * colorId は Google 公式のイベント色 "1".."11"、または空文字 (= 予定個別の色を外して、
+ * カレンダーの色に戻す。Google には null を送る)。eventId は、繰り返しの1回分なら
+ * インスタンス id、シリーズ全体なら親の id (EventPatchRequest と同じ規則)。
+ * 色は見た目の属性なので、ゲストへの通知 (メール) は一切出さない。
+ */
+export interface EventColorRequest {
+  accountId: string;
+  calendarId: string;
+  eventId: string;
+  colorId: string;
+}
+
+export interface EventColorResponse {
+  ok: boolean;
+}
+
+/**
  * POST /api/event/guests — 予定のゲスト (参加者) を追加・削除する (2026-07-31)。
  *
  * ## 配列ではなく差分を送る

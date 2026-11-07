@@ -33,6 +33,7 @@ import {
 } from "../core/list-events";
 import { insertEventWithRetry, type InsertEventCoreDeps } from "../core/insert-event";
 import { patchEventRawWithRetry, type PatchEventRawCoreDeps } from "../core/patch-event-raw";
+import { patchEventColorWithRetry } from "../core/event-color";
 import { rsvpEventWithRetry, type RsvpEventCoreDeps } from "../core/rsvp-event";
 import { editEventGuestsWithRetry } from "../core/guest-event";
 import type { MirrorEventBody } from "../core/block-reconcile";
@@ -375,6 +376,21 @@ export class UserSyncDO extends DurableObject<Env> {
         eventId,
         responseStatus,
       }),
+    );
+  }
+
+  /**
+   * POST /api/event/color: 予定の色 (colorId) だけを Google へ書き戻す。ゲストへは通知しない
+   * (core/event-color.ts と google/event-color.ts のコメント参照)。成功しても戻り値は無い。
+   */
+  async setEventColor(
+    accountId: string,
+    calendarId: string,
+    eventId: string,
+    colorId: string,
+  ): Promise<RpcResult<void>> {
+    return runRpc(() =>
+      patchEventColorWithRetry(this.buildEventWriteDeps(accountId), { calendarId, eventId, colorId }),
     );
   }
 
