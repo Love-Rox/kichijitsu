@@ -663,3 +663,8 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 - **ログイン時に自動起動**(macOS): `~/Library/LaunchAgents/cc.love-rox.kichijitsu.autostart.plist` を置く/消す(`get_autostart` / `set_autostart`)。新しいライブラリは足さず、plist を直接書く(`autostart_plist`、中身は自分の実行ファイルの場所だけ)。既定はオフ。設定モーダルの「ログイン時に自動で起動する」から切り替える。macOS 以外は未対応(エラーを返す)。Homebrew で入れた場合は、アプリの場所を変えたら、一度オフ→オンにして、plist を書き直す。
 - 新しい Rust のコマンド(`set_tray_info`・`get_autostart`・`set_autostart`)の許可は `capabilities/remote.json`。**新しい署名ビルドを入れるまで、旧版では、これらの invoke が失敗して、何も出ない**(エラーは握りつぶす)。
 
+## Mac のアプリメニューに「再読み込み」(2026-11-07)
+- 画面上部のメニューバーに、**「表示 > 再読み込み」(Cmd+R)** を足した。macOS だけ。自前でメニューを組むと標準のメニューが置き換わるので、標準の項目(kichijitsu について・サービス・隠す・編集のコピー/ペースト・フルスクリーン・ウィンドウの最小化など)も並べた(編集の項目が無いと、webview で Cmd+C / Cmd+V が効かなくなる)。
+- Cmd+R は、これまで**グローバルショートカット**(アプリが前面か表示中のときだけ動くガード付き)だったが、macOS では、メニュー項目の Cmd+R に置き換えた(アプリが前面のときだけ効く。他のアプリの Cmd+R を奪わない。二重に動かない)。Windows/Linux は、従来のグローバルショートカットのまま。
+- 「kichijitsu を終了」(Cmd+Q)は、トレイの「終了」と同じ `quit_app`(ウィンドウの位置・大きさを保存してから終了)を通す。メニューのイベント id は、トレイと取り違えないよう `app-` を付けた。
+
