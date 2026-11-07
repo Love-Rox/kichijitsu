@@ -28,6 +28,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { canDuplicateOccurrence } from "../sync/eventCreate";
 import {
@@ -142,6 +143,8 @@ interface EventBlockProps {
    * **編集できる予定のときだけ** EventDetailCard へ渡す (canEditGuests、下の呼び出し参照)。
    */
   onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  /** 詳細ポップオーバーの色の選択から呼ばれる (予定の色の変更)。色を変えられる予定のときだけ渡す */
+  onSetColor: SetEventColor;
   /**
    * スマホの操作体系(2026-07-26、ユーザー要望): true のとき「タップで選択 → 選択中だけ
    * ドラッグで移動/リサイズ」に切り替える。WeekGrid からは longPressCreate(=isNarrow、
@@ -224,6 +227,7 @@ export function EventBlock({
   onSaveEdit,
   onRsvp,
   onEditGuests,
+  onSetColor,
   selectBeforeDrag = false,
   isSelected = false,
   onSelect,
@@ -824,6 +828,11 @@ export function EventBlock({
             onRsvp={(status) => onRsvp(occurrence, status)}
             onEditGuests={
               canEditGuests(occurrence) ? (change) => onEditGuests(occurrence, change) : undefined
+            }
+            onSetColor={
+              canSetEventColor(occurrence)
+                ? (colorId, calendarColor) => onSetColor(occurrence, colorId, calendarColor)
+                : undefined
             }
           />,
           document.body,

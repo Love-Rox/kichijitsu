@@ -49,6 +49,29 @@ describe("expandSeries", () => {
     }
   });
 
+  it("この回だけ色を変えた override(color + hasCustomColor)は、その回だけシリーズの色に勝つ", () => {
+    const series = baseSeries({ rrule: "FREQ=DAILY;COUNT=2", hasCustomColor: false });
+    const second = zms("2026-01-02T09:00", "Asia/Tokyo");
+    const override: InstanceOverride = {
+      id: instanceId(series.id, second),
+      seriesId: series.id,
+      originalStartMs: second,
+      patch: { color: "#d50000", hasCustomColor: true },
+    };
+
+    const result = expandSeries({
+      series,
+      overrides: [override],
+      windowStartMs: FAR_PAST,
+      windowEndMs: FAR_FUTURE,
+    });
+
+    expect(result.map((o) => [o.color, o.hasCustomColor])).toEqual([
+      ["#123456", false],
+      ["#d50000", true],
+    ]);
+  });
+
   it("hasCustomColor を series からそのまま occurrence へ伝播する(色バグ修正 2026-07-20)", () => {
     const customColorSeries = baseSeries({
       id: "series-custom",

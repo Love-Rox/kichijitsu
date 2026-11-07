@@ -165,7 +165,26 @@ describe("mapGoogleEvents", () => {
       title: "Rescheduled",
       startMs: zms("2026-07-27T14:00", "Asia/Tokyo"),
       endMs: zms("2026-07-27T15:00", "Asia/Tokyo"),
+      // colorId が無い例外インスタンスは、カレンダーの色(個別色ではない)を明示する
+      color: expect.any(String),
+      hasCustomColor: false,
     });
+  });
+
+  it("この回だけ色を変えた例外インスタンスは、その色を個別色として持つ(シリーズの色へ化けない)", () => {
+    const event = baseEvent({
+      id: "exception-color",
+      recurringEventId: "series-evt",
+      colorId: "11",
+      originalStartTime: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-27T10:00:00+09:00", timeZone: "Asia/Tokyo" },
+      end: { dateTime: "2026-07-27T11:00:00+09:00", timeZone: "Asia/Tokyo" },
+    });
+
+    const patch = mapGoogleEvents([event], ctx).overrides[0].patch;
+
+    expect(patch?.color).toBe("#d50000");
+    expect(patch?.hasCustomColor).toBe(true);
   });
 
   it("単発イベントを Occurrence に変換する", () => {

@@ -17,6 +17,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
@@ -62,6 +63,8 @@ interface MonthViewProps {
   /** ゲストの追加・削除 (2026-07-31)。WeekGrid と同じ2本 (時刻予定 / 終日予定) */
   onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
+  /** 予定の色の変更 (時刻予定・終日予定とも同じ関数) */
+  onSetColor: SetEventColor;
   /** 「不参加を表示」設定 (参加ステータス表示、2026-07-22)。WeekGrid.declinedVisibility と同じ意味 */
   declinedVisibility: DeclinedVisibilitySettings;
   /**
@@ -115,6 +118,7 @@ export function MonthView({
   onAllDayRsvp,
   onEditGuests,
   onAllDayEditGuests,
+  onSetColor,
   onNavigateToDay,
   declinedVisibility,
 }: MonthViewProps) {
@@ -390,6 +394,11 @@ export function MonthView({
                   ? (change) => onEditGuests(detailSubject as Occurrence, change)
                   : undefined
               }
+              onSetColor={
+                canSetEventColor(detailSubject)
+                  ? (colorId, calendarColor) => onSetColor(detailSubject, colorId, calendarColor)
+                  : undefined
+              }
             />
           ) : (
             <EventDetailCard
@@ -421,6 +430,11 @@ export function MonthView({
               onEditGuests={
                 canEditGuests(detailSubject as AllDayOccurrence)
                   ? (change) => onAllDayEditGuests(detailSubject as AllDayOccurrence, change)
+                  : undefined
+              }
+              onSetColor={
+                canSetEventColor(detailSubject)
+                  ? (colorId, calendarColor) => onSetColor(detailSubject, colorId, calendarColor)
                   : undefined
               }
             />

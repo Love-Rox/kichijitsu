@@ -689,6 +689,7 @@ function App() {
     saveEdit: handleEditSave,
     rsvp: handleRsvp,
     editGuests: handleEditGuests,
+    setColor: handleSetColor,
     toggleTask: handleToggleTask,
   } = useEventMutations({ db, store, allDayStore, taskStore, checkedFetch, timeZone });
 
@@ -1029,6 +1030,7 @@ function App() {
                 onAllDayRsvp={handleRsvp}
                 onEditGuests={handleEditGuests}
                 onAllDayEditGuests={handleEditGuests}
+                onSetColor={handleSetColor}
                 writeTarget={defaultWriteTarget}
                 writeTargets={writeTargetCandidates}
                 onCreateEvent={handleCreate}
@@ -1061,6 +1063,7 @@ function App() {
                 onAllDayRsvp={handleRsvp}
                 onEditGuests={handleEditGuests}
                 onAllDayEditGuests={handleEditGuests}
+                onSetColor={handleSetColor}
                 writeTarget={defaultWriteTarget}
                 writeTargets={writeTargetCandidates}
                 onCreateEvent={handleCreate}

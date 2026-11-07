@@ -388,6 +388,11 @@ function buildOverride(event: GoogleEventDTO, ctx: MapGoogleContext): InstanceOv
   if (isWorkingLocationEvent(event)) {
     patch.isWorkingLocation = true;
   }
+  // この回の色。Google はインスタンスごとに colorId を持てる(この回だけ色を変えた/外した場合に、
+  // シリーズ側の色へ化けないよう、常に明示する。colorId 無し = カレンダーの色)
+  const { color, hasCustomColor } = colorFor(event.colorId, ctx);
+  patch.color = color;
+  patch.hasCustomColor = hasCustomColor;
   Object.assign(patch, rsvpFields(event), reminderFields(event));
 
   return { id: instanceId(seriesId, originalStartMs), seriesId, originalStartMs, patch };

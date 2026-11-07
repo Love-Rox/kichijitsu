@@ -18,6 +18,7 @@ import {
   type EventEditDraft,
 } from "../sync/eventEdit";
 import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
 import "./AllDayBar.css";
 
@@ -47,6 +48,8 @@ interface AllDayBarProps {
   onRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
   /** 詳細ポップオーバーのゲスト欄から呼ばれる。EventBlock.onEditGuests と同じ流儀 */
   onEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
+  /** 詳細ポップオーバーの色の選択から呼ばれる。EventBlock.onSetColor と同じ流儀 */
+  onSetColor: SetEventColor;
 }
 
 /**
@@ -67,6 +70,7 @@ export function AllDayBar({
   onSaveEdit,
   onRsvp,
   onEditGuests,
+  onSetColor,
 }: AllDayBarProps) {
   const detailCardRef = useRef<HTMLDivElement>(null);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
@@ -243,6 +247,12 @@ export function AllDayBar({
             onEditGuests={
               !isOoo && canEditGuests(occurrence)
                 ? (change) => onEditGuests(occurrence, change)
+                : undefined
+            }
+            // 不在は編集導線を出さない (上の editDraft と同じ理由)
+            onSetColor={
+              !isOoo && canSetEventColor(occurrence)
+                ? (colorId, calendarColor) => onSetColor(occurrence, colorId, calendarColor)
                 : undefined
             }
           />,

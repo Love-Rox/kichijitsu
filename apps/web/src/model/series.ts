@@ -89,6 +89,8 @@ export interface InstanceOverride {
     startMs?: number;
     endMs?: number;
     color?: string;
+    /** color が予定個別の色(Google colorId 由来)か。無ければシリーズ全体の値を使う */
+    hasCustomColor?: boolean;
     location?: string;
     description?: string;
     /**
