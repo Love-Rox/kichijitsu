@@ -105,6 +105,13 @@ interface EventBlockProps {
   dayIndex: number;
   /** このブロックが今属している日の 0:00 (epoch ms) */
   dayStartMs: number;
+  /**
+   * 日をまたぐ予定の「続き」(前日から続く側)。0:00 に切って描いているので、ここを掴んでの移動・
+   * リサイズはさせない(元の開始位置が分からなくなるため)。開始日のカードから操作する。
+   */
+  continuesFromPrev?: boolean;
+  /** 翌日へ続く側(24:00 に切って描いている)。下端のリサイズ取っ手は出さない */
+  continuesToNext?: boolean;
   /** このブロックが属する週の7日ぶんの 0:00 (epoch ms)。日をまたぐ移動の着地点計算に使う */
   weekDayStarts: readonly number[];
   /**
@@ -225,6 +232,8 @@ export function EventBlock({
   blockedByBusyColors,
   timeZone,
   dayIndex,
+  continuesFromPrev = false,
+  continuesToNext = false,
   dayStartMs,
   weekDayStarts,
   onCommit,
@@ -392,6 +401,8 @@ export function EventBlock({
       tapRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
+    // 前日から続く側は、掴んでも動かさない(開始日のカードから操作する)
+    if (continuesFromPrev) return;
     tapRef.current = null;
     beginDrag(e, "move");
   }
@@ -816,7 +827,9 @@ export function EventBlock({
           </>
         )}
         </div>
-        <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
+        {!continuesFromPrev && !continuesToNext && (
+          <div className="event-resize-handle" onPointerDown={handlePointerDownResize} />
+        )}
       </div>
       {detailPos &&
         createPortal(
