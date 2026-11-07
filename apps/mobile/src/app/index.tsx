@@ -21,6 +21,12 @@ import {
   type NotifySettings,
 } from "../lib/notifications";
 import { clearWidget, updateWidget } from "../lib/widgetSync";
+import {
+  DEFAULT_WIDGET_FILTERS,
+  getWidgetFilters,
+  saveWidgetFilters,
+  type WidgetFilters,
+} from "../lib/widgetFilters";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -56,6 +62,11 @@ export default function Home() {
   useEffect(() => {
     void getNotifySettings().then(setNotify);
   }, []);
+  /** ウィジェットと Watch に出す予定の絞り込み(この端末だけ)。 */
+  const [widgetFilters, setWidgetFilters] = useState<WidgetFilters>(DEFAULT_WIDGET_FILTERS);
+  useEffect(() => {
+    void getWidgetFilters().then(setWidgetFilters);
+  }, []);
   /** 前面に戻るたびに値が変わり、通知の予約を作り直させる。 */
   const [foregroundTick, setForegroundTick] = useState(0);
   useEffect(() => {
@@ -69,13 +80,13 @@ export default function Home() {
     const id = setTimeout(() => {
       void rescheduleReminders(readyData, Temporal.Now.timeZoneId()).catch(() => undefined);
       try {
-        updateWidget(readyData);
+        updateWidget(readyData, widgetFilters);
       } catch {
         // ウィジェットの更新に失敗しても、アプリの表示には影響させない
       }
     }, 1500);
     return () => clearTimeout(id);
-  }, [readyData, notify, foregroundTick]);
+  }, [readyData, notify, widgetFilters, foregroundTick]);
 
   // ログアウト・セッション切れなど、どの経路で signedOut になっても、端末に残る派生データ(ウィジェットの
   // 予定と、予約済みの通知)を消す。手元の予定を消す経路ごとに個別に呼ぶと、漏れる
@@ -262,6 +273,11 @@ export default function Home() {
         }}
         notify={notify}
         onChangeNotify={changeNotify}
+        widgetFilters={widgetFilters}
+        onChangeWidgetFilters={(next) => {
+          setWidgetFilters(next);
+          void saveWidgetFilters(next);
+        }}
         onSignOut={signOutNow}
         onForceSync={() => {
           setSettingsOpen(false);

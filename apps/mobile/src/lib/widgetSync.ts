@@ -1,6 +1,7 @@
 import { ExtensionStorage } from "@bacons/apple-targets";
 import { occurrencesInRange, type CalendarData } from "./calendarData";
 import { ACCENTS, type AccentKey } from "./accents";
+import { DEFAULT_WIDGET_FILTERS, type WidgetFilters } from "./widgetFilters";
 import { sendToWatch } from "../../modules/kichijitsu-watch";
 
 /**
@@ -28,11 +29,20 @@ function writeShared(key: string, json: string): void {
   sendToWatch(watchContext);
 }
 
-/** 終わっていない予定を、開始順に最大 MAX_EVENTS 件。終日・不在・不参加は含めない(通知と同じ)。 */
-export function updateWidget(data: CalendarData): void {
+/**
+ * 終わっていない予定を、開始順に最大 MAX_EVENTS 件。不参加は含めない。不在と勤務場所の予定は、
+ * 設定(filters)で含めるかを選ぶ。
+ */
+export function updateWidget(data: CalendarData, filters: WidgetFilters = DEFAULT_WIDGET_FILTERS): void {
   const now = Date.now();
   const events = occurrencesInRange(data, now, now + HORIZON_DAYS * 86_400_000)
-    .filter((o) => !o.isOutOfOffice && o.responseStatus !== "declined" && o.endMs > now)
+    .filter(
+      (o) =>
+        (filters.outOfOffice || !o.isOutOfOffice) &&
+        (filters.workingLocation || !o.isWorkingLocation) &&
+        o.responseStatus !== "declined" &&
+        o.endMs > now,
+    )
     .slice(0, MAX_EVENTS)
     .map((o) => ({
       title: o.title || "(タイトルなし)",

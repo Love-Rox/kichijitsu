@@ -4,6 +4,7 @@ import { Alert, Modal, Pressable, ScrollView, Switch, View } from "react-native"
 import { writeTargetKey } from "@kichijitsu/web/sync/eventCreate";
 import type { AccountCalendars, CalendarData } from "../lib/calendarData";
 import { LEAD_OPTIONS, type NotifySettings } from "../lib/notifications";
+import type { WidgetFilters } from "../lib/widgetFilters";
 import { useTheme } from "../theme";
 import { Text } from "./ui";
 import { Icon } from "./Icon";
@@ -24,6 +25,8 @@ export function SettingsSheet({
   onSetDefault,
   notify,
   onChangeNotify,
+  widgetFilters,
+  onChangeWidgetFilters,
   onSignOut,
   onForceSync,
 }: {
@@ -38,6 +41,9 @@ export function SettingsSheet({
   /** 予定の開始通知の設定。 */
   notify: NotifySettings;
   onChangeNotify: (next: NotifySettings) => void;
+  /** ウィジェットと Apple Watch に出す予定の絞り込み(不在・勤務場所)。 */
+  widgetFilters: WidgetFilters;
+  onChangeWidgetFilters: (next: WidgetFilters) => void;
   onSignOut: () => void;
   /** 強制同期: 全カレンダーを、Google から取り直す(シートを閉じて、画面の同期表示に任せる)。 */
   onForceSync: () => void;
@@ -234,6 +240,26 @@ export function SettingsSheet({
               Google カレンダーで、予定ごと(無ければカレンダーごと)に設定した通知の時刻に合わせます。通知を設定していない予定には出ません。
             </Text>
           ) : null}
+
+          <Text style={{ fontSize: 13, color: t.inkSub, marginTop: 24, marginBottom: 6 }}>ウィジェットと Apple Watch</Text>
+          {(
+            [
+              ["outOfOffice", "不在の予定を含める"],
+              ["workingLocation", "勤務場所の予定を含める"],
+            ] as const
+          ).map(([key, label]) => (
+            <View key={key} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7 }}>
+              <Text style={{ flex: 1 }}>{label}</Text>
+              <Switch
+                value={widgetFilters[key]}
+                onValueChange={(on) => onChangeWidgetFilters({ ...widgetFilters, [key]: on })}
+                trackColor={{ true: t.accent }}
+              />
+            </View>
+          ))}
+          <Text style={{ fontSize: 12, color: t.inkSub }}>
+            ホーム画面のウィジェットと、Apple Watch のアプリ・コンプリケーションに出す予定です。通知やアプリ内の表示は変わりません。
+          </Text>
 
           <Text style={{ fontSize: 13, color: t.inkSub, marginTop: 24, marginBottom: 6 }}>同期</Text>
           <Pressable
