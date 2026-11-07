@@ -7,7 +7,7 @@ import type { OccurrenceStore } from "../store/occurrenceStore";
 import type { TaskStore } from "../store/taskStore";
 import type { EventCreateDraft, WriteTargetCandidate } from "../sync/eventCreate";
 import type { EventEditDraft } from "../sync/eventEdit";
-import type { GuestChange } from "../sync/eventGuests";
+import type { GuestChange, GuestScope } from "../sync/eventGuests";
 import type { GuestNotify } from "../sync/guestNotify";
 import type { CheckedFetch } from "../sync/httpJson";
 import type { RecurrenceScope } from "../sync/recurrenceScope";
@@ -153,7 +153,7 @@ export interface EventMutationsController {
   editGuests: (
     subject: Occurrence | AllDayOccurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
   /**
    * 予定の色の変更 (onSetColor)。サーバー (POST /api/event/color) が受け付けてから手元へ反映する

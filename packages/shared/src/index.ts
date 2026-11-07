@@ -42,6 +42,7 @@ export type {
   EventRsvpResponse,
   EventGuestsRequest,
   EventGuestsResponse,
+  EventGuestsFollowingResponse,
   EventCreateRequest,
   OutOfOfficeAutoDecline,
   EventCreateResponse,

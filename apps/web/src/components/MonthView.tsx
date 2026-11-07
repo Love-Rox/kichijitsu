@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RecurrenceScope } from "../sync/recurrenceScope";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Temporal } from "@js-temporal/polyfill";
@@ -17,7 +16,7 @@ import {
   isEditableEventSubject,
   type EventEditDraft,
 } from "../sync/eventEdit";
-import { canEditGuests, type GuestChange } from "../sync/eventGuests";
+import { canEditGuests, type GuestChange, type GuestScope } from "../sync/eventGuests";
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
@@ -66,7 +65,7 @@ interface MonthViewProps {
   onEditGuests: (
     occurrence: Occurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更 (時刻予定・終日予定とも同じ関数) */

@@ -15,6 +15,7 @@ import type {
   EventCreateResponse,
   EventDeleteResponse,
   EventGuestsResponse,
+  EventGuestsFollowingResponse,
   EventPatchResponse,
   EventColorResponse,
   EventMeetResponse,
@@ -241,6 +242,49 @@ eventRoutes.post("/api/event/guests", requireAuth, async (c) => {
   }
 
   return c.json<EventGuestsResponse>({ ok: true });
+});
+
+// 「これ以降」でゲストを変える (シリーズの分割、2026-11-07)。ボディは /api/event/guests と同じ
+// (eventId は対象の回のインスタンス id)。安全に分割できない予定は、書き込みを何も行わずに
+// 422 split_unsupported + reason で返す (UI が理由を日本語で出し分ける)。
+eventRoutes.post("/api/event/guests-following", requireAuth, async (c) => {
+  const body = await readJsonBody<unknown>(c);
+  if (body === INVALID_JSON) return c.json<ApiError>({ error: "invalid_json" }, 400);
+  if (!isValidEventGuestsRequest(body)) {
+    return c.json<ApiError>({ error: "missing_fields" }, 400);
+  }
+
+  const denied = await denyUnlessAccountInProfile(c, body.accountId);
+  if (denied) return denied;
+
+  const stub = c.env.USER_SYNC.getByName(body.accountId);
+  const result = await stub.editEventGuestsFollowing(
+    body.accountId,
+    body.calendarId,
+    body.eventId,
+    body.addEmails,
+    body.removeEmails,
+  );
+  if (!result.ok) {
+    console.warn(
+      `event guests following failed: account=${body.accountId} calendar=${body.calendarId} event=${body.eventId} status=${result.status} error=${result.error}`,
+    );
+    if (result.error === "not_organizer") {
+      return c.json<ApiError>({ error: "not_organizer" }, 422);
+    }
+    if (result.error.startsWith("split_unsupported:")) {
+      return c.json(
+        { error: "split_unsupported", reason: result.error.slice("split_unsupported:".length) },
+        422,
+      );
+    }
+    return c.json<ApiError>({ error: "guests_failed" }, 409);
+  }
+
+  return c.json<EventGuestsFollowingResponse>({
+    ok: true,
+    meetDropped: result.data.meetDropped,
+  });
 });
 
 // 新規予定を Google へ作成する (フェーズ5、2026-07-29 全項目入力に拡張)。エラーの一律 409

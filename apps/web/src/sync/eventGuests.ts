@@ -45,6 +45,60 @@ import type { RecurrenceScope } from "./recurrenceScope";
  * 打ち切られた予定でも、手元に無い参加者を巻き添えで消さずに編集できる。
  */
 
+/**
+ * ゲストの変更の適用範囲。RecurrenceScope (この予定のみ/すべての予定) に「これ以降」を足したもの。
+ * 「これ以降」は Google に直接の手段が無く、サーバーがシリーズを2つに割って実現する
+ * (POST /api/event/guests-following)。他の操作 (色・編集・移動) には広げない ――
+ * あちらは割る必要の無い属性で、RecurrenceScope を共有しているため。
+ */
+export type GuestScope = RecurrenceScope | "following";
+
+/** 「これ以降」を安全に実行できない予定だったときの理由 (サーバーの SplitRefusalReason と同じ値) */
+export type GuestSplitRefusalReason =
+  | "not_recurring"
+  | "complex_recurrence"
+  | "count_rule"
+  | "first_instance"
+  | "has_future_exceptions"
+  | "unsupported_type";
+
+/**
+ * POST /api/event/guests-following が 422 split_unsupported を返したことを示すエラー。
+ * 書き込みは何も行われていない。理由は splitRefusalMessage で日本語にする。
+ */
+export class GuestSplitUnsupportedError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`split_unsupported:${reason}`);
+    this.name = "GuestSplitUnsupportedError";
+    this.reason = reason;
+  }
+}
+
+const SPLIT_REFUSAL_TEXT: Record<GuestSplitRefusalReason, string> = {
+  first_instance: "最初の回なので、「これ以降」ではなく「すべての予定」を選んでください",
+  count_rule: "回数で終わる繰り返しは「これ以降」にできません。「すべての予定」か「この予定のみ」を選んでください",
+  has_future_exceptions:
+    "これ以降に個別に変更した回があるため、「これ以降」にできません。「すべての予定」か「この予定のみ」を選んでください",
+  complex_recurrence:
+    "この繰り返しは「これ以降」にできません。「すべての予定」か「この予定のみ」を選んでください",
+  unsupported_type: "この種類の予定は「これ以降」にできません",
+  not_recurring: "繰り返しの予定ではないため、「これ以降」にできません",
+};
+
+/** 断られた理由 → 画面に出す文 (知らない理由は汎用の文にする) */
+export function splitRefusalMessage(reason: string): string {
+  return (
+    (SPLIT_REFUSAL_TEXT as Record<string, string | undefined>)[reason] ??
+    "この予定は「これ以降」にできません"
+  );
+}
+
+/** 適用範囲に応じた書き込み先の API パス */
+export function guestsEndpoint(scope: GuestScope): string {
+  return scope === "following" ? "/api/event/guests-following" : "/api/event/guests";
+}
+
 /** ゲスト欄からの1回ぶんの変更。追加と削除を同時に指定できる (両方空なら何も送らない) */
 export interface GuestChange {
   addEmails?: string[];
@@ -198,7 +252,7 @@ export function canEditGuests(subject: GuestEditSubject): boolean {
  * ゲストの変更を書き込む宛先の Google event id。単発はその予定の id。繰り返しは適用範囲で
  * 決まる ―― "all" は親(シリーズ)の id、"this" はその回のインスタンス id。
  */
-function guestTargetEventId(subject: GuestEditSubject, scope: RecurrenceScope): string {
+function guestTargetEventId(subject: GuestEditSubject, scope: GuestScope): string {
   if (!subject.seriesId) return rawGoogleEventId(subject.id);
   if (scope === "all") return rawGoogleEventId(subject.seriesId);
   if (subject.originalStartMs === undefined) {
@@ -224,7 +278,7 @@ export interface BuiltGuestsRequest {
 export function buildEventGuestsRequest(
   subject: GuestEditSubject,
   change: GuestChange,
-  scope: RecurrenceScope = "this",
+  scope: GuestScope = "this",
 ): BuiltGuestsRequest | null {
   if (!canEditGuests(subject)) return null;
   const addEmails = (change.addEmails ?? []).filter((e) => e.length > 0);

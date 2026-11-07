@@ -64,3 +64,19 @@ export class NotOrganizerError extends Error {
     this.name = "NotOrganizerError";
   }
 }
+
+/**
+ * 「これ以降」でのゲスト変更 (シリーズの分割、2026-11-07) を安全に行えない予定だった場合。
+ * reason は UI が理由を日本語で出し分けるための機械可読な値 (core/guest-following-plan.ts の
+ * SplitRefusalReason)。書き込みは**何も行っていない**ことを保証して投げる
+ * (rpc-result.ts が 422 split_unsupported:<reason> に変換する)。
+ */
+export class SplitUnsupportedError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(`Cannot split this recurring event safely: ${reason}`);
+    this.name = "SplitUnsupportedError";
+    this.reason = reason;
+  }
+}

@@ -807,6 +807,23 @@ export interface EventGuestsResponse {
 }
 
 /**
+ * POST /api/event/guests-following — 繰り返しの予定で「これ以降」のゲストを変える
+ * (シリーズの分割、2026-11-07)。ボディは EventGuestsRequest と同じ (eventId は対象の回の
+ * インスタンス id)。Google には「これ以降」を直接指定する手段が無いので、サーバーが
+ * 元のシリーズを UNTIL で打ち切り、対象の回から新しいシリーズを作る (書き込みは回数に依らず2回)。
+ *
+ * **安全に分割できない予定は、何も書かずに 422 `{ error: "split_unsupported", reason }`** で断る。
+ * reason: not_recurring / complex_recurrence / count_rule / first_instance /
+ * has_future_exceptions / unsupported_type (core/guest-following-plan.ts の SplitRefusalReason)。
+ * 主催者でない予定は EventGuestsRequest と同じく 422 `not_organizer`。
+ */
+export interface EventGuestsFollowingResponse {
+  ok: boolean;
+  /** Meet の会議情報を新シリーズへ写せず、Meet 無しで作った (UI が一言伝える) */
+  meetDropped?: boolean;
+}
+
+/**
  * POST /api/event/create — 新規予定を Google に作成 (フェーズ5、2026-07-29 全項目入力に拡張)。
  * 作成結果の正本は次の同期 (SSE changed → /api/sync) で還流するが、UI の
  * 楽観的表示のため作成された eventId を即時に返す。

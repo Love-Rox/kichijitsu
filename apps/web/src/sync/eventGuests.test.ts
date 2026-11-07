@@ -5,8 +5,10 @@ import {
   buildEventGuestsRequest,
   canEditGuests,
   guestEmailKey,
+  guestsEndpoint,
   isValidGuestEmail,
   parseGuestEmailInput,
+  splitRefusalMessage,
   type GuestEditSubject,
 } from "./eventGuests";
 
@@ -217,6 +219,20 @@ describe("buildEventGuestsRequest (繰り返し)", () => {
   it("すべての予定: 親(シリーズ)の id 宛て", () => {
     const req = buildEventGuestsRequest(recurring, { addEmails: ["a@example.com"] }, "all");
     expect(req?.eventId).toBe("series-1");
+  });
+
+  it("これ以降: 対象の回のインスタンス id 宛て(シリーズの分割はサーバーが行う)", () => {
+    const req = buildEventGuestsRequest(recurring, { addEmails: ["a@example.com"] }, "following");
+    expect(req?.eventId).toBe("series-1_20270115T010000Z");
+    expect(guestsEndpoint("following")).toBe("/api/event/guests-following");
+    expect(guestsEndpoint("this")).toBe("/api/event/guests");
+    expect(guestsEndpoint("all")).toBe("/api/event/guests");
+  });
+
+  it("断られた理由は日本語になり、知らない理由でも汎用の文になる", () => {
+    expect(splitRefusalMessage("count_rule")).toContain("回数で終わる");
+    expect(splitRefusalMessage("first_instance")).toContain("最初の回");
+    expect(splitRefusalMessage("something_new")).toContain("これ以降");
   });
 
   it("scope を省略すると この予定のみ", () => {

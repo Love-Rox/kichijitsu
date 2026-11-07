@@ -16,7 +16,6 @@ import type { IDBPDatabase } from "idb";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import { getOverride, getSeries, putOverride, putSeries, type KichijitsuDB } from "../../db/database";
 import { reexpandCurrentWindow } from "../../expansion/ensureExpanded";
-import type { RecurrenceScope } from "../../sync/recurrenceScope";
 import type { AllDayOccurrence, Occurrence } from "../../model/types";
 import type { AllDayStore } from "../../store/allDayStore";
 import type { OccurrenceStore } from "../../store/occurrenceStore";
@@ -24,7 +23,10 @@ import {
   applyGuestChangesLocally,
   buildEventGuestsRequest,
   GuestNotOrganizerError,
+  GuestSplitUnsupportedError,
+  guestsEndpoint,
   type GuestChange,
+  type GuestScope,
 } from "../../sync/eventGuests";
 import { buildEventRsvpRequest, RsvpNotAttendeeError } from "../../sync/eventRsvp";
 import { sendJson, type CheckedFetch } from "../../sync/httpJson";
@@ -46,7 +48,7 @@ export function useAttendeeMutations({
   editGuests: (
     subject: Occurrence | AllDayOccurrence,
     change: GuestChange,
-    scope?: RecurrenceScope,
+    scope?: GuestScope,
   ) => Promise<void>;
 } {
   // ---- RSVP (参加ステータス変更、フェーズ2、2026-07-22) ----
@@ -102,11 +104,29 @@ export function useAttendeeMutations({
     async (
       subject: Occurrence | AllDayOccurrence,
       change: GuestChange,
-      scope: RecurrenceScope = "this",
+      scope: GuestScope = "this",
     ): Promise<void> => {
       const req = buildEventGuestsRequest(subject, change, scope);
       if (!req) {
         throw new Error("kichijitsu: could not build EventGuestsRequest");
+      }
+
+      // ---- 「これ以降」(シリーズの分割、2026-11-07) ----
+      // サーバーが元のシリーズを打ち切って新しいシリーズを作る。手元の series / override は
+      // 触らない: 分割後の姿 (どの回がどちらのシリーズか) を予測して書くと、食い違ったときに
+      // 戻せない。次の同期 (Google の通知 → SSE → /api/sync) で正しい形が還流する。
+      // 安全に分割できない予定は 422 split_unsupported (書き込みは何も行われていない)。
+      if (scope === "following") {
+        const res = await sendJson(checkedFetch, "POST", guestsEndpoint(scope), req);
+        if (res.ok) return;
+        if (res.status === 422) {
+          const body = (await res.json().catch(() => null)) as { error?: string; reason?: string } | null;
+          if (body?.error === "split_unsupported") {
+            throw new GuestSplitUnsupportedError(body.reason ?? "");
+          }
+          throw new GuestNotOrganizerError();
+        }
+        throw new Error(`kichijitsu: POST ${guestsEndpoint(scope)} failed: ${res.status}`);
       }
 
       // ---- 繰り返しの予定 (この予定のみ / すべての予定、2026-11-07) ----
