@@ -33,6 +33,10 @@ function DuotoneIcon({
       height={height}
       viewBox={ICON_VIEWBOX}
       fill="currentColor"
+      // 文字と同じ行に置くとき(アイコンだけのボタンも含む)、基準線に載せると、下に字の下端ぶんの
+      // すき間ができてアイコンが上にずれ、ボタンも縦に膨らむ。-0.125em は、そのすき間を打ち消す定番の値
+      // (flex/grid の子では効かないだけで、害はない)
+      style={{ verticalAlign: "-0.125em" }}
       className={className}
       aria-hidden="true"
     >
