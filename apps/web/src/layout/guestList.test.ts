@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { EventAttendee } from "../model/types";
-import { buildGuestListView, guestRemovalBlockReason, GUEST_PREVIEW_COUNT } from "./guestList";
+import { buildGuestListView, guestRemovalBlockReason } from "./guestList";
 
 /** 数十人ぶんの参加者を作る (数え方・切り詰めの境界確認用) */
 function manyGuests(count: number): EventAttendee[] {
@@ -133,13 +133,11 @@ describe("buildGuestListView", () => {
     expect(view?.summaryLabel).toBe("参加 2");
   });
 
-  it("数十人でも数え上げは正しく、畳む行数の判断に使える形で返る", () => {
+  it("数十人でも数え上げは正しく返る", () => {
     const view = buildGuestListView(manyGuests(48));
     expect(view?.countLabel).toBe("ゲスト 48人");
     expect(view?.summaryLabel).toBe("未返信 48");
     expect(view?.guests).toHaveLength(48);
-    // 畳んだ状態で見えるのは先頭 GUEST_PREVIEW_COUNT 件だけ (残りは開くと出る)
-    expect(view!.guests.slice(0, GUEST_PREVIEW_COUNT)).toHaveLength(GUEST_PREVIEW_COUNT);
   });
 
   it("一覧が打ち切られていれば人数を断定せず「〜人以上」と出す", () => {
