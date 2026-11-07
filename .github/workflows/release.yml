@@ -102,6 +102,11 @@ jobs:
 
             **DMG を直接ダウンロードする場合**
             下の `kichijitsu_*_aarch64.dmg` を使用してください(Apple Silicon 専用です)。
+
+            **Windows**
+            下の `kichijitsu_*_x64-setup.exe`(または `.msi`)を使用してください。
+            ※ 現時点ではコード署名をしていないため、初回は SmartScreen の警告が出ます
+            (「詳細情報」→「実行」)。
           # 容量とビルド時間を減らすため Apple Silicon (aarch64) に絞った。Intel Mac 向けは配布しない。
           args: --target aarch64-apple-darwin
 
@@ -215,3 +220,68 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "kichijitsu ${version}"
           git push
+
+  # Windows 版。macOS のジョブの後に走らせる(needs)。同じタグのリリースを 2 つのジョブが
+  # 同時に作ろうとして競合するのを避け、tauri-action が latest.json に Windows の項目を
+  # 足す(既存の darwin の項目を残したまま)ため。macOS が失敗したときは Windows も走らない。
+  # コード署名はしていない(証明書が無い)。更新用の署名(TAURI_SIGNING_PRIVATE_KEY)は
+  # macOS と同じ鍵で行う。
+  build-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # 更新用の署名鍵が無いと、更新の成果物(.sig)ができず、Windows だけ自動更新が配られない。
+      - name: Check updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::secrets.TAURI_SIGNING_PRIVATE_KEY が未設定です"
+            exit 1
+          fi
+
+      - uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "kichijitsu ${{ github.ref_name }}"
+
+      # 配信物の確認。latest.json に Windows の項目(url と署名)が入っていなければ失敗にする。
+      - name: Verify updater manifest (Windows)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          gh release download "$TAG_NAME" --pattern latest.json --dir "$dir"
+          jq -e '.platforms["windows-x86_64"] | (.url | length > 0) and (.signature | length > 0)' "$dir/latest.json" >/dev/null \
+            || { echo "::error::latest.json の windows-x86_64 に url / signature がありません"; exit 1; }
+          jq -e '.platforms["darwin-aarch64"].url | length > 0' "$dir/latest.json" >/dev/null \
+            || { echo "::error::latest.json から darwin-aarch64 の項目が消えています"; exit 1; }
