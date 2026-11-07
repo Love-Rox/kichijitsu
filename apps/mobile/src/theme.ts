@@ -1,4 +1,6 @@
 import { useColorScheme } from "react-native";
+import { ACCENTS, type AccentKey } from "./lib/accents";
+import { useThemePrefs } from "./lib/themePrefs";
 
 /**
  * デスクトップ(Web)版のカラーパレット (apps/web/src/theme.css の `--c-*` トークン) を、そのまま移したもの。
@@ -91,8 +93,10 @@ export function mix(a: string, b: string, pct: number): string {
   return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
 }
 
-function build(scheme: "light" | "dark"): Theme {
-  const p = scheme === "dark" ? dark : light;
+function build(scheme: "light" | "dark", accent: AccentKey): Theme {
+  const base = scheme === "dark" ? dark : light;
+  // アクセントは、選んだ色で差し替える(既定の朱は、元のパレットと同じ値)
+  const p = { ...base, ...ACCENTS[accent][scheme] };
   return {
     ...p,
     scheme,
@@ -103,9 +107,16 @@ function build(scheme: "light" | "dark"): Theme {
   };
 }
 
-const themes = { light: build("light"), dark: build("dark") };
+const cache = new Map<string, Theme>();
+function themeFor(scheme: "light" | "dark", accent: AccentKey): Theme {
+  const key = `${scheme}:${accent}`;
+  let t = cache.get(key);
+  if (!t) cache.set(key, (t = build(scheme, accent)));
+  return t;
+}
 
-/** OS のライト/ダークに追従したパレット。 */
+/** OS(または設定の外観)のライト/ダークと、選んだアクセント色に追従したパレット。 */
 export function useTheme(): Theme {
-  return useColorScheme() === "dark" ? themes.dark : themes.light;
+  const scheme = useColorScheme() === "dark" ? "dark" : "light";
+  return themeFor(scheme, useThemePrefs().accent);
 }
