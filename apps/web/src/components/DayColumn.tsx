@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { RecurrenceScope } from "../sync/recurrenceScope";
 import { createPortal } from "react-dom";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
@@ -167,7 +168,11 @@ interface DayColumnProps {
   /** 詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   /** EventBlock へそのまま流す (ゲストの追加・削除、2026-07-31) */
-  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onEditGuests: (
+    occurrence: Occurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
   /** EventBlock へそのまま流す (予定の色の変更) */
   onSetColor: SetEventColor;
   /** EventBlock へそのまま流す (Meet の追加) */

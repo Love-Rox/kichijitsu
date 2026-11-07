@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { RecurrenceScope } from "../sync/recurrenceScope";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Temporal } from "@js-temporal/polyfill";
@@ -62,7 +63,11 @@ interface MonthViewProps {
   onRsvp: (occurrence: Occurrence, status: RsvpResponseStatus) => Promise<void>;
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
   /** ゲストの追加・削除 (2026-07-31)。WeekGrid と同じ2本 (時刻予定 / 終日予定) */
-  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onEditGuests: (
+    occurrence: Occurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更 (時刻予定・終日予定とも同じ関数) */
   onSetColor: SetEventColor;
@@ -407,7 +412,7 @@ export function MonthView({
               onRsvp={(status) => onRsvp(detailSubject as Occurrence, status)}
               onEditGuests={
                 canEditGuests(detailSubject as Occurrence)
-                  ? (change) => onEditGuests(detailSubject as Occurrence, change)
+                  ? (change, scope) => onEditGuests(detailSubject as Occurrence, change, scope)
                   : undefined
               }
               onSetColor={

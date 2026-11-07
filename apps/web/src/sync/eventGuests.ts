@@ -1,7 +1,8 @@
 import type { EventAttendee, Occurrence } from "../model/types";
 import { guestRemovalBlockReason } from "../layout/guestList";
 import { isEditableEventSubject } from "./eventEdit";
-import { rawGoogleEventId } from "./eventPatch";
+import { rawGoogleEventId, seriesInstanceEventId } from "./eventPatch";
+import type { RecurrenceScope } from "./recurrenceScope";
 
 /**
  * ゲスト (参加者) の追加・削除 (2026-07-31) に関する純関数群。詳細ポップオーバーの
@@ -23,11 +24,12 @@ import { rawGoogleEventId } from "./eventPatch";
  *     追加 = バックフィル世代の引き上げ (全利用者の再全同期) を伴う。**主催者のときだけ
  *     編集可**にすれば、世代を上げずに同じ事故を確実に防げる。
  *     (捨てているもの: 自分が主催でない予定に人を足す導線。Google カレンダー側で行う)
- *  2. **繰り返し予定**。公式には「an exception may have … additional attendees invited
- *     only to that instance」とあり1回分だけ変えること自体は正規の操作だが、
- *     Occurrence は「いま表示している一覧がシリーズ由来か例外由来か」を持っていない
- *     (expandSeries が override.patch.attendees を優先して潰す) ため、**何を全置換
- *     しようとしているのかクライアントからは決められない**。この版では対象外にする。
+ *  2. **繰り返し予定** (2026-11-07 に対象へ追加)。当初は「いま表示している一覧が
+ *     シリーズ由来か例外由来か」をクライアントが持っておらず、何を全置換しようとして
+ *     いるのか決められなかったため対象外にしていた。だが**送るのは差分だけで、
+ *     read-modify-write はサーバーが宛先の event に対して行う**ので、その心配は要らない。
+ *     宛先は適用範囲で決める: 「この予定のみ」= その回のインスタンス id、
+ *     「すべての予定」= 親(シリーズ)の id (色の変更と同じ。sync/eventColor.ts)。
  *
  * 最終的な可否の判断はサーバー側 (apps/sync の core/guest-event.ts) が `events.get` の
  * `organizer.self` で行う ―― ここでの判定は導線を出すかどうかの UI 判断であって、
@@ -159,6 +161,8 @@ export interface GuestEditSubject {
   title: string;
   source: Occurrence["source"];
   seriesId?: string | null;
+  /** 繰り返しの1回分のときの元の開始時刻。インスタンス id を作るのに要る */
+  originalStartMs?: number;
   isMirror?: boolean;
   isOrganizer?: boolean;
   accountId?: string;
@@ -171,7 +175,7 @@ export interface GuestEditSubject {
  *
  *  - 編集可能な Google 予定であること (source==='google'、mirror や Busy でない)
  *  - **自分が主催**であること (isOrganizer===true)
- *  - **繰り返しシリーズ由来でない**こと (seriesId が null/undefined)
+ *  - 繰り返しの1回分なら originalStartMs があること (インスタンス id を作れる)
  *  - accountId/calendarId が揃っていて、id から event id を取り出せること
  *
  * false のときはゲスト欄を従来どおり表示のみで出す ―― 「できません」と書いた
@@ -180,14 +184,27 @@ export interface GuestEditSubject {
 export function canEditGuests(subject: GuestEditSubject): boolean {
   if (!isEditableEventSubject(subject)) return false;
   if (subject.isOrganizer !== true) return false;
-  if (subject.seriesId) return false;
+  if (subject.seriesId && subject.originalStartMs === undefined) return false;
   if (!subject.accountId || !subject.calendarId) return false;
   try {
-    rawGoogleEventId(subject.id);
+    guestTargetEventId(subject, "this");
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * ゲストの変更を書き込む宛先の Google event id。単発はその予定の id。繰り返しは適用範囲で
+ * 決まる ―― "all" は親(シリーズ)の id、"this" はその回のインスタンス id。
+ */
+function guestTargetEventId(subject: GuestEditSubject, scope: RecurrenceScope): string {
+  if (!subject.seriesId) return rawGoogleEventId(subject.id);
+  if (scope === "all") return rawGoogleEventId(subject.seriesId);
+  if (subject.originalStartMs === undefined) {
+    throw new Error("kichijitsu: recurring guest edit needs originalStartMs");
+  }
+  return seriesInstanceEventId(subject.seriesId, subject.originalStartMs);
 }
 
 /** POST /api/event/guests の body (protocol.ts の EventGuestsRequest と同じ形) */
@@ -207,6 +224,7 @@ export interface BuiltGuestsRequest {
 export function buildEventGuestsRequest(
   subject: GuestEditSubject,
   change: GuestChange,
+  scope: RecurrenceScope = "this",
 ): BuiltGuestsRequest | null {
   if (!canEditGuests(subject)) return null;
   const addEmails = (change.addEmails ?? []).filter((e) => e.length > 0);
@@ -216,7 +234,7 @@ export function buildEventGuestsRequest(
     return {
       accountId: subject.accountId!,
       calendarId: subject.calendarId!,
-      eventId: rawGoogleEventId(subject.id),
+      eventId: guestTargetEventId(subject, scope),
       ...(addEmails.length > 0 ? { addEmails } : {}),
       ...(removeEmails.length > 0 ? { removeEmails } : {}),
     };

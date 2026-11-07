@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { RecurrenceScope } from "../sync/recurrenceScope";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Temporal } from "@js-temporal/polyfill";
 import type { GitHubActivityDTO, GitHubCiRunDTO, RsvpResponseStatus } from "@kichijitsu/shared";
@@ -194,7 +195,11 @@ interface WeekGridProps {
   /** 終日レーンの詳細ポップオーバーの RSVP ボタンから呼ばれる(フェーズ2、2026-07-22) */
   onAllDayRsvp: (occurrence: AllDayOccurrence, status: RsvpResponseStatus) => Promise<void>;
   /** ゲストの追加・削除 (2026-07-31)。時刻予定は DayColumn、終日は AllDayBar へ流す */
-  onEditGuests: (occurrence: Occurrence, change: GuestChange) => Promise<void>;
+  onEditGuests: (
+    occurrence: Occurrence,
+    change: GuestChange,
+    scope?: RecurrenceScope,
+  ) => Promise<void>;
   onAllDayEditGuests: (occurrence: AllDayOccurrence, change: GuestChange) => Promise<void>;
   /** 予定の色の変更。時刻予定は DayColumn、終日は AllDayBar へ流す(同じ関数) */
   onSetColor: SetEventColor;
