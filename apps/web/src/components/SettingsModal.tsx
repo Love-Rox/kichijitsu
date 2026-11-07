@@ -13,6 +13,7 @@ import { McpTokensSection } from "./settings/McpTokensSection";
 import { ReminderSection } from "./settings/ReminderSection";
 import { ResyncControl } from "./settings/ResyncControl";
 import { ThemeSection } from "./settings/ThemeSection";
+import { TimeZoneSection } from "./settings/TimeZoneSection";
 import "./SettingsModal.css";
 
 export interface SettingsModalProps {
@@ -212,6 +213,9 @@ export function SettingsModal({
          * (localStorage だけで完結する) ため、他セクションと違い常に描画される。
          */}
         <ThemeSection />
+
+        {/* 複数タイムゾーン(2026-11-07)。テーマと同じく、端末の localStorage だけで完結する見た目の設定 */}
+        <TimeZoneSection />
 
         {/*
          * Google 審査要件の導線(プライバシーポリシー・規約)。旧 CalendarSettingsPanel と
