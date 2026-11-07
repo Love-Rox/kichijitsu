@@ -2,7 +2,7 @@ import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppState, PanResponder, Pressable, ScrollView, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
-import { Text } from "./ui";
+import { FONT_SCALE, Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
 import { allDaysOnDate, occurrencesByDay, type CalendarData } from "../lib/calendarData";
@@ -451,7 +451,7 @@ export function Timeline({
                     <Text
                       // 行数は、ブロックの高さに収まる分だけ(狭い列で、1 文字ずつ折り返されて
                       // 縦に伸びすぎないように)。週表示は、列が狭いので文字も小さくする
-                      numberOfLines={Math.max(1, Math.floor((height - 2) / (compact ? 12 : 14)))}
+                      numberOfLines={Math.max(1, Math.floor((height - 2) / ((compact ? 12 : 14) * FONT_SCALE)))}
                       style={{ fontSize: compact ? 9.5 : 11, lineHeight: compact ? 12 : 14, color: t.ink }}
                     >
                       {o.isOutOfOffice ? `不在 ${o.title}` : o.title}
