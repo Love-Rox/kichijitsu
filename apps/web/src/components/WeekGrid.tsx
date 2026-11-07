@@ -1130,7 +1130,9 @@ export function WeekGrid({
                   return (
                     <div
                       key={day.toString()}
-                      className={isToday ? "week-grid-day-header is-today" : "week-grid-day-header"}
+                      className={`week-grid-day-header${isToday ? " is-today" : ""}${
+                        day.dayOfWeek >= 6 ? " is-weekend" : ""
+                      }${Temporal.PlainDate.compare(day, todayPlainDate) < 0 ? " is-past" : ""}`}
                     >
                       <span className="weekday">{WEEKDAY_LABELS[day.dayOfWeek - 1]}</span>
                       <span className="date">
@@ -1377,6 +1379,8 @@ export function WeekGrid({
                       dayStartMs={dayStarts[dayIndex]}
                       dayEndMs={dayEnds[dayIndex]}
                       isToday={day.equals(todayPlainDate)}
+                      isWeekend={day.dayOfWeek >= 6}
+                      isPast={Temporal.PlainDate.compare(day, todayPlainDate) < 0}
                       nowMs={nowMs}
                       positioned={positioned}
                       timeZone={timeZone}

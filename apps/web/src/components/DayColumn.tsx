@@ -26,7 +26,7 @@ import {
   type DroppedWorkItem,
 } from "../sync/planned";
 import { packColumns } from "../layout/packColumns";
-import { layoutOverlaps } from "../layout/overlapLayout";
+import { layoutOverlapsCapped } from "../layout/overlapLayout";
 import { clusterOverflowSuffix } from "../layout/clusterByTopPx";
 import { packDayRailBands, railBandColumnCount } from "../layout/railItems";
 import type { OccurrenceGroup } from "../layout/groupDuplicates";
@@ -149,6 +149,10 @@ interface DayColumnProps {
   dayStartMs: number;
   dayEndMs: number;
   isToday: boolean;
+  /** 土日か(列の地を、ごく薄く色づける。見渡しやすさ、2026-11-07) */
+  isWeekend?: boolean;
+  /** 今日より前の日か(列の地を、ごく薄く色づける) */
+  isPast?: boolean;
   nowMs: number;
   positioned: ReturnType<typeof packColumns<OccurrenceGroup>>;
   timeZone: string;
@@ -287,6 +291,8 @@ export function DayColumn({
   dayStartMs,
   dayEndMs,
   isToday,
+  isWeekend = false,
+  isPast = false,
   nowMs,
   positioned,
   timeZone,
@@ -346,7 +352,22 @@ export function DayColumn({
   // 「左を 14% ずつずらして幅は残り全部」で重ねており、後のカードが先のカードの見出しを
   // 覆っていた。layoutOverlaps は見出し(先頭 EVENT_HEADER_PX)が覆われない配置にする。
   // Busy と辞退は背景層(全幅・最背面)で、他の予定の幅を奪わない。
-  const overlapSlots = layoutOverlaps(
+  //
+  // 見渡しやすさ(2026-11-07): 横に並べるレーンは 3 本まで(スマホ幅は 2 本)。超える分は隠して、
+  // その塊の右端に「+N」のチップを出す(押すとその塊だけ全部開く)。細切れの帯が並んで、どれも
+  // 読めなくなるのを避けるため。
+  const [expandedClusters, setExpandedClusters] = useState<ReadonlySet<number>>(() => new Set());
+  const toggleCluster = (key: number) =>
+    setExpandedClusters((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const {
+    slots: overlapSlots,
+    hidden: hiddenIds,
+    chips: overlapChips,
+  } = layoutOverlapsCapped(
     positioned.map(({ item: group }) => ({
       id: group.primary.id,
       startMs: group.primary.startMs,
@@ -355,6 +376,7 @@ export function DayColumn({
         isBusyPlaceholder(group.primary.title) || group.primary.responseStatus === "declined",
     })),
     (EVENT_HEADER_PX / hourHeight) * 3_600_000,
+    { maxLanes: longPressCreate ? 2 : 3, expanded: expandedClusters },
   );
 
   // 2026-07-22 横ずれ解消リファクタ: OOO と勤務場所を1本のレール(同じ x=0 起点の列)に統合し、
@@ -701,7 +723,9 @@ export function DayColumn({
 
   return (
     <div
-      className={isToday ? "week-grid-day-column is-today" : "week-grid-day-column"}
+      className={`week-grid-day-column${isToday ? " is-today" : ""}${isWeekend ? " is-weekend" : ""}${
+        isPast ? " is-past" : ""
+      }`}
       onPointerDown={handleColumnPointerDown}
       onPointerMove={handleColumnPointerMove}
       onPointerUp={handleColumnPointerUp}
@@ -712,6 +736,8 @@ export function DayColumn({
     >
       {positioned.map(({ item: group, column }) => {
         const occurrence = group.primary;
+        // 上限を超えて隠した予定(「+N」のチップから開ける)
+        if (hiddenIds.has(occurrence.id)) return null;
         const topPx = msToTopPx(occurrence.startMs, dayStartMs, hourHeight);
         const heightPx = msRangeToHeightPx(occurrence.startMs, occurrence.endMs, hourHeight);
         // コンパクト表示の判定は px 基準(時間軸ズーム対応、2026-07-25)。既定ズームでは
@@ -792,6 +818,21 @@ export function DayColumn({
           })}
         </div>
       )}
+      {overlapChips.map((chip) => (
+        <button
+          key={`chip-${chip.key}`}
+          type="button"
+          className={chip.expanded ? "overlap-chip is-expanded" : "overlap-chip"}
+          style={{ top: msToTopPx(chip.startMs, dayStartMs, hourHeight) }}
+          onClick={() => toggleCluster(chip.key)}
+          aria-expanded={chip.expanded}
+          aria-label={
+            chip.expanded ? "重なった予定を畳む" : `重なった予定をあと ${chip.hiddenCount} 件表示`
+          }
+        >
+          {chip.expanded ? "畳む" : `+${chip.hiddenCount}`}
+        </button>
+      ))}
       {showNowLine && (
         <div className="now-line" style={{ top: nowTop }}>
           <span className="now-line-dot" />
