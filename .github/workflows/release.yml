@@ -104,7 +104,7 @@ jobs:
           done
           exit $missing
 
-      - uses: tauri-apps/tauri-action@v0.6.2
+      - uses: tauri-apps/tauri-action@v1.0.0
         # 後段の cask 更新が artifactPaths 出力 (アップロードした実ファイルのパス) を
         # 参照するため id を振る。
         id: tauri
@@ -285,7 +285,7 @@ jobs:
             exit 1
           fi
 
-      - uses: tauri-apps/tauri-action@v0.6.2
+      - uses: tauri-apps/tauri-action@v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
