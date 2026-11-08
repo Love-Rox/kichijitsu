@@ -113,6 +113,12 @@ struct EventDetailView: View {
             let now = context.date
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
+                    // 一番上に、カレンダー名をカレンダーの色で
+                    if let cal = event.calendar, !cal.isEmpty {
+                        Text(cal).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                            .foregroundStyle(parseHex(event.calendarColor) ?? parseHex(event.color) ?? store.accent)
+                    }
+
                     HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(parseHex(event.color) ?? store.accent)
@@ -133,11 +139,6 @@ struct EventDetailView: View {
 
                     if let loc = event.location, !loc.isEmpty {
                         Label(loc, systemImage: "mappin.and.ellipse").font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let cal = event.calendar, !cal.isEmpty {
-                        Label(cal, systemImage: "calendar").font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                 }

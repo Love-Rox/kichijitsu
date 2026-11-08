@@ -6,7 +6,7 @@ import WidgetKit
 // iPhone → Watch の受け口。applicationContext は「最新の 1 通」だけが届く(古いものは上書き)ので、
 // 一覧の送り直しに向いている。届いたキー("events" / "theme")を、そのまま App Group の UserDefaults に
 // 書く。形式は iPhone 側のウィジェットと同じ:
-//   events: { "updatedAt": <ms>, "events": [{ "title", "startMs", "endMs", "color", "location", "calendar" }] }(JSON 文字列)
+//   events: { "updatedAt": <ms>, "events": [{ "title", "startMs", "endMs", "color", "location", "calendar", "calendarColor" }] }(JSON 文字列)
 //   theme:  { "light": "#rrggbb", "dark": "#rrggbb" }(JSON 文字列)
 // iPhone でログアウトすると、空の events が届いて、一覧が消える。
 let appGroup = "group.cc.love-rox.kichijitsu"
@@ -18,6 +18,7 @@ struct WatchEvent: Decodable, Identifiable {
     let color: String?
     let location: String?   // 古いデータには無い
     let calendar: String?   // カレンダー名。古いデータには無い
+    let calendarColor: String?   // カレンダーの色("#RRGGBB")。古いデータには無い
     var id: String { "\(startMs)-\(title)" }
     var start: Date { Date(timeIntervalSince1970: startMs / 1000) }
     var end: Date { Date(timeIntervalSince1970: endMs / 1000) }

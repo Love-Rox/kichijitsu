@@ -29,11 +29,16 @@ function writeShared(key: string, json: string): void {
   sendToWatch(watchContext);
 }
 
-/** 予定が属するカレンダーの名前。見つからなければ undefined。 */
-function calendarNameOf(data: CalendarData, accountId?: string, calendarId?: string): string | undefined {
+/** 予定が属するカレンダーの名前と色。見つからなければ undefined。 */
+function calendarOf(
+  data: CalendarData,
+  accountId?: string,
+  calendarId?: string,
+): { name: string; color?: string } | undefined {
   for (const a of data.accounts) {
     if (a.accountId !== accountId) continue;
-    return (a.all ?? a.calendars).find((c) => c.id === calendarId)?.summary;
+    const cal = (a.all ?? a.calendars).find((c) => c.id === calendarId);
+    return cal ? { name: cal.summary, color: cal.backgroundColor } : undefined;
   }
   return undefined;
 }
@@ -53,15 +58,19 @@ export function updateWidget(data: CalendarData, filters: WidgetFilters = DEFAUL
         o.endMs > now,
     )
     .slice(0, MAX_EVENTS)
-    .map((o) => ({
-      title: o.title || "(タイトルなし)",
-      startMs: o.startMs,
-      endMs: o.endMs,
-      color: o.color,
-      // Watch の詳細に出す(ウィジェットは使わない)
-      location: o.location || undefined,
-      calendar: calendarNameOf(data, o.accountId, o.calendarId),
-    }));
+    .map((o) => {
+      const cal = calendarOf(data, o.accountId, o.calendarId);
+      return {
+        title: o.title || "(タイトルなし)",
+        startMs: o.startMs,
+        endMs: o.endMs,
+        color: o.color,
+        // Watch の詳細に出す(ウィジェットは使わない)
+        location: o.location || undefined,
+        calendar: cal?.name,
+        calendarColor: cal?.color,
+      };
+    });
   writeShared(KEY, JSON.stringify({ updatedAt: now, events }));
   ExtensionStorage.reloadWidget();
 }
