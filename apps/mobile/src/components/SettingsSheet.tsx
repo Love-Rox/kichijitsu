@@ -93,8 +93,8 @@ export function SettingsSheet({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+      <View style={{ flex: 1, paddingTop: 20, backgroundColor: t.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, paddingHorizontal: 20 }}>
           {page === "theme" ? (
             <Pressable onPress={() => setPage("main")} hitSlop={10} style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 2 }}>
               <Icon name="caretLeft" color={t.accent} size={20} />
@@ -114,7 +114,7 @@ export function SettingsSheet({
           </Pressable>
         </View>
 
-        <ScrollView>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
           {page === "theme" ? (
             <ThemePanel />
           ) : (

@@ -137,8 +137,8 @@ export function EventFormSheet({
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ flex: 1, paddingTop: 20, backgroundColor: t.bg }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, paddingHorizontal: 20 }}>
             <Pressable onPress={onClose} hitSlop={10}>
               <Text style={{ fontSize: 15, color: t.inkMute }}>キャンセル</Text>
             </Pressable>
@@ -152,7 +152,7 @@ export function EventFormSheet({
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled">
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
             <TextInput
               value={draft.title}
               onChangeText={(title) => set({ title })}
