@@ -27,6 +27,9 @@ const GUTTER = 40;
 const HEADER_WINDOW_PX = (36 / 60) * DEFAULT_HOUR_HEIGHT;
 /** 重なる予定の、下の予定の端が見える最小の幅(px)。左端の色の線(2〜3px)と、その右の地が見える程度 */
 const MIN_STACK_INDENT_PX = 8;
+
+/** 時刻付きの勤務場所の帯(列の左端)の幅(px) */
+const WORKING_LOCATION_RAIL_PX = 4;
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** ドラッグで時間を動かすときの刻み(15 分)。 */
 const SNAP_MS = 15 * 60_000;
@@ -338,7 +341,12 @@ export function Timeline({
     return days.map((date) => {
       const dayStart = dayStartMs(date, timeZone);
       const dayEnd = dayStartMs(date.add({ days: 1 }), timeZone);
-      const items = (byDay.get(date.toString()) ?? [])
+      const dayOccurrences = byDay.get(date.toString()) ?? [];
+      // 時刻付きの勤務場所。カードにはせず、列の左端の細い帯として出す
+      const workingLocations = dayOccurrences.filter(
+        (o) => o.isWorkingLocation === true && o.responseStatus !== "declined",
+      );
+      const items = dayOccurrences
         .filter((o) => !o.isWorkingLocation && o.responseStatus !== "declined")
         // 保存の応答待ちの予定は、動かした後の位置(別の日になることもある)で出す
         .filter((o) => !pending || o.id !== pending.o.id);
@@ -361,7 +369,7 @@ export function Timeline({
       const oooRanges = items
         .filter((o) => o.isOutOfOffice === true)
         .map((o) => ({ startMs: o.startMs, endMs: o.endMs }));
-      return { date, dayStart, dayEnd, items, oooRanges, slots, allDay: allDaysOnDate(data, date) };
+      return { date, dayStart, dayEnd, items, oooRanges, workingLocations, slots, allDay: allDaysOnDate(data, date) };
     });
   }, [days, byDay, data, timeZone, pending, hourHeight, colW]);
 
@@ -404,7 +412,27 @@ export function Timeline({
                   {date.day}
                 </Text>
               </View>
-              {allDay.slice(0, 2).map((a) => (
+              {/* 勤務場所の専用の行。他の終日予定に押し出されないよう、分けて出す */}
+              {allDay.filter((a) => a.isWorkingLocation).slice(0, 1).map((a) => (
+                <Text
+                  key={a.id}
+                  onPress={() => onSelect(a)}
+                  numberOfLines={1}
+                  style={{
+                    alignSelf: "stretch",
+                    marginHorizontal: 2,
+                    marginTop: 2,
+                    paddingHorizontal: 3,
+                    fontSize: 11,
+                    borderRadius: 3,
+                    backgroundColor: t.allDayBg(a.color),
+                    color: t.ink,
+                  }}
+                >
+                  📍{a.title}
+                </Text>
+              ))}
+              {allDay.filter((a) => !a.isWorkingLocation).slice(0, 2).map((a) => (
                 <Text
                   key={a.id}
                   onPress={() => onSelect(a)}
@@ -494,7 +522,7 @@ export function Timeline({
               style={{ position: "absolute", top: h * hourHeight, left: 0, right: 0, height: 1, backgroundColor: t.lineWarm }}
             />
           ))}
-          {columns.map(({ date, dayStart, dayEnd, items, oooRanges, slots }) => (
+          {columns.map(({ date, dayStart, dayEnd, items, oooRanges, workingLocations, slots }) => (
             <View
               key={date.toString()}
               style={{
@@ -532,6 +560,28 @@ export function Timeline({
                   />
                 </View>
               ) : null}
+              {workingLocations.map((o) => {
+                const s = Math.max(o.startMs, dayStart);
+                const e = Math.min(o.endMs, dayEnd);
+                if (e <= s) return null;
+                return (
+                  <Pressable
+                    key={o.id}
+                    onPress={() => onSelect(o)}
+                    accessibilityLabel={`勤務場所 ${o.title}`}
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      width: WORKING_LOCATION_RAIL_PX,
+                      top: ((s - dayStart) / 3_600_000) * hourHeight,
+                      height: ((e - s) / 3_600_000) * hourHeight,
+                      backgroundColor: o.color,
+                      opacity: 0.7,
+                      zIndex: 0,
+                    }}
+                  />
+                );
+              })}
               {items.map((o) => {
                 const slot = slots.get(o.id);
                 if (!slot) return null;
