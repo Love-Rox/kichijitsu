@@ -1,0 +1,56 @@
+name: Publish to WinGet
+
+# リリースが成功したら、Windows 版(setup.exe)を WinGet のコミュニティリポジトリ
+# (microsoft/winget-pkgs)へ、新しいバージョンとして提出する(プルリクエストが作られる。
+# 審査が通ると `winget install LoveRox.kichijitsu` で入れられるようになる)。
+#
+# 手動の準備が要る(秘密情報なので、リポジトリの持ち主がやる):
+#   1. 最初の 1 バージョンだけは、手動で winget-pkgs へ提出する(wingetcreate など)。
+#      この action は、既にある版を元に、次の版の定義を作るため。
+#   2. winget-pkgs を、このリポジトリと同じアカウント/組織へ fork する。
+#   3. classic の PAT(public_repo と workflow の権限)を作り、リポジトリの
+#      secrets に WINGET_TOKEN として登録する。
+# WINGET_TOKEN が無いあいだは、何もしないで成功扱いにする(リリースの邪魔をしない)。
+#
+# release の published イベントではなく workflow_run を使うのは、リリースが
+# GITHUB_TOKEN で作られ、そのイベントでは他のワークフローが起動されないため。
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Release が成功したときだけ。タグ(v*)の実行に限る(手動実行のブランチは対象外)
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check WINGET_TOKEN
+        id: token
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "secrets.WINGET_TOKEN が未設定のため、WinGet への提出は行いません"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Submit to WinGet
+        if: steps.token.outputs.present == 'true'
+        # コミットのハッシュで固定する(PAT を渡すサードパーティの action なので、タグやブランチの付け替えを避ける)。
+        # 更新は dependabot に任せる(v2 の指すコミット)。
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: LoveRox.kichijitsu
+          # .msi ではなく、NSIS の setup.exe を提出する(インストーラーは 1 種類)
+          installers-regex: '_x64-setup\.exe$'
+          release-tag: ${{ github.event.workflow_run.head_branch }}
+          token: ${{ secrets.WINGET_TOKEN }}

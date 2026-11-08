@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # GitHub Actions の更新。コミットのハッシュで固定した action(winget-releaser など)も、
+  # ハッシュとコメントのバージョンを、新しいものに書き換えるプルリクエストが作られる。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
