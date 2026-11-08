@@ -1083,7 +1083,18 @@ pub fn run() {
         log_startup_problem(&format!("異常終了: {info}"));
     }));
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // 二重起動の防止(デスクトップのみ)。**他のプラグインより先に**登録すること。
+    // Windows/Linux では、ログイン後の `kichijitsu://auth?...` が新しいインスタンスとして
+    // 起動される。deep-link feature により、その URL は既存のインスタンスの
+    // `on_open_url` へ届き、新しい方は終了する。ここでは、既存のウィンドウを前面へ出すだけ。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        show_main_window(app);
+    }));
+
+    builder
         .plugin(tauri_plugin_notification::init())
         // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
         // width/height (1200x800) は保存済み状態が無い初回起動時のみの
@@ -1153,10 +1164,9 @@ pub fn run() {
             // `tauri dev` で起動した状態ではディープリンクが届かないことがある。動作確認は
             // `pnpm build:desktop` で作った .app から行うこと。
             // 注意（Windows/Linux）: これらの OS ではディープリンクがアプリの**新しい
-            // インスタンス**として起動される（プラグインの README 参照）。同じ挙動に
-            // そろえるには tauri-plugin-single-instance の deep-link feature が要るが、
-            // 現状の配布対象は macOS（apps/desktop/homebrew/kichijitsu.rb）なので、
-            // ライブラリを増やさない方針を優先して今回は入れていない。
+            // インスタンス**として起動される（プラグインの README 参照）。そのため
+            // tauri-plugin-single-instance（deep-link feature）を入れてある（run() の先頭）。
+            // 既存のインスタンスへ URL が渡り、新しい方は終了する。
             {
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {

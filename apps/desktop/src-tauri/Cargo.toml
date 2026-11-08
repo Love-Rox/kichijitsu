@@ -3,7 +3,7 @@ name = "kichijitsu-desktop"
 # バージョンは tauri.conf.json / package.json と必ず揃えること。
 # app_version コマンドは env!("CARGO_PKG_VERSION")(= この値)を返すため、
 # ここがズレると設定画面の「アプリ vX.Y.Z」表示が実バージョンと食い違う。
-version = "0.1.17"
+version = "0.1.18"
 description = "kichijitsu desktop shell (reads the production web app via a remote URL webview)"
 authors = ["Love-Rox"]
 license = ""
@@ -66,3 +66,8 @@ tauri-plugin-global-shortcut = "2"
 # 自動アップデート(src/updater.rs)。デスクトップ専用。webview から呼べる IPC は
 # 使わない(Rust 側だけで完結)ので、capabilities へ updater:* は与えていない。
 tauri-plugin-updater = "2"
+# 二重起動の防止と、ディープリンクの受け渡し(2026-11-08)。Windows/Linux では、OAuth の復帰
+# (`kichijitsu://auth?...`)が**新しいインスタンス**として起動されるため、既に動いているアプリへ
+# URL を渡して、新しい方を終了させる必要がある(deep-link feature がこの受け渡しを担う)。
+# Tauri 公式のプラグイン。macOS では OS が既存のアプリへ渡すので、実質は Windows/Linux 向け。
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
