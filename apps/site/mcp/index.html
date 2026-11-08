@@ -153,8 +153,8 @@
         <section class="doc-section" id="tools" aria-labelledby="tools-title">
           <h2 id="tools-title">使えるツール一覧</h2>
           <p>
-            現在 8
-            つのツールを公開している。書き込み系はエージェント側でユーザーへの実行前確認を前提にした説明になっている。
+            現在 10
+            個のツールを公開している。書き込み系はエージェント側でユーザーへの実行前確認を前提にした説明になっている。
           </p>
           <div class="table-scroll">
             <table>
@@ -194,7 +194,7 @@
                   <td><code>update_event</code></td>
                   <td>書き込み</td>
                   <td>
-                    既存の予定の日時を変更する(タイトルなど時刻以外は変更できない)。実行前にユーザーへの確認が前提。
+                    時刻予定の日時を変更し、題名・場所・説明も任意で更新できる(省略した項目は元のまま、空文字で消去)。参加ステータス(RSVP)の変更と、終日予定への変更はできない。実行前にユーザーへの確認が前提。
                   </td>
                 </tr>
                 <tr>
@@ -207,6 +207,20 @@
                   <td>記録</td>
                   <td>
                     作業実績を記録する。Google カレンダーには書き込まず、kichijitsu 側に保存する。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>start_work_interval</code></td>
+                  <td>記録</td>
+                  <td>
+                    作業の開始を記録する。同じ repo・issue の開始中があれば、新しく作らずに既存のものを返す。
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>stop_work_interval</code></td>
+                  <td>記録</td>
+                  <td>
+                    作業の停止を記録する。対応する開始中が無ければ、何もしない。
                   </td>
                 </tr>
                 <tr>

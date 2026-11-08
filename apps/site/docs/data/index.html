@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>データの扱い | kichijitsu</title>
-    <meta name="description" content="kichijitsu がどこに何を保存するか。ブラウザの IndexedDB、D1、Durable Object、localStorage の内訳。" />
+    <meta name="description" content="kichijitsu がどこに何を保存するか。ブラウザの IndexedDB、iPhone アプリの端末内データベース、D1、Durable Object、localStorage の内訳。" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#FAF7F2" />
@@ -48,6 +48,7 @@
           <ol class="doc-toc__list">
             <li><a href="#principle">正本は Google にある</a></li>
             <li><a href="#browser">ブラウザに入るもの</a></li>
+            <li><a href="#mobile">iPhone と Apple Watch に入るもの</a></li>
             <li><a href="#server">サーバーに入るもの</a></li>
             <li><a href="#tokens">認可情報の守りかた</a></li>
             <li><a href="#google-tasks">Google タスクで扱えないもの</a></li>
@@ -65,8 +66,8 @@
             が扱うのはその複製 (レプリカ) にすぎない。
           </p>
           <p>
-            複製が置かれるのは、あなたが使っている端末のブラウザの中 (IndexedDB)
-            だけ。画面はこの手元の複製から組み立てるので、表示や移動の操作は Google
+            複製が置かれるのは、あなたが使っている端末のブラウザの中 (IndexedDB)、または
+            iPhone アプリの端末内のデータベースだけ。画面はこの手元の複製から組み立てるので、表示や移動の操作は Google
             への往復を待たずに済む。予定を編集すると kichijitsu は Google
             へ書き戻し、更新された正本が次の同期で手元へ還ってくる。
           </p>
@@ -214,6 +215,37 @@
           </div>
         </section>
 
+        <section class="doc-section" id="mobile" aria-labelledby="mobile-title">
+          <h2 id="mobile-title">iPhone と Apple Watch に入るもの</h2>
+          <p>
+            iPhone アプリ (TestFlight で配布) は、ブラウザの IndexedDB の代わりに、端末内のデータベース
+            (SQLite) に予定の複製を保存する。予定の中身はここにだけ置かれ、サーバーには送らない。
+          </p>
+          <ul>
+            <li>
+              <strong>予定の複製</strong> — 端末内の SQLite。ブラウザ版と同じく、通信できなくても保存済みの予定は見られる。
+            </li>
+            <li>
+              <strong>ログイン情報</strong> — iOS の Keychain に保存する。Google の同意は外部ブラウザで行い、アプリが受け取るのは
+              kichijitsu のセッション情報だけ (有効期間は 30 日)。
+            </li>
+            <li>
+              <strong>ホーム画面のウィジェットと Apple Watch</strong> — 直近 7 日・最大 12 件の予定の
+              題名・場所・カレンダー名・色を、ウィジェットと Apple Watch の端末にも保存する (iPhone と
+              Watch の間は WatchConnectivity で渡す)。ロック画面やホーム画面、文字盤に予定の題名が出る点に注意する。
+            </li>
+            <li>
+              <strong>予定の開始通知</strong> — 端末内で予約するローカル通知。サーバーからのプッシュ通知は使わない。
+            </li>
+          </ul>
+          <div class="callout">
+            <p>
+              設定の「ログアウト」で、端末内の予定の複製、ウィジェットと Apple Watch の予定、通知の予約はすべて消える。
+              正本は Google にあるので、次にログインすれば同期で戻ってくる。
+            </p>
+          </div>
+        </section>
+
         <section class="doc-section" id="server" aria-labelledby="server-title">
           <h2 id="server-title">サーバーに入るもの</h2>
           <p>
@@ -275,6 +307,13 @@
                   </td>
                 </tr>
                 <tr>
+                  <td><code>desktop_auth_tickets</code></td>
+                  <td>
+                    デスクトップ版・iPhone アプリが外部ブラウザでログインするときの使い捨てチケット
+                    (ハッシュ値と期限だけ。交換した時点で削除し、期限切れは発行のたびに掃除する)
+                  </td>
+                </tr>
+                <tr>
                   <td><code>work_logs</code></td>
                   <td>
                     作業実績 (リポジトリ・issue・ブランチ・エージェント名・開始と終了の時刻)。Google
@@ -295,10 +334,6 @@
             </li>
             <li>
               <strong>更新の配信</strong> — 開いているタブへ「変わった」と知らせる接続を束ねる。接続は保持するが保存はしない
-            </li>
-            <li>
-              <strong>MCP の接続</strong> — エージェントとの接続1つにつき1つ。read-through
-              原則どおり、予定を溜め込むことはない
             </li>
           </ul>
         </section>
@@ -442,7 +477,8 @@
                 <h3>ログアウト — この端末の写しだけ消す</h3>
                 <p>
                   設定の「ログアウト」は、ログイン状態を終えると同時に<strong>この端末に置かれた
-                  予定・タスク・GitHub の一覧を消す</strong>。正本は Google
+                  予定・タスク・GitHub の一覧、表示するカレンダーの選択などの設定、通知済みの記録を消す</strong>
+                  (テーマ・アクセント色・並べるタイムゾーンの設定は残る)。正本は Google
                   にあるので、次にログインすれば同期で戻ってくる。
                 </p>
                 <p>
