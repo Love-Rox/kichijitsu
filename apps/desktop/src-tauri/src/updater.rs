@@ -16,13 +16,15 @@
 //! - 新しい版があれば、**ダウンロードとインストールまで**黙って行い、通知で知らせる。
 //!   再起動は強制しない(作業中のウィンドウを突然閉じないため)。
 //! - トレイの「アップデートを確認」を押すと、インストール済みなら再起動、まだなら
-//!   確認して取得し、そのまま再起動する。
+//!   確認して取得し、そのまま再起動する。「最新です」「失敗しました」はダイアログで返す
+//!   (通知は OS 側の設定で出ないことがあるため)。経過はログ(updater.log)にも残す。
 //! - 署名は `tauri.conf.json` の pubkey で検証される。検証に失敗した更新は適用されない。
 
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -46,6 +48,44 @@ fn notify(app: &AppHandle, title: &str, body: &str) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// 手動の確認の結果を、ダイアログで必ず見せる。
+///
+/// 通知だけだと、OS 側で通知が出ない環境(Windows で通知が無効・未登録など)では、押しても何も
+/// 起きないように見える(2026-11-08、v0.1.19 → v0.1.20 の更新で実際に起きた)。
+/// ダイアログは OS の通知設定に左右されない。
+fn show_result(app: &AppHandle, kind: MessageDialogKind, title: &str, body: &str) {
+    app.dialog()
+        .message(body)
+        .title(title)
+        .kind(kind)
+        .show(|_| {});
+}
+
+/// 更新の経過をログファイル(アプリのログ用フォルダの updater.log)へ1行足す。
+///
+/// 常駐の確認(6 時間おき)の失敗も、Windows ではコンソールが無く標準エラーが見えないので、
+/// ファイルに残さないと原因を追えない。書けなくても更新処理は止めない。
+fn log(app: &AppHandle, line: &str) {
+    eprintln!("kichijitsu: {line}");
+    let Ok(dir) = app.path().app_log_dir() else { return };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("updater.log");
+    // 肥大化を避けるため、大きくなったら作り直す(直近の経過だけ分かればよい)。
+    if std::fs::metadata(&path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[{secs}] {line}");
+    }
+}
+
 /// 更新を確認し、あれば取得して適用する。
 ///
 /// `manual` が true(トレイからの操作)のときだけ、結果を通知で必ず返し、適用後に再起動する。
@@ -61,13 +101,22 @@ pub async fn check_and_install(app: &AppHandle, state: &UpdateState, manual: boo
         if manual {
             restart(app);
         }
-        eprintln!("kichijitsu: v{version} は適用済みです(再起動待ち)");
+        log(app, &format!("v{version} は適用済みです(再起動待ち)"));
         return;
     }
 
+    log(
+        app,
+        &format!(
+            "更新を確認します(現在 v{}、{})",
+            app.package_info().version,
+            if manual { "手動" } else { "自動" }
+        ),
+    );
     let result = try_install(app).await;
     match result {
         Ok(Some(version)) => {
+            log(app, &format!("v{version} を適用しました"));
             if let Ok(mut guard) = state.installed_version.lock() {
                 *guard = Some(version.clone());
             }
@@ -82,15 +131,21 @@ pub async fn check_and_install(app: &AppHandle, state: &UpdateState, manual: boo
             }
         }
         Ok(None) => {
+            log(app, "最新の状態です");
             if manual {
-                notify(app, "kichijitsu", "最新の状態です。");
+                show_result(
+                    app,
+                    MessageDialogKind::Info,
+                    "kichijitsu",
+                    &format!("最新の状態です(v{})。", app.package_info().version),
+                );
             }
         }
         Err(e) => {
             // 失敗は握りつぶさずログに残す。手動のときは利用者にも伝える。
-            eprintln!("kichijitsu: アップデートに失敗しました: {e}");
+            log(app, &format!("アップデートに失敗しました: {e}"));
             if manual {
-                notify(app, "アップデートに失敗しました", &e);
+                show_result(app, MessageDialogKind::Error, "アップデートに失敗しました", &e);
             }
         }
     }

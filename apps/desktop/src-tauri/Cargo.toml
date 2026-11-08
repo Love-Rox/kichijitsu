@@ -66,6 +66,9 @@ tauri-plugin-global-shortcut = "2"
 # 自動アップデート(src/updater.rs)。デスクトップ専用。webview から呼べる IPC は
 # 使わない(Rust 側だけで完結)ので、capabilities へ updater:* は与えていない。
 tauri-plugin-updater = "2"
+# 手動の更新確認の結果を、通知に頼らずダイアログで見せる(src/updater.rs の show_result)。
+# Rust 側からだけ呼ぶので、capabilities へ dialog:* は与えない。
+tauri-plugin-dialog = "2"
 # 二重起動の防止と、ディープリンクの受け渡し(2026-11-08)。Windows/Linux では、OAuth の復帰
 # (`kichijitsu://auth?...`)が**新しいインスタンス**として起動されるため、既に動いているアプリへ
 # URL を渡して、新しい方を終了させる必要がある(deep-link feature がこの受け渡しを担う)。
