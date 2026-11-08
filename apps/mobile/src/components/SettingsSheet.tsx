@@ -54,6 +54,8 @@ export function SettingsSheet({
   const [page, setPage] = useState<"main" | "theme">("main");
   // 切り替えの途中(サーバーの応答前)の見た目。応答が来たら、再読み込みされたデータに任せる
   const [pending, setPending] = useState<Record<string, boolean>>({});
+  // アカウントごとのカレンダー一覧の開閉。既定は閉じる(カレンダーが多いと、設定が長くなって見づらい)
+  const [openAccounts, setOpenAccounts] = useState<Record<string, boolean>>({});
 
   const toggle = async (a: AccountCalendars, id: string, next: boolean) => {
     const key = `${a.accountId}:${id}`;
@@ -133,10 +135,31 @@ export function SettingsSheet({
             const shown = new Set(a.calendars.map((c) => c.id));
             const mine = all.filter((c) => c.accessRole === "owner");
             const others = all.filter((c) => c.accessRole !== "owner");
+            const open = openAccounts[a.accountId] === true;
+            // 閉じていても分かるように、表示中の数を出す(切り替えの途中の分も含める)
+            const shownCount = all.filter((c) => {
+              const key = `${a.accountId}:${c.id}`;
+              return key in pending ? pending[key] : shown.has(c.id);
+            }).length;
             return (
-              <View key={a.accountId} style={{ marginBottom: 20 }}>
-                <Text style={{ fontSize: 13, color: t.inkSub, marginBottom: 6 }}>{a.email}</Text>
-                {[
+              <View key={a.accountId} style={{ marginBottom: 12 }}>
+                <Pressable
+                  onPress={() => setOpenAccounts((o) => ({ ...o, [a.accountId]: !o[a.accountId] }))}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: open }}
+                  style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, gap: 6 }}
+                >
+                  <View style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }}>
+                    <Icon name="caretRight" color={t.inkSub} size={16} />
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 13, color: t.inkSub }} numberOfLines={1}>
+                    {a.email}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: t.inkMute }}>
+                    表示 {shownCount} / {all.length}
+                  </Text>
+                </Pressable>
+                {open ? [
                   ["マイカレンダー", mine],
                   ["その他のカレンダー", others],
                 ].map(([label, list]) =>
@@ -172,7 +195,7 @@ export function SettingsSheet({
                       })}
                     </View>
                   ),
-                )}
+                ) : null}
               </View>
             );
           })}
