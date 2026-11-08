@@ -9,7 +9,7 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#FAF7F2" />
     <meta property="og:title" content="デスクトップ版と PWA | kichijitsu" />
-    <meta property="og:description" content="Homebrew で入れるデスクトップ版と、ブラウザから入れる PWA。デスクトップ版だけの予定のリマインダー通知、更新とキャッシュ削除まで。" />
+    <meta property="og:description" content="Homebrew(macOS)とインストーラー(Windows)で入れるデスクトップ版と、ブラウザから入れる PWA。デスクトップ版だけの予定のリマインダー通知、更新とキャッシュ削除まで。" />
     <meta property="og:type" content="article" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -34,8 +34,8 @@
         <span class="doc-header__kicker">Docs</span>
         <h1 class="doc-header__title">デスクトップ版と PWA</h1>
         <p class="doc-header__lede">
-          kichijitsu はブラウザで開くだけでも使えるが、PWA として入れれば独立したウィンドウになり、macOS
-          ならデスクトップ版でトレイ常駐とグローバルショートカットが付く。
+          kichijitsu はブラウザで開くだけでも使えるが、PWA として入れれば独立したウィンドウになり、macOS /
+          Windows ならデスクトップ版でトレイ常駐とグローバルショートカットが付く。
           どれを選んでも中身は同じアプリで、見ているデータも同じだ。
         </p>
       </div>
@@ -59,7 +59,7 @@
           <h2 id="choose-title">どれを使うか</h2>
           <p>
             入口は3つある。ブラウザでそのまま開く、PWA
-            として端末に入れる、macOS ならデスクトップ版を入れる。
+            として端末に入れる、macOS / Windows ならデスクトップ版を入れる。
             どれも表示しているのは同じアプリで、予定も設定も共通だ。違うのは「ウィンドウの出かた」と「OS
             とどこまで繋がるか」だけ。
           </p>
@@ -71,7 +71,7 @@
                   <th></th>
                   <th>ブラウザ</th>
                   <th>PWA</th>
-                  <th>デスクトップ版 (macOS)</th>
+                  <th>デスクトップ版 (macOS / Windows)</th>
                 </tr>
               </thead>
               <tbody>
@@ -79,7 +79,7 @@
                   <th>入れかた</th>
                   <td>不要。アプリの画面を開くだけ</td>
                   <td>ブラウザのインストール操作</td>
-                  <td>Homebrew Cask</td>
+                  <td>macOS は Homebrew Cask、Windows はインストーラー</td>
                 </tr>
                 <tr>
                   <th>ウィンドウ</th>
@@ -113,8 +113,8 @@
             とくにデスクトップ版は、<strong>画面を同梱していない</strong>のが特徴。ウィンドウの中身は公式インスタンス
             <code>https://kichijitsu.love-rox.cc/app</code>
             をそのまま読み込んでいるだけで、アプリ本体はその外側のガワにすぎない。
-            そのため、サイトが新しくなればアプリを入れ直さなくても中身は新しくなる。逆に、トレイやショートカットといったガワの部分を新しくするには
-            Homebrew から入れ直す必要がある。
+            そのため、サイトが新しくなればアプリを入れ直さなくても中身は新しくなる。トレイやショートカットといったガワの部分は、アプリが自分で新しい版を確かめて更新する
+            (下の「アプリを新しくする」)。
           </p>
           <p>
             ログインも同じ理屈で、Google
@@ -125,30 +125,33 @@
         <section class="doc-section" id="desktop" aria-labelledby="desktop-title">
           <h2 id="desktop-title">デスクトップ版を入れる</h2>
           <p>
-            配布しているのは macOS 版だけ (macOS 13 Ventura 以降の Apple Silicon 専用。
-            Intel Mac 向けは配布していない)。Windows / Linux 版は配布していない。
+            配布しているのは macOS 版 (macOS 13 Ventura 以降の Apple Silicon 専用。Intel Mac 向けは配布していない) と、
+            Windows 版 (64 ビット x64)。Linux 版は配布していない。
           </p>
 
           <ol class="steps">
             <li class="step">
               <span class="step__num" aria-hidden="true"></span>
               <div class="step__body">
-                <h3>Homebrew で入れる</h3>
+                <h3>macOS: Homebrew で入れる</h3>
                 <pre><code>brew install --cask love-rox/tap/kichijitsu</code></pre>
               </div>
             </li>
             <li class="step">
               <span class="step__num" aria-hidden="true"></span>
               <div class="step__body">
-                <h3>初回起動のブロックを外す</h3>
+                <h3>Windows: インストーラーで入れる</h3>
                 <p>
-                  Apple の署名・公証を行わない無署名配布のため、そのままでは Gatekeeper
-                  が初回起動を止める。インストール後に隔離属性を外しておく。
+                  <a href="https://github.com/Love-Rox/kichijitsu/releases/latest">GitHub の最新リリース</a>から、
+                  <code>kichijitsu_&lt;version&gt;_x64-setup.exe</code> (または <code>.msi</code>) を取って実行する。
+                  インストーラーは日本語。
                 </p>
-                <pre><code>xattr -rd com.apple.quarantine /Applications/kichijitsu.app</code></pre>
                 <p>
-                  外さずに起動してブロックされた場合は、システム設定 → プライバシーとセキュリティ →
-                  「このまま開く」からでもよい。
+                  Windows 版はコード署名をしていないため、初回は SmartScreen が「Windows によってPCが保護されました」と出す。
+                  「詳細情報」→「実行」で進める。
+                </p>
+                <p>
+                  macOS 版は Apple の署名・公証済みなので、初回起動のブロックを外す操作は要らない。
                 </p>
               </div>
             </li>
@@ -187,7 +190,7 @@ gh auth login</code></pre>
               トレイアイコンを<strong>左クリック</strong>すると、ウィンドウの表示/非表示が切り替わる。<strong>右クリック</strong>で「表示/隠す」「再読み込み」「終了」のメニューが開く。
             </li>
             <li>
-              <code>Cmd+Shift+K</code>
+              <code>Cmd+Shift+K</code> (Windows は <code>Ctrl+Shift+K</code>)
               で、他のアプリを使っているときでもウィンドウの表示/非表示を切り替えられる。
             </li>
             <li>
@@ -201,7 +204,7 @@ gh auth login</code></pre>
 
           <h3>予定のリマインダー通知</h3>
           <p>
-            予定が始まる前に macOS の通知でお知らせする。既定は
+            予定が始まる前に OS の通知 (macOS の通知センター / Windows の通知) でお知らせする。既定は
             <strong>Google カレンダー側で予定ごとに設定した通知に従う</strong>。設定から「通知しない」や「一律 5 分前 / 10 分前 / 15 分前 / 30 分前 / 1
             時間前」(Google 側の設定を無視してすべての予定に同じ分数を使う) にも変えられる。デスクトップ版だけの機能で、ブラウザや PWA では通知は出ない。
           </p>
@@ -253,8 +256,8 @@ gh auth login</code></pre>
           </ul>
           <div class="callout">
             <p>
-              通知が来ないときは、設定の「予定のリマインダー通知」にある<strong>「テスト通知を送る」</strong>を押してみる。それでも何も出ない場合は macOS の「システム設定 →
-              通知」で kichijitsu の通知が許可されているか確認する。アプリ側からは通知が許可されているかどうかを知る手段が無いため、拒否されていても画面上は何も起こらない。
+              通知が来ないときは、設定の「予定のリマインダー通知」にある<strong>「テスト通知を送る」</strong>を押してみる。それでも何も出ない場合は、macOS は「システム設定 →
+              通知」、Windows は「設定 → システム → 通知」で、kichijitsu の通知が許可されているか確認する。アプリ側からは通知が許可されているかどうかを知る手段が無いため、拒否されていても画面上は何も起こらない。
             </p>
           </div>
 
@@ -311,9 +314,14 @@ gh auth login</code></pre>
           <h3>アプリを新しくする</h3>
           <p>
             画面の中身はサイト側なので自動で新しくなる。更新が要るのはガワの部分
-            (トレイ・ショートカット・ウィンドウまわり) だけで、Homebrew から行う。
+            (トレイ・ショートカット・ウィンドウまわり) だけで、こちらもアプリが自動で行う。
+            起動の 30 秒後と、その後 6 時間おきに新しい版を確かめ、あれば取得して適用し、通知する。
+            再起動は強制せず、トレイの「アップデートを確認」で反映できる。macOS・Windows とも同じ。
           </p>
-          <pre><code>brew upgrade --cask love-rox/tap/kichijitsu</code></pre>
+          <p>
+            自動更新が入る前の版 (v0.1.11 まで) には更新機能が無いので、一度だけ入れ直す。macOS は
+            <code>brew reinstall --cask love-rox/tap/kichijitsu</code>、Windows は最新のインストーラーを実行する。
+          </p>
         </section>
 
         <section class="doc-section" id="pwa" aria-labelledby="pwa-title">
@@ -507,10 +515,9 @@ gh auth login</code></pre>
           <h3>それでも直らないとき</h3>
           <ul>
             <li>
-              <strong>デスクトップ版</strong>: ガワが古い可能性がある。
-              <code>brew upgrade --cask love-rox/tap/kichijitsu</code>
-              で新しくする。それでも駄目なら
-              <code>brew reinstall --cask love-rox/tap/kichijitsu</code> で入れ直す。
+              <strong>デスクトップ版</strong>: ガワが古い可能性がある。トレイの「アップデートを確認」を押す。
+              それでも駄目なら、macOS は
+              <code>brew reinstall --cask love-rox/tap/kichijitsu</code>、Windows は最新のインストーラーで入れ直す。
             </li>
             <li>
               <strong>PWA</strong>: 一度アンインストールし、ブラウザでアプリ画面を開き直してから入れ直す。
