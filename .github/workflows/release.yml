@@ -19,7 +19,48 @@ permissions:
   contents: write
 
 jobs:
+  # リリース(タグに対応する空のリリース)を、ビルドの前に 1 つだけ作る。
+  # macOS と Windows のジョブを並行に走らせるとき、tauri-action が同じタグのリリースを
+  # 同時に作ろうとして競合するのを避けるため。ビルドのジョブは、tauri-action が
+  # 既存のリリース(タグ名で探す)へ成果物を足すだけになる。本文もここで一度だけ書く。
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 再実行・手動実行で、既にあるときは何もしない
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "release $TAG_NAME は既にあります"
+            exit 0
+          fi
+          cat > notes.md <<'NOTES'
+          **macOS (Homebrew)**
+          ```
+          brew install --cask love-rox/tap/kichijitsu
+          brew upgrade --cask kichijitsu
+          ```
+          ※ Developer ID で署名し Apple の公証を受けています。
+
+          cask のインストールには GitHub CLI の認証が必要です: `brew install gh && gh auth login`
+
+          **DMG を直接ダウンロードする場合**
+          下の `kichijitsu_*_aarch64.dmg` を使用してください(Apple Silicon 専用です)。
+
+          **Windows**
+          下の `kichijitsu_*_x64-setup.exe`(または `.msi`)を使用してください。
+          ※ 現時点ではコード署名をしていないため、初回は SmartScreen の警告が出ます
+          (「詳細情報」→「実行」)。
+          NOTES
+          sed -i 's/^          //' notes.md
+          gh release create "$TAG_NAME" --verify-tag --title "kichijitsu $TAG_NAME" --notes-file notes.md
+
   build:
+    needs: create-release
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -90,23 +131,6 @@ jobs:
           tauriScript: pnpm tauri
           tagName: ${{ github.ref_name }}
           releaseName: "kichijitsu ${{ github.ref_name }}"
-          releaseBody: |
-            **macOS (Homebrew)**
-            ```
-            brew install --cask love-rox/tap/kichijitsu
-            brew upgrade --cask kichijitsu
-            ```
-            ※ Developer ID で署名し Apple の公証を受けています。
-
-            cask のインストールには GitHub CLI の認証が必要です: `brew install gh && gh auth login`
-
-            **DMG を直接ダウンロードする場合**
-            下の `kichijitsu_*_aarch64.dmg` を使用してください(Apple Silicon 専用です)。
-
-            **Windows**
-            下の `kichijitsu_*_x64-setup.exe`(または `.msi`)を使用してください。
-            ※ 現時点ではコード署名をしていないため、初回は SmartScreen の警告が出ます
-            (「詳細情報」→「実行」)。
           # 容量とビルド時間を減らすため Apple Silicon (aarch64) に絞った。Intel Mac 向けは配布しない。
           args: --target aarch64-apple-darwin
 
@@ -221,13 +245,14 @@ jobs:
           git commit -am "kichijitsu ${version}"
           git push
 
-  # Windows 版。macOS のジョブの後に走らせる(needs)。同じタグのリリースを 2 つのジョブが
-  # 同時に作ろうとして競合するのを避け、tauri-action が latest.json に Windows の項目を
-  # 足す(既存の darwin の項目を残したまま)ため。macOS が失敗したときは Windows も走らない。
+  # Windows 版。macOS のジョブと並行に走る(リリースは create-release が先に作る)。
+  # tauri-action が latest.json に自分のプラットフォームの項目を足す(既存の項目は残す)が、
+  # 並行だと、同時に書いて片方が消える恐れがある。そのため、最後の verify-manifest ジョブで
+  # 両方の項目が揃っているかを確かめる(消えていたら失敗にする。再実行で直る)。
   # コード署名はしていない(証明書が無い)。更新用の署名(TAURI_SIGNING_PRIVATE_KEY)は
   # macOS と同じ鍵で行う。
   build-windows:
-    needs: build
+    needs: create-release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -272,6 +297,7 @@ jobs:
           releaseName: "kichijitsu ${{ github.ref_name }}"
 
       # 配信物の確認。latest.json に Windows の項目(url と署名)が入っていなければ失敗にする。
+      # (macOS の項目は並行して作られるので、ここでは見ない。verify-manifest が両方を見る)
       - name: Verify updater manifest (Windows)
         shell: bash
         env:
@@ -283,5 +309,24 @@ jobs:
           gh release download "$TAG_NAME" --pattern latest.json --dir "$dir"
           jq -e '.platforms["windows-x86_64"] | (.url | length > 0) and (.signature | length > 0)' "$dir/latest.json" >/dev/null \
             || { echo "::error::latest.json の windows-x86_64 に url / signature がありません"; exit 1; }
-          jq -e '.platforms["darwin-aarch64"].url | length > 0' "$dir/latest.json" >/dev/null \
-            || { echo "::error::latest.json から darwin-aarch64 の項目が消えています"; exit 1; }
+
+  # 並行ビルドの後、自動更新の配信物(latest.json)に両方のプラットフォームが揃っているかを確かめる。
+  # 同時に書き込んで片方の項目が消えると、既存の利用者へ更新が届かないのに、リリースだけ成功して見える。
+  verify-manifest:
+    needs: [build, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify updater manifest (all platforms)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          gh release download "$TAG_NAME" --pattern latest.json --dir "$dir"
+          for platform in darwin-aarch64 windows-x86_64; do
+            jq -e --arg p "$platform" '.platforms[$p] | (.url | length > 0) and (.signature | length > 0)' "$dir/latest.json" >/dev/null \
+              || { echo "::error::latest.json の $platform に url / signature がありません(同時書き込みで消えた可能性。ジョブを再実行してください)"; exit 1; }
+          done
+          echo "latest.json: version=$(jq -r .version "$dir/latest.json")"
