@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, PanResponder, Pressable, useWindowDimensions, View, type GestureResponderEvent, type HostInstance, type ScrollViewInstance } from "react-native";
 import { FONT_SCALE, Text } from "./ui";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
-import { layoutOverlaps } from "@kichijitsu/web/layout/overlapLayout";
+import { layoutOverlaps, STACK_INDENT_FRAC } from "@kichijitsu/web/layout/overlapLayout";
 import { allDaysOnDate, occurrencesByDay, type CalendarData } from "../lib/calendarData";
 import type { Occurrence } from "@kichijitsu/web/model/types";
 import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
@@ -25,6 +25,8 @@ const clampHourHeight = (h: number) => Math.round(Math.min(MAX_HOUR_HEIGHT, Math
 const GUTTER = 40;
 /** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する高さ(px)。Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの(36 分 × 52px/時) */
 const HEADER_WINDOW_PX = (36 / 60) * DEFAULT_HOUR_HEIGHT;
+/** 重なる予定の、下の予定の端が見える最小の幅(px)。左端の色の線(2〜3px)と、その右の地が見える程度 */
+const MIN_STACK_INDENT_PX = 12;
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** ドラッグで時間を動かすときの刻み(15 分)。 */
 const SNAP_MS = 15 * 60_000;
@@ -330,6 +332,9 @@ export function Timeline({
   const byDay = useMemo(() => occurrencesByDay(data, days, timeZone), [data, days, timeZone]);
   const columns = useMemo(() => {
     const headerWindowMs = (HEADER_WINDOW_PX / hourHeight) * HOUR_MS;
+    // 重なる予定のずれ。割合(7%)だけだと、列が狭い(表示日数が多い)とき数ピクセルになって、下の予定の
+    // 濃い線(左端の色の線)が隠れる。ピクセルで下限を持つ(割合の上限は、予定が細くなりすぎない範囲)
+    const indentFrac = Math.min(0.25, Math.max(STACK_INDENT_FRAC, MIN_STACK_INDENT_PX / colW));
     return days.map((date) => {
       const dayStart = dayStartMs(date, timeZone);
       const dayEnd = dayStartMs(date.add({ days: 1 }), timeZone);
@@ -349,10 +354,11 @@ export function Timeline({
           background: o.isOutOfOffice === true,
         })),
         headerWindowMs,
+        indentFrac,
       );
       return { date, dayStart, dayEnd, items, slots, allDay: allDaysOnDate(data, date) };
     });
-  }, [days, byDay, data, timeZone, pending, hourHeight]);
+  }, [days, byDay, data, timeZone, pending, hourHeight, colW]);
 
   return (
     <View style={{ flex: 1 }}>

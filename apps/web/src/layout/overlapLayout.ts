@@ -88,11 +88,17 @@ function windowsOverlap(a: Window, b: Window): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
+/**
+ * `indentFrac`: 同じレーンで乗り合う予定の 1 段あたりのずれ(列幅に対する割合)。既定は STACK_INDENT_FRAC。
+ * 列が狭いと、割合では数ピクセルになって、下の予定の端(濃い線)が見えなくなる。そのため、
+ * ピクセルで下限を決めたい呼び出し側(モバイル)が、列幅から割合を計算して渡す。
+ */
 export function layoutOverlaps(
   items: readonly OverlapInput[],
   headerMs: number,
+  indentFrac: number = STACK_INDENT_FRAC,
 ): Map<string, OverlapSlot> {
-  return layoutCore(items, headerMs).slots;
+  return layoutCore(items, headerMs, undefined, indentFrac).slots;
 }
 
 /** layoutOverlaps に、レーン数の上限(と「+N」チップ)を足したもの。上限の規則は、冒頭の 5. 参照。 */
@@ -108,6 +114,7 @@ function layoutCore(
   items: readonly OverlapInput[],
   headerMs: number,
   cap?: OverlapCap,
+  indentFrac: number = STACK_INDENT_FRAC,
 ): OverlapResult {
   const out = new Map<string, OverlapSlot>();
   const hidden = new Set<string>();
@@ -207,8 +214,8 @@ function layoutCore(
       }
 
       const laneWidth = (span / laneCount) * usableFrac;
-      const maxDepth = Math.max(0, Math.floor((laneWidth - MIN_WIDTH_FRAC) / STACK_INDENT_FRAC));
-      const indent = Math.min(depth, maxDepth) * STACK_INDENT_FRAC;
+      const maxDepth = Math.max(0, Math.floor((laneWidth - MIN_WIDTH_FRAC) / indentFrac));
+      const indent = Math.min(depth, maxDepth) * indentFrac;
 
       out.set(item.id, {
         leftFrac: (lane / laneCount) * usableFrac + indent,

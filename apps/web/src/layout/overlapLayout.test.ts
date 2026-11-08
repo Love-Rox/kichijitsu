@@ -36,6 +36,12 @@ describe("layoutOverlaps", () => {
     expect(r.get("a")!.leftFrac + r.get("a")!.widthFrac).toBeLessThanOrEqual(r.get("b")!.leftFrac);
   });
 
+  it("ずれの幅を渡せる(列が狭いときに、下の予定の端が見えるように、呼び出し側がピクセルから決める)", () => {
+    const r = layoutOverlaps([ev("a", 0, 180), ev("b", 90, 120)], HEADER, 0.2);
+    expect(r.get("b")!.leftFrac).toBeCloseTo(0.2);
+    expect(r.get("b")!.widthFrac).toBeCloseTo(0.8);
+  });
+
   it("見出しの窓より後に始まる予定は、同じレーンで右に少しずらして乗る", () => {
     const r = layoutOverlaps([ev("a", 0, 180), ev("b", 90, 120)], HEADER);
     expect(r.get("a")).toMatchObject({ leftFrac: 0, widthFrac: 1 });
