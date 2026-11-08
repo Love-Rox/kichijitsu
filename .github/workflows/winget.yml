@@ -27,6 +27,7 @@ jobs:
     # Release が成功したときだけ。タグ(v*)の実行に限る(手動実行のブランチは対象外)
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     steps:
@@ -44,7 +45,9 @@ jobs:
 
       - name: Submit to WinGet
         if: steps.token.outputs.present == 'true'
-        uses: vedantmgoyal9/winget-releaser@main
+        # コミットのハッシュで固定する(PAT を渡すサードパーティの action なので、タグやブランチの付け替えを避ける)。
+        # 更新は dependabot に任せる(v2 の指すコミット)。
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
         with:
           identifier: LoveRox.kichijitsu
           # .msi ではなく、NSIS の setup.exe を提出する(インストーラーは 1 種類)
