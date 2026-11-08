@@ -1041,8 +1041,37 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &Url) {
     }
 }
 
+/// 起動時の問題(と異常終了)を書き残すファイルの場所。
+/// Windows のリリース版にはコンソールが無く、stderr も panic のメッセージも見えないので、
+/// 「ウィンドウが出てすぐ消える」ときの原因が分からない。そこで、一時フォルダへ書く
+/// (Windows: %TEMP%\kichijitsu-desktop.log)。
+fn startup_log_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("kichijitsu-desktop.log")
+}
+
+/// 起動時の問題を 1 行、ログファイルへ足す。書けなくてもアプリは止めない。
+fn log_startup_problem(message: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(startup_log_path())
+    {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{secs}] {message}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // panic(setup の失敗を expect で止める所を含む)の内容を、ログファイルへ残す
+    std::panic::set_hook(Box::new(|info| {
+        log_startup_problem(&format!("異常終了: {info}"));
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
@@ -1271,15 +1300,27 @@ pub fn run() {
                 // に対して一律に発火するため、トグルとリロードのように挙動が
                 // 異なる複数のショートカットを扱うには使えない
                 // (両方のキー入力で同じハンドラが呼ばれてしまう)。
-                app.handle()
-                    .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+                // ショートカットは補助機能。他のアプリと衝突して登録できなくても(Windows で起きやすい)、
+                // `?` で setup ごと失敗させない ―― 失敗させると、白いウィンドウが出た直後にアプリが終了する。
+                if let Err(e) = app
+                    .handle()
+                    .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+                {
+                    eprintln!("kichijitsu: グローバルショートカットを有効にできませんでした: {e}");
+                    log_startup_problem(&format!("グローバルショートカットを有効にできませんでした: {e}"));
+                }
 
-                app.global_shortcut()
-                    .on_shortcut(TOGGLE_WINDOW_SHORTCUT, |app, _shortcut, event| {
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    TOGGLE_WINDOW_SHORTCUT,
+                    |app, _shortcut, event| {
                         if event.state() == ShortcutState::Pressed {
                             toggle_main_window(app);
                         }
-                    })?;
+                    },
+                ) {
+                    eprintln!("kichijitsu: {TOGGLE_WINDOW_SHORTCUT} を登録できませんでした: {e}");
+                    log_startup_problem(&format!("{TOGGLE_WINDOW_SHORTCUT} を登録できませんでした: {e}"));
+                }
 
                 // 次の会議に参加 / 予定を作る。他のアプリと組み合わせが衝突して登録できなくても、
                 // アプリの起動は止めない(`?` で setup ごと失敗させない)
@@ -1310,12 +1351,17 @@ pub fn run() {
                 // macOS では、アプリメニュー「表示 > 再読み込み」の Cmd+R(アプリが前面のときだけ効く)に
                 // 任せるので、グローバルには登録しない(二重に動くのと、他のアプリの Cmd+R を奪うのを避ける)
                 #[cfg(not(target_os = "macos"))]
-                app.global_shortcut()
-                    .on_shortcut(RELOAD_SHORTCUT, |app, _shortcut, event| {
+                if let Err(e) = app.global_shortcut().on_shortcut(
+                    RELOAD_SHORTCUT,
+                    |app, _shortcut, event| {
                         if event.state() == ShortcutState::Pressed {
                             reload_main_window_if_focused(app);
                         }
-                    })?;
+                    },
+                ) {
+                    eprintln!("kichijitsu: {RELOAD_SHORTCUT} を登録できませんでした: {e}");
+                    log_startup_problem(&format!("{RELOAD_SHORTCUT} を登録できませんでした: {e}"));
+                }
             }
 
             // --- ネイティブ通知 ---
