@@ -276,13 +276,13 @@ export function EventDetailSheet({
       onRequestClose={onClose}
     >
       {view && (
-        <View style={{ flex: 1, padding: 20, backgroundColor: t.bg }}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ flex: 1, paddingTop: 20, backgroundColor: t.bg }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, paddingHorizontal: 20 }}>
             <Pressable onPress={onClose} hitSlop={10}>
               <Text style={{ fontSize: 15, color: t.accent }}>閉じる</Text>
             </Pressable>
           </View>
-          <ScrollView>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ width: 5, borderRadius: 3, backgroundColor: view.color }} />
               <View style={{ flex: 1 }}>
