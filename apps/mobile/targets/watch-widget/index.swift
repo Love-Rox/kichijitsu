@@ -100,18 +100,22 @@ struct ComplicationView: View {
             }
             .widgetAccentable()
         case .accessoryCorner:
-            // 角: 時刻を曲線の内側に、題名を外周のラベルに。内側は幅が狭く(GMT の文字盤など)、
-            // 「〜10:30」では入りきらず「〜」だけが残るので、時刻だけを縮小可で出し、進行中は
-            // ラベル側に「終了」を添える
+            // 角: 内側は 2 行。上に時刻、下に「開始」か「終了」。題名は外周のラベルに。内側は幅が
+            // 狭く(GMT の文字盤など)、「〜10:30」を 1 行では入れられなかったので、2 行に分ける
             if let e = next {
                 let started = entry.date >= e.start
-                Text((started ? e.end : e.start).formatted(timeFormat))
-                    .font(.system(size: 18, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .foregroundStyle(tint(e) ?? Color.primary)
-                    .widgetLabel { Text(started ? "終了 \(e.title)" : e.title) }
-                    .widgetAccentable()
+                VStack(spacing: 0) {
+                    Text((started ? e.end : e.start).formatted(timeFormat))
+                        .font(.system(size: 17, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(started ? "終了" : "開始")
+                        .font(.system(size: 10))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(tint(e) ?? Color.primary)
+                .widgetLabel { Text(e.title) }
+                .widgetAccentable()
             } else {
                 Image(systemName: "calendar")
                     .widgetLabel { Text("予定なし") }
