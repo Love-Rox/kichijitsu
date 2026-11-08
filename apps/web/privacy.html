@@ -102,7 +102,7 @@
     </header>
     <main>
       <h1>プライバシーポリシー <small>kichijitsu Privacy Policy</small></h1>
-      <p class="updated">最終更新: 2026-07-31</p>
+      <p class="updated">最終更新: 2026-11-08</p>
 
       <!--
         運営者名・連絡先・ホスト名はビルド時に差し込む (apps/web/build/legalText.ts)。
@@ -156,6 +156,11 @@
           その SHA-256 ハッシュ値・ラベル・最終使用日時。トークンの生の値は発行時に一度だけ表示し、
           サーバーには残しません
         </li>
+        <li>
+          <b>デスクトップ版・iPhone アプリのログイン用チケット</b> — 外部のブラウザでログインしたあと、
+          アプリへ戻るための使い捨てのチケット。保存するのはハッシュ値・プロファイルの ID・照合用の値・期限だけで、
+          交換した時点で削除し、期限切れのものも自動で削除します
+        </li>
       </ul>
 
       <h3>作業実績（ワークログ）</h3>
@@ -177,6 +182,13 @@
         上に挙げたもののうち予定に関わる情報は、いずれも ID・時刻・設定であって、予定の中身では
         ありません。MCP
         連携でエージェントに返す予定の要約も、その場の応答として返すだけで、サーバー側に保存されません。
+      </p>
+      <p>
+        iPhone アプリでは、予定データは<b>端末内のデータベース（SQLite）</b>に保存され、ログイン情報は
+        iOS の Keychain に保存されます。ホーム画面のウィジェットと Apple Watch には、直近 7 日・最大 12 件の予定の
+        <b>題名・場所・カレンダー名・色</b>が、それぞれの端末内に保存されます（ロック画面・ホーム画面・文字盤に表示されます）。
+        予定の開始通知は、端末内で予約するローカル通知で、サーバーからのプッシュ通知は使いません。
+        これらはサーバーにも Google にも送信されません。
       </p>
       <p>
         また、デスクトップ版で予定のリマインダー通知を使う場合、同じ通知を二度出さないための記録が
@@ -220,8 +232,10 @@
         <a href="https://myaccount.google.com/permissions">Google アカウントの設定</a
         >からもいつでもアクセス権を取り消せます。
         ブラウザ内のローカルデータは、設定の「ログアウト」で消去できます（予定・タスク・GitHub
-        の一覧が端末から消えます。タイムブロックと作業タイマーの記録はこの端末にしか無いデータの
-        ため残ります）。すべて消したい場合はブラウザのサイトデータ削除を使ってください。
+        の一覧、表示するカレンダーの選択などの設定、通知済みの記録が端末から消えます。iPhone アプリでは、
+        端末内の予定、ウィジェットと Apple Watch の予定、通知の予約もすべて消えます。
+        タイムブロックと作業タイマーの記録、テーマ・アクセント色・並べるタイムゾーンの設定は、
+        この端末にしか無いデータのため残ります）。すべて消したい場合はブラウザのサイトデータ削除を使ってください。
       </p>
       <p>
         なお、カレンダーブロック機能が Google
@@ -284,6 +298,12 @@
             SHA-256 hash, label and last-used time. The raw token is shown once at issuance and is
             never stored
           </li>
+          <li>
+            <b>Sign-in tickets for the desktop and iPhone apps</b> — one-time tickets used to
+            return to the app after signing in through an external browser. Only a hash, the
+            profile ID, a verification value and an expiry are stored; a ticket is deleted as soon
+            as it is exchanged, and expired ones are removed automatically
+          </li>
         </ul>
         <h3>Work logs</h3>
         <p>
@@ -304,6 +324,14 @@
           listed above that relates to events consists of IDs, timestamps and settings, not the
           events themselves. Summaries of the events MCP returns to an agent are likewise sent
           straight back as the response and never stored on the server.
+        </p>
+        <p>
+          In the iPhone app, event data is stored in an <b>on-device database (SQLite)</b> and your
+          sign-in session in the iOS Keychain. The home-screen widget and Apple Watch keep, on those
+          devices, the <b>titles, locations, calendar names and colors</b> of up to 12 upcoming
+          events in the next 7 days (shown on the lock screen, home screen and watch face). Event
+          start notifications are local notifications scheduled on the device; no server push is
+          used. None of this is sent to our servers or to Google.
         </p>
         <p>
           In addition, if you use event reminder notifications in the desktop app, a record of
@@ -339,8 +367,11 @@
           from your
           <a href="https://myaccount.google.com/permissions">Google Account settings</a>. To clear
           local data, use <b>Log out</b> in settings — it removes this device's copy of your events,
-          tasks and GitHub list. Time blocks and manual timer records stay, because this device is
-          the only place they exist. To erase everything, clear the site's data in your browser.
+          tasks and GitHub list, settings such as which calendars are shown, and the record of
+          notifications already shown. In the iPhone app it also removes the on-device events, the
+          events kept for the widget and Apple Watch, and scheduled notifications. Time blocks and
+          manual timer records, and your theme, accent color and extra time-zone settings, stay,
+          because this device is the only place they exist. To erase everything, clear the site's data in your browser.
         </p>
         <p>
           What happens to busy/out-of-office blocks the blocking feature already created in Google
