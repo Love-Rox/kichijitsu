@@ -37,7 +37,11 @@ import { buildEventRsvpRequest } from "@kichijitsu/web/sync/eventRsvp";
 import {
   applyGuestChangesLocally,
   buildEventGuestsRequest,
+  GuestNotOrganizerError,
+  GuestSplitUnsupportedError,
+  guestsEndpoint,
   type GuestChange,
+  type GuestScope,
 } from "@kichijitsu/web/sync/eventGuests";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import { ApiError, apiFetch } from "./api";
@@ -399,29 +403,84 @@ async function writeLocalSubject(subject: EventSubject, apply: ApplyChange): Pro
 }
 
 /**
- * ゲストの追加・削除。Web 版と同じく、**楽観更新 + ロールバック**: 押した瞬間に一覧へ反映し、
- * サーバーが拒否したら元に戻す。送るのは差分(追加/削除するメール)だけで、サーバーが read-modify-write
- * する。主催者の単発予定だけが対象(canEditGuests)。招待は常に通知される(サーバー側で固定)。
+ * ゲストの追加・削除。送るのは差分(追加/削除するメール)だけで、サーバーが read-modify-write する。
+ * 主催者の予定だけが対象(canEditGuests)。招待は常に通知される(サーバー側で固定)。
  * 反映後の予定を返す(押したあとの一覧をすぐ見せるため)。
+ *
+ * 単発の予定は、Web 版と同じく**楽観更新 + ロールバック**: 押した瞬間に一覧へ反映し、サーバーが
+ * 拒否したら元に戻す。繰り返しの予定は scope で範囲を選ぶ(Web 版と同じ):
+ *   - "this": その 1 回だけ(Google のインスタンスに書き、手元は例外インスタンス override に残す)
+ *   - "all": シリーズ全体(親に書き、series の参加者を書き換える)
+ *   - "following": これ以降。サーバーがシリーズを 2 つに割る(POST /api/event/guests-following)。
+ *     手元の series / override は触らない ―― 分割後の姿を予測して書くと、食い違ったときに戻せない。
+ *     次の同期で、正しい形が還流する。安全に割れない予定は GuestSplitUnsupportedError(何も書かれていない)。
+ * "this" / "all" の繰り返しは、楽観更新をしない(書き込み先がインスタンスか親かで戻す場所が変わるため、
+ * 成功してから反映する。色の変更と同じ)。
  */
 export async function editGuests(
   subject: EventSubject,
   change: GuestChange,
   apply: ApplyChange,
+  data: CalendarData,
+  scope: GuestScope = "this",
 ): Promise<EventSubject> {
-  const request = buildEventGuestsRequest(subject, change);
+  const request = buildEventGuestsRequest(subject, change, scope);
   if (!request) throw new Error("この予定のゲストは変更できません");
+
+  const postGuests = async (): Promise<void> => {
+    try {
+      const res = await apiFetch<{ ok: boolean }>(guestsEndpoint(scope), {
+        method: "POST",
+        body: JSON.stringify(request),
+      });
+      if (!res?.ok) throw new Error("サーバーがゲストの変更を受け付けませんでした");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) {
+        const body = e.body as { error?: string; reason?: string } | null;
+        if (body?.error === "split_unsupported") throw new GuestSplitUnsupportedError(body.reason ?? "");
+        throw new GuestNotOrganizerError();
+      }
+      throw e;
+    }
+  };
+
+  // ---- これ以降: 手元は触らない(次の同期で還流する) ----
+  if (scope === "following") {
+    await postGuests();
+    return subject;
+  }
+
+  // ---- 繰り返しの予定(この予定のみ / すべての予定): 成功してから手元へ反映する ----
+  if (isTimed(subject) && subject.seriesId) {
+    const series = data.series.find((x) => x.id === subject.seriesId);
+    if (!series) throw new Error("繰り返しの予定の元が見つかりません");
+    await postGuests();
+    if (scope === "all") {
+      const nextSeries = { ...series, attendees: applyGuestChangesLocally(series.attendees, change) };
+      apply((d) => ({ ...d, series: d.series.map((x) => (x.id === series.id ? nextSeries : x)) }));
+      await upsertSeries(nextSeries);
+      return { ...subject, attendees: applyGuestChangesLocally(subject.attendees, change) };
+    }
+    const next = applyGuestChangesLocally(subject.attendees, change);
+    // その回の override にも残す(再展開で、シリーズ側の一覧に戻らないように)
+    const ref = resolveOverrideRef(subject);
+    if (ref) {
+      const existing = data.overrides.find((o) => o.id === ref.id) ?? null;
+      const merged = mergeOverridePatch({ ref, existing, fields: { attendees: next } });
+      apply((d) => ({ ...d, overrides: [...d.overrides.filter((o) => o.id !== merged.id), merged] }));
+      await upsertOverride(merged);
+    }
+    return { ...subject, attendees: next };
+  }
+
+  // ---- 単発の予定: 楽観更新 + ロールバック ----
   const optimistic = { ...subject, attendees: applyGuestChangesLocally(subject.attendees, change) } as EventSubject;
   await writeLocalSubject(optimistic, apply);
   try {
-    const res = await apiFetch<{ ok: boolean }>("/api/event/guests", {
-      method: "POST",
-      body: JSON.stringify(request),
-    });
-    if (!res?.ok) throw new Error("サーバーがゲストの変更を受け付けませんでした");
+    await postGuests();
   } catch (e) {
     await writeLocalSubject(subject, apply); // ロールバック
-    if (e instanceof ApiError && e.status === 422) {
+    if (e instanceof GuestNotOrganizerError) {
       throw new Error("主催者でない予定のゲストは変更できません");
     }
     throw e;

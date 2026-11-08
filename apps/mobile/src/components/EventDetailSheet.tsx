@@ -1,6 +1,6 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Linking, Modal, Pressable, ScrollView, View } from "react-native";
 import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import { Text, TextInput } from "./ui";
@@ -15,8 +15,11 @@ import type { GuestNotify } from "@kichijitsu/web/sync/guestNotify";
 import {
   canEditGuests,
   parseGuestEmailInput,
+  splitRefusalMessage,
+  GuestSplitUnsupportedError,
   type GuestChange,
   type GuestEmailError,
+  type GuestScope,
 } from "@kichijitsu/web/sync/eventGuests";
 import { colorIdOf, EVENT_COLORS } from "../lib/eventColors";
 import { canAddMeet } from "@kichijitsu/web/sync/eventMeet";
@@ -47,8 +50,8 @@ export function EventDetailSheet({
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
   /** 自分の出欠の変更。反映後の予定を返す(押したボタンの状態をすぐ見せるため)。失敗したら例外。 */
   onRsvp: (subject: EventSubject, status: RsvpResponseStatus) => Promise<EventSubject>;
-  /** ゲストの追加・削除。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
-  onEditGuests: (subject: EventSubject, change: GuestChange) => Promise<EventSubject>;
+  /** ゲストの追加・削除(繰り返しの予定は scope で範囲を選ぶ)。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
+  onEditGuests: (subject: EventSubject, change: GuestChange, scope: GuestScope) => Promise<EventSubject>;
   /** 予定の色の変更(null はカレンダーの色に戻す)。反映後の予定を返す。失敗したら例外。 */
   onSetColor: (subject: EventSubject, colorId: string | null, scope: "this" | "all") => Promise<EventSubject>;
   /** Google Meet の会議を付ける。反映後の予定を返す。失敗したら例外。 */
@@ -103,15 +106,29 @@ export function EventDetailSheet({
   const [guestInput, setGuestInput] = useState("");
   const [guestError, setGuestError] = useState<string | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
+  // 繰り返しの予定のゲストの適用範囲。既定は影響の小さい「この予定のみ」(Google カレンダーと同じ)
+  const [guestScope, setGuestScope] = useState<GuestScope>("this");
+  // 別の予定を開いたら、範囲を「この予定のみ」へ戻す(「これ以降」が残ったまま、別の予定のシリーズを割らないように)
+  useEffect(() => {
+    setGuestScope("this");
+  }, [subject?.id]);
   const changeGuests = async (change: GuestChange) => {
     if (!view || guestBusy) return;
     setGuestBusy(true);
     setGuestError(null);
     try {
-      setUpdated(await onEditGuests(view, change));
+      const scope: GuestScope = "seriesId" in view && view.seriesId ? guestScope : "this";
+      const next = await onEditGuests(view, change, scope);
+      setUpdated(next);
       setGuestInput("");
+      if (scope === "following") {
+        // 手元は触らない(サーバーがシリーズを割った結果は、次の同期で届く)
+        Alert.alert("反映しました", "これ以降の予定のゲストを変更しました。一覧への反映に少し時間がかかります。");
+      }
     } catch (e) {
-      setGuestError(String((e as Error).message ?? e));
+      setGuestError(
+        e instanceof GuestSplitUnsupportedError ? splitRefusalMessage(e.reason) : String((e as Error).message ?? e),
+      );
     } finally {
       setGuestBusy(false);
     }
@@ -171,6 +188,41 @@ export function EventDetailSheet({
 
   const guestAddUi = editableGuests ? (
                   <View style={{ marginTop: 10 }}>
+                    {view && "seriesId" in view && view.seriesId ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignSelf: "flex-start",
+                          borderRadius: 6,
+                          borderWidth: 1,
+                          borderColor: t.line,
+                          overflow: "hidden",
+                          marginBottom: 10,
+                        }}
+                      >
+                        {(
+                          [
+                            ["this", "この予定のみ"],
+                            ["following", "これ以降"],
+                            ["all", "すべての予定"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <Pressable
+                            key={value}
+                            onPress={() => setGuestScope(value)}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 5,
+                              backgroundColor: guestScope === value ? t.accent : undefined,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, color: guestScope === value ? t.onAccent : t.inkMute }}>
+                              {label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ) : null}
                     <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                       <TextInput
                         value={guestInput}
