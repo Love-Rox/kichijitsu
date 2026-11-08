@@ -2,6 +2,9 @@
 
 2026-07-20 のユーザー相談で確定した進め方。
 
+> 追記(2026-11-06〜): モバイルは Tauri 2 mobile ではなく **React Native (Expo)** で作ることにした(docs/mobile.md)。
+> デスクトップ版は macOS に加えて Windows も配布している(docs/desktop.md)。下の「進める順序」の 4 は、この方針で置き換わった。
+
 ## 前提
 
 ローカルファースト構成（正本=Google、各デバイス=IndexedDB レプリカ、サーバー=トークンと

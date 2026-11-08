@@ -81,10 +81,11 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
   ことがある(実機用のリリース構成は通る)。見た目の確認だけなら `npx expo run:ios --configuration Release`
   でシミュレータに入れられる(JS は同梱されるので Metro 不要)。
 - 初回は 2026-11-06 に build 1 (version 0.1.0) をアップロード。
+- 現在の推奨手順は、末尾の「ローカル署名 + altool でのアップロード」。
 
-## 次にやること
-作成・編集・削除 (楽観的更新 + 書き戻し) → 不在・勤務場所の表示 → 引っ張って更新 →
-通知・ウィジェット。
+## 実装済みと、これから
+実装済み: 作成・編集・削除(楽観的更新 + 書き戻し)、不在・勤務場所の表示、通知、ウィジェット、
+Apple Watch、検索、ゲスト、色、横スクロール、カラーテーマ。これから: 引っ張って更新ほか。
 
 ## 予定の開始通知
 - サーバーからのプッシュは使わず、手元(SQLite)の予定から端末内のローカル通知を予約する(`src/lib/notifications.ts`、expo-notifications)。Apple のプッシュ設定は不要。
@@ -108,7 +109,7 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - 結果をタップすると、検索のシートを閉じてから詳細を開く(iOS はモーダルを重ねて出せないことがあるため、450ms 待つ)。
 
 ## ゲストの追加・削除
-- 予定の詳細シートのゲスト欄から。条件は Web 版と同じ `canEditGuests`(自分が主催の、繰り返しでない Google の予定)。ゲストが 0 人でも、編集できる予定には追加欄を出す。
+- 予定の詳細シートのゲスト欄から。条件は Web 版と同じ `canEditGuests`(自分が主催の Google の予定。繰り返しの予定も可)。繰り返しの予定では、変える範囲を「この予定のみ/これ以降/すべての予定」から選ぶ(既定は、この予定のみ。`editGuests` の `scope`、これ以降は `POST /api/event/guests-following`)。ゲストが 0 人でも、編集できる予定には追加欄を出す。
 - 通信は `lib/mutations.ts` の `editGuests`: Web 版と同じ**楽観更新 + ロールバック**(押した瞬間に一覧へ反映し、サーバーが拒否したら元に戻す)。送るのは差分(追加/削除するメール)だけで、サーバーが read-modify-write する(手元の一覧は 50 件で打ち切られていることがあるため)。
 - 追加すると招待は必ず通知される(サーバー側で固定)。自分・主催者・会議室は外せない。入力の検査は Web 版の `parseGuestEmailInput`。
 
@@ -157,3 +158,27 @@ ExportOptions.plist は `method: app-store-connect` / `destination: upload` / `t
 - **月表示だけは、従来の方式**(横スワイプで前後の月へ、`CalendarScreen.tsx` の `PanResponder`)。月の格子は帯にならないため。
 - 前節の「スワイプは 1 日ずつ」は、この方式に置き換わった(週表示が月曜に揃わず、基準日から 7 日になる点は同じ)。
 
+## ローカル署名 + altool でのアップロード(Apple ID 不要。2026-11-08〜の推奨手順)
+上の「API キーで -exportArchive」の代わりに、**書き出しはローカルの署名だけで行い、アップロードだけを `altool` + API キーで行う**。Apple ID のサインイン(Xcode)が要らない。
+1. `ios.buildNumber` を上げる(app.json)→ `npx expo prebuild --platform ios --clean`(apps/mobile)
+2. アーカイブ: `xcodebuild -workspace ios/kichijitsu.xcworkspace -scheme kichijitsu -configuration Release -destination 'generic/platform=iOS' -archivePath <作業>/kichijitsu.xcarchive -allowProvisioningUpdates DEVELOPMENT_TEAM=M296DX39G6 CODE_SIGN_STYLE=Automatic archive`
+3. 書き出し(**`-allowProvisioningUpdates` を付けない**): `xcodebuild -exportArchive -archivePath … -exportOptionsPlist <作業>/ExportOptions-local.plist -exportPath <作業>/export`。plist は `method: app-store-connect` / `destination: export`(**upload ではない**)/ `signingStyle: automatic` / `teamID` / `manageAppVersionAndBuildNumber: false` / `uploadSymbols: true`。ローカルの Provisioning Profiles(~/Library/Developer/Xcode/UserData/Provisioning Profiles)にある App Store 用のプロファイルが使われる。
+4. アップロード: `xcrun altool --upload-app --type ios -f <作業>/export/kichijitsu.ipa --apiKey <KeyID> --apiIssuer <IssuerID>`(鍵は ~/.appstoreconnect/private_keys/AuthKey_<KeyID>.p8)。
+- `signingStyle: manual` は、「Xcode managed プロファイル」と衝突して失敗する。
+- ローカルのプロファイルが切れたとき(約 1 年)や、新しい App ID・capability を足したときだけ、Apple ID でサインインした Xcode での従来の手順が要る。
+- アップロード後は、アーカイブ・書き出し物・ログ・`apps/mobile/ios` を削除する。
+
+## Apple Watch とコンプリケーション
+- `apps/mobile/targets/watch/`(Watch アプリ、SwiftUI)と `targets/watch-widget/`(文字盤のコンプリケーション、WidgetKit)。`@bacons/apple-targets` が prebuild のたびに生成する。
+- データ: iPhone(JS)の `widgetSync.ts` が、ウィジェットと同じ JSON(`events`: 題名・開始・終了・色・場所・カレンダー名 `calendar`・カレンダーの色 `calendarColor`)と `theme` を、`modules/kichijitsu-watch` の WatchConnectivity(applicationContext)で送る。届くのは最新の 1 通だけなので、予定とテーマは毎回両方を送る。Watch は受け取って、Watch 側の App Group の UserDefaults に書き、コンプリケーションがそれを読む。古い形式のデータには `location` / `calendar` が無いので、Swift 側は省略可能として読む。iPhone で再同期するまでは、古いデータのまま。
+- 詳細画面: 一番上に、カレンダーの色の丸とカレンダー名。その下に、予定名・日時・開始までの時間・場所。
+- コンプリケーション(角 `accessoryCorner`): 内側は**時刻だけを 1 行・20pt**(これから始まる予定は開始時刻、進行中は終了時刻)。進行中は、外周のラベルの頭に「▶」を付ける。GMT の文字盤など内側の幅が狭い枠で、「〜10:30」が入らず「〜」だけが残ったため(2 行にすると時刻が小さくなりすぎた)。
+- ログアウトでは、空の `events` を送って消す。
+
+## 重なる予定・不在・勤務場所の表示(Timeline)
+- 重なる予定のずれは、`layoutOverlaps` の `indentFrac`。列が狭いときも左端の線が見えるよう、下限を 8px(`MIN_STACK_INDENT_PX`)にしている。
+- 不在(OOO)は背景の層: 全幅の薄いカードで、「不在 題名」のラベルを付ける。**不在と時間が重なる予定だけ**、右へ 8px 内側から置く(重ならない予定はずらさない)。
+- 勤務場所は、カードにせず、終日はヘッダーの日付の下の専用の行(場所アイコン + 名前。他の終日予定とは別枠で、押し出されない)、時刻付きは列の左端の 4px の帯(予定の背面。タップで詳細)に出す。
+
+## 設定のカレンダー
+- アカウントごとに折りたためる(既定は閉じる)。ヘッダーに「表示 N / 全 M」。開閉の状態は、設定を開くたびに閉じた状態に戻る。

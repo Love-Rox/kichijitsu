@@ -668,3 +668,12 @@ false になり、`location.href = "/auth/login…"` の**文字列も従来と�
 - Cmd+R は、これまで**グローバルショートカット**(アプリが前面か表示中のときだけ動くガード付き)だったが、macOS では、メニュー項目の Cmd+R に置き換えた(アプリが前面のときだけ効く。他のアプリの Cmd+R を奪わない。二重に動かない)。Windows/Linux は、従来のグローバルショートカットのまま。
 - 「kichijitsu を終了」(Cmd+Q)は、トレイの「終了」と同じ `quit_app`(ウィンドウの位置・大きさを保存してから終了)を通す。メニューのイベント id は、トレイと取り違えないよう `app-` を付けた。
 
+
+## Windows 版(2026-11-08。v0.1.17〜v0.1.20)
+- 配布物(GitHub Releases): `kichijitsu_<version>_x64-setup.exe`(NSIS)と `kichijitsu_<version>_x64_ja-JP.msi`(WiX)。どちらも日本語のインストーラー(`tauri.conf.json` の `bundle.windows.nsis.languages` / `wix.language`)。自動更新用の `.sig` と、`latest.json` の `windows-x86_64` も付く。**コード署名はしていない**ので、初回は SmartScreen が警告する(「詳細情報 → 実行」)。Windows 版は x64 のみ。
+- リリース CI(`release.yml`): `create-release`(ubuntu。リリースと本文を作る)→ `build`(macOS)と `build-windows` を**並行** → `verify-manifest`(`latest.json` に `darwin-aarch64` と `windows-x86_64` があるか確かめる)。v0.1.20 で約 8 分。
+- release ビルドは `windows_subsystem = "windows"` で、コンソールが無い。パニックと起動時の問題は、panic フックと `log_startup_problem` が `%LOCALAPPDATA%\kichijitsu\kichijitsu-desktop.log` に書く(書けないときは HOME/.local/state/kichijitsu、tmp の順)。ショートカットの登録に失敗しても、アプリは起動を続ける(白い画面のまま消える不具合の原因だった)。
+- Google ログインからアプリへ戻る deep link(`kichijitsu://`)は、Windows では**新しいインスタンス**として起動する。`tauri-plugin-single-instance`(`deep-link` feature)を**最初に**登録して、2 つ目の起動を既存のウィンドウへ渡し、`show_main_window` で前面に出す。
+- `gh` の実行(`gh_api`)は `CREATE_NO_WINDOW` で起動する(付けないと、コンソールの窓が大量に出ては消える)。`#[cfg(windows)]` のコードは、macOS の `cargo check` ではコンパイルされないので、CI の Windows ビルドで確かめる。
+- winget(`.github/workflows/winget.yml`): Release の成功(tag の push)のあとに、`WINGET_TOKEN` があれば winget-pkgs へ更新の PR を出す(無ければ何もしない)。action は SHA で固定。パッケージ ID は仮の `LoveRox.kichijitsu`。**初回の提出は手作業**(winget-pkgs のフォーク、public_repo + workflow の classic PAT を `WINGET_TOKEN` に登録)。`dependabot.yml` で、GitHub Actions を週次で更新する。
+- 未確認: Windows の日本語インストーラーの画面、0.1.19 からの更新、Windows の通知(アプリ内の説明文は「macOS の通知」のまま)。
