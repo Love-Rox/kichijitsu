@@ -26,7 +26,7 @@ const GUTTER = 40;
 /** 見出しの窓: 重なり配置が「予定の先頭が隠れない」ことを保証する高さ(px)。Web 版の EVENT_HEADER_PX=36 を標準ズームの分に直したもの(36 分 × 52px/時) */
 const HEADER_WINDOW_PX = (36 / 60) * DEFAULT_HOUR_HEIGHT;
 /** 重なる予定の、下の予定の端が見える最小の幅(px)。左端の色の線(2〜3px)と、その右の地が見える程度 */
-const MIN_STACK_INDENT_PX = 12;
+const MIN_STACK_INDENT_PX = 8;
 /** 不在のレール(列の左端)の 1 筋の幅(px)と、並べる筋の最大数 */
 const RAIL_LANE_PX = 6;
 const MAX_RAIL_LANES = 3;
