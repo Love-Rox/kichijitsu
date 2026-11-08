@@ -14,6 +14,7 @@ const ICONS = {
   gear: "gear",
   radioOff: "circle",
   radioOn: "check-circle",
+  mapPin: "map-pin",
 };
 
 const root = process.argv[2];

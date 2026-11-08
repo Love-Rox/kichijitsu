@@ -11,6 +11,7 @@ import { isEditableEventSubject } from "@kichijitsu/web/sync/eventEdit";
 import { formatTime } from "../lib/format";
 import { getMeta, setMeta } from "../lib/localDb";
 import type { EventSubject } from "../lib/mutations";
+import { Icon } from "./Icon";
 
 /**
  * 日 / 3日 / 週 のタイムライン (3日がモバイルの既定ビュー)。表示する日数は dayCount で決まる。
@@ -414,23 +415,26 @@ export function Timeline({
               </View>
               {/* 勤務場所の専用の行。他の終日予定に押し出されないよう、分けて出す */}
               {allDay.filter((a) => a.isWorkingLocation).slice(0, 1).map((a) => (
-                <Text
+                <Pressable
                   key={a.id}
                   onPress={() => onSelect(a)}
-                  numberOfLines={1}
                   style={{
                     alignSelf: "stretch",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 2,
                     marginHorizontal: 2,
                     marginTop: 2,
                     paddingHorizontal: 3,
-                    fontSize: 11,
                     borderRadius: 3,
                     backgroundColor: t.allDayBg(a.color),
-                    color: t.ink,
                   }}
                 >
-                  📍{a.title}
-                </Text>
+                  <Icon name="mapPin" color={t.ink} size={11} />
+                  <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11, color: t.ink }}>
+                    {a.title}
+                  </Text>
+                </Pressable>
               ))}
               {allDay.filter((a) => !a.isWorkingLocation).slice(0, 2).map((a) => (
                 <Text
