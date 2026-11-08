@@ -1044,9 +1044,20 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &Url) {
 /// 起動時の問題(と異常終了)を書き残すファイルの場所。
 /// Windows のリリース版にはコンソールが無く、stderr も panic のメッセージも見えないので、
 /// 「ウィンドウが出てすぐ消える」ときの原因が分からない。そこで、一時フォルダへ書く
-/// (Windows: %TEMP%\kichijitsu-desktop.log)。
+/// (Windows: %LOCALAPPDATA%\kichijitsu\kichijitsu-desktop.log)。
+/// 共有の一時フォルダ(Linux の /tmp など)は、他のユーザーが仕込んだリンクを辿ってしまうので使わない。
+/// ユーザー専用のフォルダが決まらないときだけ、一時フォルダへ逃がす。
 fn startup_log_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("kichijitsu-desktop.log")
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local").join("state"))
+        })
+        .map(|p| p.join("kichijitsu"));
+    match base {
+        Some(dir) if std::fs::create_dir_all(&dir).is_ok() => dir.join("kichijitsu-desktop.log"),
+        _ => std::env::temp_dir().join("kichijitsu-desktop.log"),
+    }
 }
 
 /// 起動時の問題を 1 行、ログファイルへ足す。書けなくてもアプリは止めない。
