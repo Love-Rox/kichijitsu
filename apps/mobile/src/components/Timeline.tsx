@@ -357,8 +357,11 @@ export function Timeline({
         headerWindowMs,
         indentFrac,
       );
-      const oooInset = items.some((o) => o.isOutOfOffice === true) ? MIN_STACK_INDENT_PX : 0;
-      return { date, dayStart, dayEnd, items, oooInset, slots, allDay: allDaysOnDate(data, date) };
+      // 不在の時間帯。他の予定は、これと時間が重なるときだけ、右へずらす(重ならない予定は、ずらさない)
+      const oooRanges = items
+        .filter((o) => o.isOutOfOffice === true)
+        .map((o) => ({ startMs: o.startMs, endMs: o.endMs }));
+      return { date, dayStart, dayEnd, items, oooRanges, slots, allDay: allDaysOnDate(data, date) };
     });
   }, [days, byDay, data, timeZone, pending, hourHeight, colW]);
 
@@ -491,7 +494,7 @@ export function Timeline({
               style={{ position: "absolute", top: h * hourHeight, left: 0, right: 0, height: 1, backgroundColor: t.lineWarm }}
             />
           ))}
-          {columns.map(({ date, dayStart, dayEnd, items, oooInset, slots }) => (
+          {columns.map(({ date, dayStart, dayEnd, items, oooRanges, slots }) => (
             <View
               key={date.toString()}
               style={{
@@ -541,6 +544,11 @@ export function Timeline({
                 const lineH = (compact ? 12 : 14) * FONT_SCALE;
                 const lines = Math.min(3, Math.max(1, Math.floor((height - 2) / lineH)));
                 const stickyRange = Math.max(0, height - 3 - lines * lineH);
+                // 不在と時間が重なる予定だけ、不在の左端が見えるように右へ内側から置く
+                const oooInset =
+                  !o.isOutOfOffice && oooRanges.some((r) => r.startMs < o.endMs && r.endMs > o.startMs)
+                    ? MIN_STACK_INDENT_PX
+                    : 0;
                 return (
                   <Pressable
                     key={o.id}
@@ -552,7 +560,7 @@ export function Timeline({
                       position: "absolute",
                       top,
                       height: height - 1,
-                      // 不在のある日は、不在以外の予定を右へ oooInset だけ内側に置く(不在の左端を見せる)
+                      // 不在と重なる予定は、右へ oooInset だけ内側に置く(不在の左端を見せる)
                       left: o.isOutOfOffice || oooInset === 0 ? `${slot.leftFrac * 100}%` : oooInset + slot.leftFrac * (colW - oooInset),
                       width: o.isOutOfOffice || oooInset === 0 ? `${slot.widthFrac * 100}%` : slot.widthFrac * (colW - oooInset),
                       zIndex: slot.stackIndex,
