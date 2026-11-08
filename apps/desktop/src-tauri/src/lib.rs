@@ -339,10 +339,17 @@ async fn gh_api(endpoint: String, gh_path: Option<String>) -> Result<String, Str
     }
 
     let gh_bin = select_gh_binary(gh_path)?;
-    let output = std::process::Command::new(gh_bin)
-        .arg("api")
-        .arg(&endpoint)
-        .env("PATH", augmented_path())
+    let mut cmd = std::process::Command::new(gh_bin);
+    cmd.arg("api").arg(&endpoint).env("PATH", augmented_path());
+    // Windows: 画面を持たないアプリから外部プロセスを起動すると、起動のたびにコンソールの窓が
+    // 一瞬出る(GitHub 連携のたびに、窓が大量に出ては消える)。窓を作らない旗(CREATE_NO_WINDOW)を付ける。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd
         .output()
         .map_err(|e| {
             format!("gh の起動に失敗しました({e})。gh CLI が未インストールの可能性があります")
