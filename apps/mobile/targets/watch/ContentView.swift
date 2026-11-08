@@ -113,10 +113,14 @@ struct EventDetailView: View {
             let now = context.date
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    // 一番上に、カレンダー名をカレンダーの色で
+                    // 一番上に、カレンダーの色の丸と、カレンダー名
                     if let cal = event.calendar, !cal.isEmpty {
-                        Text(cal).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            .foregroundStyle(parseHex(event.calendarColor) ?? parseHex(event.color) ?? store.accent)
+                        let calColor = parseHex(event.calendarColor) ?? parseHex(event.color) ?? store.accent
+                        HStack(spacing: 5) {
+                            Circle().fill(calColor).frame(width: 8, height: 8)
+                            Text(cal).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        }
+                        .foregroundStyle(calColor)
                     }
 
                     HStack(alignment: .top, spacing: 8) {
