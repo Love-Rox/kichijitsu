@@ -12,7 +12,7 @@ Notion Calendar には無い差別化要素。
     → 「準拠している仕様バージョン」節を参照
 - エンドポイント: `https://kichijitsu.love-rox.cc/mcp`（同一オリジン維持）または
   `mcp.kichijitsu.love-rox.cc`
-- **read-through 原則**: ツールは DO 経由で Google から取得して返すだけ。
+- **read-through 原則**: ツールは Worker から Google へ取得しに行って返すだけ（Durable Object は使わない）。
   サーバーに予定を永続化しない（既存の設計原則を維持）
 - 認証: MCP 標準の OAuth（`workers-oauth-provider`）。
   MCP クライアント → kichijitsu アカウント → 保存済み Google トークンの委譲。

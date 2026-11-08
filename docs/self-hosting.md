@@ -29,7 +29,7 @@ pnpm install
 ## 2. Google OAuth クライアントの作成
 
 1. [Google Cloud Console](https://console.cloud.google.com/) で新規プロジェクトを作成
-2. 「API とサービス」→ Google Calendar API を有効化
+2. 「API とサービス」→ Google Calendar API と Google Tasks API を有効化
 3. OAuth 同意画面を設定（User Type: External、**公開ステータスは「テスト」のまま**でよい。
    テストユーザーに自分の Gmail を追加）
 4. 認証情報 → OAuth クライアント ID（ウェブアプリケーション）を作成し、
@@ -46,7 +46,7 @@ pnpm install
 | ファイル                   | 書き換える箇所                                                            |
 | -------------------------- | ------------------------------------------------------------------------- |
 | `apps/web/wrangler.jsonc`  | `name`（任意）、`routes[0].pattern` → あなたのドメイン                    |
-| `apps/sync/wrangler.jsonc` | `name`（任意）、`routes` の 2 つの pattern と `zone_name`、`vars.APP_URL` |
+| `apps/sync/wrangler.jsonc` | `name`（任意）、`routes` の 3 つの pattern（`/api/*` `/auth/*` `/mcp`）と `zone_name`、`vars.APP_URL`、`vars.WEBHOOK_BASE_URL`（Google の更新通知の宛先） |
 | `apps/sync/wrangler.jsonc` | `d1_databases[0].database_id` → 手順4で作る実 ID                          |
 
 ### 運営者情報（規約・プライバシーポリシー）
@@ -108,8 +108,10 @@ pnpm run deploy:web
 
 ## 5. 推奨のセキュリティ設定
 
-- `ALLOWED_EMAILS`（`apps/sync/wrangler.jsonc` の vars）に自分のメールアドレスを設定して
-  おくと、OAuth 設定を誤って公開した場合でもサーバー側で登録を拒否できます
+- `ALLOWED_EMAILS` に自分のメールアドレス（複数ならカンマ区切り）を設定しておくと、OAuth
+  設定を誤って公開した場合でもサーバー側で登録を拒否できます。`vars` には置かず、
+  `pnpm --filter sync exec wrangler secret put ALLOWED_EMAILS` で secret として登録します
+  （`vars` に置くと、デプロイのたびに secret が消えます）。未設定のときは全員を許可します
 - Cloudflare ダッシュボードで `/auth/*` `/api/*` への Rate Limiting ルールを追加すると
   さらに安心です（無料枠あり）
 

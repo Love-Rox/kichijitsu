@@ -159,13 +159,15 @@ https://kichijitsu.love-rox.cc/auth/callback
 
 ## 5. 招待制 (ALLOWED_EMAILS) の運用
 
-`apps/sync/wrangler.jsonc` の `vars.ALLOWED_EMAILS` はカンマ区切りのメールアドレス allowlist
-で、リポジトリのデフォルトは空文字列 (＝全許可、誰でも Google 連携できる)。実際に招待制で
-運用したい場合は、デプロイ先の `wrangler.jsonc` の `ALLOWED_EMAILS` に招待する本人のメール
-アドレスをカンマ区切りで設定してから `pnpm run deploy:sync` すること (大小文字は区別されない)。
+`ALLOWED_EMAILS` はカンマ区切りのメールアドレス allowlist で、未設定 (＝全許可、誰でも
+Google 連携できる) がデフォルト。**`vars` には置かない** (同名の var は deploy のたびに同名の
+secret を消して上書きする。2026-07-20 に実際に発生した)。招待制で運用したい場合は、招待する
+本人のメールアドレスをカンマ区切りで secret として登録する
+(`pnpm --filter sync exec wrangler secret put ALLOWED_EMAILS`。大小文字は区別されない)。
+ローカルは `.dev.vars` の `ALLOWED_EMAILS=` が使われる。
 リスト外のメールアドレスで `/auth/callback` に到達した場合、accounts への保存 (refresh_token を
 含む) は一切行われず、`APP_URL` へ `?auth_error=not_invited` を付けて 302 で戻される。招待者を
-増減したいだけであれば、この値を書き換えて sync を再デプロイするだけでよい (DB 変更は不要)。
+増減したいだけであれば、secret を登録し直すだけでよい (DB 変更も再デプロイも不要)。
 
 ## 6. デプロイ
 

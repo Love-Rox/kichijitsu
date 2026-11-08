@@ -4,6 +4,17 @@
 
 Notion Calendar 相当の、ローカルファーストなカレンダークライアント。
 
+## 構成
+
+- `apps/web`: Web アプリ(React + Vite)と、配信用の Worker
+- `apps/sync`: 同期・認証・MCP の Worker(Cloudflare D1 / Durable Object)
+- `apps/site`: ホームページとドキュメント
+- `apps/desktop`: デスクトップ版(Tauri。macOS・Windows)
+- `apps/mobile`: iOS アプリ(Expo / React Native)と Apple Watch
+- `packages/shared`: 共有の型とロジック
+
+詳しくは `docs/` を参照(`docs/desktop.md`、`docs/mobile.md`、`docs/deploy.md` ほか)。
+
 ## 開発方法
 
 ### 推奨: mise + pnpm
