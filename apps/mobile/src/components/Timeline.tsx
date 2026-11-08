@@ -27,9 +27,6 @@ const GUTTER = 40;
 const HEADER_WINDOW_PX = (36 / 60) * DEFAULT_HOUR_HEIGHT;
 /** 重なる予定の、下の予定の端が見える最小の幅(px)。左端の色の線(2〜3px)と、その右の地が見える程度 */
 const MIN_STACK_INDENT_PX = 8;
-/** 不在のレール(列の左端)の 1 筋の幅(px)と、並べる筋の最大数 */
-const RAIL_LANE_PX = 6;
-const MAX_RAIL_LANES = 3;
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 /** ドラッグで時間を動かすときの刻み(15 分)。 */
 const SNAP_MS = 15 * 60_000;
@@ -348,38 +345,20 @@ export function Timeline({
       if (pending && pending.startMs < dayEnd && pending.endMs > dayStart) {
         items.push({ ...pending.o, startMs: pending.startMs, endMs: pending.endMs });
       }
-      // 不在は、予定のカードの下に重ねず、列の左端の細いレールに縦の帯として出す(Web 版と同じ)。
-      // 全幅の背景にすると、同じ時間の予定が不在の上に完全に載って、重なりが見分けられなかった。
-      // 時間が重なる不在どうしだけ、レールの別の筋に分ける。
-      const cardItems = items.filter((o) => o.isOutOfOffice !== true);
-      const laneEnds: number[] = [];
-      const rail = items
-        .filter((o) => o.isOutOfOffice === true)
-        .sort((a, b) => a.startMs - b.startMs)
-        .map((o) => {
-          const s = Math.max(o.startMs, dayStart);
-          const e = Math.min(o.endMs, dayEnd);
-          let lane = laneEnds.findIndex((end) => end <= s);
-          if (lane === -1) {
-            lane = laneEnds.length;
-            laneEnds.push(e);
-          } else {
-            laneEnds[lane] = e;
-          }
-          return { o, lane, s, e };
-        });
-      const railInset = rail.length > 0 ? Math.min(laneEnds.length, MAX_RAIL_LANES) * RAIL_LANE_PX + 2 : 0;
+      // 不在は、他の予定の幅を奪わない背景の層として描く(全幅・最背面)。ただし、他の予定は、不在の
+      // 左端が見えるように、右へ少し内側から配置する(oooInset)。完全に重なると、不在の存在が見えない。
       const slots = layoutOverlaps(
-        cardItems.map((o) => ({
+        items.map((o) => ({
           id: o.id,
           startMs: Math.max(o.startMs, dayStart),
           endMs: Math.min(o.endMs, dayEnd),
-          background: false,
+          background: o.isOutOfOffice === true,
         })),
         headerWindowMs,
         indentFrac,
       );
-      return { date, dayStart, dayEnd, items: cardItems, rail, railInset, slots, allDay: allDaysOnDate(data, date) };
+      const oooInset = items.some((o) => o.isOutOfOffice === true) ? MIN_STACK_INDENT_PX : 0;
+      return { date, dayStart, dayEnd, items, oooInset, slots, allDay: allDaysOnDate(data, date) };
     });
   }, [days, byDay, data, timeZone, pending, hourHeight, colW]);
 
@@ -512,7 +491,7 @@ export function Timeline({
               style={{ position: "absolute", top: h * hourHeight, left: 0, right: 0, height: 1, backgroundColor: t.lineWarm }}
             />
           ))}
-          {columns.map(({ date, dayStart, dayEnd, items, rail, railInset, slots }) => (
+          {columns.map(({ date, dayStart, dayEnd, items, oooInset, slots }) => (
             <View
               key={date.toString()}
               style={{
@@ -550,26 +529,6 @@ export function Timeline({
                   />
                 </View>
               ) : null}
-              {/* 不在のレール: 列の左端の縦の帯(時間の範囲ぶん)。タップで詳細 */}
-              {rail.map(({ o, lane, s, e }) => (
-                <Pressable
-                  key={o.id}
-                  onPress={() => onSelect(o)}
-                  hitSlop={{ left: 2, right: 6 }}
-                  style={{
-                    position: "absolute",
-                    top: ((s - dayStart) / HOUR_MS) * hourHeight,
-                    height: Math.max(((e - s) / HOUR_MS) * hourHeight, 6) - 1,
-                    left: Math.min(lane, MAX_RAIL_LANES - 1) * RAIL_LANE_PX + 1,
-                    width: RAIL_LANE_PX - 2,
-                    borderRadius: 2,
-                    backgroundColor: o.color,
-                    opacity: 0.85,
-                  }}
-                />
-              ))}
-              {/* 予定のカード: 不在のレールの右側の領域に、重なりの配置をする */}
-              <View pointerEvents="box-none" style={{ position: "absolute", left: railInset, right: 0, top: 0, bottom: 0 }}>
               {items.map((o) => {
                 const slot = slots.get(o.id);
                 if (!slot) return null;
@@ -593,8 +552,9 @@ export function Timeline({
                       position: "absolute",
                       top,
                       height: height - 1,
-                      left: `${slot.leftFrac * 100}%`,
-                      width: `${slot.widthFrac * 100}%`,
+                      // 不在のある日は、不在以外の予定を右へ oooInset だけ内側に置く(不在の左端を見せる)
+                      left: o.isOutOfOffice || oooInset === 0 ? `${slot.leftFrac * 100}%` : oooInset + slot.leftFrac * (colW - oooInset),
+                      width: o.isOutOfOffice || oooInset === 0 ? `${slot.widthFrac * 100}%` : slot.widthFrac * (colW - oooInset),
                       zIndex: slot.stackIndex,
                       paddingHorizontal: compact ? 1 : 3,
                       paddingVertical: 1,
@@ -644,7 +604,6 @@ export function Timeline({
                   </Pressable>
                 );
               })}
-              </View>
             </View>
           ))}
 
