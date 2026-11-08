@@ -135,6 +135,11 @@ struct EventDetailView: View {
                         Label(loc, systemImage: "mappin.and.ellipse").font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
+
+                    if let cal = event.calendar, !cal.isEmpty {
+                        Label(cal, systemImage: "calendar").font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

@@ -29,6 +29,15 @@ function writeShared(key: string, json: string): void {
   sendToWatch(watchContext);
 }
 
+/** 予定が属するカレンダーの名前。見つからなければ undefined。 */
+function calendarNameOf(data: CalendarData, accountId?: string, calendarId?: string): string | undefined {
+  for (const a of data.accounts) {
+    if (a.accountId !== accountId) continue;
+    return (a.all ?? a.calendars).find((c) => c.id === calendarId)?.summary;
+  }
+  return undefined;
+}
+
 /**
  * 終わっていない予定を、開始順に最大 MAX_EVENTS 件。不参加は含めない。不在と勤務場所の予定は、
  * 設定(filters)で含めるかを選ぶ。
@@ -51,6 +60,7 @@ export function updateWidget(data: CalendarData, filters: WidgetFilters = DEFAUL
       color: o.color,
       // Watch の詳細に出す(ウィジェットは使わない)
       location: o.location || undefined,
+      calendar: calendarNameOf(data, o.accountId, o.calendarId),
     }));
   writeShared(KEY, JSON.stringify({ updatedAt: now, events }));
   ExtensionStorage.reloadWidget();
