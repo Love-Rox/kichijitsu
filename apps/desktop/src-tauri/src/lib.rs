@@ -1103,6 +1103,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         // ウィンドウサイズ/位置の永続化。tauri.conf.json の windows[0]
         // width/height (1200x800) は保存済み状態が無い初回起動時のみの
         // デフォルトで、このプラグインが起動時に自動でウィンドウへ適用する
