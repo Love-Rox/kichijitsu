@@ -24,7 +24,10 @@ import {
 import { colorIdOf, EVENT_COLORS } from "../lib/eventColors";
 import { canAddMeet } from "@kichijitsu/web/sync/eventMeet";
 import { formatDay, formatTime, stripHtml } from "../lib/format";
+import { isRecurringGoogleOccurrence } from "@kichijitsu/web/sync/recurrenceDelete";
+import type { Occurrence } from "@kichijitsu/web/model/types";
 import { asksGuestNotify, canDelete, isTimed, type EventSubject } from "../lib/mutations";
+import { RangeDeletePanel } from "./RangeDeletePanel";
 
 /** 畳んだ状態で見せる行数。これを超えた分は「他 N 人を表示」の中に隠す(Web は、ゲスト欄ごと畳むので持たない) */
 const GUEST_PREVIEW_COUNT = 5;
@@ -36,6 +39,9 @@ export function EventDetailSheet({
   onClose,
   onEdit,
   onDelete,
+  onDeleteRange,
+  onDeleteSeries,
+  countRange,
   onRsvp,
   onEditGuests,
   onSetColor,
@@ -48,6 +54,12 @@ export function EventDetailSheet({
   onEdit: (subject: EventSubject) => void;
   /** 削除の実行。失敗したら例外を投げる(シートの側でエラーを知らせる)。 */
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
+  /** 繰り返しの予定を、この回から指定の日(YYYY-MM-DD、その日を含む)まで消す。失敗したら例外。 */
+  onDeleteRange: (subject: Occurrence, until: string, notify: GuestNotify | undefined) => Promise<void>;
+  /** 繰り返しの予定を、すべての回(シリーズごと)消す。失敗したら例外。 */
+  onDeleteSeries: (subject: Occurrence, notify: GuestNotify | undefined) => Promise<void>;
+  /** 「この回から指定の日まで」で消える回数。 */
+  countRange: (subject: Occurrence, until: string) => number;
   /** 自分の出欠の変更。反映後の予定を返す(押したボタンの状態をすぐ見せるため)。失敗したら例外。 */
   onRsvp: (subject: EventSubject, status: RsvpResponseStatus) => Promise<EventSubject>;
   /** ゲストの追加・削除(繰り返しの予定は scope で範囲を選ぶ)。反映後の予定を返す。失敗したら例外(手元は元に戻してある)。 */
@@ -62,6 +74,12 @@ export function EventDetailSheet({
   const [updated, setUpdated] = useState<EventSubject | null>(null);
   const [showAllGuests, setShowAllGuests] = useState(false);
   const [rsvpBusy, setRsvpBusy] = useState(false);
+  // 「この回から指定の日まで」を選んでいる間の対象。null = 通常の詳細を出す
+  const [rangeFor, setRangeFor] = useState<Occurrence | null>(null);
+  // シートが閉じたら(下へ払って閉じた場合も)、日付の選択は片付ける。次に開いたとき通常の詳細から始める
+  useEffect(() => {
+    if (!subject) setRangeFor(null);
+  }, [subject]);
   const view = subject && updated && updated.id === subject.id ? updated : subject;
 
   const changeRsvp = async (status: RsvpResponseStatus) => {
@@ -142,26 +160,59 @@ export function EventDetailSheet({
     }
     void changeGuests({ addEmails: [parsed.email] });
   };
-  const run = async (s: EventSubject, notify: GuestNotify | undefined) => {
+  const run = async (go: () => Promise<void>) => {
     onClose();
+    setRangeFor(null);
     try {
-      await onDelete(s, notify);
+      await go();
     } catch (e) {
       Alert.alert("削除できませんでした", "もう一度お試しください。\n" + String(e));
     }
   };
 
-  const confirmDelete = (s: EventSubject) => {
+  /** ゲストへの通知を訊く(ゲストがいて自分が主催のときだけ)。訊かない予定は、そのまま実行する。 */
+  const withNotify = (s: EventSubject, go: (notify: GuestNotify | undefined) => Promise<void>) => {
     if (asksGuestNotify(s)) {
       Alert.alert("予定を削除", "ゲストに削除を通知しますか?", [
         { text: "キャンセル", style: "cancel" },
-        { text: "通知せず削除", onPress: () => void run(s, "externalOnly") },
-        { text: "通知して削除", style: "destructive", onPress: () => void run(s, "all") },
+        { text: "通知せず削除", onPress: () => void run(() => go("externalOnly")) },
+        { text: "通知して削除", style: "destructive", onPress: () => void run(() => go("all")) },
       ]);
+    } else {
+      void run(() => go(undefined));
+    }
+  };
+
+  const confirmDelete = (s: EventSubject) => {
+    // 繰り返しの回は、削除の範囲を先に選ぶ
+    if (isRecurringGoogleOccurrence(s)) {
+      Alert.alert("繰り返しの予定を削除", s.title, [
+        { text: "キャンセル", style: "cancel" },
+        { text: "この予定のみ", onPress: () => confirmOne(s) },
+        { text: "この予定から指定の日まで", onPress: () => setRangeFor(s) },
+        {
+          text: "すべての予定",
+          style: "destructive",
+          onPress: () =>
+            Alert.alert("すべての予定を削除しますか?", "過去の回も含めて、Google カレンダーからも消えます。", [
+              { text: "キャンセル", style: "cancel" },
+              { text: "すべて削除", style: "destructive", onPress: () => withNotify(s, (n) => onDeleteSeries(s, n)) },
+            ]),
+        },
+      ]);
+      return;
+    }
+    confirmOne(s);
+  };
+
+  /** この予定のみ(単発・繰り返しの1回分)を消す。 */
+  const confirmOne = (s: EventSubject) => {
+    if (asksGuestNotify(s)) {
+      withNotify(s, (n) => onDelete(s, n));
     } else {
       Alert.alert("予定を削除しますか?", s.title, [
         { text: "キャンセル", style: "cancel" },
-        { text: "削除", style: "destructive", onPress: () => void run(s, undefined) },
+        { text: "削除", style: "destructive", onPress: () => void run(() => onDelete(s, undefined)) },
       ]);
     }
   };
@@ -282,6 +333,16 @@ export function EventDetailSheet({
               <Text style={{ fontSize: 15, color: t.accent }}>閉じる</Text>
             </Pressable>
           </View>
+          {rangeFor ? (
+            <RangeDeletePanel
+              title={rangeFor.title}
+              firstMs={rangeFor.startMs}
+              timeZone={timeZone}
+              count={(until) => countRange(rangeFor, until)}
+              onBack={() => setRangeFor(null)}
+              onConfirm={(until) => withNotify(rangeFor, (n) => onDeleteRange(rangeFor, until, n))}
+            />
+          ) : (
           <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ width: 5, borderRadius: 3, backgroundColor: view.color }} />
@@ -507,6 +568,7 @@ export function EventDetailSheet({
               </View>
             ) : null}
           </ScrollView>
+          )}
         </View>
       )}
     </Modal>

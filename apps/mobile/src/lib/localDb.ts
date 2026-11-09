@@ -334,6 +334,11 @@ export async function removeOverride(id: string): Promise<void> {
   await db.runAsync("DELETE FROM overrides WHERE id = ?", id);
 }
 
+export async function removeSeries(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM series WHERE id = ?", id);
+}
+
 export async function upsertSeries(series: EventSeries): Promise<void> {
   const db = await getDb();
   await db.runAsync(
