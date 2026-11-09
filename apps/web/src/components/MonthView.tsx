@@ -20,6 +20,7 @@ import { canEditGuests, type GuestChange, type GuestScope } from "../sync/eventG
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
+import { isRecurringGoogleOccurrence } from "../sync/recurrenceDelete";
 import { shouldHideDeclined, type DeclinedVisibilitySettings } from "../sync/declinedVisibility";
 import {
   groupDuplicateAllDayOccurrences,
@@ -398,7 +399,10 @@ export function MonthView({
               }
               // 削除でゲストへの通知を訊くか (2026-07-31)。判定は WeekGrid (EventBlock.tsx) と
               // 同じ sync/guestNotify.ts の純関数 ―― 週と月で挙動を変えない
-              deleteAsksGuestNotify={shouldAskGuestNotify(detailSubject as Occurrence)}
+              deleteOpensDialog={
+                shouldAskGuestNotify(detailSubject as Occurrence) ||
+                isRecurringGoogleOccurrence(detailSubject as Occurrence)
+              }
               timeZone={timeZone}
               editDraft={
                 isEditableEventSubject(detailSubject)
@@ -441,7 +445,7 @@ export function MonthView({
                   ? () => onDelete(detailSubject as AllDayOccurrence)
                   : undefined
               }
-              deleteAsksGuestNotify={shouldAskGuestNotify(detailSubject as AllDayOccurrence)}
+              deleteOpensDialog={shouldAskGuestNotify(detailSubject as AllDayOccurrence)}
               timeZone={timeZone}
               editDraft={
                 isEditableEventSubject(detailSubject)

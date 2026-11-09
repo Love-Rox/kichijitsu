@@ -12,6 +12,7 @@ import { MasuIndicator } from "./components/MasuIndicator";
 import { AppToolbar } from "./components/AppToolbar";
 import { AppOverlays } from "./components/AppOverlays";
 import { MonthView } from "./components/MonthView";
+import { DeleteScopeDialog } from "./components/DeleteScopeDialog";
 import { MoveConfirmDialog } from "./components/MoveConfirmDialog";
 import { CalendarPane } from "./components/CalendarPane";
 import { GitHubPane } from "./components/GitHubPane";
@@ -682,6 +683,7 @@ function App() {
     deleteOccurrence: handleDeleteOccurrence,
     deleteConfirm,
     confirmDelete: handleConfirmDelete,
+    countRange: handleCountRange,
     cancelDelete: handleCancelDelete,
     moveConfirm,
     requestMoveConfirm: handleRequestMoveConfirm,
@@ -1121,7 +1123,17 @@ function App() {
              * ゲストのいない予定・主催者でない予定では常に null なので、削除は
              * ポップオーバー内のインライン2段階確認だけで完了する (2026-07-31 以前と同じ)。
              */}
-            {deleteConfirm && (
+            {deleteConfirm && deleteConfirm.recurring && "startMs" in deleteConfirm.occurrence && (
+              <DeleteScopeDialog
+                occurrence={deleteConfirm.occurrence}
+                timeZone={timeZone}
+                askNotify={deleteConfirm.askNotify}
+                countRange={handleCountRange}
+                onConfirm={handleConfirmDelete}
+                onCancel={handleCancelDelete}
+              />
+            )}
+            {deleteConfirm && !deleteConfirm.recurring && (
               <MoveConfirmDialog
                 title={deleteConfirm.occurrence.title}
                 timeZone={timeZone}

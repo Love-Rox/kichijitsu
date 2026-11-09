@@ -75,7 +75,7 @@ const PURPOSE_TEXT: Record<
  * (shared の EventSendUpdates 参照)。**「送信しない」は none ではなく externalOnly** で、
  * Google カレンダー以外のゲストには送られる ―― 下の注記で必ずそう書く。
  */
-const NOTIFY_OPTIONS: readonly { value: GuestNotify; label: string }[] = [
+export const NOTIFY_OPTIONS: readonly { value: GuestNotify; label: string }[] = [
   { value: "all", label: "送信する" },
   { value: "externalOnly", label: "送信しない" },
 ];

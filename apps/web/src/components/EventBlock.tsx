@@ -31,6 +31,7 @@ import { canEditGuests, type GuestChange, type GuestScope } from "../sync/eventG
 import { canSetEventColor, type SetEventColor } from "../sync/eventColor";
 import { canAddMeet, type AddEventMeet } from "../sync/eventMeet";
 import { shouldAskGuestNotify } from "../sync/guestNotify";
+import { isRecurringGoogleOccurrence } from "../sync/recurrenceDelete";
 import { canDuplicateOccurrence } from "../sync/eventCreate";
 import {
   isSnapDisabledDuringDrag,
@@ -844,7 +845,7 @@ export function EventBlock({
             onDelete={occurrence.source === "google" ? () => onDelete(occurrence) : undefined}
             // 削除でゲストへの通知を訊くか (2026-07-31)。移動の確認に選択を足すかどうかと
             // 全く同じ判定 (sync/guestNotify.ts) ―― 削除用の条件は作らない
-            deleteAsksGuestNotify={shouldAskGuestNotify(occurrence)}
+            deleteOpensDialog={shouldAskGuestNotify(occurrence) || isRecurringGoogleOccurrence(occurrence)}
             timeZone={timeZone}
             editDraft={
               isEditableEventSubject(occurrence) ? draftFromOccurrence(occurrence) : undefined

@@ -15,7 +15,8 @@ import { useAttendeeMutations } from "./mutations/useAttendeeMutations";
 import { useEventColor } from "./mutations/useEventColor";
 import { useEventMeet } from "./mutations/useEventMeet";
 import { useCreateEvent } from "./mutations/useCreateEvent";
-import { useDeleteOccurrence } from "./mutations/useDeleteOccurrence";
+import { useDeleteOccurrence, type DeleteConfirm } from "./mutations/useDeleteOccurrence";
+import type { DeleteScope } from "../sync/recurrenceDelete";
 import { useOccurrencePersist } from "./mutations/useOccurrencePersist";
 import { useSaveEdit } from "./mutations/useSaveEdit";
 import { useSaveErrorFlash } from "./mutations/useSaveErrorFlash";
@@ -104,9 +105,11 @@ export interface EventMutationsController {
    * purpose='delete' で出す。**ゲストのいない予定・自分が主催でない予定では常に null**
    * のままで、削除は従来どおりポップオーバー内のインライン2段階確認だけで完了する。
    */
-  deleteConfirm: { occurrence: Occurrence | AllDayOccurrence } | null;
+  deleteConfirm: DeleteConfirm | null;
   /** ダイアログ「削除する」。選ばれたゲストへの通知つきで実際の削除に進む */
-  confirmDelete: (scope: RecurrenceScope, notify: GuestNotify) => void;
+  confirmDelete: (scope: DeleteScope, notify: GuestNotify, until?: string) => void;
+  /** 「この回から指定の日まで」で消える回数(削除ダイアログの表示用) */
+  countRange: (occurrence: Occurrence, until: string) => Promise<number>;
   /** ダイアログ「キャンセル」。何も消さずに閉じるだけ (まだ1件も書き換えていない) */
   cancelDelete: () => void;
   /**
@@ -215,7 +218,8 @@ export function useEventMutations({
     flashSaveError,
   });
 
-  const { deleteOccurrence, deleteConfirm, confirmDelete, cancelDelete } = useDeleteOccurrence({
+  const { deleteOccurrence, deleteConfirm, confirmDelete, countRange, cancelDelete } =
+    useDeleteOccurrence({
     db,
     store,
     allDayStore,
@@ -247,6 +251,7 @@ export function useEventMutations({
     deleteOccurrence,
     deleteConfirm,
     confirmDelete,
+    countRange,
     cancelDelete,
     moveConfirm,
     requestMoveConfirm,

@@ -9,12 +9,20 @@
  */
 import { useCallback, useState } from "react";
 import type { IDBPDatabase } from "idb";
+import { Temporal } from "@js-temporal/polyfill";
 import {
   deleteAllDayOccurrencesByIds,
   deleteOccurrencesByIds,
+  deleteOverridesByIds,
+  deleteSeriesByIds,
+  getAllOccurrences,
+  getAllOverrides,
+  getAllSeries,
   putAllDayOccurrences,
   putOccurrence,
+  putOccurrences,
   putOverride,
+  putSeries,
   type KichijitsuDB,
 } from "../../db/database";
 import type { AllDayOccurrence, Occurrence } from "../../model/types";
@@ -23,9 +31,22 @@ import type { OccurrenceStore } from "../../store/occurrenceStore";
 import { buildEventDeleteRequest } from "../../sync/eventPatch";
 import { shouldAskGuestNotify, type GuestNotify } from "../../sync/guestNotify";
 import type { CheckedFetch } from "../../sync/httpJson";
-import type { RecurrenceScope } from "../../sync/recurrenceScope";
+import {
+  buildSeriesDeleteRequest,
+  instancesInRange,
+  isRecurringGoogleOccurrence,
+  MAX_RANGE_DELETE,
+  type DeleteScope,
+} from "../../sync/recurrenceDelete";
 import { logSkippedWriteBack, postWriteBack } from "../../sync/writeBack";
 import { runDetached, snapshotOverride } from "./optimisticWrites";
+
+/** 削除の確認ダイアログの状態。recurring = 削除の範囲を訊く、askNotify = ゲストへの通知を訊く。 */
+export interface DeleteConfirm {
+  occurrence: Occurrence | AllDayOccurrence;
+  recurring: boolean;
+  askNotify: boolean;
+}
 
 export function useDeleteOccurrence({
   db,
@@ -41,8 +62,10 @@ export function useDeleteOccurrence({
   flashSaveError: () => void;
 }): {
   deleteOccurrence: (occurrence: Occurrence | AllDayOccurrence) => void;
-  deleteConfirm: { occurrence: Occurrence | AllDayOccurrence } | null;
-  confirmDelete: (scope: RecurrenceScope, notify: GuestNotify) => void;
+  deleteConfirm: DeleteConfirm | null;
+  confirmDelete: (scope: DeleteScope, notify: GuestNotify, until?: string) => void;
+  /** 「この回から指定の日まで」で消える回数(ダイアログの見出し用)。繰り返しの回以外・展開できないときは 0 */
+  countRange: (occurrence: Occurrence, until: string) => Promise<number>;
   cancelDelete: () => void;
 } {
   /**
@@ -51,8 +74,40 @@ export function useDeleteOccurrence({
    * 削除はポップオーバー内のインライン2段階確認だけで完了する (従来と同じ)。
    * moveConfirm と違い**まだ何も書き換えていない**ので、キャンセルは state を落とすだけ。
    */
-  const [deleteConfirm, setDeleteConfirm] = useState<{ occurrence: Occurrence | AllDayOccurrence } | null>(
-    null,
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
+
+  /**
+   * 繰り返しの1回分(または単発の時刻予定)を、楽観的に消して Google へ書き戻す。失敗したら元に戻し、
+   * false を返す(エラー表示は呼び出し側 ―― 複数回をまとめて消すときに、失敗ごとに出さないため)。
+   */
+  const deleteInstance = useCallback(
+    async (occurrence: Occurrence, notify?: GuestNotify): Promise<boolean> => {
+      if (!db) return false;
+      const override = await snapshotOverride(db, occurrence);
+
+      // 楽観的削除: 応答を待たずに即座に見た目から消す
+      store.remove([occurrence.id]);
+      await deleteOccurrencesByIds(db, [occurrence.id]);
+      if (override.ref) {
+        await putOverride(db, { ...override.ref, patch: null });
+      }
+
+      const deleteReq = buildEventDeleteRequest(occurrence, notify);
+      let ok = false;
+      if (deleteReq) {
+        ({ ok } = await postWriteBack(checkedFetch, "/api/event/delete", deleteReq, occurrence.id));
+      } else {
+        logSkippedWriteBack("EventDeleteRequest", occurrence.id, "delete");
+      }
+      if (ok) return true;
+
+      // ロールバック: occurrence と override を復元
+      store.update(occurrence);
+      await putOccurrence(db, occurrence);
+      await override.restore();
+      return false;
+    },
+    [db, store, checkedFetch],
   );
 
   // 予定の楽観的削除(フェーズ5)。EventBlock の詳細ポップオーバーの削除ボタン(2段階確認)
@@ -100,38 +155,10 @@ export function useDeleteOccurrence({
           return;
         }
 
-        const override = await snapshotOverride(db, occurrence);
-
-        // 楽観的削除: 応答を待たずに即座に見た目から消す
-        store.remove([occurrence.id]);
-        await deleteOccurrencesByIds(db, [occurrence.id]);
-        if (override.ref) {
-          await putOverride(db, { ...override.ref, patch: null });
-        }
-
-        const deleteReq = buildEventDeleteRequest(occurrence, notify);
-        let ok = false;
-        if (deleteReq) {
-          ({ ok } = await postWriteBack(
-            checkedFetch,
-            "/api/event/delete",
-            deleteReq,
-            occurrence.id,
-          ));
-        } else {
-          logSkippedWriteBack("EventDeleteRequest", occurrence.id, "delete");
-        }
-
-        if (ok) return;
-
-        // ロールバック: occurrence と override を復元
-        store.update(occurrence);
-        await putOccurrence(db, occurrence);
-        await override.restore();
-        flashSaveError();
+        if (!(await deleteInstance(occurrence, notify))) flashSaveError();
       });
     },
-    [db, store, allDayStore, checkedFetch, flashSaveError],
+    [db, allDayStore, checkedFetch, flashSaveError, deleteInstance],
   );
 
   // ---- ゲストのいる予定の削除確認 (2026-07-31) ----
@@ -141,8 +168,11 @@ export function useDeleteOccurrence({
   // **判定は移動・編集と同じ shouldAskGuestNotify** ―― 削除用の条件は作らない。
   const deleteOccurrence = useCallback(
     (occurrence: Occurrence | AllDayOccurrence) => {
-      if (shouldAskGuestNotify(occurrence)) {
-        setDeleteConfirm({ occurrence });
+      const recurring = isRecurringGoogleOccurrence(occurrence);
+      const askNotify = shouldAskGuestNotify(occurrence);
+      // 繰り返しの回は、削除の範囲(この回のみ/指定の日まで/すべて)を訊くので、必ずダイアログを開く
+      if (recurring || askNotify) {
+        setDeleteConfirm({ occurrence, recurring, askNotify });
         return;
       }
       runDelete(occurrence);
@@ -150,19 +180,103 @@ export function useDeleteOccurrence({
     [runDelete],
   );
 
-  // 適用範囲 (scope) は受け取るが使わない: 削除はダイアログに適用範囲を出さない
-  // (scopes を渡していない) ので必ず既定のまま届く。繰り返し予定の削除は従来どおり
-  // その1回分だけに効く ―― 2026-07-31 で変えていない。
+  /** シリーズ全体の削除(親を消す)。手元のシリーズ・例外・展開済みの回を消し、失敗したら戻す。 */
+  const runDeleteAll = useCallback(
+    (occurrence: Occurrence, notify?: GuestNotify) => {
+      if (!db || !occurrence.seriesId) return;
+      const seriesId = occurrence.seriesId;
+      runDetached("kichijitsu: failed to delete series", async () => {
+        if (!db) return;
+        const [allSeries, allOverrides, allOccurrences] = await Promise.all([
+          getAllSeries(db),
+          getAllOverrides(db),
+          getAllOccurrences(db),
+        ]);
+        const series = allSeries.find((s) => s.id === seriesId);
+        const overrides = allOverrides.filter((o) => o.seriesId === seriesId);
+        const occurrences = allOccurrences.filter((o) => o.seriesId === seriesId);
+
+        // 楽観的削除
+        store.remove(occurrences.map((o) => o.id));
+        await deleteOccurrencesByIds(db, occurrences.map((o) => o.id));
+        await deleteOverridesByIds(db, overrides.map((o) => o.id));
+        await deleteSeriesByIds(db, [seriesId]);
+
+        const req = buildSeriesDeleteRequest(occurrence, notify);
+        let ok = false;
+        if (req) {
+          ({ ok } = await postWriteBack(checkedFetch, "/api/event/delete", req, seriesId));
+        } else {
+          logSkippedWriteBack("EventDeleteRequest", seriesId, "delete");
+        }
+        if (ok) return;
+
+        // ロールバック: シリーズ・例外・展開済みの回を戻す
+        if (series) await putSeries(db, series);
+        for (const o of overrides) await putOverride(db, o);
+        await putOccurrences(db, occurrences);
+        store.load(occurrences);
+        flashSaveError();
+      });
+    },
+    [db, store, checkedFetch, flashSaveError],
+  );
+
+  /** 「この回から指定の日まで」の対象の回(開始順、上限 MAX_RANGE_DELETE)。シリーズが無ければ空。 */
+  const rangeTargets = useCallback(
+    async (occurrence: Occurrence, until: string): Promise<Occurrence[]> => {
+      if (!db || !occurrence.seriesId) return [];
+      const [allSeries, allOverrides] = await Promise.all([getAllSeries(db), getAllOverrides(db)]);
+      const series = allSeries.find((s) => s.id === occurrence.seriesId);
+      if (!series) return [];
+      return instancesInRange(
+        series,
+        allOverrides,
+        occurrence,
+        Temporal.PlainDate.from(until),
+        Temporal.Now.timeZoneId(),
+      ).slice(0, MAX_RANGE_DELETE);
+    },
+    [db],
+  );
+
+  const countRange = useCallback(
+    async (occurrence: Occurrence, until: string) => (await rangeTargets(occurrence, until)).length,
+    [rangeTargets],
+  );
+
+  /** 連続した回をまとめて消す。1 回ずつ消して書き戻し、失敗した回だけ元に戻す(エラー表示は 1 回)。 */
+  const runDeleteRange = useCallback(
+    (occurrence: Occurrence, until: string, notify?: GuestNotify) => {
+      runDetached("kichijitsu: failed to delete occurrence range", async () => {
+        const targets = await rangeTargets(occurrence, until);
+        let failed = false;
+        for (const target of targets) {
+          if (!(await deleteInstance(target, notify))) failed = true;
+        }
+        if (failed) flashSaveError();
+      });
+    },
+    [rangeTargets, deleteInstance, flashSaveError],
+  );
+
   const confirmDelete = useCallback(
-    (_scope: RecurrenceScope, notify: GuestNotify) => {
+    (scope: DeleteScope, notify: GuestNotify, until?: string) => {
       if (!deleteConfirm) return;
-      runDelete(deleteConfirm.occurrence, notify);
+      const { occurrence } = deleteConfirm;
+      if (isRecurringGoogleOccurrence(occurrence)) {
+        if (scope === "all") runDeleteAll(occurrence, notify);
+        else if (scope === "range" && until) runDeleteRange(occurrence, until, notify);
+        else runDelete(occurrence, notify);
+      } else {
+        runDelete(occurrence, notify);
+      }
       setDeleteConfirm(null);
     },
-    [deleteConfirm, runDelete],
+    [deleteConfirm, runDelete, runDeleteAll, runDeleteRange],
   );
 
   const cancelDelete = useCallback(() => setDeleteConfirm(null), []);
 
-  return { deleteOccurrence, deleteConfirm, confirmDelete, cancelDelete };
+  return { deleteOccurrence, deleteConfirm, confirmDelete, countRange, cancelDelete };
 }

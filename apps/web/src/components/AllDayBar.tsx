@@ -225,7 +225,7 @@ export function AllDayBar({
                 ? () => onDelete(occurrence)
                 : undefined
             }
-            deleteAsksGuestNotify={shouldAskGuestNotify(occurrence)}
+            deleteOpensDialog={shouldAskGuestNotify(occurrence)}
             timeZone={timeZone}
             editDraft={
               // 不在 (2026-07-28): 詳細カードは表示のみにする ―― タイムライン側の不在
