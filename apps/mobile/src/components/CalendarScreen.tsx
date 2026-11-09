@@ -1,10 +1,12 @@
 import { useTheme } from "../theme";
 import { Temporal } from "@js-temporal/polyfill";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import * as Notifications from "expo-notifications";
 import { ActivityIndicator, Alert, Animated, PanResponder, Pressable, View } from "react-native";
 import { Text } from "./ui";
 import { Icon } from "./Icon";
 import type { CalendarData } from "../lib/calendarData";
+import { findReminderTarget } from "../lib/notifications";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import {
   buildCreateDraft,
@@ -100,6 +102,21 @@ export function CalendarScreen({
       ),
     [data.accounts],
   );
+
+  // 通知を押したら、その予定の詳細を開く。アプリが閉じていた(コールド起動)ときも、前面だったときも、
+  // 最後に押された通知がここへ届く。このコンポーネントは、予定を読み込んだ後にだけ描画されるので、
+  // 起動直後でも予定を探せる。同じ通知を二重に開かないよう、処理した通知の id を覚える。
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handledResponse = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastResponse) return;
+    const key = lastResponse.notification.request.identifier;
+    if (handledResponse.current === key) return;
+    handledResponse.current = key;
+    if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    const target = findReminderTarget(data, lastResponse.notification.request.content.data);
+    if (target) setDetail(target);
+  }, [lastResponse, data]);
 
   /** 作成/編集フォームの状態 (null = 閉じている)。 */
   const [form, setForm] = useState<

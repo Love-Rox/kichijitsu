@@ -6,6 +6,7 @@ import {
   type CalendarDefaultReminders,
   type ReminderMode,
 } from "@kichijitsu/web/sync/reminderSchedule";
+import type { Occurrence } from "@kichijitsu/web/model/types";
 import { occurrencesInRange, type CalendarData } from "./calendarData";
 import { getMeta, setMeta } from "./localDb";
 import { formatTime } from "./format";
@@ -90,6 +91,21 @@ export function cancelAllReminders(): Promise<void> {
   return exclusive(() => Notifications.cancelAllScheduledNotificationsAsync());
 }
 
+/** 通知に持たせる、開く予定の目印(通知を押したときに、詳細を開くため)。 */
+interface ReminderPayload {
+  id: string;
+  startMs: number;
+}
+
+/** 通知の data から、押されたときに開く予定を探す。予定が消えた・移った・data が違うときは null。 */
+export function findReminderTarget(data: CalendarData, payload: unknown): Occurrence | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const { id, startMs } = payload as Partial<ReminderPayload>;
+  if (typeof id !== "string" || typeof startMs !== "number") return null;
+  // 開始の瞬間に掛かっている予定だけを展開して、id が一致するものを探す(全期間は展開しない)
+  return occurrencesInRange(data, startMs, startMs + 1).find((o) => o.id === id && o.startMs === startMs) ?? null;
+}
+
 /** 通知の文言「N 分後」。60 分・1 日で割り切れるときは、時間・日で書く。 */
 function leadLabel(lead: number): string {
   if (lead >= 1440 && lead % 1440 === 0) return `${lead / 1440} 日後`;
@@ -147,7 +163,11 @@ export function rescheduleReminders(data: CalendarData, timeZone: string): Promi
       const where = o.location ? ` ・ ${o.location}` : "";
       const body = lead === 0 ? `${when} 開始${where}` : `${leadLabel(lead)}(${when})${where}`;
       await Notifications.scheduleNotificationAsync({
-        content: { title: o.title || "(タイトルなし)", body },
+        content: {
+          title: o.title || "(タイトルなし)",
+          body,
+          data: { id: o.id, startMs: o.startMs } satisfies ReminderPayload,
+        },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(fireMs) },
       });
       count++;
