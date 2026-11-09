@@ -34,6 +34,9 @@ import { buildSyncRequest } from "../sync/syncRequest";
 import { createSyncScheduler } from "../sync/syncScheduler";
 import { useServerEvents } from "./useServerEvents";
 
+/** 前面に戻ったときの追いかけ同期の最短の間隔。 */
+const RESYNC_MIN_INTERVAL_MS = 60_000;
+
 /**
  * Google カレンダー/タスクの同期をまとめたフック
  * (リファクタリング フェーズ2 ⑥、2026-07-25 に App.tsx から移設)。持っているのは:
@@ -557,6 +560,35 @@ export function useCalendarSync({
     onOpen: markOnline,
     onError: markOffline,
   });
+
+  // ウィンドウが前面に戻ったとき(タブが見えた・アプリが前面になった)に、選択中カレンダーを追いかけ同期する。
+  // SSE の通知(hello/changed)だけだと、スリープ明けや回線の切り替えで接続が静かに切れていたとき、
+  // 取りこぼした変更(Google で削除した繰り返し予定など)が、再読み込みするまで反映されない。
+  // トレイに常駐して何日も動くデスクトップ版で、実際に起きた(2026-11-09)。
+  // 前面に戻るたびに走ると重いので、前回の追いかけから RESYNC_MIN_INTERVAL_MS 以上あいたときだけにする。
+  // 起動時の自動同期(下)が済む前には走らせない(同じ同期が重なるため)。
+  const lastResyncRef = useRef(0);
+  const resyncOnReturnRef = useRef(handleServerHello);
+  useEffect(() => {
+    resyncOnReturnRef.current = handleServerHello;
+  }, [handleServerHello]);
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      if (!autoSyncedRef.current) return;
+      const now = Date.now();
+      if (now - lastResyncRef.current < RESYNC_MIN_INTERVAL_MS) return;
+      lastResyncRef.current = now;
+      void resyncOnReturnRef.current();
+    };
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("focus", onReturn);
+    return () => {
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("focus", onReturn);
+    };
+  }, [accounts.length]);
 
   // 接続済み & DB 準備完了 & 選択中カレンダーが読み込まれたら起動時に1回だけ自動同期する。
   // 完了後に続けて runSyncBackfillIfNeeded を1回だけ走らせる(2026-07-22) — 通常同期
