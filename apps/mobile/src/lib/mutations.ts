@@ -1,3 +1,4 @@
+import { Temporal } from "@js-temporal/polyfill";
 import { instanceId } from "@kichijitsu/web/model/series";
 import type { InstanceOverride } from "@kichijitsu/web/model/series";
 import type { AllDayOccurrence, Occurrence } from "@kichijitsu/web/model/types";
@@ -47,8 +48,14 @@ import type { RsvpResponseStatus } from "@kichijitsu/shared";
 import { ApiError, apiFetch } from "./api";
 import type { CalendarData } from "./calendarData";
 import {
+  buildSeriesDeleteRequest,
+  instancesInRange,
+  MAX_RANGE_DELETE,
+} from "@kichijitsu/web/sync/recurrenceDelete";
+import {
   removeAllDay,
   removeOverride,
+  removeSeries,
   removeSingle,
   upsertAllDay,
   upsertOverride,
@@ -133,6 +140,81 @@ export async function deleteEvent(
     if (!res?.ok) throw new Error("サーバーが削除を受け付けませんでした");
   } catch (e) {
     await rollback();
+    throw e;
+  }
+}
+
+/** 「この回から指定の日まで」で消える回(開始順、上限 MAX_RANGE_DELETE)。シリーズが手元に無ければ空。 */
+export function rangeTargets(
+  subject: Occurrence,
+  until: string,
+  data: CalendarData,
+  timeZone: string,
+): Occurrence[] {
+  const series = data.series.find((s) => s.id === subject.seriesId);
+  if (!series) return [];
+  return instancesInRange(series, data.overrides, subject, Temporal.PlainDate.from(until), timeZone).slice(0, MAX_RANGE_DELETE);
+}
+
+/**
+ * 「この回から指定の日まで」の削除。対象の回を 1 回ずつ deleteEvent で消す(失敗した回だけ元に戻る)。
+ * 1 回でも失敗したら、最後に例外を投げて知らせる(成功した回は消えたまま)。
+ */
+export async function deleteRange(
+  subject: Occurrence,
+  until: string,
+  notify: GuestNotify | undefined,
+  apply: ApplyChange,
+  data: CalendarData,
+  timeZone: string,
+): Promise<void> {
+  const targets = rangeTargets(subject, until, data, timeZone);
+  let failed = 0;
+  for (const target of targets) {
+    try {
+      await deleteEvent(target, notify, apply, data);
+    } catch {
+      failed++;
+    }
+  }
+  if (failed > 0) throw new Error(`${targets.length} 回のうち ${failed} 回を削除できませんでした`);
+}
+
+/** 「すべての予定」の削除。親の予定を消す。手元のシリーズと例外も消し、失敗したら戻す。 */
+export async function deleteSeries(
+  subject: Occurrence,
+  notify: GuestNotify | undefined,
+  apply: ApplyChange,
+  data: CalendarData,
+): Promise<void> {
+  const request = buildSeriesDeleteRequest(subject, notify);
+  if (!request || !subject.seriesId) throw new Error("この予定は削除できません");
+  const seriesId = subject.seriesId;
+  const series = data.series.find((s) => s.id === seriesId);
+  const overrides = data.overrides.filter((o) => o.seriesId === seriesId);
+
+  apply((d) => ({
+    ...d,
+    series: d.series.filter((s) => s.id !== seriesId),
+    overrides: d.overrides.filter((o) => o.seriesId !== seriesId),
+  }));
+  await removeSeries(seriesId);
+  for (const o of overrides) await removeOverride(o.id);
+
+  try {
+    const res = await apiFetch<{ ok: boolean }>("/api/event/delete", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    if (!res?.ok) throw new Error("サーバーが削除を受け付けませんでした");
+  } catch (e) {
+    apply((d) => ({
+      ...d,
+      series: series ? [...d.series, series] : d.series,
+      overrides: [...d.overrides, ...overrides],
+    }));
+    if (series) await upsertSeries(series);
+    for (const o of overrides) await upsertOverride(o);
     throw e;
   }
 }

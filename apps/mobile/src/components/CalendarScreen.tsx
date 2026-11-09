@@ -16,6 +16,9 @@ import { isSeriesInstance, type RecurrenceScope } from "@kichijitsu/web/sync/rec
 import {
   createEvent,
   deleteEvent,
+  deleteRange,
+  deleteSeries,
+  rangeTargets,
   isTimed,
   rsvp,
   editGuests,
@@ -418,6 +421,9 @@ export function CalendarScreen({
           setForm({ mode: "edit", subject });
         }}
         onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
+        onDeleteRange={(subject, until, notify) => deleteRange(subject, until, notify, onChange, data, timeZone)}
+        onDeleteSeries={(subject, notify) => deleteSeries(subject, notify, onChange, data)}
+        countRange={(subject, until) => rangeTargets(subject, until, data, timeZone).length}
         onRsvp={(subject, status) => rsvp(subject, status, onChange, data)}
         onEditGuests={(subject, change, scope) => editGuests(subject, change, onChange, data, scope)}
         onSetColor={(subject, colorId, scope) => setEventColor(subject, colorId, onChange, data, scope)}
