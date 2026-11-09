@@ -94,6 +94,7 @@ Apple Watch、検索、ゲスト、色、横スクロール、カラーテーマ
 - 設定(オン/オフ、タイミング)はこの端末だけ(meta: `notifyEnabled` / `notifyLeadMinutes`)。既定はオフ、オンにした時に許可を求める。
 - タイミングの既定は「予定の設定に従う」: Web/デスクトップ版と同じ `resolveLeadMinutes`(`@kichijitsu/web/sync/reminderSchedule`)で、予定ごとの Google の通知設定(複数あれば全部)、「既定を使う」予定はカレンダーの既定(`defaultReminderMinutes`)に従う。通知が 1 つも無い予定には出さない。固定(開始時刻 / 5〜30 分前)も選べる。
 - Google 側で通知設定が変わると、次の同期で予定・カレンダーのデータが差し替わり、予約が作り直されるので追随する(値はキャッシュしない)。
+- 通知を押すと、その予定の詳細を開く。通知の data に予定の id と開始時刻を持たせ、`CalendarScreen` が `useLastNotificationResponse` で受けて(コールド起動でも前面でも同じ経路)、手元の予定から探す(`findReminderTarget`)。予定が消えていたら何も開かない。この版より前に予約した通知には data が無いので、次の同期で予約が作り直されるまでは開かない。
 
 ## ホーム画面ウィジェット
 - `apps/mobile/targets/widget/`(Swift / WidgetKit)。`@bacons/apple-targets` の config plugin が、`prebuild --clean` のたびに ios/ へターゲットを生成する(ios/ は生成物でコミットしない)。
