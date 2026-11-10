@@ -168,13 +168,15 @@ struct WeatherNote: View {
 struct WeatherHeader: View {
     let entry: StandByEntry
     let snapshot: WeatherSnapshot
+    /// 縦に余裕がないとき(予定と天気の小サイズ)は、気温の文字を小さくする
+    var compact = false
     var body: some View {
         let now = snapshot.hours.first { $0.date >= entry.date.addingTimeInterval(-3600) } ?? snapshot.hours.first
         let today = snapshot.days.first { Calendar.current.isDate($0.date, inSameDayAs: entry.date) }
         HStack(spacing: 6) {
             if let now {
                 WeatherIcon(symbol: now.symbol, size: 22)
-                Text(degrees(now.temp)).font(.system(size: 26, weight: .semibold, design: .rounded))
+                Text(degrees(now.temp)).font(.system(size: compact ? 21 : 26, weight: .semibold, design: .rounded))
             }
             Spacer(minLength: 0)
             if let today {
@@ -193,6 +195,8 @@ struct HourlyStrip: View {
     let snapshot: WeatherSnapshot
     let step: Int
     let count: Int
+    /// 降水確率の行を省く(縦に余裕がないとき)
+    var compact = false
     var body: some View {
         let from = entry.date.addingTimeInterval(-1800)
         let upcoming = snapshot.hours.filter { $0.date >= from }
@@ -203,7 +207,7 @@ struct HourlyStrip: View {
                     Text("\(Calendar.current.component(.hour, from: h.date))時").font(.system(size: 10)).foregroundStyle(.secondary)
                     WeatherIcon(symbol: h.symbol, size: 15).frame(height: 18)
                     Text(degrees(h.temp)).font(.system(size: 12, weight: .semibold))
-                    Text(percent(h.precip) ?? " ").font(.system(size: 9)).foregroundStyle(.cyan)
+                    if !compact { Text(percent(h.precip) ?? " ").font(.system(size: 9)).foregroundStyle(.cyan) }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -235,6 +239,20 @@ struct DailyList: View {
     }
 }
 
+/// どこの天気かを、小さく出す。現在地に追従しているときは、位置のマークをつける。
+struct PlaceLabel: View {
+    let place: WeatherPlace?
+    var body: some View {
+        if let place {
+            HStack(spacing: 3) {
+                Image(systemName: place.followsCurrent == true ? "location.fill" : "mappin").font(.system(size: 8))
+                Text(place.name).lineLimit(1)
+            }
+            .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+    }
+}
+
 let weatherAttribution = Text("Apple Weather").font(.system(size: 8)).foregroundStyle(.tertiary)
 
 struct WeatherSmallView: View {
@@ -242,9 +260,7 @@ struct WeatherSmallView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if case .ready(let snap) = entry.weather {
-                if let name = entry.place?.name {
-                    Text(name).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                }
+                PlaceLabel(place: entry.place)
                 WeatherHeader(entry: entry, snapshot: snap)
                 HourlyStrip(entry: entry, snapshot: snap, step: 3, count: 4)
                 Spacer(minLength: 0)
@@ -263,9 +279,7 @@ struct WeeklyWeatherView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if case .ready(let snap) = entry.weather {
-                if let name = entry.place?.name {
-                    Text(name).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                }
+                PlaceLabel(place: entry.place)
                 DailyList(snapshot: snap, entry: entry, count: 5)
                 Spacer(minLength: 0)
                 weatherAttribution
@@ -287,6 +301,7 @@ struct StandByCombinedView: View {
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 if case .ready(let snap) = entry.weather {
+                    PlaceLabel(place: entry.place)
                     WeatherHeader(entry: entry, snapshot: snap)
                     HourlyStrip(entry: entry, snapshot: snap, step: 3, count: 4)
                     Spacer(minLength: 0)
@@ -326,19 +341,51 @@ struct StandByClockWidget: Widget {
     }
 }
 
-/// 日時だけ(予定なし): 日付・曜日と、秒までの時計
+/// 時計を「時」と「分:秒」の 2 段に積んだ版。1 行では、小サイズの幅に 8 文字を収めるため文字が小さくなるので、
+/// 日時だけのウィジェットでは、2 段にして文字を大きくする。仕組みは ClockText と同じ(.timer を加工しない)。
+struct ClockStackedText: View {
+    let date: Date
+    let hourSize: CGFloat
+    let minSecSize: CGFloat
+
+    var body: some View {
+        let cal = Calendar.current
+        let hourStart = cal.dateInterval(of: .hour, for: date)?.start ?? date
+        let early = cal.component(.minute, from: date) < 10
+        let hourFont = Font.system(size: hourSize, weight: .bold, design: .rounded).monospacedDigit()
+        let font = Font.system(size: minSecSize, weight: .bold, design: .rounded).monospacedDigit()
+        VStack(alignment: .leading, spacing: -minSecSize * 0.12) {
+            Text(String(format: "%02d", cal.component(.hour, from: date))).font(hourFont)
+            HStack(spacing: 0) {
+                if early { Text("0").font(font) }
+                Text(early ? "0:00" : "00:00").font(font).hidden()
+                    .overlay(alignment: .leading) {
+                        Text(hourStart, style: .timer).font(font).multilineTextAlignment(.leading)
+                    }
+            }
+        }
+        .lineLimit(1)
+    }
+}
+
+/// 日時だけ(予定なし): 日付・曜日と、秒までの時計を、枠いっぱいに大きく
 struct DateTimeBlock: View {
     @Environment(\.colorScheme) var scheme
     let entry: StandByEntry
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(formatDate(entry.date))
-                .font(.system(size: 16, weight: .bold)).foregroundStyle(appAccent(scheme))
-                .lineLimit(1).minimumScaleFactor(0.6)
-            ClockText(date: entry.date, size: 29)
-            Spacer(minLength: 0)
+        GeometryReader { geo in
+            // 「MM:SS」(数字 4 + コロン 1)が幅に収まる大きさ。「時」は高さに余りを使う
+            let minSec = min(geo.size.width / 3.3, geo.size.height * 0.38)
+            let hour = min(geo.size.height * 0.40, geo.size.width / 1.3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formatDate(entry.date))
+                    .font(.system(size: 17, weight: .bold)).foregroundStyle(appAccent(scheme))
+                    .lineLimit(2).minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                ClockStackedText(date: entry.date, hourSize: hour, minSecSize: minSec)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -357,18 +404,19 @@ struct StandByDateTimeWidget: Widget {
 struct AgendaWeatherView: View {
     let entry: StandByEntry
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             if let next = entry.events.first {
                 StandByEventRow(event: next, now: entry.date)
             } else {
                 Text("この後の予定はありません").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
-            Divider()
             if case .ready(let snap) = entry.weather {
-                WeatherHeader(entry: entry, snapshot: snap)
-                HourlyStrip(entry: entry, snapshot: snap, step: 3, count: 4)
+                PlaceLabel(place: entry.place)
+                WeatherHeader(entry: entry, snapshot: snap, compact: true)
+                HourlyStrip(entry: entry, snapshot: snap, step: 3, count: 4, compact: true)
                 Spacer(minLength: 0)
             } else {
+                Divider()
                 WeatherNote(state: entry.weather)
                 Spacer(minLength: 0)
             }
