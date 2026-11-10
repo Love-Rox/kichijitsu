@@ -16,6 +16,12 @@
           "enableRemoteNotifications": false
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ウィジェットの天気に使う場所を、いまいる場所に設定するために、位置情報を使います。"
+        }
+      ],
       "@react-native-community/datetimepicker",
       "@bacons/apple-targets"
     ],
