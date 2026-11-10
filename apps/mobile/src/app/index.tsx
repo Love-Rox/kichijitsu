@@ -27,6 +27,7 @@ import {
   saveWidgetFilters,
   type WidgetFilters,
 } from "../lib/widgetFilters";
+import { refreshFollowedPlace } from "../lib/weatherPlace";
 import { loadCalendarData, type CalendarData, type LoadProgress } from "../lib/calendarData";
 
 function loadingLabel(p?: LoadProgress): string {
@@ -73,6 +74,10 @@ export default function Home() {
     const sub = AppState.addEventListener("change", (s) => s === "active" && setForegroundTick((n) => n + 1));
     return () => sub.remove();
   }, []);
+  // 天気の場所が「現在地」なら、前面に戻るたびに、予備の座標を最新にする(ウィジェットが現在地を取れないときのため)
+  useEffect(() => {
+    void refreshFollowedPlace().catch(() => undefined);
+  }, [foregroundTick]);
   const readyData = state.kind === "ready" && !state.syncing ? state.data : null;
   useEffect(() => {
     if (!readyData) return;

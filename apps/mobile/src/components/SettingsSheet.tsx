@@ -10,6 +10,7 @@ import { Text } from "./ui";
 import { Icon } from "./Icon";
 import { ThemePanel } from "./ThemePanel";
 import { WeatherPlacePanel } from "./WeatherPlacePanel";
+import { DateFormatPanel } from "./DateFormatPanel";
 import { getWeatherPlace } from "../lib/weatherPlace";
 import { ACCENTS, APPEARANCES } from "../lib/accents";
 import { useThemePrefs } from "../lib/themePrefs";
@@ -53,7 +54,7 @@ export function SettingsSheet({
   const t = useTheme();
   const themePrefs = useThemePrefs();
   /** シートの中の画面: 設定の一覧 / カラーテーマ */
-  const [page, setPage] = useState<"main" | "theme" | "weather">("main");
+  const [page, setPage] = useState<"main" | "theme" | "weather" | "dateFormat">("main");
   const [weatherName, setWeatherName] = useState<string | null>(null);
   useEffect(() => {
     if (visible && page === "main") void getWeatherPlace().then((p) => setWeatherName(p?.name ?? null));
@@ -104,7 +105,7 @@ export function SettingsSheet({
           {page !== "main" ? (
             <Pressable onPress={() => setPage("main")} hitSlop={10} style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 2 }}>
               <Icon name="caretLeft" color={t.accent} size={20} />
-              <Text style={{ fontSize: 20, fontWeight: "700" }}>{page === "theme" ? "カラーテーマ" : "天気の場所"}</Text>
+              <Text style={{ fontSize: 20, fontWeight: "700" }}>{page === "theme" ? "カラーテーマ" : page === "weather" ? "天気の場所" : "日付の形式"}</Text>
             </Pressable>
           ) : (
             <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>設定</Text>
@@ -125,6 +126,8 @@ export function SettingsSheet({
             <ThemePanel />
           ) : page === "weather" ? (
             <WeatherPlacePanel />
+          ) : page === "dateFormat" ? (
+            <DateFormatPanel />
           ) : (
             <>
           <Pressable
@@ -144,6 +147,13 @@ export function SettingsSheet({
           >
             <Text style={{ flex: 1 }}>天気の場所(ウィジェット)</Text>
             <Text style={{ fontSize: 13, color: t.inkSub }}>{weatherName ?? "未設定"}</Text>
+            <Icon name="caretRight" color={t.inkSub} size={16} />
+          </Pressable>
+          <Pressable
+            onPress={() => setPage("dateFormat")}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, marginBottom: 14, gap: 8 }}
+          >
+            <Text style={{ flex: 1 }}>日付の形式(ウィジェット)</Text>
             <Icon name="caretRight" color={t.inkSub} size={16} />
           </Pressable>
           {(data?.accounts ?? []).map((a) => {

@@ -51,16 +51,18 @@ export function WeatherPlacePanel({ onChanged }: { onChanged?: (place: WeatherPl
   return (
     <View>
       <Text style={{ fontSize: 13, color: t.inkSub, marginBottom: 6 }}>いまの場所</Text>
-      <Text style={{ fontSize: 17, marginBottom: 4 }}>{place ? place.name : "未設定"}</Text>
+      <Text style={{ fontSize: 17, marginBottom: 4 }}>
+        {place ? (place.followsCurrent ? `現在地(${place.name})` : place.name) : "未設定"}
+      </Text>
       <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 18 }}>
         ウィジェットの天気に使います。未設定のあいだは、天気は出ません。
       </Text>
 
       <Pressable onPress={useHere} disabled={busy} style={{ paddingVertical: 10, opacity: busy ? 0.4 : 1 }}>
-        <Text style={{ color: t.accent, fontSize: 15 }}>現在地を使う</Text>
+        <Text style={{ color: t.accent, fontSize: 15 }}>現在地を常に使う</Text>
       </Pressable>
       <Text style={{ fontSize: 12, color: t.inkSub, marginBottom: 18 }}>
-        押したときの場所を 1 回だけ保存します。移動しても、自動では変わりません。
+        ウィジェットが、表示のたびに最新の現在地の天気を出します。位置情報の許可は「使用中のみ」で足ります(アプリの許可を、ウィジェットも使います)。現在地が取れないときは、最後に取れた場所を使います。
       </Text>
 
       <Text style={{ fontSize: 13, color: t.inkSub, marginBottom: 6 }}>地名で探す</Text>
