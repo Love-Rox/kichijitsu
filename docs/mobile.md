@@ -103,6 +103,14 @@ Apple Watch、検索、ゲスト、色、横スクロール、カラーテーマ
 - サイズは小(直近 2 件)・中(直近 4 件)。予定の開始・終了の時刻で表示が切り替わる。
 - 署名: ウィジェット用の App ID(`cc.love-rox.kichijitsu.widget`)と App Group の登録が要る。Apple ID でサインインした Xcode に任せる(`xcodebuild ... -allowProvisioningUpdates`、API キー無し)と自動で登録される。**権限の低い API キーでは作れない**。
 
+## StandBy 向けウィジェットと天気
+- `targets/widget/StandBy.swift`(時計・予定・天気)と `Weather.swift`(WeatherKit)。小サイズの 3 種(StandBy に置けるのはこの大きさ): 時計と予定 / 天気(時間帯別: 今の気温と 12 時間) / 週間天気(5 日)。ホーム画面・iPad 向けに、3 つをまとめた中サイズ「時計・予定・天気」もある。
+- 時計は秒まで進む。ウィジェットは秒ごとに描き直せないので、`Text(_, style: .timer)` を使う。「その時間の頭の 1 時間前」からの経過時間(常に H:MM:SS)の末尾 5 桁(MM:SS)だけを切り出し、「時」は 1 時間ごとのエントリで入れる(`ClockText`)。1 時間の境目で、時の桁が数秒遅れることがある。
+- 天気の場所: 設定 → 「天気の場所(ウィジェット)」(`WeatherPlacePanel`)。地名で探す(iOS のジオコーダー)か、「現在地を使う」(押した 1 回だけ座標を保存。バックグラウンドでは追わない)。App Group の `weatherPlace` に JSON で書き、未設定のあいだ天気は出ない。
+- 予報はウィジェット自身が WeatherKit で取り(25 分以内なら取り直さない)、App Group の `weatherCache` に残す。通信に失敗したら古い予報を出す。表記は「Apple Weather」と、設定画面に提供元の法的表記へのリンク。
+- 通常時は、アクセント色を淡く敷いた背景、アイコンはデュオトーン(落ち着いた色 + アクセント色)。ナイトモードは OS が赤みの単色にする。
+- 署名: ウィジェットの App ID(`cc.love-rox.kichijitsu.widget`)に **WeatherKit の権限**(entitlement `com.apple.developer.weatherkit`)が要る。API キーでは足せないので、Apple ID でサインインした Xcode(`-allowProvisioningUpdates`)で一度通す。位置情報の許可文言は app.json の `expo-location` plugin。
+
 ## 検索
 - ヘッダーの 🔍 から開く(`components/SearchSheet.tsx`、ロジックは `lib/search.ts`)。手元のデータだけで探す(通信なし)。
 - タイトル・場所・説明・ゲスト(名前とメール)に、空白区切りの全部の語を含む予定(AND)。全角/半角・大文字小文字は区別しない。

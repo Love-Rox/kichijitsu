@@ -7,20 +7,20 @@ import WidgetKit
 // ログアウトすると、アプリが "events" を消す(空のときは「予定はありません」)。
 // アプリのカラーテーマのアクセント色は、"theme" キーに { "light": "#rrggbb", "dark": "#rrggbb" } で入っている
 // (無ければ既定の朱)。ウィジェットの明暗は OS に従う(アプリ内の外観の上書きは、ここには届かない)。
-private let appGroup = "group.cc.love-rox.kichijitsu"
-private let defaultAccentLight = Color(red: 0xC1 / 255, green: 0x36 / 255, blue: 0x25 / 255)
-private let defaultAccentDark = Color(red: 0xEA / 255, green: 0x64 / 255, blue: 0x51 / 255)
+let appGroup = "group.cc.love-rox.kichijitsu"
+let defaultAccentLight = Color(red: 0xC1 / 255, green: 0x36 / 255, blue: 0x25 / 255)
+let defaultAccentDark = Color(red: 0xEA / 255, green: 0x64 / 255, blue: 0x51 / 255)
 
-private struct ThemePayload: Decodable { let light: String; let dark: String }
+struct ThemePayload: Decodable { let light: String; let dark: String }
 
-private func parseHex(_ hex: String?) -> Color? {
+func parseHex(_ hex: String?) -> Color? {
     guard let s = hex?.trimmingCharacters(in: CharacterSet(charactersIn: "#")), s.count == 6,
           let v = UInt32(s, radix: 16) else { return nil }
     return Color(red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
 }
 
 /// 今の明暗でのアクセント色(アプリで選んだ色。読めなければ既定の朱)。
-private func appAccent(_ scheme: ColorScheme) -> Color {
+func appAccent(_ scheme: ColorScheme) -> Color {
     let fallback = scheme == .dark ? defaultAccentDark : defaultAccentLight
     guard let raw = UserDefaults(suiteName: appGroup)?.string(forKey: "theme"),
           let data = raw.data(using: .utf8),
@@ -40,14 +40,14 @@ struct WidgetEvent: Decodable, Identifiable {
 
 private struct Payload: Decodable { let events: [WidgetEvent] }
 
-private func loadEvents() -> [WidgetEvent] {
+func loadEvents() -> [WidgetEvent] {
     guard let raw = UserDefaults(suiteName: appGroup)?.string(forKey: "events"),
           let data = raw.data(using: .utf8),
           let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return [] }
     return payload.events.sorted { $0.start < $1.start }
 }
 
-private func hexColor(_ hex: String?, fallback: Color) -> Color { parseHex(hex) ?? fallback }
+func hexColor(_ hex: String?, fallback: Color) -> Color { parseHex(hex) ?? fallback }
 
 struct Entry: TimelineEntry {
     let date: Date
@@ -76,7 +76,7 @@ struct Provider: TimelineProvider {
     private func upcoming(at t: Date) -> [WidgetEvent] { loadEvents().filter { $0.end > t } }
 }
 
-private let timeFormat: Date.FormatStyle = .dateTime.hour().minute()
+let timeFormat: Date.FormatStyle = .dateTime.hour().minute()
 
 struct EventRow: View {
     @Environment(\.colorScheme) var scheme
@@ -117,7 +117,6 @@ struct WidgetView: View {
     }
 }
 
-@main
 struct KichijitsuWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "KichijitsuWidget", provider: Provider()) { entry in

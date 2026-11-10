@@ -1,5 +1,5 @@
 import * as Application from "expo-application";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Switch, View } from "react-native";
 import { writeTargetKey } from "@kichijitsu/web/sync/eventCreate";
 import type { AccountCalendars, CalendarData } from "../lib/calendarData";
@@ -9,6 +9,8 @@ import { useTheme } from "../theme";
 import { Text } from "./ui";
 import { Icon } from "./Icon";
 import { ThemePanel } from "./ThemePanel";
+import { WeatherPlacePanel } from "./WeatherPlacePanel";
+import { getWeatherPlace } from "../lib/weatherPlace";
 import { ACCENTS, APPEARANCES } from "../lib/accents";
 import { useThemePrefs } from "../lib/themePrefs";
 
@@ -51,7 +53,11 @@ export function SettingsSheet({
   const t = useTheme();
   const themePrefs = useThemePrefs();
   /** シートの中の画面: 設定の一覧 / カラーテーマ */
-  const [page, setPage] = useState<"main" | "theme">("main");
+  const [page, setPage] = useState<"main" | "theme" | "weather">("main");
+  const [weatherName, setWeatherName] = useState<string | null>(null);
+  useEffect(() => {
+    if (visible && page === "main") void getWeatherPlace().then((p) => setWeatherName(p?.name ?? null));
+  }, [visible, page]);
   // 切り替えの途中(サーバーの応答前)の見た目。応答が来たら、再読み込みされたデータに任せる
   const [pending, setPending] = useState<Record<string, boolean>>({});
   // アカウントごとのカレンダー一覧の開閉。既定は閉じる(カレンダーが多いと、設定が長くなって見づらい)
@@ -95,10 +101,10 @@ export function SettingsSheet({
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, paddingTop: 20, backgroundColor: t.bg }}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, paddingHorizontal: 20 }}>
-          {page === "theme" ? (
+          {page !== "main" ? (
             <Pressable onPress={() => setPage("main")} hitSlop={10} style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 2 }}>
               <Icon name="caretLeft" color={t.accent} size={20} />
-              <Text style={{ fontSize: 20, fontWeight: "700" }}>カラーテーマ</Text>
+              <Text style={{ fontSize: 20, fontWeight: "700" }}>{page === "theme" ? "カラーテーマ" : "天気の場所"}</Text>
             </Pressable>
           ) : (
             <Text style={{ flex: 1, fontSize: 20, fontWeight: "700" }}>設定</Text>
@@ -117,6 +123,8 @@ export function SettingsSheet({
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
           {page === "theme" ? (
             <ThemePanel />
+          ) : page === "weather" ? (
+            <WeatherPlacePanel />
           ) : (
             <>
           <Pressable
@@ -128,6 +136,14 @@ export function SettingsSheet({
             <Text style={{ fontSize: 13, color: t.inkSub }}>
               {APPEARANCES.find((o) => o.key === themePrefs.appearance)?.label} ・ {ACCENTS[themePrefs.accent].label}
             </Text>
+            <Icon name="caretRight" color={t.inkSub} size={16} />
+          </Pressable>
+          <Pressable
+            onPress={() => setPage("weather")}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, marginBottom: 14, gap: 8 }}
+          >
+            <Text style={{ flex: 1 }}>天気の場所(ウィジェット)</Text>
+            <Text style={{ fontSize: 13, color: t.inkSub }}>{weatherName ?? "未設定"}</Text>
             <Icon name="caretRight" color={t.inkSub} size={16} />
           </Pressable>
           {(data?.accounts ?? []).map((a) => {
