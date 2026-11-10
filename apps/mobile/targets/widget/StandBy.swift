@@ -39,15 +39,20 @@ struct StandByProvider: TimelineProvider {
             let loaded = needsWeather ? await WeatherLoader.load() : (place: nil, state: WeatherState.noPlace)
             let all = loadEvents()
             let cal = Calendar.current
-            // 切り替えの時刻: 今、毎時(時計の「時」の桁)、日付の変わり目、予定の開始・終了、30 分ごと(天気の並び)
+            // 切り替えの時刻: 今、毎時 0 分と 10 分(時計の表示の切り替え。ClockText 参照)を 3 時間分、
+            // 日付の変わり目、予定の開始・終了
             var times = Set<Date>([now])
-            if let hour = cal.dateInterval(of: .hour, for: now)?.end {
-                for k in 0..<6 { times.insert(hour.addingTimeInterval(Double(k) * 3600)) }
+            if let hour = cal.dateInterval(of: .hour, for: now)?.start {
+                for k in 0..<4 {
+                    for m in stride(from: 0, to: 60, by: 10) {
+                        let t = hour.addingTimeInterval(Double(k) * 3600 + Double(m) * 60)
+                        if t > now { times.insert(t) }
+                    }
+                }
             }
             if let midnight = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now)) { times.insert(midnight) }
             for e in all where e.end > now { times.insert(max(e.start, now)); times.insert(e.end) }
-            for k in 1...4 { times.insert(now.addingTimeInterval(Double(k) * 1800)) }
-            let sorted = times.filter { $0 >= now }.sorted().prefix(24)
+            let sorted = times.filter { $0 >= now }.sorted().prefix(40)
             let entries = sorted.map { t in
                 StandByEntry(date: t, events: all.filter { $0.end > t }, place: loaded.place, weather: loaded.state)
             }
@@ -61,8 +66,9 @@ struct StandByProvider: TimelineProvider {
 // MARK: - 時計
 
 /// 時分秒の時計。ウィジェットは秒ごとに描き直せないので、自動で進む `.timer` 表示を使う。
-/// 「その時間の頭(1 時間前)」からの経過時間を出すと、常に「H:MM:SS」(H は 1 以上)の形になるので、
-/// 末尾 5 桁(MM:SS)だけを切り出す。「時」は 1 時間ごとのエントリで入れ替える。
+/// 「その時間の頭」からの経過時間は、1 時間未満なら「MM:SS」(分が 10 未満のときは「M:SS」)で出るので、
+/// 「時」と、10 未満のときの先頭の「0」は、静的な文字で足す。そのため、時計の表示は 10 分ごとの
+/// エントリで切り替える(切り抜きなどは使わない。ウィジェットの自動更新の文字は、加工すると消えることがある)。
 struct ClockText: View {
     let date: Date
     let size: CGFloat
@@ -70,17 +76,15 @@ struct ClockText: View {
     var body: some View {
         let cal = Calendar.current
         let hourStart = cal.dateInterval(of: .hour, for: date)?.start ?? date
+        let early = cal.component(.minute, from: date) < 10
         let font = Font.system(size: size, weight: .semibold, design: .rounded).monospacedDigit()
         HStack(spacing: 0) {
-            Text(String(format: "%02d:", cal.component(.hour, from: date))).font(font)
-            // 幅の基準(MM:SS)に、経過時間を右寄せで重ね、はみ出した左の「H:」を切る
-            Text("00:00").font(font).hidden()
-                .overlay(alignment: .trailing) {
-                    Text(hourStart.addingTimeInterval(-3600), style: .timer)
-                        .font(font)
-                        .fixedSize()
+            Text(String(format: "%02d:", cal.component(.hour, from: date)) + (early ? "0" : "")).font(font)
+            // 幅の基準(見えない)に、経過時間を左寄せで重ねる
+            Text(early ? "0:00" : "00:00").font(font).hidden()
+                .overlay(alignment: .leading) {
+                    Text(hourStart, style: .timer).font(font).multilineTextAlignment(.leading)
                 }
-                .clipped()
         }
         .lineLimit(1)
     }
@@ -95,7 +99,7 @@ struct ClockBlock: View {
     var body: some View {
         let shown = Array(entry.events.prefix(eventLimit))
         VStack(alignment: .leading, spacing: 4) {
-            Text(entry.date.formatted(.dateTime.month().day().weekday()))
+            Text(formatDate(entry.date))
                 .font(.system(size: 13, weight: .bold)).foregroundStyle(appAccent(scheme))
             ClockText(date: entry.date, size: clockSize)
             if shown.isEmpty {
@@ -152,8 +156,8 @@ struct WeatherNote: View {
         switch state {
         case .noPlace:
             Text("アプリの設定で\n天気の場所を選んでください").font(.system(size: 11)).foregroundStyle(.secondary)
-        case .unavailable:
-            Text("天気を取得できませんでした").font(.system(size: 11)).foregroundStyle(.secondary)
+        case .unavailable(let reason):
+            Text("天気を取得できませんでした\n(\(reason))").font(.system(size: 10)).foregroundStyle(.secondary)
         case .ready:
             EmptyView()
         }
@@ -322,6 +326,68 @@ struct StandByClockWidget: Widget {
     }
 }
 
+/// 日時だけ(予定なし): 日付・曜日と、秒までの時計
+struct DateTimeBlock: View {
+    @Environment(\.colorScheme) var scheme
+    let entry: StandByEntry
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(formatDate(entry.date))
+                .font(.system(size: 16, weight: .bold)).foregroundStyle(appAccent(scheme))
+                .lineLimit(1).minimumScaleFactor(0.6)
+            ClockText(date: entry.date, size: 29)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct StandByDateTimeWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "KichijitsuStandByDateTime", provider: StandByProvider(needsWeather: false)) { entry in
+            DateTimeBlock(entry: entry).containerBackground(for: .widget) { PaleBackground() }
+        }
+        .configurationDisplayName("日時")
+        .description("日付・曜日と、秒まで進む時計だけを表示します。")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
+/// 次の予定と天気をまとめた小サイズ(時計なし)
+struct AgendaWeatherView: View {
+    let entry: StandByEntry
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let next = entry.events.first {
+                StandByEventRow(event: next, now: entry.date)
+            } else {
+                Text("この後の予定はありません").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Divider()
+            if case .ready(let snap) = entry.weather {
+                WeatherHeader(entry: entry, snapshot: snap)
+                HourlyStrip(entry: entry, snapshot: snap, step: 3, count: 4)
+                Spacer(minLength: 0)
+            } else {
+                WeatherNote(state: entry.weather)
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct StandByAgendaWeatherWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "KichijitsuStandByAgendaWeather", provider: StandByProvider(needsWeather: true)) { entry in
+            AgendaWeatherView(entry: entry).containerBackground(for: .widget) { PaleBackground() }
+        }
+        .configurationDisplayName("予定と天気")
+        .description("次の予定と、今の天気・これからの天気を 1 枚にまとめて表示します。")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
 struct StandByWeatherWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "KichijitsuStandByWeather", provider: StandByProvider(needsWeather: true)) { entry in
@@ -359,7 +425,9 @@ struct StandByCombinedWidget: Widget {
 struct KichijitsuWidgetBundle: WidgetBundle {
     var body: some Widget {
         KichijitsuWidget()
+        StandByDateTimeWidget()
         StandByClockWidget()
+        StandByAgendaWeatherWidget()
         StandByWeatherWidget()
         StandByWeeklyWidget()
         StandByCombinedWidget()

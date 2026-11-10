@@ -28,6 +28,26 @@ func appAccent(_ scheme: ColorScheme) -> Color {
     return parseHex(scheme == .dark ? theme.dark : theme.light) ?? fallback
 }
 
+/// ウィジェットの日付の見せ方(アプリの設定。App Group の "dateFormat")。
+/// system: 端末の言語・地域に従う / md: 月日と曜日 / num: 2026/11/10(火) / numShort: 11/10(火)
+func formatDate(_ d: Date) -> String {
+    let mode = UserDefaults(suiteName: appGroup)?.string(forKey: "dateFormat") ?? "system"
+    let weekday = d.formatted(.dateTime.weekday(.abbreviated))
+    let wrapped = Locale.current.language.languageCode?.identifier == "ja" ? "(\(weekday))" : " \(weekday)"
+    func numeric(_ pattern: String) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = pattern
+        return f.string(from: d) + wrapped
+    }
+    switch mode {
+    case "md": return d.formatted(.dateTime.month().day().weekday())
+    case "num": return numeric("yyyy/MM/dd")
+    case "numShort": return numeric("M/d")
+    default: return d.formatted(.dateTime.year().month().day().weekday())
+    }
+}
+
 struct WidgetEvent: Decodable, Identifiable {
     let title: String
     let startMs: Double
@@ -103,7 +123,7 @@ struct WidgetView: View {
         let limit = family == .systemSmall ? 2 : 4
         let shown = Array(entry.events.prefix(limit))
         VStack(alignment: .leading, spacing: 6) {
-            Text(entry.date.formatted(.dateTime.month().day().weekday()))
+            Text(formatDate(entry.date))
                 .font(.system(size: 11, weight: .bold)).foregroundStyle(appAccent(scheme))
             if shown.isEmpty {
                 Text("予定はありません").font(.system(size: 13)).foregroundStyle(.secondary)
