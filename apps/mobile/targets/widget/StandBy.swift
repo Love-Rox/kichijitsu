@@ -326,19 +326,51 @@ struct StandByClockWidget: Widget {
     }
 }
 
-/// 日時だけ(予定なし): 日付・曜日と、秒までの時計
+/// 時計を「時」と「分:秒」の 2 段に積んだ版。1 行では、小サイズの幅に 8 文字を収めるため文字が小さくなるので、
+/// 日時だけのウィジェットでは、2 段にして文字を大きくする。仕組みは ClockText と同じ(.timer を加工しない)。
+struct ClockStackedText: View {
+    let date: Date
+    let hourSize: CGFloat
+    let minSecSize: CGFloat
+
+    var body: some View {
+        let cal = Calendar.current
+        let hourStart = cal.dateInterval(of: .hour, for: date)?.start ?? date
+        let early = cal.component(.minute, from: date) < 10
+        let hourFont = Font.system(size: hourSize, weight: .bold, design: .rounded).monospacedDigit()
+        let font = Font.system(size: minSecSize, weight: .bold, design: .rounded).monospacedDigit()
+        VStack(alignment: .leading, spacing: -minSecSize * 0.12) {
+            Text(String(format: "%02d", cal.component(.hour, from: date))).font(hourFont)
+            HStack(spacing: 0) {
+                if early { Text("0").font(font) }
+                Text(early ? "0:00" : "00:00").font(font).hidden()
+                    .overlay(alignment: .leading) {
+                        Text(hourStart, style: .timer).font(font).multilineTextAlignment(.leading)
+                    }
+            }
+        }
+        .lineLimit(1)
+    }
+}
+
+/// 日時だけ(予定なし): 日付・曜日と、秒までの時計を、枠いっぱいに大きく
 struct DateTimeBlock: View {
     @Environment(\.colorScheme) var scheme
     let entry: StandByEntry
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(formatDate(entry.date))
-                .font(.system(size: 16, weight: .bold)).foregroundStyle(appAccent(scheme))
-                .lineLimit(1).minimumScaleFactor(0.6)
-            ClockText(date: entry.date, size: 29)
-            Spacer(minLength: 0)
+        GeometryReader { geo in
+            // 「MM:SS」(数字 4 + コロン 1)が幅に収まる大きさ。「時」は高さに余りを使う
+            let minSec = min(geo.size.width / 3.3, geo.size.height * 0.38)
+            let hour = min(geo.size.height * 0.40, geo.size.width / 1.3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formatDate(entry.date))
+                    .font(.system(size: 17, weight: .bold)).foregroundStyle(appAccent(scheme))
+                    .lineLimit(2).minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                ClockStackedText(date: entry.date, hourSize: hour, minSecSize: minSec)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
