@@ -39,20 +39,15 @@ struct StandByProvider: TimelineProvider {
             let loaded = needsWeather ? await WeatherLoader.load() : (place: nil, state: WeatherState.noPlace)
             let all = loadEvents()
             let cal = Calendar.current
-            // 切り替えの時刻: 今、毎時 0 分と 10 分(時計の表示の切り替え。ClockText 参照)を 3 時間分、
+            // 切り替えの時刻: 今と、毎分(時計の「時:分」の表示の切り替え。ClockText 参照)を 2 時間分、
             // 日付の変わり目、予定の開始・終了
             var times = Set<Date>([now])
-            if let hour = cal.dateInterval(of: .hour, for: now)?.start {
-                for k in 0..<4 {
-                    for m in stride(from: 0, to: 60, by: 10) {
-                        let t = hour.addingTimeInterval(Double(k) * 3600 + Double(m) * 60)
-                        if t > now { times.insert(t) }
-                    }
-                }
+            if let minute = cal.dateInterval(of: .minute, for: now)?.start {
+                for k in 1...120 { times.insert(minute.addingTimeInterval(Double(k) * 60)) }
             }
             if let midnight = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now)) { times.insert(midnight) }
             for e in all where e.end > now { times.insert(max(e.start, now)); times.insert(e.end) }
-            let sorted = times.filter { $0 >= now }.sorted().prefix(40)
+            let sorted = times.filter { $0 >= now }.sorted().prefix(130)
             let entries = sorted.map { t in
                 StandByEntry(date: t, events: all.filter { $0.end > t }, place: loaded.place, weather: loaded.state)
             }
@@ -65,26 +60,42 @@ struct StandByProvider: TimelineProvider {
 
 // MARK: - 時計
 
-/// 時分秒の時計。ウィジェットは秒ごとに描き直せないので、自動で進む `.timer` 表示を使う。
-/// 「その時間の頭」からの経過時間は、1 時間未満なら「MM:SS」(分が 10 未満のときは「M:SS」)で出るので、
-/// 「時」と、10 未満のときの先頭の「0」は、静的な文字で足す。そのため、時計の表示は 10 分ごとの
-/// エントリで切り替える(切り抜きなどは使わない。ウィジェットの自動更新の文字は、加工すると消えることがある)。
+/// 秒だけの表示。ウィジェットは秒ごとに描き直せないので、自動で進む `.timer` を使う。
+/// 「その分の頭」からの経過時間は「0:SS」(1 分未満)で出るので、末尾の 2 桁だけを見せる:
+/// 幅が 2 桁分の枠に、タイマーを右寄せで置き、はみ出した左(「0:」)を切る。
+/// タイマーに fixedSize は使わない(使うと、ウィジェットで表示が消えた)。幅は明示した frame で与える。
+struct SecondsText: View {
+    let date: Date
+    let size: CGFloat
+    var weight: Font.Weight = .semibold
+
+    var body: some View {
+        let minuteStart = Calendar.current.dateInterval(of: .minute, for: date)?.start ?? date
+        let font = Font.system(size: size, weight: weight, design: .rounded).monospacedDigit()
+        Text("00").font(font).hidden()
+            .overlay(alignment: .trailing) {
+                Text(minuteStart, style: .timer)
+                    .font(font)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: size * 4, alignment: .trailing)
+            }
+            .clipped()
+    }
+}
+
+/// 時計: 「時:分」を 1 行(エントリごとの静的な文字。毎分切り替える)、秒は別(SecondsText)。
+/// 横に並べる版(時計と予定・まとめ)。
 struct ClockText: View {
     let date: Date
     let size: CGFloat
 
     var body: some View {
         let cal = Calendar.current
-        let hourStart = cal.dateInterval(of: .hour, for: date)?.start ?? date
-        let early = cal.component(.minute, from: date) < 10
         let font = Font.system(size: size, weight: .semibold, design: .rounded).monospacedDigit()
-        HStack(spacing: 0) {
-            Text(String(format: "%02d:", cal.component(.hour, from: date)) + (early ? "0" : "")).font(font)
-            // 幅の基準(見えない)に、経過時間を左寄せで重ねる
-            Text(early ? "0:00" : "00:00").font(font).hidden()
-                .overlay(alignment: .leading) {
-                    Text(hourStart, style: .timer).font(font).multilineTextAlignment(.leading)
-                }
+        HStack(alignment: .lastTextBaseline, spacing: 3) {
+            Text(String(format: "%02d:%02d", cal.component(.hour, from: date), cal.component(.minute, from: date)))
+                .font(font)
+            SecondsText(date: date, size: size * 0.6)
         }
         .lineLimit(1)
     }
@@ -123,8 +134,11 @@ struct StandByEventRow: View {
             RoundedRectangle(cornerRadius: 2).fill(hexColor(event.color, fallback: appAccent(scheme))).frame(width: 3)
             VStack(alignment: .leading, spacing: 0) {
                 Text(event.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Text(ongoing ? "〜\(event.end.formatted(timeFormat))" : "\(event.start.formatted(timeFormat))–\(event.end.formatted(timeFormat))")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(timeAndPlace(
+                    ongoing ? "〜\(event.end.formatted(timeFormat))" : "\(event.start.formatted(timeFormat))–\(event.end.formatted(timeFormat))",
+                    event.place
+                ))
+                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
@@ -341,30 +355,20 @@ struct StandByClockWidget: Widget {
     }
 }
 
-/// 時計を「時」と「分:秒」の 2 段に積んだ版。1 行では、小サイズの幅に 8 文字を収めるため文字が小さくなるので、
-/// 日時だけのウィジェットでは、2 段にして文字を大きくする。仕組みは ClockText と同じ(.timer を加工しない)。
+/// 日時ウィジェット用: 「時:分」を 1 行、秒をその下に別の段として、どちらも大きく出す。
 struct ClockStackedText: View {
     let date: Date
-    let hourSize: CGFloat
-    let minSecSize: CGFloat
+    let hmSize: CGFloat
+    let secSize: CGFloat
 
     var body: some View {
         let cal = Calendar.current
-        let hourStart = cal.dateInterval(of: .hour, for: date)?.start ?? date
-        let early = cal.component(.minute, from: date) < 10
-        let hourFont = Font.system(size: hourSize, weight: .bold, design: .rounded).monospacedDigit()
-        let font = Font.system(size: minSecSize, weight: .bold, design: .rounded).monospacedDigit()
-        VStack(alignment: .leading, spacing: -minSecSize * 0.12) {
-            Text(String(format: "%02d", cal.component(.hour, from: date))).font(hourFont)
-            HStack(spacing: 0) {
-                if early { Text("0").font(font) }
-                Text(early ? "0:00" : "00:00").font(font).hidden()
-                    .overlay(alignment: .leading) {
-                        Text(hourStart, style: .timer).font(font).multilineTextAlignment(.leading)
-                    }
-            }
+        VStack(alignment: .leading, spacing: -secSize * 0.1) {
+            Text(String(format: "%02d:%02d", cal.component(.hour, from: date), cal.component(.minute, from: date)))
+                .font(.system(size: hmSize, weight: .bold, design: .rounded).monospacedDigit())
+                .lineLimit(1)
+            SecondsText(date: date, size: secSize, weight: .bold)
         }
-        .lineLimit(1)
     }
 }
 
@@ -374,15 +378,15 @@ struct DateTimeBlock: View {
     let entry: StandByEntry
     var body: some View {
         GeometryReader { geo in
-            // 「MM:SS」(数字 4 + コロン 1)が幅に収まる大きさ。「時」は高さに余りを使う
-            let minSec = min(geo.size.width / 3.3, geo.size.height * 0.38)
-            let hour = min(geo.size.height * 0.40, geo.size.width / 1.3)
+            // 「HH:MM」(数字 4 + コロン 1)が幅に収まる大きさ。秒は残りの高さで
+            let hm = min(geo.size.width / 3.3, geo.size.height * 0.40)
+            let sec = min(geo.size.height * 0.36, geo.size.width / 1.5)
             VStack(alignment: .leading, spacing: 2) {
                 Text(formatDate(entry.date))
                     .font(.system(size: 17, weight: .bold)).foregroundStyle(appAccent(scheme))
                     .lineLimit(2).minimumScaleFactor(0.6)
                 Spacer(minLength: 0)
-                ClockStackedText(date: entry.date, hourSize: hour, minSecSize: minSec)
+                ClockStackedText(date: entry.date, hmSize: hm, secSize: sec)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
