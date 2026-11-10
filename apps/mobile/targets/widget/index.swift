@@ -28,12 +28,26 @@ func appAccent(_ scheme: ColorScheme) -> Color {
     return parseHex(scheme == .dark ? theme.dark : theme.light) ?? fallback
 }
 
+/// 端末の言語設定(設定アプリの「言語と地域」の第 1 言語)。拡張機能の Locale.current は、アプリが持つ言語
+/// (ローカライズ)に引きずられて、端末の設定と違う言語になることがあるので、設定そのものから作る。
+let systemLocale: Locale = {
+    let id = Locale.preferredLanguages.first ?? "ja-JP"
+    // 「ja」だけで地域が無いときは、端末の地域を足す(日付の並び・曜日の書き方が、地域で変わるため)
+    if Locale(identifier: id).region == nil, let region = Locale.current.region?.identifier {
+        return Locale(identifier: "\(id)-\(region)")
+    }
+    return Locale(identifier: id)
+}()
+
 /// ウィジェットの日付の見せ方(アプリの設定。App Group の "dateFormat")。
 /// system: 端末の言語・地域に従う / md: 月日と曜日 / num: 2026/11/10(火) / numShort: 11/10(火)
 func formatDate(_ d: Date) -> String {
     let mode = UserDefaults(suiteName: appGroup)?.string(forKey: "dateFormat") ?? "system"
-    let weekday = d.formatted(.dateTime.weekday(.abbreviated))
-    let wrapped = Locale.current.language.languageCode?.identifier == "ja" ? "(\(weekday))" : " \(weekday)"
+    let isJapanese = systemLocale.language.languageCode?.identifier == "ja"
+    var cal = Calendar(identifier: .gregorian)
+    cal.locale = systemLocale
+    let weekday = d.formatted(.dateTime.weekday(.abbreviated).locale(systemLocale))
+    let wrapped = isJapanese ? "(\(weekday))" : " \(weekday)"
     func numeric(_ pattern: String) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -41,10 +55,10 @@ func formatDate(_ d: Date) -> String {
         return f.string(from: d) + wrapped
     }
     switch mode {
-    case "md": return d.formatted(.dateTime.month().day().weekday())
+    case "md": return d.formatted(.dateTime.month().day().weekday().locale(systemLocale))
     case "num": return numeric("yyyy/MM/dd")
     case "numShort": return numeric("M/d")
-    default: return d.formatted(.dateTime.year().month().day().weekday())
+    default: return d.formatted(.dateTime.year().month().day().weekday().locale(systemLocale))
     }
 }
 
@@ -53,7 +67,15 @@ struct WidgetEvent: Decodable, Identifiable {
     let startMs: Double
     let endMs: Double
     let color: String?
+    /// 場所(アプリが送る。無い予定・古いデータでは nil)
+    let location: String?
     var id: String { "\(startMs)-\(title)" }
+    /// 一覧に出す場所(改行は空白に、空は nil)
+    var place: String? {
+        guard let loc = location?.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces),
+              !loc.isEmpty else { return nil }
+        return loc
+    }
     var start: Date { Date(timeIntervalSince1970: startMs / 1000) }
     var end: Date { Date(timeIntervalSince1970: endMs / 1000) }
 }
@@ -98,6 +120,11 @@ struct Provider: TimelineProvider {
 
 let timeFormat: Date.FormatStyle = .dateTime.hour().minute()
 
+/// 「10:00–11:00 ・ 会議室 A」。場所が無ければ時刻だけ。
+func timeAndPlace(_ time: String, _ place: String?) -> String {
+    place.map { "\(time) ・ \($0)" } ?? time
+}
+
 struct EventRow: View {
     @Environment(\.colorScheme) var scheme
     let event: WidgetEvent
@@ -107,8 +134,8 @@ struct EventRow: View {
             RoundedRectangle(cornerRadius: 2).fill(hexColor(event.color, fallback: appAccent(scheme))).frame(width: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(event.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text("\(event.start.formatted(timeFormat))–\(event.end.formatted(timeFormat))")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(timeAndPlace("\(event.start.formatted(timeFormat))–\(event.end.formatted(timeFormat))", event.place))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
