@@ -272,9 +272,11 @@ export function EventEditForm({
               type="datetime-local"
               className="event-edit-input"
               value={msToDatetimeLocalValue(draft.startMs, timeZone)}
-              onChange={(e) =>
-                setDraft({ ...draft, startMs: datetimeLocalValueToMs(e.target.value, timeZone) })
-              }
+              onChange={(e) => {
+                // WebKit(Mac アプリ)は、日時を打ち替えている途中に空の値で change を出す。無視する
+                if (!e.target.value) return;
+                setDraft({ ...draft, startMs: datetimeLocalValueToMs(e.target.value, timeZone) });
+              }}
             />
           </label>
           <label className="event-edit-field">
@@ -283,9 +285,11 @@ export function EventEditForm({
               type="datetime-local"
               className="event-edit-input"
               value={msToDatetimeLocalValue(draft.endMs, timeZone)}
-              onChange={(e) =>
-                setDraft({ ...draft, endMs: datetimeLocalValueToMs(e.target.value, timeZone) })
-              }
+              onChange={(e) => {
+                // WebKit(Mac アプリ)は、日時を打ち替えている途中に空の値で change を出す。無視する
+                if (!e.target.value) return;
+                setDraft({ ...draft, endMs: datetimeLocalValueToMs(e.target.value, timeZone) });
+              }}
             />
           </label>
         </div>

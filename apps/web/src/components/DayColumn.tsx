@@ -11,7 +11,12 @@ import {
   type EventCreateDraft,
   type WriteTargetCandidate,
 } from "../sync/eventCreate";
-import type { EventEditDraft } from "../sync/eventEdit";
+import {
+  datetimeLocalValueToMs,
+  msToDatetimeLocalValue,
+  msToDateValue,
+  type EventEditDraft,
+} from "../sync/eventEdit";
 import { EventKindFields, type EventKindValue } from "./EventKindFields";
 import type { GuestChange, GuestScope } from "../sync/eventGuests";
 import type { SetEventColor } from "../sync/eventColor";
@@ -92,6 +97,26 @@ function kindToDraftFields(k: EventKindValue): Partial<EventCreateDraft> {
     ? { eventType: "outOfOffice", autoDecline: k.autoDecline, declineMessage: k.declineMessage }
     : {};
 }
+
+/** クイック作成の「HH:mm」入力の値(timeZone のローカル時刻) */
+function timeInputValue(ms: number, timeZone: string): string {
+  return msToDatetimeLocalValue(ms, timeZone).slice(11, 16);
+}
+
+/**
+ * 「HH:mm」を、基準の日(baseMs の属する日)のその時刻にする。空・不正な値(入力の途中)は null。
+ * WebKit(Mac アプリ)は、時刻の欄を打ち替えている途中に空の値で change を出すので、それは無視する。
+ */
+function timeOnDayOf(baseMs: number, value: string, timeZone: string): number | null {
+  if (!/^\d{2}:\d{2}$/.test(value)) return null;
+  try {
+    return datetimeLocalValueToMs(`${msToDateValue(baseMs, timeZone)}T${value}`, timeZone);
+  } catch {
+    return null;
+  }
+}
+
+const DAY_MS = 24 * 60 * 60_000;
 
 /** 「11/6(木) 14:00–15:00」。日をまたぐときは終了側にも日付を付ける */
 function formatDraftRange(startMs: number, endMs: number, timeZone: string): string {
@@ -994,9 +1019,37 @@ export function DayColumn({
                   }
                 }}
               />
-              <p className="event-quick-create-time">
-                {formatDraftRange(draft.startMs, draft.endMs, timeZone)}
-              </p>
+              <div className="event-quick-create-time">
+                <span className="event-quick-create-date">
+                  {formatDraftRange(draft.startMs, draft.endMs, timeZone).replace(/\s\d{2}:\d{2}.*$/, "")}
+                </span>
+                <input
+                  type="time"
+                  className="event-edit-input event-quick-create-time-input"
+                  aria-label="開始時刻"
+                  value={timeInputValue(draft.startMs, timeZone)}
+                  onChange={(e) => {
+                    const next = timeOnDayOf(draft.startMs, e.target.value, timeZone);
+                    if (next === null) return;
+                    // 開始を動かしたら、予定の長さは保つ(終了も同じだけ動く)
+                    const delta = next - draft.startMs;
+                    setDraft({ ...draft, startMs: next, endMs: draft.endMs + delta });
+                  }}
+                />
+                <span>–</span>
+                <input
+                  type="time"
+                  className="event-edit-input event-quick-create-time-input"
+                  aria-label="終了時刻"
+                  value={timeInputValue(draft.endMs, timeZone)}
+                  onChange={(e) => {
+                    const next = timeOnDayOf(draft.startMs, e.target.value, timeZone);
+                    if (next === null) return;
+                    // 開始より前(または同じ)の時刻は、翌日の時刻として扱う
+                    setDraft({ ...draft, endMs: next > draft.startMs ? next : next + DAY_MS });
+                  }}
+                />
+              </div>
               <EventKindFields value={draftKind} onChange={handleDraftKindChange} />
               {writeTargetOptions.length > 1 && (
                 <label className="event-edit-field">
