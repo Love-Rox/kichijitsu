@@ -38,6 +38,7 @@ export function EventDetailSheet({
   timeZone,
   onClose,
   onEdit,
+  onDuplicate,
   onDelete,
   onDeleteRange,
   onDeleteSeries,
@@ -52,6 +53,8 @@ export function EventDetailSheet({
   onClose: () => void;
   /** 編集フォームを開く。 */
   onEdit: (subject: EventSubject) => void;
+  /** 複製。同じ内容を入れた作成フォームを開く(日時・カレンダーはフォームで変えられる)。 */
+  onDuplicate: (subject: EventSubject) => void;
   /** 削除の実行。失敗したら例外を投げる(シートの側でエラーを知らせる)。 */
   onDelete: (subject: EventSubject, notify: GuestNotify | undefined) => Promise<void>;
   /** 繰り返しの予定を、この回から指定の日(YYYY-MM-DD、その日を含む)まで消す。失敗したら例外。 */
@@ -562,6 +565,11 @@ export function EventDetailSheet({
                 <Pressable onPress={() => onEdit(view)}>
                   <Text style={{ color: t.accent, fontSize: 15 }}>編集</Text>
                 </Pressable>
+                {view.source === "google" ? (
+                  <Pressable onPress={() => onDuplicate(view)}>
+                    <Text style={{ color: t.accent, fontSize: 15 }}>複製</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable onPress={() => confirmDelete(view)}>
                   <Text style={{ color: t.accent, fontSize: 15 }}>削除</Text>
                 </Pressable>

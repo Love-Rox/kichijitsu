@@ -10,6 +10,7 @@ import { findReminderTarget } from "../lib/notifications";
 import { dayStartMs } from "@kichijitsu/web/layout/dayTime";
 import {
   buildCreateDraft,
+  writeTargetKey,
 } from "@kichijitsu/web/sync/eventCreate";
 import { draftFromAllDayOccurrence, draftFromOccurrence } from "@kichijitsu/web/sync/eventEdit";
 import { isSeriesInstance, type RecurrenceScope } from "@kichijitsu/web/sync/recurrenceScope";
@@ -123,7 +124,10 @@ export function CalendarScreen({
 
   /** 作成/編集フォームの状態 (null = 閉じている)。 */
   const [form, setForm] = useState<
-    { mode: "create"; startMs: number } | { mode: "edit"; subject: EventSubject } | null
+    // duplicateOf があれば、その予定の内容を入れた作成フォーム(複製)
+    | { mode: "create"; startMs: number; duplicateOf?: EventSubject }
+    | { mode: "edit"; subject: EventSubject }
+    | null
   >(null);
 
   /** 作成の初期の開始: 表示中の日が今日なら次の正時、それ以外ならその日の 9 時。 */
@@ -350,21 +354,35 @@ export function CalendarScreen({
 
       {form !== null && (
         <EventFormSheet
-          key={form.mode === "edit" ? form.subject.id : "create"}
+          key={
+            form.mode === "edit"
+              ? form.subject.id
+              : form.duplicateOf
+                ? `duplicate-${form.duplicateOf.id}`
+                : "create"
+          }
           visible
           mode={form.mode}
           initialDraft={
-            form.mode === "create"
+            form.mode === "create" && !form.duplicateOf
               ? buildCreateDraft(form.startMs, form.startMs + 3_600_000)
-              : isTimed(form.subject)
-                ? draftFromOccurrence(form.subject)
-                : draftFromAllDayOccurrence(form.subject, timeZone)
+              : (() => {
+                  const source = form.mode === "edit" ? form.subject : form.duplicateOf!;
+                  return isTimed(source)
+                    ? draftFromOccurrence(source)
+                    : draftFromAllDayOccurrence(source, timeZone);
+                })()
           }
           // 繰り返しの1回分は終日にできない(Web 版と同じ)
           canToggleAllDay={form.mode === "create" || !isSeriesInstance(form.subject)}
           timeZone={timeZone}
           targets={formTargets}
-          defaultTargetKey={defaultTargetKey}
+          // 複製は、元の予定と同じカレンダーに作る(書き込めない場合は、既定のカレンダー)
+          defaultTargetKey={
+            form.mode === "create" && form.duplicateOf
+              ? sameCalendarKey(form.duplicateOf, formTargets) ?? defaultTargetKey
+              : defaultTargetKey
+          }
           onClose={() => setForm(null)}
           onSubmit={(draft, target) => {
             if (form.mode === "create") {
@@ -420,6 +438,10 @@ export function CalendarScreen({
           setDetail(null);
           setForm({ mode: "edit", subject });
         }}
+        onDuplicate={(subject) => {
+          setDetail(null);
+          setForm({ mode: "create", startMs: Date.now(), duplicateOf: subject });
+        }}
         onDelete={(subject, notify) => deleteEvent(subject, notify, onChange, data)}
         onDeleteRange={(subject, until, notify) => deleteRange(subject, until, notify, onChange, data, timeZone)}
         onDeleteSeries={(subject, notify) => deleteSeries(subject, notify, onChange, data)}
@@ -431,4 +453,11 @@ export function CalendarScreen({
       />
     </View>
   );
+}
+
+/** 予定と同じカレンダーが作成先の候補にあれば、その writeTargetKey。無ければ null。 */
+function sameCalendarKey(subject: EventSubject, targets: readonly FormTarget[]): string | null {
+  if (!subject.accountId || !subject.calendarId) return null;
+  const key = `${subject.accountId}:${subject.calendarId}`;
+  return targets.some((c) => writeTargetKey(c) === key) ? key : null;
 }
