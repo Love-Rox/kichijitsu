@@ -843,6 +843,11 @@ export function EventBlock({
             calendarLookup={calendarLookup}
             onClose={() => setDetailPos(null)}
             onDelete={occurrence.source === "google" ? () => onDelete(occurrence) : undefined}
+            onDuplicate={
+              canDuplicateOccurrence(occurrence)
+                ? () => onDuplicate(occurrence, occurrence.startMs, occurrence.endMs)
+                : undefined
+            }
             // 削除でゲストへの通知を訊くか (2026-07-31)。移動の確認に選択を足すかどうかと
             // 全く同じ判定 (sync/guestNotify.ts) ―― 削除用の条件は作らない
             deleteOpensDialog={shouldAskGuestNotify(occurrence) || isRecurringGoogleOccurrence(occurrence)}

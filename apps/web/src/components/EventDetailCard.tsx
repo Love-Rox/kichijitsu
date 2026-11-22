@@ -101,6 +101,12 @@ export interface EventDetailCardProps {
    */
   onDelete?: () => void;
   /**
+   * 「複製」ボタン。指定されていれば出す(呼び出し側が canDuplicateOccurrence で判定済み)。
+   * 押すと、同じ内容・同じ時間帯の新しい予定を作ってポップオーバーを閉じる。
+   * 時間をずらしたいときは、できた予定をドラッグで動かす(Option+ドラッグの複製と同じ作成経路)。
+   */
+  onDuplicate?: () => void;
+  /**
    * 削除でゲストへの通知を訊くか (2026-07-31、sync/guestNotify.ts の shouldAskGuestNotify で
    * 呼び出し側が判定済み)。true のとき「削除」はインライン2段階確認を**出さず**、
    * その場で onDelete() を呼ぶ ―― 呼び出し側 (App.tsx) が確認ダイアログを開き、
@@ -173,6 +179,7 @@ export function EventDetailCard({
   calendarLookup,
   onClose,
   onDelete,
+  onDuplicate,
   deleteOpensDialog,
   editDraft,
   timeZone,
@@ -374,7 +381,7 @@ export function EventDetailCard({
          * 有無を使う)。onRsvp が無い(呼び出し側が渡さなかった)場合も出さない。
          */}
         {rsvpStatus !== undefined && onRsvp && <RsvpButtons current={rsvpStatus} onRsvp={onRsvp} />}
-        {(onDelete || canEdit) && (
+        {(onDelete || canEdit || onDuplicate) && (
           <div className="event-detail-actions">
             {canEdit && (
               <button
@@ -383,6 +390,18 @@ export function EventDetailCard({
                 onClick={() => setEditing(true)}
               >
                 編集
+              </button>
+            )}
+            {onDuplicate && (
+              <button
+                type="button"
+                className="event-detail-text-btn event-detail-duplicate-btn"
+                onClick={() => {
+                  onDuplicate();
+                  onClose();
+                }}
+              >
+                複製
               </button>
             )}
             {onDelete && (
